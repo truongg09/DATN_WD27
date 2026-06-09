@@ -1,0 +1,129 @@
+@media only screen and (max-width: 1199px) and (min-width: 992px)  {
+	.rt-room--slider-style1 .item-inner .rt-details-info {
+	  left: 15px;
+	  right: 15px;
+	  bottom: 10px;
+	}
+	.blog__item.if__is__small .blog__item__meta__title h5 {
+	  	font-size: 20px;
+	  	line-height: 30px;
+	}
+	.blog__item__meta__cat {
+	  	margin-bottom: 6px;
+	}
+	.rt-room--slider-style1 .item-inner {
+	    height: 400px;
+	}
+}
+
+@media only screen and (min-width: 992px) {
+	.nav-menu-link.menu-button{
+		display: none;
+	}
+	.sidebarmenu-area .nav-menu-link.menu-button{
+		display: flex;
+		gap: 8px;
+		align-items: center;
+	}
+}
+
+@media only screen and (max-width: 991px) {
+	nav.nav.navbar{
+		display: none;
+	}
+	.nav-menu-link.menu-button{
+		display: flex;
+		justify-content: flex-end;
+	}
+	.menu-area-addon-offcan nav.nav.navbar{
+		display: block;
+	}
+	.rt-row-header{
+		padding: 8px 0;
+	}
+	.eshb-search .eshb-search-form .eshb-form-group .form-control{
+		max-width: 110px;
+	}
+	.testimonial__item__content{
+		display: block;
+	}
+	.rtmega-menu-area .mobile-menu-area .rtmega-menu-mobile-sidebar {
+	  	padding: 46px 10px 50px 10px;
+	}
+	.padding-full-layout-right .contents-sticky {
+	  	padding-right: 15px;
+	}
+	.resturant__menu__list .nav-tabs{
+		flex-wrap: wrap;
+		justify-content: start;
+	}
+}
+
+
+@media only screen and (max-width: 767px) {
+	.react-heading-here .rt-title-here {
+	  	font-size: 40px;
+	  	line-height: 45px;
+	}
+	.blog__item.if__is__small{
+		display: block;
+	}
+	.blog__item.if__is__small .blog__item__thumb {
+	  margin-bottom: 30px;
+	}
+	.rt--testimonial--style3 .testimonial__item__content .slider__text {
+	  	padding-right: 0;
+	}
+	.rt--testimonial--style3 .testimonial__item__content .author__icon {
+	  	margin-bottom: 20px;
+	}
+	.rt-room--slider-style2 .item-inner {
+	  	padding-bottom: 20px;
+	}
+	.testimonial__item__content .slider__text {
+	  	font-size: 22px;
+	  	line-height: 34px;
+	}
+	.rt-room--slider-style1 .item-inner {
+	  	height: 400px;
+	}
+	.rt__en__befores.rt__en__befores_left::after {
+	    right: 0;
+	}
+	.rt-user-meta-info {
+	  gap: 10px;
+	  flex-wrap: wrap;
+	}
+	.testimonial__item__content .author__icon img {
+	    border-radius: 0;
+	    margin-bottom: 30px;
+	}
+	.single__menu__item__list {
+	  	display: block;
+	}
+	.single__menu__item__list .single__menu__item {
+	  	max-width: 100%;
+	  	flex: 0 0 100%;
+	}
+	.single__menu__item__list .single__menu__item:nth-child(2n) {
+	  	padding-left: 0;
+	}
+}
+
+
+@media only screen and (max-width: 480px) {
+	.blog .reactheme-blog .blog-item, .archive .reactheme-blog .blog-item {
+	  	padding: 15px;
+	}
+	.single__menu__item__list .single__menu__item .menu__thumb {
+		max-width: 22%;
+		flex: 0 0 22%;
+	}
+	.single__menu__item__list .single__menu__item .menu__meta {
+	  	flex: 0 0 78%;
+	  	max-width: 78%;
+	}
+	.resturant__menu__list {
+	  	margin-bottom: 36px;
+	}
+}
