@@ -1,8 +1,8 @@
-// Trang chu lay nguyen phan noi dung goc cua giao dien Moonlit
-import mainHtml from '../../moonlit/main.html?raw'
+import MoonlitHtml from '../../components/moonlit/MoonlitHtml'
+import { mainHtml } from '../../moonlit/generated/moonlitHtml'
 
 function Home() {
-  return <div dangerouslySetInnerHTML={{ __html: mainHtml }} />
+  return <MoonlitHtml className="elementor-page-9784" html={mainHtml} />
 }
 
 export default Home
