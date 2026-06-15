@@ -1,5 +1,6 @@
-import { Button, Card, Input, Typography } from "antd";
-import { useForm } from "react-hook-form";
+import { Button, Card, Input, Typography, message } from "antd";
+import { useForm, Controller } from "react-hook-form";
+import { Link } from "react-router-dom";
 
 const { Title } = Typography;
 
@@ -9,11 +10,20 @@ interface RegisterForm {
   phone: string;
   password: string;
 }
+
 function Register() {
-  const { register, handleSubmit } = useForm<RegisterForm>();
+  const { control, handleSubmit, formState: { errors } } = useForm<RegisterForm>({
+    defaultValues: {
+      fullName: "",
+      email: "",
+      phone: "",
+      password: "",
+    },
+  });
 
   const onSubmit = (data: RegisterForm) => {
-    console.log(data);
+    console.log("Register data:", data);
+    message.success("Đăng ký thành công!");
   };
 
   return (
@@ -22,23 +32,60 @@ function Register() {
         <Title level={2}>Đăng ký</Title>
 
         <form onSubmit={handleSubmit(onSubmit)}>
-          <Input placeholder="Họ tên" {...register("fullName")} />
-
+          <Controller
+            name="fullName"
+            control={control}
+            rules={{ required: "Vui lòng nhập họ tên" }}
+            render={({ field }) => (
+              <Input placeholder="Họ tên" {...field} />
+            )}
+          />
+          {errors.fullName && <p style={{ color: "red", margin: "4px 0 0" }}>{errors.fullName.message}</p>}
           <br />
           <br />
 
-          <Input placeholder="Email" {...register("email")} />
-
+          <Controller
+            name="email"
+            control={control}
+            rules={{ 
+              required: "Vui lòng nhập email",
+              pattern: { 
+                value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/, 
+                message: "Email không hợp lệ" 
+              } 
+            }}
+            render={({ field }) => (
+              <Input placeholder="Email" {...field} />
+            )}
+          />
+          {errors.email && <p style={{ color: "red", margin: "4px 0 0" }}>{errors.email.message}</p>}
           <br />
           <br />
 
-          <Input placeholder="Số điện thoại" {...register("phone")} />
-
+          <Controller
+            name="phone"
+            control={control}
+            rules={{ required: "Vui lòng nhập số điện thoại" }}
+            render={({ field }) => (
+              <Input placeholder="Số điện thoại" {...field} />
+            )}
+          />
+          {errors.phone && <p style={{ color: "red", margin: "4px 0 0" }}>{errors.phone.message}</p>}
           <br />
           <br />
 
-          <Input.Password placeholder="Mật khẩu" {...register("password")} />
-
+          <Controller
+            name="password"
+            control={control}
+            rules={{ 
+              required: "Vui lòng nhập mật khẩu",
+              minLength: { value: 6, message: "Mật khẩu ít nhất 6 ký tự" }
+            }}
+            render={({ field }) => (
+              <Input.Password placeholder="Mật khẩu" {...field} />
+            )}
+          />
+          {errors.password && <p style={{ color: "red", margin: "4px 0 0" }}>{errors.password.message}</p>}
           <br />
           <br />
 
@@ -46,8 +93,12 @@ function Register() {
             Đăng ký
           </Button>
         </form>
+
+        <br />
+        <Link to="/login">Đăng nhập</Link>
       </Card>
     </div>
   );
 }
+
 export default Register;

@@ -1,7 +1,7 @@
 import api from "./api";
 
 export const createPayment = async (
-  data: any
+  data: Record<string, unknown>
 ) => {
   return api.post("/payments", data);
 };

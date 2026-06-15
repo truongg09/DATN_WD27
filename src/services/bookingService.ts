@@ -1,7 +1,7 @@
 import api from "./api";
 
 export const createBooking = async (
-  data: any
+  data: Record<string, unknown>
 ) => {
   return api.post("/bookings", data);
 };

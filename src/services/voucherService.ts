@@ -5,7 +5,7 @@ export const getVouchers = async () => {
 };
 
 export const createVoucher = async (
-  data: any
+  data: Record<string, unknown>
 ) => {
   return api.post("/vouchers", data);
 };

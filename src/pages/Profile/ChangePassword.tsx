@@ -1,5 +1,5 @@
 import { Button, Card, Input, Typography, message } from "antd";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 
 const { Title } = Typography;
 
@@ -13,11 +13,14 @@ function ChangePassword() {
   const {
     register,
     handleSubmit,
-    watch,
+    control,
     formState: { errors },
   } = useForm<ChangePasswordForm>();
 
-  const newPassword = watch("newPassword");
+  const newPassword = useWatch({
+    control,
+    name: "newPassword",
+  });
 
   const onSubmit = async (data: ChangePasswordForm) => {
     try {
@@ -27,7 +30,7 @@ function ChangePassword() {
       // await changePassword(data);
 
       message.success("Đổi mật khẩu thành công");
-    } catch (error) {
+    } catch {
       message.error("Đổi mật khẩu thất bại");
     }
   };

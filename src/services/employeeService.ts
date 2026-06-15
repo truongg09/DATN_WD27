@@ -5,7 +5,7 @@ export const getEmployees = async () => {
 };
 
 export const createEmployee = async (
-  data: any
+  data: Record<string, unknown>
 ) => {
   return api.post("/employees", data);
 };

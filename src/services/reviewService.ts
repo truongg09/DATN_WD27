@@ -5,7 +5,7 @@ export const getReviews = async () => {
 };
 
 export const createReview = async (
-  data: any
+  data: Record<string, unknown>
 ) => {
   return api.post("/reviews", data);
 };

@@ -1,4 +1,4 @@
-import { Role, Status } from "./common";
+import type { Role, Status } from "./common";
 
 export interface Account {
   id: number;
