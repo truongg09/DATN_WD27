@@ -48,7 +48,9 @@
 
 .logo h2 {
     color: #ab8965;
-    font-size: 28px;
+    font-size: 36px;
+    font-weight: 700;
+    letter-spacing: 1px;
 }
 
 .nav-menu ul {
