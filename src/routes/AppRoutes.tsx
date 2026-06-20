@@ -3,6 +3,8 @@ import { Routes, Route } from "react-router-dom";
 // Layouts
 import ClientLayout from "../layouts/ClientLayout";
 import AdminLayout from "../layouts/AdminLayout";
+import AuthLayout from "../layouts/AuthLayout";
+import AdminRoute from "./AdminRoute";
 
 // Public Pages
 import Home from "../pages/Home/Home";
@@ -64,66 +66,67 @@ const AppRoutes = () => {
 
       </Route>
 
-
-      <Route path="login" element={<Login />} />
-      <Route path="register" element={<Register />} />
-      <Route
-        path="forgot-password"
-        element={<ForgotPassword />}
-      />
+      {/* Auth Routes with Home as Background */}
+      <Route element={<AuthLayout />}>
+        <Route path="login" element={<Login />} />
+        <Route path="register" element={<Register />} />
+        <Route path="forgot-password" element={<ForgotPassword />} />
+      </Route>
 
       {/* ADMIN */}
-      <Route path="/admin" element={<AdminLayout />}>
+      <Route element={<AdminRoute />}>
+        <Route path="/admin" element={<AdminLayout />}>
 
-        <Route index element={<Dashboard />} />
+          <Route index element={<Dashboard />} />
 
-        <Route path="rooms" element={<RoomManagement />} />
+          <Route path="rooms" element={<RoomManagement />} />
 
-        <Route
-          path="room-types"
-          element={<RoomTypeManagement />}
-        />
+          <Route
+            path="room-types"
+            element={<RoomTypeManagement />}
+          />
 
-        <Route
-          path="bookings"
-          element={<BookingManagement />}
-        />
+          <Route
+            path="bookings"
+            element={<BookingManagement />}
+          />
 
-        <Route
-          path="customers"
-          element={<CustomerManagement />}
-        />
+          <Route
+            path="customers"
+            element={<CustomerManagement />}
+          />
 
-        <Route
-          path="employees"
-          element={<EmployeeManagement />}
-        />
+          <Route
+            path="employees"
+            element={<EmployeeManagement />}
+          />
 
-        <Route
-          path="services"
-          element={<ServiceManagement />}
-        />
+          <Route
+            path="services"
+            element={<ServiceManagement />}
+          />
 
-        <Route
-          path="vouchers"
-          element={<VoucherManagement />}
-        />
+          <Route
+            path="vouchers"
+            element={<VoucherManagement />}
+          />
 
-        <Route
-          path="reviews"
-          element={<ReviewManagement />}
-        />
+          <Route
+            path="reviews"
+            element={<ReviewManagement />}
+          />
 
-        <Route
-          path="payments"
-          element={<PaymentManagement />}
-        />
+          <Route
+            path="payments"
+            element={<PaymentManagement />}
+          />
 
-        <Route
-          path="reports"
-          element={<ReportManagement />}
-        />
+          <Route
+            path="reports"
+            element={<ReportManagement />}
+          />
 
+        </Route>
       </Route>
 
     </Routes>

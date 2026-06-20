@@ -1,12 +1,15 @@
 export type UserRole =
   | "admin"
   | "staff"
-  | "customer";
+  | "customer"
+  | string;
+
 
 export interface User {
   id: number;
   fullName: string;
   email: string;
+  phone?: string;
   role: UserRole;
 }
 

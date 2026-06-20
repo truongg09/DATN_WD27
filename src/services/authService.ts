@@ -1,13 +1,34 @@
 import api from "./api";
 
-export const login = async (data: {
+export interface LoginRequest {
   email: string;
   password: string;
-}) => {
+}
+
+export interface RegisterRequest {
+  full_name: string;
+  email: string;
+  phone: string;
+  password: string;
+}
+
+export interface AuthResponse {
+  message: string;
+  token: string;
+  user: {
+    id: number;
+    fullName: string;
+    email: string;
+    phone: string;
+    role: string;
+  };
+}
+
+export const login = async (data: LoginRequest): Promise<AuthResponse> => {
   return api.post("/auth/login", data);
 };
 
-export const register = async (data: Record<string, unknown>) => {
+export const register = async (data: RegisterRequest): Promise<AuthResponse> => {
   return api.post("/auth/register", data);
 };
 
