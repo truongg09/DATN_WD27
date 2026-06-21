@@ -127,7 +127,7 @@ function RoomManagement() {
 
   const formatPrice = (price: any) => {
     const numPrice = parseFloat(price) || 0;
-    return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(numPrice);
+    return new Intl.NumberFormat('vi-VN').format(numPrice) + ' VNĐ';
   };
 
   const columns = [
