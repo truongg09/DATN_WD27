@@ -32,6 +32,10 @@ const RoomList: React.FC = () => {
   const [filterType, setFilterType] = useState<string>('all');
   const [sortBy, setSortBy] = useState<string>('default');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [filterPrice, setFilterPrice] = useState<string>('all');
+  const [filterCapacity, setFilterCapacity] = useState<string>('all');
+  const [filterBeds, setFilterBeds] = useState<string>('all');
+  const [filterStatus, setFilterStatus] = useState<string>('all');
 
   useEffect(() => {
     const fetchRooms = async () => {
@@ -56,7 +60,7 @@ const RoomList: React.FC = () => {
   }, []);
 
   const formatPrice = (price: number) => {
-    return new Intl.NumberFormat('vi-VN').format(price) + '₫';
+    return new Intl.NumberFormat('vi-VN').format(price) + ' VNĐ';
   };
 
   const getRoomImage = (type: string) => {
@@ -79,6 +83,13 @@ const RoomList: React.FC = () => {
     return 'https://images.unsplash.com/photo-1566073771259-6a8506099945?w=600';
   };
 
+  const getBedsCount = (typeName: string): number => {
+    const name = typeName.toLowerCase();
+    if (name.includes('standard') || name.includes('superior')) return 1;
+    if (name.includes('deluxe') || name.includes('family') || name.includes('suite')) return 2;
+    return 1;
+  };
+
   const filteredRooms = rooms.filter(room => {
     const matchesType = filterType === 'all' || room.room_type_name.toLowerCase().includes(filterType.toLowerCase());
     
@@ -94,8 +105,34 @@ const RoomList: React.FC = () => {
       roomTypeNameWithPrefix.includes(query) ||
       room.floor.toString() === query ||
       floorStr.includes(query);
+
+    const price = parseFloat(room.price_per_night as string) || 0;
+    let matchesPrice = true;
+    if (filterPrice === 'under-500k') matchesPrice = price < 500000;
+    else if (filterPrice === '500k-1m') matchesPrice = price >= 500000 && price <= 1000000;
+    else if (filterPrice === '1m-1.5m') matchesPrice = price >= 1000000 && price <= 1500000;
+    else if (filterPrice === '1.5m-2.5m') matchesPrice = price >= 1500000 && price <= 2500000;
+    else if (filterPrice === 'over-2.5m') matchesPrice = price > 2500000;
+
+    let matchesCapacity = true;
+    if (filterCapacity !== 'all') {
+      if (filterCapacity === '1') matchesCapacity = room.capacity === 1;
+      else if (filterCapacity === '2') matchesCapacity = room.capacity === 2;
+      else if (filterCapacity === '3-4') matchesCapacity = room.capacity === 3 || room.capacity === 4;
+      else if (filterCapacity === 'over-4') matchesCapacity = room.capacity > 4;
+    }
+
+    let matchesBeds = true;
+    if (filterBeds !== 'all') {
+      const beds = getBedsCount(room.room_type_name);
+      if (filterBeds === '1') matchesBeds = beds === 1;
+      else if (filterBeds === '2') matchesBeds = beds === 2;
+      else if (filterBeds === 'over-2') matchesBeds = beds > 2;
+    }
+
+    const matchesStatus = filterStatus === 'all' || room.status === filterStatus;
       
-    return matchesType && matchesSearch;
+    return matchesType && matchesSearch && matchesPrice && matchesCapacity && matchesBeds && matchesStatus;
   });
 
   const sortedRooms = [...filteredRooms].sort((a, b) => {
@@ -117,44 +154,108 @@ const RoomList: React.FC = () => {
 
       <div className="rooms-container">
         <div className="rooms-filter-bar">
-          <div className="search-group" style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, maxWidth: '400px', border: '2px solid #e8e0d5', borderRadius: '10px', padding: '2px 12px', background: '#fff' }}>
-            <FontAwesomeIcon icon={faSearch} style={{ color: '#ab8965' }} />
-            <input 
-              type="text" 
-              placeholder="Tìm số phòng hoặc tên phòng..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              style={{ border: 'none', outline: 'none', width: '100%', padding: '8px 4px', fontSize: '15px', background: 'transparent' }}
-            />
+          <div className="filter-bar-header">
+            <div className="search-group" style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, maxWidth: '400px', border: '2px solid #e8e0d5', borderRadius: '10px', padding: '2px 12px', background: '#fff' }}>
+              <FontAwesomeIcon icon={faSearch} style={{ color: '#ab8965' }} />
+              <input 
+                type="text" 
+                placeholder="Tìm số phòng hoặc tên phòng..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                style={{ border: 'none', outline: 'none', width: '100%', padding: '8px 4px', fontSize: '15px', background: 'transparent' }}
+              />
+            </div>
+
+            <div className="sort-group">
+              <span className="sort-label">Sắp xếp:</span>
+              <select 
+                value={sortBy} 
+                onChange={(e) => setSortBy(e.target.value)}
+                className="sort-select"
+                style={{ minWidth: '180px' }}
+              >
+                <option value="default">Mặc định</option>
+                <option value="price-low">Giá: Thấp đến cao</option>
+                <option value="price-high">Giá: Cao đến thấp</option>
+              </select>
+            </div>
           </div>
 
-          <div className="filter-group">
-            <FontAwesomeIcon icon={faFilter} className="filter-icon" />
-            <select 
-              value={filterType} 
-              onChange={(e) => setFilterType(e.target.value)}
-              className="filter-select"
-            >
-              <option value="all">Tất cả loại phòng</option>
-              <option value="standard">Phòng Standard</option>
-              <option value="superior">Phòng Superior</option>
-              <option value="deluxe">Phòng Deluxe</option>
-              <option value="suite">Phòng Suite</option>
-              <option value="family">Phòng Family</option>
-            </select>
-          </div>
+          <div className="rooms-filter-grid">
+            <div className="filter-item">
+              <span className="filter-label">Hạng phòng</span>
+              <select 
+                value={filterType} 
+                onChange={(e) => setFilterType(e.target.value)}
+                className="filter-select"
+              >
+                <option value="all">Tất cả hạng phòng</option>
+                <option value="standard">Phòng Standard</option>
+                <option value="superior">Phòng Superior</option>
+                <option value="deluxe">Phòng Deluxe</option>
+                <option value="suite">Phòng Suite</option>
+                <option value="family">Phòng Family</option>
+              </select>
+            </div>
 
-          <div className="sort-group">
-            <span className="sort-label">Sắp xếp:</span>
-            <select 
-              value={sortBy} 
-              onChange={(e) => setSortBy(e.target.value)}
-              className="sort-select"
-            >
-              <option value="default">Mặc định</option>
-              <option value="price-low">Giá: Thấp đến cao</option>
-              <option value="price-high">Giá: Cao đến thấp</option>
-            </select>
+            <div className="filter-item">
+              <span className="filter-label">Khoảng giá</span>
+              <select 
+                value={filterPrice} 
+                onChange={(e) => setFilterPrice(e.target.value)}
+                className="filter-select"
+              >
+                <option value="all">Tất cả mức giá</option>
+                <option value="under-500k">Dưới 500.000 VNĐ</option>
+                <option value="500k-1m">500.000 VNĐ - 1.000.000 VNĐ</option>
+                <option value="1m-1.5m">1.000.000 VNĐ - 1.500.000 VNĐ</option>
+                <option value="1.5m-2.5m">1.500.000 VNĐ - 2.500.000 VNĐ</option>
+                <option value="over-2.5m">Trên 2.500.000 VNĐ</option>
+              </select>
+            </div>
+
+            <div className="filter-item">
+              <span className="filter-label">Sức chứa</span>
+              <select 
+                value={filterCapacity} 
+                onChange={(e) => setFilterCapacity(e.target.value)}
+                className="filter-select"
+              >
+                <option value="all">Tất cả số người</option>
+                <option value="1">1 người</option>
+                <option value="2">2 người</option>
+                <option value="3-4">3 - 4 người</option>
+                <option value="over-4">Trên 4 người</option>
+              </select>
+            </div>
+
+            <div className="filter-item">
+              <span className="filter-label">Số giường</span>
+              <select 
+                value={filterBeds} 
+                onChange={(e) => setFilterBeds(e.target.value)}
+                className="filter-select"
+              >
+                <option value="all">Tất cả số giường</option>
+                <option value="1">1 giường</option>
+                <option value="2">2 giường</option>
+                <option value="over-2">Trên 2 giường</option>
+              </select>
+            </div>
+
+            <div className="filter-item">
+              <span className="filter-label">Trạng thái</span>
+              <select 
+                value={filterStatus} 
+                onChange={(e) => setFilterStatus(e.target.value)}
+                className="filter-select"
+              >
+                <option value="all">Tất cả trạng thái</option>
+                <option value="available">Còn trống</option>
+                <option value="occupied">Đang có khách</option>
+                <option value="maintenance">Đang bảo trì</option>
+              </select>
+            </div>
           </div>
         </div>
 
