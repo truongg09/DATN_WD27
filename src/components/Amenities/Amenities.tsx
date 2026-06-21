@@ -1,12 +1,14 @@
 import React from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { 
-  faSwimmingPool, 
-  faSpa, 
-  faUtensils, 
-  faDumbbell, 
-  faWifi, 
-  faCar 
+import {
+  faSwimmingPool,
+  faSpa,
+  faUtensils,
+  faDumbbell,
+  faWifi,
+  faCar,
+  faPlaneArrival,
+  faSyncAlt
 } from '@fortawesome/free-solid-svg-icons';
 import './amenities.css';
 
@@ -17,7 +19,9 @@ const Amenities: React.FC = () => {
     { icon: faUtensils, title: 'Nhà hàng', desc: 'Ẩm thực đa dạng và chất lượng' },
     { icon: faDumbbell, title: 'Phòng Gym', desc: 'Trang thiết bị hiện đại 24/7' },
     { icon: faWifi, title: 'Wifi miễn phí', desc: 'Kết nối tốc độ cao khắp mọi nơi' },
-    { icon: faCar, title: 'Đậu xe', desc: 'Bãi đậu xe rộng rãi, an toàn' }
+    { icon: faCar, title: 'Đậu xe', desc: 'Bãi đậu xe rộng rãi, an toàn' },
+    { icon: faSyncAlt, title: 'Giặt sấy siêu tốc', desc: 'Dịch vụ giặt ủi nhanh chóng trong 2 giờ' },
+    { icon: faPlaneArrival, title: 'Đưa đón sân bay', desc: 'Xe đưa đón tiện lợi 24/7' }
   ];
 
   return (
