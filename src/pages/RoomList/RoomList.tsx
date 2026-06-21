@@ -108,26 +108,20 @@ const RoomList: React.FC = () => {
 
     const price = parseFloat(room.price_per_night as string) || 0;
     let matchesPrice = true;
-    if (filterPrice === 'under-500k') matchesPrice = price < 500000;
-    else if (filterPrice === '500k-1m') matchesPrice = price >= 500000 && price <= 1000000;
+    if (filterPrice === 'under-600k') matchesPrice = price < 600000;
+    else if (filterPrice === '600k-1m') matchesPrice = price >= 600000 && price <= 1000000;
     else if (filterPrice === '1m-1.5m') matchesPrice = price >= 1000000 && price <= 1500000;
-    else if (filterPrice === '1.5m-2.5m') matchesPrice = price >= 1500000 && price <= 2500000;
-    else if (filterPrice === 'over-2.5m') matchesPrice = price > 2500000;
+    else if (filterPrice === 'over-1.5m') matchesPrice = price > 1500000;
 
     let matchesCapacity = true;
     if (filterCapacity !== 'all') {
-      if (filterCapacity === '1') matchesCapacity = room.capacity === 1;
-      else if (filterCapacity === '2') matchesCapacity = room.capacity === 2;
-      else if (filterCapacity === '3-4') matchesCapacity = room.capacity === 3 || room.capacity === 4;
-      else if (filterCapacity === 'over-4') matchesCapacity = room.capacity > 4;
+      matchesCapacity = room.capacity === parseInt(filterCapacity);
     }
 
     let matchesBeds = true;
     if (filterBeds !== 'all') {
       const beds = getBedsCount(room.room_type_name);
-      if (filterBeds === '1') matchesBeds = beds === 1;
-      else if (filterBeds === '2') matchesBeds = beds === 2;
-      else if (filterBeds === 'over-2') matchesBeds = beds > 2;
+      matchesBeds = beds === parseInt(filterBeds);
     }
 
     const matchesStatus = filterStatus === 'all' || room.status === filterStatus;
@@ -206,11 +200,10 @@ const RoomList: React.FC = () => {
                 className="filter-select"
               >
                 <option value="all">Tất cả mức giá</option>
-                <option value="under-500k">Dưới 500.000 VNĐ</option>
-                <option value="500k-1m">500.000 VNĐ - 1.000.000 VNĐ</option>
+                <option value="under-600k">Dưới 600.000 VNĐ</option>
+                <option value="600k-1m">600.000 VNĐ - 1.000.000 VNĐ</option>
                 <option value="1m-1.5m">1.000.000 VNĐ - 1.500.000 VNĐ</option>
-                <option value="1.5m-2.5m">1.500.000 VNĐ - 2.500.000 VNĐ</option>
-                <option value="over-2.5m">Trên 2.500.000 VNĐ</option>
+                <option value="over-1.5m">Trên 1.500.000 VNĐ</option>
               </select>
             </div>
 
@@ -222,10 +215,9 @@ const RoomList: React.FC = () => {
                 className="filter-select"
               >
                 <option value="all">Tất cả số người</option>
-                <option value="1">1 người</option>
                 <option value="2">2 người</option>
-                <option value="3-4">3 - 4 người</option>
-                <option value="over-4">Trên 4 người</option>
+                <option value="3">3 người</option>
+                <option value="4">4 người</option>
               </select>
             </div>
 
@@ -239,7 +231,6 @@ const RoomList: React.FC = () => {
                 <option value="all">Tất cả số giường</option>
                 <option value="1">1 giường</option>
                 <option value="2">2 giường</option>
-                <option value="over-2">Trên 2 giường</option>
               </select>
             </div>
 
