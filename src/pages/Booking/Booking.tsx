@@ -79,7 +79,7 @@ const Booking: React.FC = () => {
   };
 
   const formatPrice = (price: number) => {
-    return new Intl.NumberFormat('vi-VN').format(price) + '₫';
+    return new Intl.NumberFormat('vi-VN').format(price) + ' VNĐ';
   };
 
   const onSubmit = (data: BookingFormData) => {
