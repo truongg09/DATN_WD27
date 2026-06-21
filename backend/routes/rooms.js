@@ -53,6 +53,25 @@ router.get('/:id', async (req, res) => {
     const [images] = await db.query('SELECT imageUrl FROM room_images WHERE roomTypeId = ?', [rooms[0].roomTypeId]);
     rooms[0].images = images.map(img => img.imageUrl);
 
+    // Get all amenities for this room type
+    const [amenities] = await db.query(`
+      SELECT a.name, a.icon
+      FROM amenities a
+      JOIN room_type_amenities rta ON a.id = rta.amenityId
+      WHERE rta.roomTypeId = ?
+    `, [rooms[0].roomTypeId]);
+    rooms[0].db_amenities = amenities;
+
+    // Get all reviews for this room
+    const [reviews] = await db.query(`
+      SELECT r.id, r.rating, r.comment, r.createdAt, c.fullName as customerName
+      FROM reviews r
+      JOIN customers c ON r.customerId = c.id
+      JOIN booking_details bd ON r.bookingId = bd.bookingId
+      WHERE bd.roomId = ?
+    `, [id]);
+    rooms[0].db_reviews = reviews;
+
     res.json({ data: rooms[0] });
   } catch (error) {
     console.error('Get room error:', error);
