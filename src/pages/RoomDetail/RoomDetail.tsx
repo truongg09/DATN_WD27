@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
@@ -11,52 +11,87 @@ import {
   faCoffee,
   faCheck,
   faArrowLeft,
-  faStar
+  faStar,
+  faUser
 } from '@fortawesome/free-solid-svg-icons';
+import { getRoomById } from '../../services/roomService';
 import './RoomDetail.css';
 
 interface RoomData {
   id: number;
-  name: string;
-  type: string;
+  roomNumber: string;
+  floor: number;
+  area: string | number;
+  status: string;
+  roomTypeId: number;
+  room_type_name: string;
+  room_type_description: string;
+  capacity: number;
+  price_per_night: string | number;
   images: string[];
-  beds: string;
-  baths: string;
-  area: string;
-  maxGuests: number;
-  price: number;
-  originalPrice?: number;
-  description: string;
-  amenities: string[];
-  reviews: number;
-  rating: number;
 }
 
 const RoomDetail: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [room, setRoom] = useState<RoomData | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
   const [selectedImage, setSelectedImage] = useState(0);
 
-  const roomData: RoomData = {
-    id: 1,
-    name: 'Phòng Deluxe',
-    type: 'deluxe',
-    images: [
-      'https://images.unsplash.com/photo-1590490360182-c33d57733427?w=1200',
-      'https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?w=1200',
-      'https://images.unsplash.com/photo-1566073771259-6a8506099945?w=1200',
-      'https://images.unsplash.com/photo-1611892440504-42a792e24d32?w=1200'
-    ],
-    beds: '2 giường đơn',
-    baths: '1 phòng tắm',
-    area: '40m²',
-    maxGuests: 4,
-    price: 1200000,
-    description: 'Phòng Deluxe của chúng tôi mang đến không gian sang trọng và thoải mái với tầm nhìn tuyệt đẹp. Được thiết kế tinh tế với nội thất cao cấp, phòng này là lựa chọn hoàn hảo cho những ai yêu thích sự riêng tư và tiện nghi. Với diện tích rộng rãi 40m², phòng Deluxe phù hợp cho cặp đôi hoặc gia đình nhỏ.',
-    amenities: ['Wifi miễn phí', 'Điều hòa không khí', 'TV màn hình phẳng', 'Mini bar', 'Két sắt', 'Bàn làm việc', 'Ấm đun nước', 'Áo choàng tắm', 'Máy sấy tóc', 'Gối êm'],
-    reviews: 128,
-    rating: 4.8
-  };
+  useEffect(() => {
+    const fetchRoomDetail = async () => {
+      if (!id) return;
+      try {
+        setLoading(true);
+        const response = await getRoomById(Number(id));
+        if (response && response.data) {
+          const roomObj = response.data;
+          
+          // Map backend images or use high-quality Unsplash fallbacks
+          if (!roomObj.images || roomObj.images.length === 0) {
+            const typeName = (roomObj.room_type_name || '').toLowerCase();
+            if (typeName.includes('standard')) {
+              roomObj.images = [
+                'https://images.unsplash.com/photo-1631049307264-da0ec9d70304?w=1200',
+                'https://images.unsplash.com/photo-1566073771259-6a8506099945?w=1200'
+              ];
+            } else if (typeName.includes('superior')) {
+              roomObj.images = [
+                'https://images.unsplash.com/photo-1611892440504-42a792e24d32?w=1200',
+                'https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?w=1200'
+              ];
+            } else if (typeName.includes('deluxe')) {
+              roomObj.images = [
+                'https://images.unsplash.com/photo-1590490360182-c33d57733427?w=1200',
+                'https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?w=1200'
+              ];
+            } else if (typeName.includes('family')) {
+              roomObj.images = [
+                'https://images.unsplash.com/photo-1596394516093-501ba68a0ba6?w=1200',
+                'https://images.unsplash.com/photo-1590490360182-c33d57733427?w=1200'
+              ];
+            } else {
+              roomObj.images = [
+                'https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?w=1200',
+                'https://images.unsplash.com/photo-1566073771259-6a8506099945?w=1200'
+              ];
+            }
+          }
+          setRoom(roomObj);
+        } else {
+          setError('Không tìm thấy thông tin chi tiết phòng.');
+        }
+      } catch (err) {
+        console.error('Lỗi khi tải chi tiết phòng:', err);
+        setError('Không thể tải thông tin phòng. Vui lòng thử lại sau.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchRoomDetail();
+  }, [id]);
 
   const formatPrice = (price: number) => {
     return new Intl.NumberFormat('vi-VN').format(price) + '₫';
@@ -65,6 +100,38 @@ const RoomDetail: React.FC = () => {
   const handleBooking = () => {
     navigate(`/booking?id=${id}`);
   };
+
+  if (loading) {
+    return (
+      <div className="room-detail-page">
+        <div className="rooms-loading">
+          <div className="spinner"></div>
+          <p>Đang tải chi tiết phòng...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !room) {
+    return (
+      <div className="room-detail-page">
+        <div className="room-detail-container">
+          <div className="breadcrumb">
+            <Link to="/rooms" className="back-link">
+              <FontAwesomeIcon icon={faArrowLeft} />
+              <span>Quay lại danh sách phòng</span>
+            </Link>
+          </div>
+          <div className="rooms-error">
+            <p>{error || 'Không tìm thấy thông tin phòng.'}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const price = parseFloat(room.price_per_night as string) || 0;
+  const amenities = ['Wifi miễn phí', 'Điều hòa không khí', 'TV màn hình phẳng', 'Mini bar', 'Két sắt', 'Ấm đun nước', 'Máy sấy tóc'];
 
   return (
     <div className="room-detail-page">
@@ -79,16 +146,16 @@ const RoomDetail: React.FC = () => {
         <div className="room-detail-main">
           <div className="room-gallery">
             <div className="main-image">
-              <img src={roomData.images[selectedImage]} alt={roomData.name} />
+              <img src={room.images[selectedImage]} alt={`Phòng ${room.roomNumber}`} />
             </div>
             <div className="thumbnail-images">
-              {roomData.images.map((img, index) => (
+              {room.images.map((img, index) => (
                 <div 
                   key={index} 
                   className={`thumbnail ${selectedImage === index ? 'active' : ''}`}
                   onClick={() => setSelectedImage(index)}
                 >
-                  <img src={img} alt={`${roomData.name} ${index + 1}`} />
+                  <img src={img} alt={`Ảnh ${index + 1}`} />
                 </div>
               ))}
             </div>
@@ -96,52 +163,55 @@ const RoomDetail: React.FC = () => {
 
           <div className="room-info-section">
             <div className="room-header">
-              <span className="room-type-tag">{roomData.type}</span>
+              <span className="room-type-tag">{room.room_type_name}</span>
               <div className="room-rating">
                 <FontAwesomeIcon icon={faStar} className="star-icon" />
-                <span>{roomData.rating}</span>
-                <span className="review-count">({roomData.reviews} đánh giá)</span>
+                <span>4.8</span>
+                <span className="review-count">(96 đánh giá)</span>
               </div>
             </div>
-            <h1>{roomData.name}</h1>
+            <h1>Phòng {room.roomNumber} (Tầng {room.floor})</h1>
             
             <div className="room-specs">
               <div className="spec-item">
                 <FontAwesomeIcon icon={faBed} />
-                <span>{roomData.beds}</span>
+                <span>Phòng {room.room_type_name}</span>
               </div>
               <div className="spec-item">
                 <FontAwesomeIcon icon={faBath} />
-                <span>{roomData.baths}</span>
+                <span>1 phòng tắm</span>
               </div>
               <div className="spec-item">
                 <FontAwesomeIcon icon={faExpandArrowsAlt} />
-                <span>{roomData.area}</span>
+                <span>{room.area}m²</span>
               </div>
               <div className="spec-item">
                 <FontAwesomeIcon icon={faUser} />
-                <span>Tối đa {roomData.maxGuests} người</span>
+                <span>Tối đa {room.capacity} người</span>
               </div>
             </div>
 
             <div className="room-price-detail">
               <div className="price-row">
-                <span className="current-price">{formatPrice(roomData.price)}</span>
+                <span className="current-price">{formatPrice(price)}</span>
                 <span className="price-unit">/ đêm</span>
-                {roomData.originalPrice && (
-                  <span className="original-price">{formatPrice(roomData.originalPrice)}</span>
-                )}
               </div>
             </div>
 
-            <button className="btn-book-room" onClick={handleBooking}>
-              Đặt phòng ngay
-            </button>
+            {room.status === 'available' ? (
+              <button className="btn-book-room" onClick={handleBooking}>
+                Đặt phòng ngay
+              </button>
+            ) : (
+              <button className="btn-book-room disabled" disabled>
+                Hết phòng
+              </button>
+            )}
 
             <div className="amenities-quick">
               <h3>Tiện nghi nổi bật</h3>
               <div className="amenities-grid">
-                {roomData.amenities.slice(0, 6).map((amenity, index) => (
+                {amenities.slice(0, 6).map((amenity, index) => (
                   <div key={index} className="amenity-item">
                     <FontAwesomeIcon icon={faCheck} />
                     <span>{amenity}</span>
@@ -154,13 +224,13 @@ const RoomDetail: React.FC = () => {
 
         <div className="room-description-section">
           <h2>Mô tả phòng</h2>
-          <p>{roomData.description}</p>
+          <p>{room.room_type_description || 'Phòng nghỉ đầy đủ tiện nghi, được dọn dẹp sạch sẽ hàng ngày, không gian yên tĩnh thích hợp cho nghỉ dưỡng và làm việc.'}</p>
         </div>
 
         <div className="room-amenities-section">
           <h2>Tiện nghi đầy đủ</h2>
           <div className="amenities-full-list">
-            {roomData.amenities.map((amenity, index) => (
+            {amenities.map((amenity, index) => (
               <div key={index} className="amenity-full-item">
                 <FontAwesomeIcon icon={faCheck} />
                 <span>{amenity}</span>
@@ -170,30 +240,8 @@ const RoomDetail: React.FC = () => {
         </div>
 
         <div className="similar-rooms">
-          <h2>Phòng liên quan</h2>
-          <div className="similar-rooms-grid">
-            <div className="similar-room-card">
-              <img src="https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?w=400" alt="Phòng Suite" />
-              <div className="similar-room-info">
-                <h4>Phòng Suite</h4>
-                <span className="similar-price">2.500.000₫</span>
-              </div>
-            </div>
-            <div className="similar-room-card">
-              <img src="https://images.unsplash.com/photo-1566073771259-6a8506099945?w=400" alt="Presidential Suite" />
-              <div className="similar-room-info">
-                <h4>Presidential Suite</h4>
-                <span className="similar-price">5.000.000₫</span>
-              </div>
-            </div>
-            <div className="similar-room-card">
-              <img src="https://images.unsplash.com/photo-1596394516093-501ba68a0ba6?w=400" alt="Phòng Family" />
-              <div className="similar-room-info">
-                <h4>Phòng Family</h4>
-                <span className="similar-price">2.100.000₫</span>
-              </div>
-            </div>
-          </div>
+          <h2>Các phòng khác tại tầng {room.floor}</h2>
+          <p className="similar-rooms-note">Bạn có thể tham khảo thêm các phòng khác có cùng diện tích và tầng để thuận tiện di chuyển.</p>
         </div>
       </div>
     </div>
