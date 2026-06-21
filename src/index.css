@@ -39,7 +39,6 @@ img {
   border-radius: 12px !important;
   box-shadow: 0 4px 15px rgba(171, 137, 101, 0.35) !important;
   font-weight: 600 !important;
-  transition: background 0.3s ease !important;
 }
 
 .ant-btn-primary:hover {
