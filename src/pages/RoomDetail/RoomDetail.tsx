@@ -145,7 +145,7 @@ const RoomDetail: React.FC = () => {
   }, [id]);
 
   const formatPrice = (price: number) => {
-    return new Intl.NumberFormat('vi-VN').format(price) + '₫';
+    return new Intl.NumberFormat('vi-VN').format(price) + ' VNĐ';
   };
 
   const handleBooking = () => {

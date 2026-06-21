@@ -34,13 +34,45 @@
 
 .rooms-filter-bar {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 20px 24px;
+  flex-direction: column;
+  padding: 24px;
   background: #fff;
   border-radius: 12px;
   margin-bottom: 24px;
   gap: 20px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+}
+
+.filter-bar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  gap: 20px;
+}
+
+.rooms-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 20px;
+  width: 100%;
+  border-top: 1px solid #f0eae1;
+  padding-top: 20px;
+}
+
+.filter-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.filter-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #ab8965;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
 }
 
 .filter-group,
@@ -65,7 +97,7 @@
   color: #333;
   background: #fff;
   cursor: pointer;
-  min-width: 200px;
+  width: 100%;
 }
 
 .filter-select:focus,
@@ -75,8 +107,10 @@
 }
 
 .sort-label {
-  color: #666;
-  font-size: 15px;
+  color: #ab8965;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .rooms-count {
