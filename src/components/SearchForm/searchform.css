@@ -82,7 +82,7 @@
 }
 
 .custom-search-button:hover {
-  background: linear-gradient(135deg, #9a7a5a 0%, #70533a 100%);
+  background: #70533a;
 }
 
 /* Custom styles for RangePicker */

@@ -29,7 +29,6 @@
     font-size: 18px;
     border-radius: 12px;
     cursor: pointer;
-    transition: background 0.3s;
     box-shadow: 0 4px 15px rgba(171, 137, 101, 0.35);
 }
 

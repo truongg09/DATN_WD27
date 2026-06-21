@@ -43,7 +43,7 @@ img {
 }
 
 .ant-btn-primary:hover {
-  background: linear-gradient(135deg, #9a7a5a 0%, #70533a 100%) !important;
+  background: #70533a !important;
   box-shadow: 0 4px 15px rgba(171, 137, 101, 0.35) !important;
 }
 
