@@ -5,7 +5,8 @@ import {
   faBed, 
   faBath, 
   faExpandArrowsAlt,
-  faFilter
+  faFilter,
+  faSearch
 } from '@fortawesome/free-solid-svg-icons';
 import { getRooms } from '../../services/roomService';
 import './RoomList.css';
@@ -30,14 +31,13 @@ const RoomList: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [filterType, setFilterType] = useState<string>('all');
   const [sortBy, setSortBy] = useState<string>('default');
+  const [searchQuery, setSearchQuery] = useState<string>('');
 
   useEffect(() => {
     const fetchRooms = async () => {
       try {
         setLoading(true);
         const response = await getRooms();
-        // Since api.ts response interceptor returns response.data directly:
-        // response is { data: RoomFromDB[] }
         if (response && response.data) {
           setRooms(response.data);
         } else if (Array.isArray(response)) {
@@ -80,8 +80,22 @@ const RoomList: React.FC = () => {
   };
 
   const filteredRooms = rooms.filter(room => {
-    if (filterType === 'all') return true;
-    return room.room_type_name.toLowerCase().includes(filterType.toLowerCase());
+    const matchesType = filterType === 'all' || room.room_type_name.toLowerCase().includes(filterType.toLowerCase());
+    
+    const roomName = `Phòng ${room.roomNumber}`.toLowerCase();
+    const roomTypeNameWithPrefix = `Phòng ${room.room_type_name}`.toLowerCase();
+    const floorStr = `Tầng ${room.floor}`.toLowerCase();
+    const query = searchQuery.toLowerCase();
+    
+    const matchesSearch = searchQuery === '' || 
+      room.roomNumber.toLowerCase().includes(query) ||
+      room.room_type_name.toLowerCase().includes(query) ||
+      roomName.includes(query) ||
+      roomTypeNameWithPrefix.includes(query) ||
+      room.floor.toString() === query ||
+      floorStr.includes(query);
+      
+    return matchesType && matchesSearch;
   });
 
   const sortedRooms = [...filteredRooms].sort((a, b) => {
@@ -103,6 +117,17 @@ const RoomList: React.FC = () => {
 
       <div className="rooms-container">
         <div className="rooms-filter-bar">
+          <div className="search-group" style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, maxWidth: '400px', border: '2px solid #e8e0d5', borderRadius: '10px', padding: '2px 12px', background: '#fff' }}>
+            <FontAwesomeIcon icon={faSearch} style={{ color: '#ab8965' }} />
+            <input 
+              type="text" 
+              placeholder="Tìm số phòng hoặc tên phòng..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{ border: 'none', outline: 'none', width: '100%', padding: '8px 4px', fontSize: '15px', background: 'transparent' }}
+            />
+          </div>
+
           <div className="filter-group">
             <FontAwesomeIcon icon={faFilter} className="filter-icon" />
             <select 
