@@ -1,61 +1,61 @@
 .amenities {
-    padding: 100px 20px;
-    background: #fff5ed;
+    padding: 80px 20px;
+    background: #fafafa;
 }
 
 .amenities .container {
-    max-width: 1200px;
+    max-width: 1100px;
     margin: 0 auto;
 }
 
 .section-title {
     text-align: center;
-    margin-bottom: 60px;
+    margin-bottom: 50px;
 }
 
 .section-title .subtitle {
-    color: #ab8965;
-    font-weight: 600;
-    font-size: 18px;
+    color: #999;
+    font-weight: 500;
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
 }
 
 .section-title h2 {
-    font-size: 42px;
-    margin-top: 15px;
+    font-size: 32px;
+    margin-top: 10px;
     color: #333;
+    font-weight: 600;
 }
 
 .amenities-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 40px;
+    gap: 24px;
 }
 
 .amenity-item {
-    background: #fff;
-    padding: 40px 30px;
-    border-radius: 10px;
+    padding: 32px 24px;
     text-align: center;
-    transition: transform 0.3s, box-shadow 0.3s;
-}
-
-.amenity-item:hover {
-    transform: translateY(-10px);
-    box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+    border: 1px solid #eee;
+    background: #fff;
 }
 
 .amenity-item i {
-    font-size: 50px;
-    color: #ab8965;
-    margin-bottom: 20px;
+    font-size: 36px;
+    color: #888;
+    margin-bottom: 16px;
 }
 
 .amenity-item h3 {
-    font-size: 22px;
-    margin-bottom: 10px;
-    color: #333;
+    font-size: 18px;
+    margin-bottom: 8px;
+    color: #444;
+    font-weight: 600;
 }
 
 .amenity-item p {
-    color: #666;
+    color: #888;
+    font-size: 14px;
+    line-height: 1.5;
 }

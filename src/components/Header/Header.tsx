@@ -58,6 +58,9 @@ const Header: React.FC = () => {
               {isAuthenticated && user?.role === "admin" && (
                 <li><Link to="/admin">Admin</Link></li>
               )}
+              {isAuthenticated && user?.role === "employee" && (
+                <li><Link to="/employee">Nhân viên</Link></li>
+              )}
             </ul>
           </nav>
           <div className="auth-buttons">

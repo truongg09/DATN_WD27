@@ -14,10 +14,12 @@ app.use(express.json());
 const authRoutes = require('./routes/auth');
 const roomRoutes = require('./routes/rooms');
 const employeeRoutes = require('./routes/employees');
+const amenityRoutes = require('./routes/amenities');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/rooms', roomRoutes);
 app.use('/api/employees', employeeRoutes);
+app.use('/api/amenities', amenityRoutes);
 
 // Test endpoint
 app.get('/api/health', (req, res) => {

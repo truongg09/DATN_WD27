@@ -3,8 +3,10 @@ import { Routes, Route } from "react-router-dom";
 // Layouts
 import ClientLayout from "../layouts/ClientLayout";
 import AdminLayout from "../layouts/AdminLayout";
+import EmployeeLayout from "../layouts/EmployeeLayout";
 import AuthLayout from "../layouts/AuthLayout";
 import AdminRoute from "./AdminRoute";
+import EmployeeRoute from "./EmployeeRoute";
 
 // Public Pages
 import Home from "../pages/Home/Home";
@@ -36,6 +38,18 @@ import VoucherManagement from "../pages/Admin/VoucherManagement";
 import ReviewManagement from "../pages/Admin/ReviewManagement";
 import PaymentManagement from "../pages/Admin/PaymentManagement";
 import ReportManagement from "../pages/Admin/ReportManagement";
+
+// Employee Pages
+import EmployeeDashboard from "../pages/Employee/EmployeeDashboard";
+import BookingCalendar from "../pages/Employee/BookingCalendar";
+import ReceiveBooking from "../pages/Employee/ReceiveBooking";
+import RoomStatus from "../pages/Employee/RoomStatus";
+import Customers from "../pages/Employee/Customers";
+import CheckinCheckout from "../pages/Employee/CheckinCheckout";
+import Payment from "../pages/Employee/Payment";
+import CustomerService from "../pages/Employee/CustomerService";
+import RoomRequests from "../pages/Employee/RoomRequests";
+import Reviews from "../pages/Employee/Reviews";
 
 const AppRoutes = () => {
   return (
@@ -124,6 +138,58 @@ const AppRoutes = () => {
           <Route
             path="reports"
             element={<ReportManagement />}
+          />
+
+        </Route>
+      </Route>
+
+      {/* EMPLOYEE */}
+      <Route element={<EmployeeRoute />}>
+        <Route path="/employee" element={<EmployeeLayout />}>
+
+          <Route index element={<EmployeeDashboard />} />
+          <Route path="dashboard" element={<EmployeeDashboard />} />
+
+          <Route path="booking-calendar" element={<BookingCalendar />} />
+
+          <Route
+            path="receive-booking"
+            element={<ReceiveBooking />}
+          />
+
+          <Route
+            path="room-status"
+            element={<RoomStatus />}
+          />
+
+          <Route
+            path="customers"
+            element={<Customers />}
+          />
+
+          <Route
+            path="checkin-checkout"
+            element={<CheckinCheckout />}
+          />
+
+          <Route
+            path="payment"
+            element={<Payment />}
+          />
+
+          <Route
+            path="customer-service"
+            element={<CustomerService />}
+          />
+
+          <Route
+            path="room-requests"
+            element={<RoomRequests />}
+          />
+
+          <Route
+            path="reviews"
+            element={<Reviews />}
           />
 
         </Route>

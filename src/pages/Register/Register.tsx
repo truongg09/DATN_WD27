@@ -38,6 +38,8 @@ function Register() {
       message.success("Đăng ký thành công!");
       if (response.user.role === "admin") {
         navigate("/admin");
+      } else if (response.user.role === "employee") {
+        navigate("/employee");
       } else {
         navigate("/");
       }
