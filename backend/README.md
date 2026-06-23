@@ -45,6 +45,28 @@ The server will be running at http://localhost:3001
 - GET /api/health - Check server status
 - GET /api/db-test - Test database connection
 
+### Bookings
+- POST /api/bookings/check-availability - Check whether a room is free for a date range
+- POST /api/bookings - Create a booking and lock room availability
+- GET /api/bookings - List bookings. Optional query: `userId`, `status`
+- GET /api/bookings/:id - Get booking detail
+- PATCH /api/bookings/:id/cancel - Cancel a pending/confirmed booking and release availability
+- PATCH /api/bookings/:id/check-in - Move booking to `checked_in` and mark room `occupied`
+- PATCH /api/bookings/:id/check-out - Move booking to `checked_out`, release availability, and mark room `available`
+
+Example create booking payload:
+```json
+{
+  "userId": 1,
+  "roomId": 2,
+  "checkIn": "2026-07-01",
+  "checkOut": "2026-07-03",
+  "adults": 2,
+  "children": 0,
+  "notes": "Late arrival"
+}
+```
+
 ## Project Structure
 ```
 backend/

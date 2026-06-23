@@ -6,8 +6,14 @@ export const createBooking = async (
   return api.post("/bookings", data);
 };
 
-export const getBookings = async () => {
-  return api.get("/bookings");
+export const checkAvailability = async (
+  data: Record<string, unknown>
+) => {
+  return api.post("/bookings/check-availability", data);
+};
+
+export const getBookings = async (params?: { userId?: number; status?: string }) => {
+  return api.get("/bookings", { params });
 };
 
 export const getBookingDetail = async (
