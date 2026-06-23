@@ -186,16 +186,14 @@ function BookingManagement() {
           borderRadius: 16,
           padding: 24,
           boxShadow: '0 8px 24px rgba(0,0,0,0.08)',
-        }}
-      >
+        }}>
         <div
           style={{
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
             marginBottom: 24,
-          }}
-        >
+          }}>
           <h2 style={{ margin: 0 }}>Quản Lý Đặt Phòng</h2>
 
           <Button icon={<ReloadOutlined />} onClick={fetchBookings} loading={loading}>
