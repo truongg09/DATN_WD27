@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, type Key } from 'react';
 import {
   Table,
   Button,
@@ -14,6 +14,7 @@ import {
   Tag
 } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined } from '@ant-design/icons';
+import axios from 'axios';
 import api from '../../services/api';
 
 const { Option } = Select;
@@ -61,19 +62,29 @@ function RoomManagement() {
     }
   };
 
-  const fetchRoomTypes = async () => {
-    try {
-      const response = await api.get('/rooms/types');
-      setRoomTypes(response.data || response);
-    } catch (error) {
-      console.error('Error fetching room types:', error);
-      message.error('Lỗi khi tải danh sách loại phòng');
-    }
-  };
-
   useEffect(() => {
-    fetchRooms();
-    fetchRoomTypes();
+    void (async () => {
+      setLoading(true);
+      try {
+        const response = await api.get('/rooms');
+        setRooms(response.data || response);
+      } catch (error) {
+        console.error('Error fetching rooms:', error);
+        message.error('Lỗi khi tải danh sách phòng');
+      } finally {
+        setLoading(false);
+      }
+    })();
+
+    void (async () => {
+      try {
+        const response = await api.get('/rooms/types');
+        setRoomTypes(response.data || response);
+      } catch (error) {
+        console.error('Error fetching room types:', error);
+        message.error('Lỗi khi tải danh sách loại phòng');
+      }
+    })();
   }, []);
 
   const handleAdd = () => {
@@ -99,9 +110,10 @@ function RoomManagement() {
       await api.delete(`/rooms/${id}`);
       message.success('Xóa phòng thành công');
       fetchRooms();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error deleting room:', error);
-      message.error(error.response?.data?.message || 'Lỗi khi xóa phòng');
+      const msg = axios.isAxiosError(error) ? error.response?.data?.message : undefined;
+      message.error(msg || 'Lỗi khi xóa phòng');
     }
   };
 
@@ -119,14 +131,15 @@ function RoomManagement() {
       }
       setModalVisible(false);
       fetchRooms();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Submit error:', error);
-      message.error(error.response?.data?.message || 'Có lỗi xảy ra, vui lòng thử lại');
+      const msg = axios.isAxiosError(error) ? error.response?.data?.message : undefined;
+      message.error(msg || 'Có lỗi xảy ra, vui lòng thử lại');
     }
   };
 
-  const formatPrice = (price: any) => {
-    const numPrice = parseFloat(price) || 0;
+  const formatPrice = (price: string | number) => {
+    const numPrice = typeof price === 'number' ? price : parseFloat(price) || 0;
     return new Intl.NumberFormat('vi-VN').format(numPrice) + ' VNĐ';
   };
 
@@ -143,7 +156,7 @@ function RoomManagement() {
       dataIndex: 'room_type_name',
       key: 'room_type_name',
       filters: roomTypes.map(t => ({ text: t.typeName, value: t.typeName })),
-      onFilter: (value: any, record: Room) => record.room_type_name === value,
+      onFilter: (value: boolean | Key, record: Room) => record.room_type_name === value,
     },
     {
       title: 'Tầng',
@@ -155,14 +168,14 @@ function RoomManagement() {
       title: 'Diện tích',
       dataIndex: 'area',
       key: 'area',
-      render: (area: any) => `${area} m²`
+      render: (area: string | number) => `${area} m²`
     },
     {
       title: 'Giá/đêm',
       dataIndex: 'price_per_night',
       key: 'price_per_night',
       sorter: (a: Room, b: Room) => (parseFloat(a.price_per_night as string) || 0) - (parseFloat(b.price_per_night as string) || 0),
-      render: (price: any) => formatPrice(price)
+      render: (price: string | number) => formatPrice(price)
     },
     {
       title: 'Sức chứa',
@@ -179,7 +192,7 @@ function RoomManagement() {
         { text: 'Đang ở', value: 'occupied' },
         { text: 'Bảo trì', value: 'maintenance' }
       ],
-      onFilter: (value: any, record: Room) => record.status === value,
+      onFilter: (value: boolean | Key, record: Room) => record.status === value,
       render: (status: 'available' | 'occupied' | 'maintenance') => {
         let color = 'green';
         let text = 'Trống';
@@ -196,7 +209,7 @@ function RoomManagement() {
     {
       title: 'Hành động',
       key: 'action',
-      render: (_: any, record: Room) => (
+      render: (_: unknown, record: Room) => (
         <Space size="middle">
           <Button 
             type="primary" 
@@ -265,7 +278,6 @@ function RoomManagement() {
         onCancel={() => setModalVisible(false)}
         okText={editingRoom ? "Cập nhật" : "Thêm mới"}
         cancelText="Hủy"
-        destroyOnClose
       >
         <Form
           form={form}

@@ -15,11 +15,17 @@ const authRoutes = require('./routes/auth');
 const roomRoutes = require('./routes/rooms');
 const employeeRoutes = require('./routes/employees');
 const amenityRoutes = require('./routes/amenities');
+const bookingRoutes = require('./routes/bookings');
+const paymentRoutes = require('./routes/payments');
+const invoiceRoutes = require('./routes/invoices');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/rooms', roomRoutes);
 app.use('/api/employees', employeeRoutes);
 app.use('/api/amenities', amenityRoutes);
+app.use('/api/bookings', bookingRoutes);
+app.use('/api/payments', paymentRoutes);
+app.use('/api/invoices', invoiceRoutes);
 
 // Test endpoint
 app.get('/api/health', (req, res) => {
