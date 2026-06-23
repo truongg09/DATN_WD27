@@ -2,10 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useForm, Controller } from 'react-hook-form';
 import { DatePicker, Input, Select, message } from 'antd';
-import { CalendarOutlined, UserOutlined, PhoneOutlined, MailOutlined } from '@ant-design/icons';
+import { UserOutlined, PhoneOutlined, MailOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faBed, faUser, faCheck, faExpandArrowsAlt } from '@fortawesome/free-solid-svg-icons';
+import { faBed, faCheck, faExpandArrowsAlt } from '@fortawesome/free-solid-svg-icons';
+import { useAuth } from '../../contexts/AuthContext';
+import { createBooking, checkAvailability } from '../../services/bookingService';
+import { getRoomById } from '../../services/roomService';
 import './Booking.css';
 
 const { RangePicker } = DatePicker;
@@ -30,41 +33,91 @@ interface SelectedRoom {
   price: number;
   beds: string;
   area: string;
+  capacity: number;
 }
 
 const Booking: React.FC = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const { user, isAuthenticated } = useAuth();
   const [selectedRoom, setSelectedRoom] = useState<SelectedRoom | null>(null);
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null]>([null, null]);
+  const [submitting, setSubmitting] = useState(false);
 
-  const { control, handleSubmit, setValue, watch, formState: { errors } } = useForm<BookingFormData>({
+  const { control, handleSubmit, setValue, watch, register, formState: { errors } } = useForm<BookingFormData>({
     defaultValues: {
       roomId: 0,
+      guestName: '',
+      guestEmail: user?.email || '',
+      guestPhone: user?.phone || '',
       adults: 2,
       children: 0,
       specialRequests: ''
     }
   });
 
+  register('roomId', { valueAsNumber: true, required: true, min: 1 });
+
   const adults = watch('adults');
   const children = watch('children');
 
   useEffect(() => {
-    const roomId = searchParams.get('id');
-    if (roomId) {
-      const roomData: SelectedRoom = {
-        id: parseInt(roomId),
-        name: 'Phòng Deluxe',
-        image: 'https://images.unsplash.com/photo-1590490360182-c33d57733427?w=600',
-        price: 1200000,
-        beds: '2 giường đơn',
-        area: '40m²'
-      };
-      setSelectedRoom(roomData);
-      setValue('roomId', parseInt(roomId));
+    if (user) {
+      setValue('guestEmail', user.email || '');
+      setValue('guestPhone', user.phone || '');
     }
-  }, [searchParams, setValue]);
+  }, [user, setValue]);
+
+  useEffect(() => {
+    const roomId = searchParams.get('id');
+
+    const loadRoom = async () => {
+      if (roomId) {
+        const parsedId = parseInt(roomId, 10);
+        if (Number.isNaN(parsedId)) {
+          message.error('Mã phòng không hợp lệ');
+          navigate('/rooms');
+          return;
+        }
+
+        try {
+          const response = await getRoomById(parsedId);
+          const room = response.data as {
+            id: number;
+            room_type_name: string;
+            price_per_night: number;
+            capacity: number;
+            area?: number;
+            room_number?: string;
+          };
+          setSelectedRoom({
+            id: room.id,
+            name: room.room_type_name,
+            image: 'https://images.unsplash.com/photo-1590490360182-c33d57733427?w=600',
+            price: Number(room.price_per_night),
+            beds: `${room.capacity} khách`,
+            area: room.area ? `${room.area}m²` : `Phòng ${room.room_number || room.id}`,
+            capacity: room.capacity,
+          });
+          setValue('roomId', room.id, { shouldValidate: true });
+        } catch (error: unknown) {
+          const err = error as { response?: { status?: number; data?: { message?: string } } };
+          const status = err.response?.status;
+          const msg = err.response?.data?.message;
+
+          if (status === 404) {
+            message.error('Không tìm thấy phòng này');
+          } else {
+            message.error(msg || 'Không thể tải thông tin phòng. Vui lòng thử lại sau.');
+          }
+          navigate('/rooms');
+        }
+      }
+    };
+
+    loadRoom();
+    window.scrollTo(0, 0);
+  }, [searchParams, setValue, navigate]);
 
   const calculateNights = () => {
     if (!dateRange[0] || !dateRange[1]) return 0;
@@ -79,19 +132,77 @@ const Booking: React.FC = () => {
   };
 
   const formatPrice = (price: number) => {
-    return new Intl.NumberFormat('vi-VN').format(price) + ' VNĐ';
+    return new Intl.NumberFormat('vi-VN').format(price) + '₫';
   };
 
-  const onSubmit = (data: BookingFormData) => {
+  const onSubmit = async (data: BookingFormData) => {
+    if (!isAuthenticated || !user?.id) {
+      message.warning('Vui lòng đăng nhập để đặt phòng');
+      navigate('/login');
+      return;
+    }
+
+    if (!selectedRoom) {
+      message.error('Vui lòng chọn phòng trước khi đặt');
+      return;
+    }
+
     if (!dateRange[0] || !dateRange[1]) {
       message.error('Vui lòng chọn ngày nhận và trả phòng');
       return;
     }
-    
-    message.success('Đặt phòng thành công! Chúng tôi sẽ liên hệ với bạn sớm nhất.');
-    setTimeout(() => {
-      navigate('/booking/history');
-    }, 1500);
+
+    const roomId = selectedRoom.id;
+    const checkIn = dateRange[0].format('YYYY-MM-DD');
+    const checkOut = dateRange[1].format('YYYY-MM-DD');
+
+    if (data.adults + data.children > selectedRoom.capacity) {
+      message.error(`Số khách vượt quá sức chứa phòng (${selectedRoom.capacity} người)`);
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const availability = await checkAvailability({
+        roomId,
+        checkIn,
+        checkOut,
+      });
+
+      if (!availability.data.available) {
+        message.error('Phòng không còn trống trong khoảng thời gian đã chọn');
+        return;
+      }
+
+      const result = await createBooking({
+        userId: user.id,
+        roomId,
+        checkIn,
+        checkOut,
+        guestName: data.guestName,
+        guestEmail: data.guestEmail,
+        guestPhone: data.guestPhone,
+        adults: data.adults,
+        children: data.children,
+        notes: data.specialRequests || null,
+        status: 'confirmed',
+      });
+
+      const booking = result.data as { id: number };
+      message.success('Đặt phòng thành công! Vui lòng thanh toán để hoàn tất.');
+      navigate(`/booking/${booking.id}/payment`);
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { message?: string } } };
+      const msg = err.response?.data?.message || 'Đặt phòng thất bại';
+      const errorMap: Record<string, string> = {
+        'roomId must be a positive integer': 'Mã phòng không hợp lệ',
+        'userId must be a positive integer': 'Thông tin tài khoản không hợp lệ, vui lòng đăng nhập lại',
+        'checkOut must be after checkIn': 'Ngày trả phòng phải sau ngày nhận phòng',
+      };
+      message.error(errorMap[msg] || msg);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -312,9 +423,9 @@ const Booking: React.FC = () => {
               <button 
                 type="submit" 
                 className="btn-confirm-booking"
-                disabled={!selectedRoom || nights === 0}
+                disabled={!selectedRoom || nights === 0 || submitting}
               >
-                Xác nhận đặt phòng
+                {submitting ? 'Đang xử lý...' : 'Xác nhận đặt phòng'}
               </button>
             </div>
           </div>

@@ -5,7 +5,6 @@ import {
   faBed, 
   faBath, 
   faExpandArrowsAlt,
-  faFilter,
   faSearch
 } from '@fortawesome/free-solid-svg-icons';
 import { getRooms } from '../../services/roomService';

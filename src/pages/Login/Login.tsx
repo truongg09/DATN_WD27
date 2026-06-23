@@ -2,6 +2,7 @@ import { Button, Card, Input, Typography, message } from "antd";
 import { useForm, Controller } from "react-hook-form";
 import { Link, useNavigate } from "react-router-dom";
 import { CloseOutlined } from "@ant-design/icons";
+import axios from "axios";
 import { useAuth } from "../../contexts/AuthContext";
 import { login as loginService } from "../../services/authService";
 
@@ -47,9 +48,10 @@ function Login() {
         console.log('Navigating to home...');
         navigate("/");
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Login error:', error);
-      message.error(error.response?.data?.message || "Đăng nhập thất bại!");
+      const msg = axios.isAxiosError(error) ? error.response?.data?.message : undefined;
+      message.error(msg || "Đăng nhập thất bại!");
     }
   };
 

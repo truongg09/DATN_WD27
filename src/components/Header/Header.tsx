@@ -4,8 +4,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
   faPhone, 
   faEnvelope,
-  faUser,
-  faCog
+  faUser
 } from '@fortawesome/free-solid-svg-icons';
 import { 
   faFacebook, 
@@ -19,8 +18,8 @@ const Header: React.FC = () => {
   const { user, isAuthenticated, logout } = useAuth();
   const navigate = useNavigate();
   
-  console.log('Header - user:', user);
-  console.log('Header - isAuthenticated:', isAuthenticated);
+  // console.log('Header - user:', user);
+  // console.log('Header - isAuthenticated:', isAuthenticated);
 
   const handleLogout = () => {
     logout();
@@ -68,7 +67,7 @@ const Header: React.FC = () => {
               <div className="user-info">
                 <span className="user-greeting">
                   <FontAwesomeIcon icon={faUser} />
-                  <span>{user.fullName}</span>
+                  <span>{user.email}</span>
                 </span>
                 <button className="btn-logout" onClick={handleLogout}>Đăng xuất</button>
               </div>

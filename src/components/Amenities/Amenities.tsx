@@ -15,11 +15,12 @@ import {
   faBath,
   faImage
 } from '@fortawesome/free-solid-svg-icons';
+import type { IconDefinition } from '@fortawesome/fontawesome-svg-core';
 import { getAmenities } from '../../services/amenityService';
 import type { Amenity } from '../../services/amenityService';
 import './amenities.css';
 
-const iconMap: Record<string, any> = {
+const iconMap: Record<string, IconDefinition> = {
   faSwimmingPool,
   faSpa,
   faUtensils,

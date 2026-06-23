@@ -1,7 +1,7 @@
 .booking-page {
   min-height: 100vh;
   background: #fafafa;
-  padding-top: 80px;
+  padding-top: 130px;
 }
 
 .booking-hero {
@@ -66,6 +66,7 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 20px;
+  margin-top: 10px;
 }
 
 .form-group {
@@ -91,25 +92,18 @@
 }
 
 .nights-info {
-  background: #f5f0eb;
-  padding: 16px;
-  border-radius: 10px;
-  margin-bottom: 20px;
-  display: inline-block;
+  margin-top: 10px;
+  margin-bottom: 10px;
 }
 
 .nights-count {
   color: #ab8965;
-  font-size: 16px;
-}
-
-.nights-count strong {
-  font-size: 20px;
+  font-size: 15px;
 }
 
 .booking-sidebar {
   position: sticky;
-  top: 100px;
+  top: 160px;
   height: fit-content;
 }
 
@@ -243,7 +237,6 @@
   border-radius: 10px;
   text-decoration: none;
   font-weight: 600;
-  transition: background 0.3s;
 }
 
 .btn-select-room:hover {
@@ -260,7 +253,6 @@
   font-size: 17px;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.3s;
   box-shadow: 0 4px 15px rgba(171, 137, 101, 0.35);
 }
 
