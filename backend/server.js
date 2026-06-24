@@ -14,12 +14,26 @@ app.use(express.json());
 const authRoutes = require('./routes/auth');
 const roomRoutes = require('./routes/rooms');
 const employeeRoutes = require('./routes/employees');
+const amenityRoutes = require('./routes/amenities');
 const bookingRoutes = require('./routes/bookings');
+const paymentRoutes = require('./routes/payments');
+const invoiceRoutes = require('./routes/invoices');
+const customerRoutes = require('./routes/customers');
+const dashboardRoutes = require('./routes/dashboard');
+const serviceRoutes = require('./routes/services');
+const bookingService = require('./services/bookingService');
+const ensureOperationalSchema = require('./ensure-operational-schema');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/rooms', roomRoutes);
 app.use('/api/employees', employeeRoutes);
+app.use('/api/amenities', amenityRoutes);
 app.use('/api/bookings', bookingRoutes);
+app.use('/api/payments', paymentRoutes);
+app.use('/api/invoices', invoiceRoutes);
+app.use('/api/customers', customerRoutes);
+app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/services', serviceRoutes);
 
 // Test endpoint
 app.get('/api/health', (req, res) => {
@@ -37,7 +51,20 @@ app.get('/api/db-test', async (req, res) => {
   }
 });
 
+setInterval(() => {
+  bookingService.expireUnpaidBookingHolds().catch((error) => {
+    console.error('Expire booking holds error:', error);
+  });
+}, 60 * 1000);
+
 // Start server
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-});
+ensureOperationalSchema()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`Server is running on port ${PORT}`);
+    });
+  })
+  .catch((error) => {
+    console.error('Failed to ensure operational schema:', error);
+    process.exit(1);
+  });

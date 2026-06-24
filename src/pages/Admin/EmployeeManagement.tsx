@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Table,
   Button,
@@ -16,6 +16,8 @@ import {
 } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined, EyeOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
+import type { Dayjs } from 'dayjs';
+import axios from 'axios';
 import api from '../../services/api';
 
 const { Option } = Select;
@@ -31,6 +33,17 @@ interface Employee {
   email: string;
   status: string;
   created_at: string;
+}
+
+interface EmployeeFormValues {
+  fullName: string;
+  email: string;
+  phone: string;
+  position: string;
+  salary: number;
+  hireDate: Dayjs;
+  status: string;
+  password?: string;
 }
 
 function EmployeeManagement() {
@@ -57,7 +70,18 @@ function EmployeeManagement() {
   };
 
   useEffect(() => {
-    fetchEmployees();
+    void (async () => {
+      setLoading(true);
+      try {
+        const response = await api.get('/employees');
+        setEmployees(response.data);
+      } catch (error) {
+        console.error('Error fetching employees:', error);
+        message.error('Lỗi khi tải danh sách nhân viên');
+      } finally {
+        setLoading(false);
+      }
+    })();
   }, []);
 
   const handleAdd = () => {
@@ -92,14 +116,14 @@ function EmployeeManagement() {
       console.log('Delete API response:', response);
       message.success('Xóa nhân viên thành công');
       fetchEmployees();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error deleting employee:', error);
-      console.error('Error details:', error.response);
-      message.error(error.response?.data?.message || 'Lỗi khi xóa nhân viên');
+      const msg = axios.isAxiosError(error) ? error.response?.data?.message : undefined;
+      message.error(msg || 'Lỗi khi xóa nhân viên');
     }
   };
 
-  const handleSubmit = async (values: any) => {
+  const handleSubmit = async (values: EmployeeFormValues) => {
     try {
       // Format hireDate to ISO string
       const submitValues = {
@@ -116,9 +140,10 @@ function EmployeeManagement() {
       }
       setModalVisible(false);
       fetchEmployees();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error submitting form:', error);
-      message.error(error.response?.data?.message || 'Lỗi khi lưu thông tin');
+      const msg = axios.isAxiosError(error) ? error.response?.data?.message : undefined;
+      message.error(msg || 'Lỗi khi lưu thông tin');
     }
   };
 
@@ -171,7 +196,7 @@ function EmployeeManagement() {
     {
       title: 'Hành động',
       key: 'actions',
-      render: (_: any, record: Employee) => (
+      render: (_: unknown, record: Employee) => (
         <Space>
           <Button
             type="primary"
@@ -291,7 +316,7 @@ function EmployeeManagement() {
               style={{ width: '100%' }}
               placeholder="Nhập lương"
               formatter={(value) => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-              parser={(value) => value?.replace(/\$\s?|(,*)/g, '')}
+              parser={(value) => value?.replace(/\$\s?|(,*)/g, '') ?? ''}
             />
           </Form.Item>
 

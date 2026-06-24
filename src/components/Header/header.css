@@ -48,9 +48,7 @@
 
 .logo h2 {
     color: #ab8965;
-    font-size: 36px;
-    font-weight: 700;
-    letter-spacing: 1px;
+    font-size: 28px;
 }
 
 .nav-menu ul {
@@ -100,12 +98,11 @@
     border-radius: 12px;
     font-size: 16px;
     font-weight: 600;
-    transition: background 0.3s;
     box-shadow: 0 4px 15px rgba(171, 137, 101, 0.35);
 }
 
 .btn-login:hover {
-    background: linear-gradient(135deg, #9a7a5a 0%, #70533a 100%);
+    background: #70533a;
 }
 
 .user-info {
@@ -126,6 +123,14 @@
     border-radius: 30px;
     border: 2px solid #f0e8e0;
     box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+    max-width: 220px;
+}
+
+.user-greeting span {
+    color: #ab8965;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .user-greeting svg {
@@ -141,16 +146,13 @@
     background: linear-gradient(135deg, #ab8965 0%, #9a7a5a 100%);
     color: #fff;
     border: none;
-    padding: 10px 28px;
-    border-radius: 30px;
-    font-size: 15px;
+    padding: 12px 28px;
+    border-radius: 12px;
+    font-size: 16px;
     font-weight: 600;
-    transition: all 0.3s;
-    box-shadow: 0 4px 10px rgba(171, 137, 101, 0.35);
+    box-shadow: 0 4px 15px rgba(171, 137, 101, 0.35);
 }
 
 .btn-logout:hover {
-    background: linear-gradient(135deg, #9a7a5a 0%, #70533a 100%);
-    transform: translateY(-2px);
-    box-shadow: 0 6px 15px rgba(171, 137, 101, 0.5);
+    background: #70533a;
 }
