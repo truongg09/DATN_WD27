@@ -9,6 +9,7 @@ import { register as registerService } from "../../services/authService";
 const { Title } = Typography;
 
 interface RegisterForm {
+  fullName: string;
   email: string;
   phone: string;
   password: string;
@@ -19,6 +20,7 @@ function Register() {
   const { login } = useAuth();
   const { control, handleSubmit, formState: { errors, isSubmitting } }= useForm<RegisterForm>({
     defaultValues: {
+      fullName: "",
       email: "",
       phone: "",
       password: "",
@@ -28,6 +30,7 @@ function Register() {
   const onSubmit = async (data: RegisterForm) => {
     try {
       const response = await registerService({
+        fullName: data.fullName,
         email: data.email,
         phone: data.phone,
         password: data.password,
@@ -57,6 +60,18 @@ function Register() {
           <Title level={2}>Đăng ký</Title>
 
           <form onSubmit={handleSubmit(onSubmit)}>
+
+            <Controller
+              name="fullName"
+              control={control}
+              rules={{ required: "Vui lòng nhập họ tên" }}
+              render={({ field }) => (
+                <Input placeholder="Họ tên" {...field} />
+              )}
+            />
+            {errors.fullName && <p style={{ color: "red", margin: "4px 0 0" }}>{errors.fullName.message}</p>}
+            <br />
+            <br />
 
             <Controller
               name="email"

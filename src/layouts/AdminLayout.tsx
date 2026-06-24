@@ -33,7 +33,7 @@ function AdminLayout() {
           </ul>
         </nav>
         <div className="admin-user">
-          <p>Xin chào, {user?.email}</p>
+          <p>Xin chào, {user?.fullName || user?.email}</p>
           <button className="btn-logout" onClick={handleLogout}>Đăng xuất</button>
         </div>
       </aside>

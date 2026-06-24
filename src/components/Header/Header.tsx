@@ -67,7 +67,7 @@ const Header: React.FC = () => {
               <div className="user-info">
                 <span className="user-greeting">
                   <FontAwesomeIcon icon={faUser} />
-                  <span>{user.email}</span>
+                  <span>{user.fullName || user.email}</span>
                 </span>
                 <button className="btn-logout" onClick={handleLogout}>Đăng xuất</button>
               </div>
