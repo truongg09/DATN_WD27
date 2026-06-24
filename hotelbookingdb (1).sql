@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: localhost:3306
--- Generation Time: Jun 22, 2026 at 12:33 PM
+-- Generation Time: Jun 24, 2026 at 08:11 AM
 -- Server version: 8.0.30
 -- PHP Version: 8.1.10
 
@@ -56,8 +56,7 @@ INSERT INTO `accounts` (`id`, `full_name`, `email`, `phone`, `password`, `role`,
 (9, 'Test User', 'test1782044410483@example.com', '0123456789', '$2b$10$DGcENCfuAhZq16hTNUwtAu5U0R/xoQI/VJeJ087ZF3qGXzXjCv8GO', 'customer', 'active', '2026-06-21 19:20:10', '2026-06-21 12:20:10', '2026-06-21 12:20:33'),
 (10, 'Test User', 'test1782044433890@example.com', '0123456789', '$2b$10$6HKWHAVun.rlLZ6UZ/L8K.cA92DipGSbAUyrhsZ13qOV1Ctd2nhfy', 'customer', 'active', '2026-06-21 19:20:33', '2026-06-21 12:20:33', '2026-06-21 12:20:33'),
 (11, 'API Test User', 'api-test-1782044456618@example.com', '0900000000', '$2b$10$W1b50nB6U8CHegYAPWLgQO5KMxf61.rELk84ktJgz33GlFFrHChk6', 'customer', 'active', '2026-06-21 19:20:57', '2026-06-21 12:20:57', '2026-06-21 12:20:57'),
-(12, 'Hương Trần', 'tranphuhuong1802@gmail.com', '0909999999', '$2b$10$mll3uj3dRFr6ohp6/jEOCuy9ZGKWifeve6lqABrYYMrSBXbGIZTna', 'customer', 'active', '2026-06-21 19:22:34', '2026-06-21 12:22:34', '2026-06-21 12:22:34'),
-(14, 'hoan', 'quy123@gmail.com', '0393166494', '$2b$10$fFmMOx95Eno84bMukzW3v.PZ/.21KGVeEMg5xXsqEXqC.4htNxnYC', 'customer', 'active', '2026-06-21 21:00:32', '2026-06-21 14:00:32', '2026-06-21 14:00:32');
+(12, 'Hương Trần', 'tranphuhuong1802@gmail.com', '0909999999', '$2b$10$mll3uj3dRFr6ohp6/jEOCuy9ZGKWifeve6lqABrYYMrSBXbGIZTna', 'customer', 'active', '2026-06-21 19:22:34', '2026-06-21 12:22:34', '2026-06-21 12:22:34');
 
 -- --------------------------------------------------------
 
@@ -95,28 +94,60 @@ INSERT INTO `amenities` (`id`, `name`, `icon`) VALUES
 
 CREATE TABLE `bookings` (
   `id` int NOT NULL,
+  `user_id` int DEFAULT NULL,
+  `room_id` int DEFAULT NULL,
+  `check_in` date DEFAULT NULL,
+  `check_out` date DEFAULT NULL,
+  `total_price` decimal(15,2) DEFAULT NULL,
+  `status` varchar(50) DEFAULT 'pending',
+  `notes` text,
+  `guest_name` varchar(255) DEFAULT NULL,
+  `guest_email` varchar(255) DEFAULT NULL,
+  `guest_phone` varchar(20) DEFAULT NULL,
   `customerId` int DEFAULT NULL,
   `voucherId` int DEFAULT NULL,
   `bookingCode` varchar(100) DEFAULT NULL,
   `bookingStatus` varchar(50) DEFAULT NULL,
   `totalAmount` decimal(15,2) DEFAULT NULL,
-  `createdAt` datetime DEFAULT CURRENT_TIMESTAMP
+  `createdAt` datetime DEFAULT CURRENT_TIMESTAMP,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 --
 -- Dumping data for table `bookings`
 --
 
-INSERT INTO `bookings` (`id`, `customerId`, `voucherId`, `bookingCode`, `bookingStatus`, `totalAmount`, `createdAt`) VALUES
-(1, 1, 1, 'BK001', 'confirmed', '900000.00', '2026-06-10 23:26:20'),
-(2, 2, 2, 'BK002', 'pending', '1350000.00', '2026-06-10 23:26:20'),
-(3, 3, 3, 'BK003', 'checkout', '2600000.00', '2026-06-10 23:26:20'),
-(4, 4, NULL, 'BK004', 'checkin', '1200000.00', '2026-06-10 23:26:20'),
-(5, 5, 1, 'BK005', 'confirmed', '1800000.00', '2026-06-10 23:26:20'),
-(6, 6, NULL, 'BK00006', 'confirmed', '14000000.00', '2026-06-21 21:33:35'),
-(7, 7, NULL, 'BK00007', 'confirmed', '1000000.00', '2026-06-21 21:41:55'),
-(8, 6, NULL, 'BK00008', 'confirmed', '63700000.00', '2026-06-21 21:45:43'),
-(9, 6, NULL, 'BK00009', 'confirmed', '16000000.00', '2026-06-22 18:50:44');
+INSERT INTO `bookings` (`id`, `user_id`, `room_id`, `check_in`, `check_out`, `total_price`, `status`, `notes`, `guest_name`, `guest_email`, `guest_phone`, `customerId`, `voucherId`, `bookingCode`, `bookingStatus`, `totalAmount`, `createdAt`, `created_at`) VALUES
+(1, NULL, NULL, NULL, NULL, '900000.00', 'pending', NULL, NULL, NULL, NULL, 1, 1, 'BK001', 'confirmed', '900000.00', '2026-06-10 23:26:20', '2026-06-23 18:33:42'),
+(2, NULL, NULL, NULL, NULL, '1350000.00', 'cancelled', NULL, NULL, NULL, NULL, 2, 2, 'BK002', 'cancelled', '1350000.00', '2026-06-10 23:26:20', '2026-06-23 18:33:42'),
+(3, NULL, NULL, NULL, NULL, '2600000.00', 'pending', NULL, NULL, NULL, NULL, 3, 3, 'BK003', 'checkout', '2600000.00', '2026-06-10 23:26:20', '2026-06-23 18:33:42'),
+(4, NULL, NULL, NULL, NULL, '1200000.00', 'cancelled', NULL, NULL, NULL, NULL, 4, NULL, 'BK004', 'cancelled', '1200000.00', '2026-06-10 23:26:20', '2026-06-23 18:33:42'),
+(5, NULL, NULL, NULL, NULL, '1800000.00', 'pending', NULL, NULL, NULL, NULL, 5, 1, 'BK005', 'confirmed', '1800000.00', '2026-06-10 23:26:20', '2026-06-23 18:33:42'),
+(7, 12, 1, '2026-06-24', '2026-07-25', '15500000.00', 'cancelled', NULL, 'Hà Phương Thúy', 'tranphuhuong1802@gmail.com', '0909999999', 7, NULL, NULL, 'confirmed', '15500000.00', '2026-06-24 01:37:20', '2026-06-23 18:37:20'),
+(8, 12, 3, '2026-06-24', '2026-07-22', '14000000.00', 'cancelled', NULL, 'Hà Phương Thúy', 'tranphuhuong1802@gmail.com', '0909999999', 7, NULL, NULL, 'confirmed', '14000000.00', '2026-06-24 01:47:03', '2026-06-23 18:47:03'),
+(9, 12, 2, '2026-06-25', '2026-07-01', '3000000.00', 'cancelled', NULL, 'Hà Phương Thúy', 'tranphuhuong1802@gmail.com', '0909999999', 7, NULL, NULL, 'cancelled', '3000000.00', '2026-06-24 01:52:06', '2026-06-23 18:52:06'),
+(10, 12, 8, '2026-06-25', '2026-07-01', '4200000.00', 'cancelled', NULL, 'Minh Tài', 'tranphuhuong1802@gmail.com', '0909999999', 7, NULL, NULL, 'cancelled', '4200000.00', '2026-06-24 02:05:29', '2026-06-23 19:05:29'),
+(11, 12, 2, '2026-06-24', '2026-07-01', '3500000.00', 'cancelled', NULL, 'Hà Phương Thúy', 'tranphuhuong1802@gmail.com', '0909999999', 7, NULL, NULL, 'cancelled', '3500000.00', '2026-06-24 02:33:25', '2026-06-23 19:33:25'),
+(12, 12, 1, '2026-06-24', '2026-07-01', '3500000.00', 'cancelled', NULL, 'Hà Phương Thúy', 'tranphuhuong1802@gmail.com', '0909999999', 7, NULL, NULL, 'cancelled', '3500000.00', '2026-06-24 07:28:47', '2026-06-24 00:28:47'),
+(13, 12, 1, '2026-06-24', '2026-07-01', '3500000.00', 'cancelled', NULL, 'Hà Phương Thúy', 'tranphuhuong1802@gmail.com', '0909999999', 7, NULL, NULL, 'cancelled', '3500000.00', '2026-06-24 14:52:37', '2026-06-24 07:52:37');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `booking_damage_charges`
+--
+
+CREATE TABLE `booking_damage_charges` (
+  `id` int NOT NULL,
+  `bookingId` int NOT NULL,
+  `roomId` int NOT NULL,
+  `itemName` varchar(255) NOT NULL,
+  `quantity` int NOT NULL DEFAULT '1',
+  `unitPrice` decimal(15,2) NOT NULL DEFAULT '0.00',
+  `totalPrice` decimal(15,2) NOT NULL DEFAULT '0.00',
+  `note` text,
+  `createdAt` datetime DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- --------------------------------------------------------
 
@@ -145,10 +176,47 @@ INSERT INTO `booking_details` (`id`, `bookingId`, `roomId`, `checkInDate`, `chec
 (3, 3, 9, '2026-06-20', '2026-06-23', 3, 1, '900000.00'),
 (4, 4, 13, '2026-06-22', '2026-06-24', 4, 0, '1200000.00'),
 (5, 5, 17, '2026-06-25', '2026-06-27', 2, 0, '2000000.00'),
-(6, 6, 3, '2026-06-24', '2026-07-22', 2, 0, '500000.00'),
-(7, 7, 3, '2026-12-01', '2026-12-03', 2, 0, '500000.00'),
-(8, 8, 6, '2026-06-26', '2026-09-25', 1, 1, '700000.00'),
-(9, 9, 1, '2026-06-30', '2026-08-01', 1, 1, '500000.00');
+(7, 7, 1, '2026-06-24', '2026-07-25', 2, 0, '500000.00'),
+(8, 8, 3, '2026-06-24', '2026-07-22', 2, 0, '500000.00'),
+(9, 9, 2, '2026-06-25', '2026-07-01', 2, 0, '500000.00'),
+(10, 10, 8, '2026-06-25', '2026-07-01', 2, 0, '700000.00'),
+(11, 11, 2, '2026-06-24', '2026-07-01', 2, 0, '500000.00'),
+(12, 12, 1, '2026-06-24', '2026-07-01', 2, 0, '500000.00'),
+(13, 13, 1, '2026-06-24', '2026-07-01', 2, 0, '500000.00');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `booking_guests`
+--
+
+CREATE TABLE `booking_guests` (
+  `id` int NOT NULL,
+  `bookingId` int NOT NULL,
+  `fullName` varchar(255) NOT NULL,
+  `identityNumber` varchar(50) NOT NULL,
+  `phone` varchar(30) DEFAULT NULL,
+  `note` text,
+  `createdAt` datetime DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `booking_room_transfers`
+--
+
+CREATE TABLE `booking_room_transfers` (
+  `id` int NOT NULL,
+  `bookingId` int NOT NULL,
+  `fromRoomId` int NOT NULL,
+  `toRoomId` int NOT NULL,
+  `fromDate` date NOT NULL,
+  `toDate` date NOT NULL,
+  `pricePerNight` decimal(15,2) NOT NULL DEFAULT '0.00',
+  `reason` text,
+  `createdAt` datetime DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- --------------------------------------------------------
 
@@ -229,8 +297,8 @@ INSERT INTO `customers` (`id`, `accountId`, `fullName`, `phone`, `gender`, `date
 (3, 6, 'Le Van C', '0933333333', 'Male', NULL, NULL, 'Vietnam', 'Da Nang'),
 (4, 7, 'Pham Thi D', '0944444444', 'Female', NULL, NULL, 'Vietnam', 'Hue'),
 (5, 8, 'Hoang Van E', '0955555555', 'Male', NULL, NULL, 'Vietnam', 'HCM'),
-(6, 14, 'hoan', '0393166494', NULL, NULL, NULL, NULL, NULL),
-(7, 1, 'admin@gmail.com', NULL, NULL, NULL, NULL, NULL, NULL);
+(6, 1, 'admin@gmail.com', NULL, NULL, NULL, NULL, NULL, NULL),
+(7, 12, 'tranphuhuong1802@gmail.com', '0909999999', NULL, NULL, NULL, NULL, NULL);
 
 -- --------------------------------------------------------
 
@@ -279,35 +347,6 @@ CREATE TABLE `employees` (
 INSERT INTO `employees` (`id`, `accountId`, `fullName`, `phone`, `position`, `salary`, `hireDate`) VALUES
 (1, 2, 'Nguyen Le Staff', '0901234567', 'Receptionist', '12000000.00', '2025-01-01'),
 (2, 3, 'Tran Staff', '0908888888', 'Manager', '18000000.00', '2025-01-01');
-
--- --------------------------------------------------------
-
---
--- Table structure for table `invoices`
---
-
-CREATE TABLE `invoices` (
-  `id` int NOT NULL,
-  `bookingId` int NOT NULL,
-  `paymentId` int DEFAULT NULL,
-  `invoiceCode` varchar(100) DEFAULT NULL,
-  `invoiceDate` datetime DEFAULT CURRENT_TIMESTAMP,
-  `subtotal` decimal(15,2) DEFAULT NULL,
-  `discountAmount` decimal(15,2) DEFAULT NULL,
-  `taxAmount` decimal(15,2) DEFAULT NULL,
-  `totalAmount` decimal(15,2) DEFAULT NULL,
-  `note` text,
-  `status` varchar(50) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-
---
--- Dumping data for table `invoices`
---
-
-INSERT INTO `invoices` (`id`, `bookingId`, `paymentId`, `invoiceCode`, `invoiceDate`, `subtotal`, `discountAmount`, `taxAmount`, `totalAmount`, `note`, `status`) VALUES
-(1, 6, 6, 'HD202606-00001', '2026-06-21 21:33:53', '14000000.00', '0.00', '0.00', '14000000.00', NULL, 'issued'),
-(2, 8, 8, 'HD202606-00002', '2026-06-21 21:46:01', '63700000.00', '0.00', '0.00', '63700000.00', NULL, 'issued'),
-(3, 9, 9, 'HD202606-00003', '2026-06-22 18:50:48', '16000000.00', '0.00', '0.00', '16000000.00', NULL, 'issued');
 
 -- --------------------------------------------------------
 
@@ -368,10 +407,13 @@ INSERT INTO `payments` (`id`, `bookingId`, `roomAmount`, `serviceAmount`, `surch
 (3, 3, '2700000.00', '200000.00', '0.00', '300000.00', '1000000.00', '2600000.00', '0.00', '2600000.00', 'vnpay', 'paid', 'TXN003', '2026-06-20 14:00:00'),
 (4, 4, '1200000.00', '0.00', '0.00', '0.00', '500000.00', '500000.00', '700000.00', '1200000.00', 'cash', 'unpaid', 'TXN004', '2026-06-22 15:00:00'),
 (5, 5, '2000000.00', '0.00', '0.00', '200000.00', '1000000.00', '1800000.00', '0.00', '1800000.00', 'vnpay', 'paid', 'TXN005', '2026-06-25 11:00:00'),
-(6, 6, '14000000.00', '0.00', '0.00', '0.00', '0.00', '14000000.00', '0.00', '14000000.00', 'cash', 'paid', 'CASH-MQNW09SJ-1YKYA6', '2026-06-21 21:33:53'),
-(7, 7, '1000000.00', '0.00', '0.00', '0.00', '0.00', '0.00', '1000000.00', '1000000.00', NULL, 'unpaid', NULL, NULL),
-(8, 8, '63700000.00', '0.00', '0.00', '0.00', '0.00', '63700000.00', '0.00', '63700000.00', 'vnpay', 'paid', 'VNPAY-MQNWFVOZ-9N0ULM', '2026-06-21 21:46:02'),
-(9, 9, '16000000.00', '0.00', '0.00', '0.00', '0.00', '16000000.00', '0.00', '16000000.00', 'cash', 'paid', 'CASH-MQP5MEFJ-TSOAOH', '2026-06-22 18:50:48');
+(7, 7, '15500000.00', '0.00', '0.00', '0.00', '0.00', '0.00', '15500000.00', '15500000.00', NULL, 'unpaid', NULL, NULL),
+(8, 8, '14000000.00', '0.00', '0.00', '0.00', '0.00', '0.00', '14000000.00', '14000000.00', NULL, 'unpaid', NULL, NULL),
+(9, 9, '3000000.00', '0.00', '0.00', '0.00', '0.00', '0.00', '3000000.00', '3000000.00', NULL, 'unpaid', NULL, NULL),
+(10, 10, '4200000.00', '0.00', '0.00', '0.00', '0.00', '0.00', '4200000.00', '4200000.00', NULL, 'unpaid', NULL, NULL),
+(11, 11, '3500000.00', '0.00', '0.00', '0.00', '0.00', '0.00', '3500000.00', '3500000.00', NULL, 'unpaid', NULL, NULL),
+(12, 12, '3500000.00', '0.00', '0.00', '0.00', '0.00', '0.00', '3500000.00', '3500000.00', NULL, 'unpaid', NULL, NULL),
+(13, 13, '3500000.00', '0.00', '0.00', '0.00', '0.00', '0.00', '3500000.00', '3500000.00', NULL, 'unpaid', NULL, NULL);
 
 -- --------------------------------------------------------
 
@@ -704,12 +746,36 @@ ALTER TABLE `bookings`
   ADD KEY `voucherId` (`voucherId`);
 
 --
+-- Indexes for table `booking_damage_charges`
+--
+ALTER TABLE `booking_damage_charges`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `bookingId` (`bookingId`),
+  ADD KEY `roomId` (`roomId`);
+
+--
 -- Indexes for table `booking_details`
 --
 ALTER TABLE `booking_details`
   ADD PRIMARY KEY (`id`),
   ADD KEY `bookingId` (`bookingId`),
   ADD KEY `roomId` (`roomId`);
+
+--
+-- Indexes for table `booking_guests`
+--
+ALTER TABLE `booking_guests`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `bookingId` (`bookingId`);
+
+--
+-- Indexes for table `booking_room_transfers`
+--
+ALTER TABLE `booking_room_transfers`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `bookingId` (`bookingId`),
+  ADD KEY `fromRoomId` (`fromRoomId`),
+  ADD KEY `toRoomId` (`toRoomId`);
 
 --
 -- Indexes for table `booking_services`
@@ -748,15 +814,6 @@ ALTER TABLE `damage_reports`
 ALTER TABLE `employees`
   ADD PRIMARY KEY (`id`),
   ADD KEY `accountId` (`accountId`);
-
---
--- Indexes for table `invoices`
---
-ALTER TABLE `invoices`
-  ADD PRIMARY KEY (`id`),
-  ADD UNIQUE KEY `invoiceCode` (`invoiceCode`),
-  ADD KEY `bookingId` (`bookingId`),
-  ADD KEY `paymentId` (`paymentId`);
 
 --
 -- Indexes for table `notifications`
@@ -851,7 +908,7 @@ ALTER TABLE `vouchers`
 -- AUTO_INCREMENT for table `accounts`
 --
 ALTER TABLE `accounts`
-  MODIFY `id` int NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=15;
+  MODIFY `id` int NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=13;
 
 --
 -- AUTO_INCREMENT for table `amenities`
@@ -863,13 +920,31 @@ ALTER TABLE `amenities`
 -- AUTO_INCREMENT for table `bookings`
 --
 ALTER TABLE `bookings`
-  MODIFY `id` int NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=10;
+  MODIFY `id` int NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=14;
+
+--
+-- AUTO_INCREMENT for table `booking_damage_charges`
+--
+ALTER TABLE `booking_damage_charges`
+  MODIFY `id` int NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `booking_details`
 --
 ALTER TABLE `booking_details`
-  MODIFY `id` int NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=10;
+  MODIFY `id` int NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=14;
+
+--
+-- AUTO_INCREMENT for table `booking_guests`
+--
+ALTER TABLE `booking_guests`
+  MODIFY `id` int NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `booking_room_transfers`
+--
+ALTER TABLE `booking_room_transfers`
+  MODIFY `id` int NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `booking_services`
@@ -902,12 +977,6 @@ ALTER TABLE `employees`
   MODIFY `id` int NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
 
 --
--- AUTO_INCREMENT for table `invoices`
---
-ALTER TABLE `invoices`
-  MODIFY `id` int NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
-
---
 -- AUTO_INCREMENT for table `notifications`
 --
 ALTER TABLE `notifications`
@@ -917,7 +986,7 @@ ALTER TABLE `notifications`
 -- AUTO_INCREMENT for table `payments`
 --
 ALTER TABLE `payments`
-  MODIFY `id` int NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=10;
+  MODIFY `id` int NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=14;
 
 --
 -- AUTO_INCREMENT for table `payment_status_logs`
@@ -991,11 +1060,32 @@ ALTER TABLE `bookings`
   ADD CONSTRAINT `bookings_ibfk_2` FOREIGN KEY (`voucherId`) REFERENCES `vouchers` (`id`);
 
 --
+-- Constraints for table `booking_damage_charges`
+--
+ALTER TABLE `booking_damage_charges`
+  ADD CONSTRAINT `booking_damage_charges_ibfk_1` FOREIGN KEY (`bookingId`) REFERENCES `bookings` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `booking_damage_charges_ibfk_2` FOREIGN KEY (`roomId`) REFERENCES `rooms` (`id`) ON DELETE CASCADE;
+
+--
 -- Constraints for table `booking_details`
 --
 ALTER TABLE `booking_details`
   ADD CONSTRAINT `booking_details_ibfk_1` FOREIGN KEY (`bookingId`) REFERENCES `bookings` (`id`),
   ADD CONSTRAINT `booking_details_ibfk_2` FOREIGN KEY (`roomId`) REFERENCES `rooms` (`id`);
+
+--
+-- Constraints for table `booking_guests`
+--
+ALTER TABLE `booking_guests`
+  ADD CONSTRAINT `booking_guests_ibfk_1` FOREIGN KEY (`bookingId`) REFERENCES `bookings` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `booking_room_transfers`
+--
+ALTER TABLE `booking_room_transfers`
+  ADD CONSTRAINT `booking_room_transfers_ibfk_1` FOREIGN KEY (`bookingId`) REFERENCES `bookings` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `booking_room_transfers_ibfk_2` FOREIGN KEY (`fromRoomId`) REFERENCES `rooms` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `booking_room_transfers_ibfk_3` FOREIGN KEY (`toRoomId`) REFERENCES `rooms` (`id`) ON DELETE CASCADE;
 
 --
 -- Constraints for table `booking_services`
@@ -1029,13 +1119,6 @@ ALTER TABLE `damage_reports`
 --
 ALTER TABLE `employees`
   ADD CONSTRAINT `employees_ibfk_1` FOREIGN KEY (`accountId`) REFERENCES `accounts` (`id`);
-
---
--- Constraints for table `invoices`
---
-ALTER TABLE `invoices`
-  ADD CONSTRAINT `invoices_ibfk_1` FOREIGN KEY (`bookingId`) REFERENCES `bookings` (`id`),
-  ADD CONSTRAINT `invoices_ibfk_2` FOREIGN KEY (`paymentId`) REFERENCES `payments` (`id`);
 
 --
 -- Constraints for table `notifications`

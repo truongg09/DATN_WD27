@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { Card, Radio, Button, Spin, message, Descriptions, Tag, Alert } from 'antd';
 import { CreditCardOutlined, WalletOutlined, DollarOutlined } from '@ant-design/icons';
+import dayjs from 'dayjs';
 import { getBookingDetail } from '../../services/bookingService';
 import { getPaymentByBookingId, processPayment } from '../../services/paymentService';
 import type { Payment, PaymentMethod } from '../../types/payment';
@@ -9,6 +10,25 @@ import './Payment.css';
 
 const formatPrice = (price: number) =>
   new Intl.NumberFormat('vi-VN').format(price) + '₫';
+
+const formatDate = (date: string | Date) => {
+  return dayjs(date).format('DD/MM/YYYY');
+};
+
+const HOLD_MINUTES = 15;
+const HOLD_DURATION_MS = HOLD_MINUTES * 60 * 1000;
+
+const getHoldRemainingMs = (createdAt?: unknown) => {
+  if (!createdAt) return 0;
+  return Math.max(dayjs(String(createdAt)).add(HOLD_MINUTES, 'minute').diff(dayjs()), 0);
+};
+
+const formatHoldTime = (milliseconds: number) => {
+  const totalSeconds = Math.max(Math.floor(milliseconds / 1000), 0);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+};
 
 const statusLabels: Record<string, { label: string; color: string }> = {
   unpaid: { label: 'Chưa thanh toán', color: 'orange' },
@@ -20,14 +40,23 @@ const PaymentPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const bookingId = Number(id);
+  const isValidBookingId = Number.isInteger(bookingId) && bookingId > 0;
 
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [booking, setBooking] = useState<Record<string, unknown> | null>(null);
   const [payment, setPayment] = useState<Payment | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
+  const [paymentAmountMode, setPaymentAmountMode] = useState<'deposit' | 'full'>('deposit');
+  const [holdRemainingMs, setHoldRemainingMs] = useState(0);
 
   useEffect(() => {
+    if (!isValidBookingId) {
+      message.error('Mã đặt phòng không hợp lệ');
+      navigate('/booking/history');
+      return;
+    }
+
     const fetchData = async () => {
       setLoading(true);
       try {
@@ -45,17 +74,39 @@ const PaymentPage: React.FC = () => {
       }
     };
 
-    if (bookingId) {
-      fetchData();
+    fetchData();
+    window.scrollTo(0, 0);
+  }, [bookingId, isValidBookingId, navigate]);
+
+  useEffect(() => {
+    if (!booking || payment?.paymentStatus !== 'unpaid') {
+      setHoldRemainingMs(0);
+      return;
     }
-  }, [bookingId, navigate]);
+
+    const updateRemaining = () => {
+      setHoldRemainingMs(getHoldRemainingMs(booking.created_at));
+    };
+
+    updateRemaining();
+    const timer = window.setInterval(updateRemaining, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [booking, payment?.paymentStatus]);
 
   const handlePay = async () => {
     if (!payment) return;
 
+    const hasDeposit = payment.paidAmount > 0;
+    const requiredDepositAmount = Math.min(Math.ceil(payment.totalAmount * 0.3), payment.remainingAmount);
+    const amount =
+      paymentAmountMode === 'deposit' && !hasDeposit
+        ? requiredDepositAmount
+        : payment.remainingAmount;
+
     setSubmitting(true);
     try {
-      const result = await processPayment(payment.id, { paymentMethod });
+      const result = await processPayment(payment.id, { paymentMethod, amount });
 
       if (result.data.redirectUrl && paymentMethod !== 'cash') {
         message.info('Đang chuyển hướng đến cổng thanh toán...');
@@ -85,6 +136,14 @@ const PaymentPage: React.FC = () => {
   }
 
   const isPaid = payment.paymentStatus === 'paid';
+  const hasDeposit = payment.paidAmount > 0;
+  const requiredDepositAmount = Math.min(Math.ceil(payment.totalAmount * 0.3), payment.remainingAmount);
+  const paymentAmount =
+    paymentAmountMode === 'deposit' && !hasDeposit
+      ? requiredDepositAmount
+      : payment.remainingAmount;
+  const isHoldExpired = payment.paymentStatus === 'unpaid' && !hasDeposit && holdRemainingMs <= 0;
+  const holdPercent = Math.max(Math.min((holdRemainingMs / HOLD_DURATION_MS) * 100, 100), 0);
 
   return (
     <div className="payment-page">
@@ -94,14 +153,49 @@ const PaymentPage: React.FC = () => {
       </div>
 
       <div className="payment-container">
+        {!isPaid && !hasDeposit && (
+          <Card className={`payment-card hold-countdown-card ${isHoldExpired ? 'expired' : ''}`}>
+            <div className="hold-countdown-top">
+              <div>
+                <span className="hold-label">Thời gian giữ phòng</span>
+                <strong>{isHoldExpired ? 'Đã hết thời gian giữ chỗ' : formatHoldTime(holdRemainingMs)}</strong>
+              </div>
+              <Tag color={isHoldExpired ? 'red' : 'orange'}>
+                {isHoldExpired ? 'Cần đặt lại' : `Giữ tạm ${HOLD_MINUTES} phút`}
+              </Tag>
+            </div>
+            <div className="hold-progress">
+              <span style={{ width: `${holdPercent}%` }} />
+            </div>
+            <p>
+              {isHoldExpired
+                ? 'Phiên giữ phòng đã hết hạn. Bạn vui lòng đặt lại để kiểm tra phòng trống mới nhất.'
+                : 'Phòng đang được giữ tạm cho bạn. Hoàn tất thanh toán trước khi hết giờ để xác nhận đặt phòng.'}
+            </p>
+          </Card>
+        )}
+        {!isPaid && hasDeposit && (
+          <Card className="payment-card hold-countdown-card deposit-secured">
+            <div className="hold-countdown-top">
+              <div>
+                <span className="hold-label">Đã thanh toán cọc</span>
+                <strong>Phòng đã được giữ</strong>
+              </div>
+              <Tag color="green">Còn lại {formatPrice(payment.remainingAmount)}</Tag>
+            </div>
+            <p>
+              Bạn đã đặt cọc thành công. Vui lòng thanh toán số tiền còn lại trước khi check-in.
+            </p>
+          </Card>
+        )}
         <Card title="Thông tin đặt phòng" className="payment-card">
           <Descriptions column={1} bordered size="small">
             <Descriptions.Item label="Phòng">
               {String(booking.room_number)} - {String(booking.room_type_name)}
             </Descriptions.Item>
             <Descriptions.Item label="Khách hàng">{String(booking.customer_name)}</Descriptions.Item>
-            <Descriptions.Item label="Nhận phòng">{String(booking.check_in)}</Descriptions.Item>
-            <Descriptions.Item label="Trả phòng">{String(booking.check_out)}</Descriptions.Item>
+            <Descriptions.Item label="Nhận phòng">{formatDate(String(booking.check_in))}</Descriptions.Item>
+            <Descriptions.Item label="Trả phòng">{formatDate(String(booking.check_out))}</Descriptions.Item>
             <Descriptions.Item label="Trạng thái thanh toán">
               <Tag color={statusLabels[payment.paymentStatus]?.color}>
                 {statusLabels[payment.paymentStatus]?.label}
@@ -149,6 +243,29 @@ const PaymentPage: React.FC = () => {
 
         {!isPaid ? (
           <Card title="Phương thức thanh toán" className="payment-card">
+            {!hasDeposit && (
+              <div className="payment-amount-options">
+                <Radio.Group
+                  value={paymentAmountMode}
+                  onChange={(e) => setPaymentAmountMode(e.target.value)}
+                >
+                  <Radio.Button value="deposit">
+                    Cọc 30% ({formatPrice(requiredDepositAmount)})
+                  </Radio.Button>
+                  <Radio.Button value="full">
+                    Thanh toán toàn bộ ({formatPrice(payment.remainingAmount)})
+                  </Radio.Button>
+                </Radio.Group>
+                <Alert
+                  style={{ marginTop: 12 }}
+                  type="warning"
+                  showIcon
+                  message="Quy tắc cọc"
+                  description="Sau khi thanh toán cọc, phòng được giữ cho bạn. Phần còn lại cần thanh toán trước khi check-in."
+                />
+              </div>
+            )}
+
             <Radio.Group
               value={paymentMethod}
               onChange={(e) => setPaymentMethod(e.target.value)}
@@ -175,8 +292,14 @@ const PaymentPage: React.FC = () => {
             )}
 
             <div className="payment-actions">
-              <Button type="primary" size="large" loading={submitting} onClick={handlePay}>
-                Thanh toán {formatPrice(payment.remainingAmount)}
+              <Button
+                type="primary"
+                size="large"
+                loading={submitting}
+                disabled={isHoldExpired}
+                onClick={handlePay}
+              >
+                Thanh toán {formatPrice(paymentAmount)}
               </Button>
               <Link to={`/booking/${bookingId}`}>
                 <Button size="large">Xem chi tiết đặt phòng</Button>

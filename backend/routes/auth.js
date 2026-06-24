@@ -8,12 +8,11 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this-in-pro
 
 router.post('/register', async (req, res) => {
   try {
-    const fullName = req.body.full_name || req.body.fullName;
     const { email, phone, password } = req.body;
 
-    if (!fullName || !email || !phone || !password) {
+    if (!email || !phone || !password) {
       return res.status(400).json({
-        message: 'Vui lòng nhập đầy đủ họ tên, email, số điện thoại và mật khẩu'
+        message: 'Vui lòng nhập đầy đủ email, số điện thoại và mật khẩu'
       });
     }
 
@@ -37,10 +36,10 @@ router.post('/register', async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
     const [result] = await db.query(
       `
-        INSERT INTO accounts (full_name, email, phone, password, role, status)
-        VALUES (?, ?, ?, ?, 'customer', 'active')
+        INSERT INTO accounts (email, phone, password, role, status)
+        VALUES (?, ?, ?, 'customer', 'active')
       `,
-      [fullName, email, phone, hashedPassword]
+      [email, phone, hashedPassword]
     );
 
     const token = jwt.sign(
@@ -54,7 +53,6 @@ router.post('/register', async (req, res) => {
       token,
       user: {
         id: result.insertId,
-        fullName,
         email,
         phone,
         role: 'customer'
@@ -111,7 +109,6 @@ router.post('/login', async (req, res) => {
       token,
       user: {
         id: user.id,
-        fullName: user.full_name,
         email: user.email,
         phone: user.phone,
         role: user.role

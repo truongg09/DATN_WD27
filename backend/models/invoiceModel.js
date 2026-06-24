@@ -6,7 +6,7 @@ const INVOICE_SELECT = `
   SELECT
     i.*,
     b.customerId AS user_id,
-    COALESCE(c.fullName, a.full_name) AS customer_name,
+    COALESCE(b.guest_name, c.fullName, a.email) AS customer_name,
     a.email AS customer_email,
     COALESCE(c.phone, a.phone) AS customer_phone,
     r.roomNumber AS room_number,

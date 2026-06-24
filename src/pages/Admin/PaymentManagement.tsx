@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Table,
   Tag,
@@ -52,7 +52,18 @@ function PaymentManagement() {
   };
 
   useEffect(() => {
-    fetchPayments();
+    void (async () => {
+      setLoading(true);
+      try {
+        const params = statusFilter ? { paymentStatus: statusFilter } : undefined;
+        const response = await getPayments(params);
+        setPayments(unwrapList<Payment>(response));
+      } catch {
+        message.error('Lỗi khi tải danh sách thanh toán');
+      } finally {
+        setLoading(false);
+      }
+    })();
   }, [statusFilter]);
 
   const handleRefund = async (id: number) => {

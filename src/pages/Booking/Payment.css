@@ -1,6 +1,7 @@
 .payment-page {
   min-height: 60vh;
   background: #f8f9fa;
+  padding-top: 130px;
 }
 
 .payment-page.loading {
@@ -13,7 +14,7 @@
 .payment-hero {
   background: linear-gradient(135deg, #1a365d 0%, #2c5282 100%);
   color: white;
-  padding: 48px 24px;
+  padding: 35px 28px;
   text-align: center;
 }
 
@@ -23,14 +24,14 @@
 }
 
 .payment-hero p {
-  margin: 0;
+  margin: 10px;
   opacity: 0.9;
 }
 
 .payment-container {
   max-width: 720px;
   margin: -32px auto 48px;
-  padding: 0 24px;
+  padding: 10px 24px;
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -39,6 +40,82 @@
 .payment-card {
   border-radius: 12px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+}
+
+.hold-countdown-card {
+  border: 1px solid #fed7aa;
+  background: #fff7ed;
+}
+
+.hold-countdown-card.expired {
+  border-color: #fecaca;
+  background: #fff5f5;
+}
+
+.hold-countdown-card.deposit-secured {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+
+.hold-countdown-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.hold-label {
+  display: block;
+  margin-bottom: 4px;
+  color: #9a3412;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.hold-countdown-card.expired .hold-label {
+  color: #b42318;
+}
+
+.hold-countdown-top strong {
+  color: #111827;
+  font-size: 28px;
+  line-height: 1;
+}
+
+.hold-progress {
+  height: 8px;
+  overflow: hidden;
+  margin: 18px 0 12px;
+  border-radius: 999px;
+  background: rgba(251, 146, 60, 0.22);
+}
+
+.hold-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #f97316;
+  transition: width 0.3s ease;
+}
+
+.hold-countdown-card.expired .hold-progress span {
+  background: #ef4444;
+}
+
+.hold-countdown-card p {
+  margin: 0;
+  color: #7c2d12;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.hold-countdown-card.expired p {
+  color: #991b1b;
+}
+
+.hold-countdown-card.deposit-secured p,
+.hold-countdown-card.deposit-secured .hold-label {
+  color: #047857;
 }
 
 .payment-summary {
@@ -74,6 +151,23 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.payment-amount-options {
+  margin-bottom: 18px;
+}
+
+.payment-amount-options .ant-radio-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.payment-amount-options .ant-radio-button-wrapper {
+  height: auto;
+  padding: 12px 18px;
+  border-radius: 8px !important;
+  font-weight: 700;
 }
 
 .payment-methods .ant-radio-button-wrapper {

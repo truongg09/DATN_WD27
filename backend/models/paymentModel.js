@@ -5,15 +5,15 @@ const run = (connection) => connection || db;
 const PAYMENT_SELECT = `
   SELECT
     p.*,
-    b.bookingStatus AS booking_status,
-    COALESCE(c.fullName, a.full_name) AS customer_name,
+    b.status AS booking_status,
+    COALESCE(b.guest_name, c.fullName, a.email) AS customer_name,
     r.roomNumber AS room_number
   FROM payments p
   JOIN bookings b ON b.id = p.bookingId
-  LEFT JOIN customers c ON c.id = b.customerId
-  LEFT JOIN accounts a ON a.id = c.accountId
+  LEFT JOIN customers c ON c.accountId = b.user_id
+  LEFT JOIN accounts a ON a.id = b.user_id
   LEFT JOIN booking_details bd ON bd.bookingId = b.id
-  LEFT JOIN rooms r ON r.id = bd.roomId
+  LEFT JOIN rooms r ON r.id = COALESCE(bd.roomId, b.room_id)
 `;
 
 const createPayment = async (payload, connection) => {

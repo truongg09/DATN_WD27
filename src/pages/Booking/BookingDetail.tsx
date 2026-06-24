@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { Card, Descriptions, Tag, Button, Spin, message, Divider } from 'antd';
 import { FileTextOutlined, CreditCardOutlined } from '@ant-design/icons';
+import dayjs from 'dayjs';
 import { getBookingDetail } from '../../services/bookingService';
 import { getPaymentByBookingId } from '../../services/paymentService';
 import { getInvoiceByBookingId } from '../../services/invoiceService';
@@ -11,6 +12,10 @@ import './BookingDetail.css';
 
 const formatPrice = (price: number) =>
   new Intl.NumberFormat('vi-VN').format(price) + '₫';
+
+const formatDate = (date: string | Date) => {
+  return dayjs(date).format('DD/MM/YYYY');
+};
 
 const bookingStatusMap: Record<string, { label: string; color: string }> = {
   pending: { label: 'Chờ xác nhận', color: 'gold' },
@@ -30,6 +35,7 @@ const BookingDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const bookingId = Number(id);
+  const isValidBookingId = Number.isInteger(bookingId) && bookingId > 0;
 
   const [loading, setLoading] = useState(true);
   const [booking, setBooking] = useState<Record<string, unknown> | null>(null);
@@ -37,6 +43,12 @@ const BookingDetail: React.FC = () => {
   const [invoice, setInvoice] = useState<Invoice | null>(null);
 
   useEffect(() => {
+    if (!isValidBookingId) {
+      message.error('Mã đặt phòng không hợp lệ');
+      navigate('/booking/history');
+      return;
+    }
+
     const fetchData = async () => {
       setLoading(true);
       try {
@@ -66,10 +78,9 @@ const BookingDetail: React.FC = () => {
       }
     };
 
-    if (bookingId) {
-      fetchData();
-    }
-  }, [bookingId, navigate]);
+    fetchData();
+    window.scrollTo(0, 0);
+  }, [bookingId, isValidBookingId, navigate]);
 
   if (loading) {
     return (
@@ -101,18 +112,18 @@ const BookingDetail: React.FC = () => {
             <Descriptions.Item label="Phòng">
               {String(booking.room_number)} - {String(booking.room_type_name)}
             </Descriptions.Item>
-            <Descriptions.Item label="Nhận phòng">{String(booking.check_in)}</Descriptions.Item>
-            <Descriptions.Item label="Trả phòng">{String(booking.check_out)}</Descriptions.Item>
+            <Descriptions.Item label="Nhận phòng">{formatDate(String(booking.check_in))}</Descriptions.Item>
+            <Descriptions.Item label="Trả phòng">{formatDate(String(booking.check_out))}</Descriptions.Item>
             <Descriptions.Item label="Người lớn">{String(booking.adults || '-')}</Descriptions.Item>
             <Descriptions.Item label="Trẻ em">{String(booking.children || 0)}</Descriptions.Item>
             <Descriptions.Item label="Tổng tiền" span={2}>
               <strong>{formatPrice(Number(booking.total_price))}</strong>
             </Descriptions.Item>
-            {booking.notes && (
+            {booking.notes ? (
               <Descriptions.Item label="Ghi chú" span={2}>
                 {String(booking.notes)}
               </Descriptions.Item>
-            )}
+            ) : null}
           </Descriptions>
         </Card>
 

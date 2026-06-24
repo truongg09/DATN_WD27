@@ -84,6 +84,41 @@ const createPayment = async (payload) => {
   }
 };
 
+const recalculatePaymentForBooking = async (bookingId, connection) => {
+  const booking = await bookingModel.getBookingById(bookingId, connection, !!connection);
+  if (!booking) {
+    throw new HttpError(404, 'Booking not found');
+  }
+
+  const payment = await paymentModel.getPaymentByBookingId(bookingId, connection);
+  if (!payment) {
+    return null;
+  }
+
+  const roomAmount = Number(booking.total_price || 0);
+  const serviceAmount = await bookingModel.sumBookingServices(bookingId, connection);
+  const surchargeAmount = await bookingModel.sumDamageCharges(bookingId, connection);
+  const discountAmount = Number(payment.discountAmount || 0);
+  const paidAmount = Number(payment.paidAmount || 0);
+  const totalAmount = Math.max(roomAmount + serviceAmount + surchargeAmount - discountAmount, 0);
+  const remainingAmount = Math.max(totalAmount - paidAmount, 0);
+
+  await paymentModel.updatePayment(
+    payment.id,
+    {
+      roomAmount,
+      serviceAmount,
+      totalAmount,
+      remainingAmount,
+      paymentStatus: remainingAmount <= 0 ? 'paid' : 'unpaid'
+    },
+    connection
+  );
+
+  const updatedPayment = await paymentModel.getPaymentById(payment.id, connection);
+  return formatPayment(updatedPayment);
+};
+
 const listPayments = async (filters) => {
   const rows = await paymentModel.listPayments(filters);
   return rows.map(formatPayment);
@@ -111,6 +146,8 @@ const processPayment = async (paymentId, payload) => {
   try {
     await connection.beginTransaction();
 
+    await bookingModel.expireUnpaidBookingHolds(connection);
+
     const payment = await paymentModel.getPaymentById(paymentId, connection, true);
     if (!payment) {
       throw new HttpError(404, 'Payment not found');
@@ -122,6 +159,29 @@ const processPayment = async (paymentId, payload) => {
 
     if (payment.paymentStatus === 'refunded') {
       throw new HttpError(409, 'Cannot pay a refunded payment');
+    }
+
+    const booking = await bookingModel.getBookingById(payment.bookingId, connection, true);
+    if (!booking) {
+      throw new HttpError(404, 'Booking not found');
+    }
+
+    if (booking.status === 'cancelled') {
+      throw new HttpError(409, 'Đặt phòng đã hết thời gian giữ chỗ, vui lòng đặt lại phòng khác');
+    }
+
+    const conflicts = await bookingModel.getConflictingBookings(
+      booking.room_id,
+      booking.check_in,
+      booking.check_out,
+      connection,
+      true,
+      { excludeBookingId: booking.id }
+    );
+
+    if (conflicts.length > 0) {
+      await bookingModel.updateBookingStatus(booking.id, 'cancelled', connection);
+      throw new HttpError(409, 'Phòng vừa được đặt bởi khách khác, vui lòng đặt phòng khác!');
     }
 
     const payAmount = payload.amount ?? Number(payment.remainingAmount);
@@ -219,6 +279,7 @@ const refundPayment = async (paymentId) => {
 module.exports = {
   createPaymentForBooking,
   createPayment,
+  recalculatePaymentForBooking,
   listPayments,
   getPaymentById,
   getPaymentByBookingId,

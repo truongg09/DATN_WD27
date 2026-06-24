@@ -121,50 +121,6 @@ const initDB = async () => {
     `);
     console.log('Room_availability table created');
 
-    await connection.query(`
-      CREATE TABLE IF NOT EXISTS payments (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        booking_id INT NOT NULL,
-        room_amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
-        service_amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
-        surcharge_amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
-        discount_amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
-        deposit_amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
-        paid_amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
-        remaining_amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
-        total_amount DECIMAL(10, 2) NOT NULL,
-        payment_method VARCHAR(50),
-        payment_status ENUM('unpaid', 'paid', 'refunded') DEFAULT 'unpaid',
-        transaction_code VARCHAR(255),
-        payment_date TIMESTAMP NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE
-      )
-    `);
-    console.log('Payments table created');
-
-    await connection.query(`
-      CREATE TABLE IF NOT EXISTS invoices (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        invoice_number VARCHAR(50) NOT NULL UNIQUE,
-        booking_id INT NOT NULL,
-        payment_id INT NULL,
-        user_id INT NOT NULL,
-        room_amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
-        service_amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
-        discount_amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
-        total_amount DECIMAL(10, 2) NOT NULL,
-        status ENUM('draft', 'issued', 'cancelled') DEFAULT 'issued',
-        issued_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE,
-        FOREIGN KEY (payment_id) REFERENCES payments(id) ON DELETE SET NULL,
-        FOREIGN KEY (user_id) REFERENCES accounts(id) ON DELETE CASCADE
-      )
-    `);
-    console.log('Invoices table created');
-
     // Insert sample room types
     const [roomTypes] = await connection.query('SELECT id FROM room_types LIMIT 1');
     if (roomTypes.length === 0) {
