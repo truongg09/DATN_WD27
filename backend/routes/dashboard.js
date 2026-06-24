@@ -8,7 +8,7 @@ function formatLocalDateTime(d) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
-function getDateRange(mode) {
+function getDateRange(mode, customFrom = null, customTo = null) {
   const now = new Date();
   let from;
   let to;
@@ -16,6 +16,11 @@ function getDateRange(mode) {
   if (mode === 'year') {
     from = new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
     to = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+  } else if (mode === 'custom' && customFrom && customTo) {
+    from = new Date(customFrom);
+    from.setHours(0, 0, 0, 0);
+    to = new Date(customTo);
+    to.setHours(23, 59, 59, 999);
   } else {
     from = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
     to = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
@@ -39,6 +44,7 @@ function buildCategories(mode, fromDate, toDate) {
     return categories;
   }
 
+  // For month and custom mode, group by day
   }
   return categories;
 }
@@ -59,8 +65,10 @@ function mapSeriesRows(rows, mode, categories) {
 
 router.get('/', async (req, res) => {
   try {
-    const mode = req.query.mode === 'year' ? 'year' : 'month';
-    const { from, to, fromDate, toDate } = getDateRange(mode);
+    const mode = req.query.mode === 'year' ? 'year' : (req.query.mode === 'custom' ? 'custom' : 'month');
+    const customFrom = req.query.from;
+    const customTo = req.query.to;
+    const { from, to, fromDate, toDate } = getDateRange(mode, customFrom, customTo);
     const categories = buildCategories(mode, fromDate, toDate);
     const periodDays = daysInRange(fromDate, toDate);
 
