@@ -5,7 +5,6 @@ USE hotelbookingdb;
 -- Accounts table
 CREATE TABLE IF NOT EXISTS accounts (
   id INT AUTO_INCREMENT PRIMARY KEY,
-  full_name VARCHAR(255) NOT NULL,
   email VARCHAR(255) UNIQUE NOT NULL,
   phone VARCHAR(20),
   password VARCHAR(255) NOT NULL,
@@ -13,6 +12,22 @@ CREATE TABLE IF NOT EXISTS accounts (
   status ENUM('active', 'inactive') DEFAULT 'active',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+-- Customers table
+CREATE TABLE IF NOT EXISTS customers (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  accountId INT NOT NULL,
+  fullName VARCHAR(255),
+  phone VARCHAR(20),
+  gender ENUM('male', 'female', 'other'),
+  dateOfBirth DATE,
+  citizenId VARCHAR(50),
+  nationality VARCHAR(100),
+  address TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (accountId) REFERENCES accounts(id) ON DELETE CASCADE
 );
 
 -- Room types table
