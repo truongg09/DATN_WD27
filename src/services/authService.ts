@@ -9,6 +9,7 @@ export interface RegisterRequest {
   email: string;
   phone: string;
   password: string;
+  fullName: string;
 }
 
 export interface AuthResponse {
@@ -16,8 +17,10 @@ export interface AuthResponse {
   token: string;
   user: {
     id: number;
+    customerId?: number;
     email: string;
     phone: string;
+    fullName?: string;
     role: string;
   };
 }

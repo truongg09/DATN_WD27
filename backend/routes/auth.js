@@ -8,11 +8,11 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this-in-pro
 
 router.post('/register', async (req, res) => {
   try {
-    const { email, phone, password } = req.body;
+    const { email, phone, password, fullName } = req.body;
 
-    if (!email || !phone || !password) {
+    if (!email || !phone || !password || !fullName) {
       return res.status(400).json({
-        message: 'Vui lòng nhập đầy đủ email, số điện thoại và mật khẩu'
+        message: 'Vui lòng nhập đầy đủ họ tên, email, số điện thoại và mật khẩu'
       });
     }
 
@@ -34,7 +34,7 @@ router.post('/register', async (req, res) => {
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    const [result] = await db.query(
+    const [accountResult] = await db.query(
       `
         INSERT INTO accounts (email, phone, password, role, status)
         VALUES (?, ?, ?, 'customer', 'active')
@@ -42,8 +42,16 @@ router.post('/register', async (req, res) => {
       [email, phone, hashedPassword]
     );
 
+    const [customerResult] = await db.query(
+      `
+        INSERT INTO customers (accountId, fullName, phone)
+        VALUES (?, ?, ?)
+      `,
+      [accountResult.insertId, fullName, phone]
+    );
+
     const token = jwt.sign(
-      { userId: result.insertId, email, role: 'customer' },
+      { userId: accountResult.insertId, email, role: 'customer' },
       JWT_SECRET,
       { expiresIn: '7d' }
     );
@@ -52,9 +60,11 @@ router.post('/register', async (req, res) => {
       message: 'Đăng ký thành công',
       token,
       user: {
-        id: result.insertId,
+        id: accountResult.insertId,
+        customerId: customerResult.insertId,
         email,
         phone,
+        fullName,
         role: 'customer'
       }
     });
@@ -89,14 +99,22 @@ router.post('/login', async (req, res) => {
     } else {
       passwordMatch = password === user.password;
     }
-    
+
     if (!passwordMatch) {
       return res.status(401).json({ message: "Invalid email or password" });
     }
-    
+
     if (!passwordMatch) {
       return res.status(401).json({ message: 'Email hoặc mật khẩu không đúng' });
     }
+
+    // Get customer info
+    const [customers] = await db.query(
+      'SELECT id, fullName FROM customers WHERE accountId = ?',
+      [user.id]
+    );
+
+    const customer = customers[0] || {};
 
     const token = jwt.sign(
       { userId: user.id, email: user.email, role: user.role },
@@ -109,8 +127,10 @@ router.post('/login', async (req, res) => {
       token,
       user: {
         id: user.id,
+        customerId: customer.id,
         email: user.email,
         phone: user.phone,
+        fullName: customer.fullName,
         role: user.role
       }
     });

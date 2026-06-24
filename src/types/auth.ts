@@ -7,8 +7,10 @@ export type UserRole =
 
 export interface User {
   id: number;
+  customerId?: number;
   email: string;
   phone?: string;
+  fullName?: string;
   role: UserRole;
 }
 
