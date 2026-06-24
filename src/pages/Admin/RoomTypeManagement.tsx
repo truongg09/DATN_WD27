@@ -188,10 +188,10 @@ function RoomTypeManagement() {
             suffixIcon={<DownOutlined style={{ fontSize: '10px', color: '#bfbfbf' }} />}
           >
             <Option value="active">
-              <Tag color="green" style={{ cursor: 'pointer', margin: 0 }}>Hoạt động</Tag>
+              <Tag style={{ cursor: 'pointer', margin: 0, backgroundColor: '#bbf7d0', color: '#166534', borderColor: '#86efac' }}>Hoạt động</Tag>
             </Option>
             <Option value="inactive">
-              <Tag color="red" style={{ cursor: 'pointer', margin: 0 }}>Ngừng hoạt động</Tag>
+              <Tag style={{ cursor: 'pointer', margin: 0, backgroundColor: '#fecdd3', color: '#9f1239', borderColor: '#fda4af' }}>Ngừng hoạt động</Tag>
             </Option>
           </Select>
         );
@@ -253,21 +253,21 @@ function RoomTypeManagement() {
       <Space direction="vertical" style={{ width: '100%' }} size="large">
         <Row gutter={[16, 16]}>
           <Col xs={24} sm={8}>
-            <Card style={{ backgroundColor: '#f0f2f5', borderLeft: '5px solid #1890ff', borderRadius: '8px' }}>
-              <div style={{ color: '#8c8c8c', fontSize: '14px' }}>Tổng số hạng phòng</div>
-              <div style={{ fontSize: '26px', fontWeight: 'bold', color: '#1890ff', marginTop: '4px' }}>{totalTypes}</div>
+            <Card style={{ backgroundColor: '#e2e8f0', borderLeft: '4px solid #334155', borderRadius: '8px', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
+              <div style={{ color: '#334155', fontSize: '14px', fontWeight: '500' }}>Tổng số hạng phòng</div>
+              <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#0f172a', marginTop: '4px' }}>{totalTypes}</div>
             </Card>
           </Col>
           <Col xs={24} sm={8}>
-            <Card style={{ backgroundColor: '#f6ffed', borderLeft: '5px solid #52c41a', borderRadius: '8px' }}>
-              <div style={{ color: '#8c8c8c', fontSize: '14px' }}>Hoạt động</div>
-              <div style={{ fontSize: '26px', fontWeight: 'bold', color: '#52c41a', marginTop: '4px' }}>{activeTypes}</div>
+            <Card style={{ backgroundColor: '#bbf7d0', borderLeft: '4px solid #15803d', borderRadius: '8px', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
+              <div style={{ color: '#166534', fontSize: '14px', fontWeight: '500' }}>Hoạt động</div>
+              <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#14532d', marginTop: '4px' }}>{activeTypes}</div>
             </Card>
           </Col>
           <Col xs={24} sm={8}>
-            <Card style={{ backgroundColor: '#fff1f0', borderLeft: '5px solid #ff4d4f', borderRadius: '8px' }}>
-              <div style={{ color: '#8c8c8c', fontSize: '14px' }}>Ngừng hoạt động</div>
-              <div style={{ fontSize: '26px', fontWeight: 'bold', color: '#ff4d4f', marginTop: '4px' }}>{inactiveTypes}</div>
+            <Card style={{ backgroundColor: '#fecdd3', borderLeft: '4px solid #be123c', borderRadius: '8px', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
+              <div style={{ color: '#9f1239', fontSize: '14px', fontWeight: '500' }}>Ngừng hoạt động</div>
+              <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#881337', marginTop: '4px' }}>{inactiveTypes}</div>
             </Card>
           </Col>
         </Row>
