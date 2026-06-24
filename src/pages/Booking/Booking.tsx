@@ -9,6 +9,8 @@ import { faBed, faCheck, faExpandArrowsAlt } from '@fortawesome/free-solid-svg-i
 import { useAuth } from '../../contexts/AuthContext';
 import { checkAvailability, checkTypeAvailability, createBooking, getBookings } from '../../services/bookingService';
 import { getRoomById, getRoomTypes } from '../../services/roomService';
+import { getServices } from '../../services/serviceService';
+import type { Service } from '../../types/service';
 import { unwrapList } from '../../utils/unwrapList';
 import './Booking.css';
 
@@ -125,6 +127,8 @@ const Booking: React.FC = () => {
   ]);
   const [typeAvailability, setTypeAvailability] = useState<TypeAvailabilityResult | null>(null);
   const [typeAvailabilityChecking, setTypeAvailabilityChecking] = useState(false);
+  const [services, setServices] = useState<Service[]>([]);
+  const [serviceRequests, setServiceRequests] = useState<{ serviceId: number; quantity: number }[]>([]);
 
   const { control, handleSubmit, setValue, watch, register, formState: { errors } } = useForm<BookingFormData>({
     defaultValues: {
@@ -162,6 +166,30 @@ const Booking: React.FC = () => {
 
     loadRoomTypes();
   }, []);
+
+  useEffect(() => {
+    const loadServices = async () => {
+      try {
+        setServices(await getServices());
+      } catch {
+        setServices([]);
+      }
+    };
+
+    loadServices();
+  }, []);
+
+  const handleServiceSelectChange = (ids: number[]) => {
+    setServiceRequests((prev) =>
+      ids.map((id) => prev.find((s) => s.serviceId === id) || { serviceId: id, quantity: 1 })
+    );
+  };
+
+  const updateServiceQuantity = (serviceId: number, quantity: number | null) => {
+    setServiceRequests((prev) =>
+      prev.map((s) => (s.serviceId === serviceId ? { ...s, quantity: quantity || 1 } : s))
+    );
+  };
 
   useEffect(() => {
     const loadRecentBookings = async () => {
@@ -442,6 +470,7 @@ const Booking: React.FC = () => {
         adults: data.adults,
         children: data.children,
         notes: data.specialRequests || null,
+        serviceRequests,
         status: 'confirmed',
       });
 
@@ -756,13 +785,54 @@ const Booking: React.FC = () => {
                   name="specialRequests"
                   control={control}
                   render={({ field }) => (
-                    <TextArea 
+                    <TextArea
                       {...field}
                       placeholder="Nhập các yêu cầu đặc biệt như: giường phụ, thú cưng, dị ứng..."
                       rows={4}
                     />
                   )}
                 />
+              </div>
+
+              <div className="form-group">
+                <label>Yêu cầu dịch vụ thêm (tùy chọn)</label>
+                <Select
+                  mode="multiple"
+                  size="large"
+                  style={{ width: '100%' }}
+                  placeholder="Chọn dịch vụ bạn muốn (ăn sáng, spa, đưa đón...)"
+                  value={serviceRequests.map((s) => s.serviceId)}
+                  onChange={handleServiceSelectChange}
+                  optionFilterProp="label"
+                  options={services.map((s) => ({
+                    value: s.id,
+                    label: `${s.serviceName} - ${formatMoney(s.price)}`,
+                  }))}
+                />
+
+                {serviceRequests.length > 0 && (
+                  <div className="service-request-list">
+                    {serviceRequests.map((sel) => {
+                      const svc = services.find((s) => s.id === sel.serviceId);
+                      return (
+                        <div className="service-request-row" key={sel.serviceId}>
+                          <span className="service-request-name">
+                            {svc?.serviceName} <em>({formatMoney(svc?.price ?? 0)})</em>
+                          </span>
+                          <InputNumber
+                            min={1}
+                            value={sel.quantity}
+                            onChange={(v) => updateServiceQuantity(sel.serviceId, v)}
+                            addonBefore="SL"
+                          />
+                        </div>
+                      );
+                    })}
+                    <p className="service-request-note">
+                      * Đây là yêu cầu — lễ tân sẽ xác nhận và cộng vào hóa đơn. Chưa tính tiền ngay khi đặt.
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           </div>

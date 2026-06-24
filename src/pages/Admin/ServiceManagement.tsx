@@ -4,11 +4,13 @@ import {
   AppstoreOutlined,
   ToolOutlined,
   ProfileOutlined,
+  InboxOutlined,
 } from '@ant-design/icons';
 import ServicesTab from './service/ServicesTab';
 import RoomItemsTab from './service/RoomItemsTab';
 import DamageReportsTab from './service/DamageReportsTab';
 import BookingServicesTab from './service/BookingServicesTab';
+import ServiceRequestsTab from './service/ServiceRequestsTab';
 import './service/service-management.css';
 
 function ServiceManagement() {
@@ -29,6 +31,15 @@ function ServiceManagement() {
               </span>
             ),
             children: <ServicesTab />,
+          },
+          {
+            key: 'service-requests',
+            label: (
+              <span>
+                <InboxOutlined /> Yêu cầu dịch vụ
+              </span>
+            ),
+            children: <ServiceRequestsTab />,
           },
           {
             key: 'room-items',

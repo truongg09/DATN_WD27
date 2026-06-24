@@ -48,6 +48,22 @@ const assertDateRange = (checkIn, checkOut) => {
   }
 };
 
+const normalizeServiceRequestsPayload = (value) => {
+  if (value === undefined || value === null) {
+    return [];
+  }
+  if (!Array.isArray(value)) {
+    throw new HttpError(400, 'serviceRequests must be an array');
+  }
+
+  return value
+    .map((item, index) => ({
+      serviceId: toPositiveInt(item.serviceId ?? item.service_id, `serviceRequests[${index}].serviceId`),
+      quantity: toPositiveInt(item.quantity ?? 1, `serviceRequests[${index}].quantity`)
+    }))
+    .filter((item) => item.quantity > 0);
+};
+
 const normalizeBookingPayload = (body, userFromToken) => {
   const userId = body.userId ?? body.customerId ?? userFromToken;
   const roomId = body.roomId ?? body.room_id;
@@ -65,6 +81,7 @@ const normalizeBookingPayload = (body, userFromToken) => {
     guestName: body.guestName ?? body.guest_name ?? null,
     guestEmail: body.guestEmail ?? body.guest_email ?? null,
     guestPhone: body.guestPhone ?? body.guest_phone ?? null,
+    serviceRequests: normalizeServiceRequestsPayload(body.serviceRequests ?? body.service_requests),
     status: body.status || 'confirmed'
   };
 
