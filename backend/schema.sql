@@ -1,6 +1,6 @@
 -- Create database
-CREATE DATABASE IF NOT EXISTS hotelbookingdb;
-USE hotelbookingdb;
+-- (Use the database specified in your environment configuration, e.g., datn)
+
 
 -- Accounts table
 CREATE TABLE IF NOT EXISTS accounts (

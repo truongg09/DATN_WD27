@@ -54,7 +54,13 @@ router.get('/', async (req, res) => {
 router.get('/types', async (req, res) => {
   try {
     console.log('=== GET ROOM TYPES CALLED ===');
-    const [roomTypes] = await db.query('SELECT * FROM room_types ORDER BY id ASC');
+    const [roomTypes] = await db.query(`
+      SELECT rt.*, COUNT(r.id) AS roomCount 
+      FROM room_types rt 
+      LEFT JOIN rooms r ON rt.id = r.roomTypeId 
+      GROUP BY rt.id 
+      ORDER BY rt.id ASC
+    `);
     console.log('=== GET ROOM TYPES SUCCESS ===');
     console.log('Found', roomTypes.length, 'room types');
     res.json({ data: roomTypes });
@@ -68,6 +74,88 @@ router.get('/types', async (req, res) => {
       details: error.message,
       code: error.code
     });
+  }
+});
+
+// Create new room type
+router.post('/types', async (req, res) => {
+  try {
+    const { typeName, description, capacity, defaultPrice, status } = req.body;
+    if (!typeName) {
+      return res.status(400).json({ message: 'Tên hạng phòng không được để trống' });
+    }
+    
+    // Check if room type name already exists
+    const [existing] = await db.query('SELECT id FROM room_types WHERE typeName = ?', [typeName]);
+    if (existing.length > 0) {
+      return res.status(400).json({ message: 'Tên loại phòng này đã tồn tại!' });
+    }
+
+    const [result] = await db.query(
+      'INSERT INTO room_types (typeName, description, capacity, defaultPrice, status) VALUES (?, ?, ?, ?, ?)',
+      [typeName, description || '', capacity || 1, defaultPrice || 0, status || 'active']
+    );
+    res.status(201).json({ data: { id: result.insertId }, message: 'Tạo hạng phòng mới thành công' });
+  } catch (error) {
+    console.error('Create room type error:', error);
+    res.status(500).json({ message: 'Lỗi máy chủ', details: error.message });
+  }
+});
+
+// Update room type
+router.put('/types/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { typeName, description, capacity, defaultPrice, status } = req.body;
+    if (!typeName) {
+      return res.status(400).json({ message: 'Tên hạng phòng không được để trống' });
+    }
+
+    // Check if room type name already exists for another room type
+    const [existing] = await db.query('SELECT id FROM room_types WHERE typeName = ? AND id != ?', [typeName, id]);
+    if (existing.length > 0) {
+      return res.status(400).json({ message: 'Tên loại phòng này đã tồn tại!' });
+    }
+
+    // Check if they are trying to set status to 'inactive' while rooms still exist
+    if (status === 'inactive') {
+      const [rooms] = await db.query('SELECT id FROM rooms WHERE roomTypeId = ?', [id]);
+      if (rooms.length > 0) {
+        return res.status(400).json({ 
+          message: 'Không thể chuyển sang ngừng hoạt động! Vui lòng chuyển hạng phòng của các phòng hiện tại sang hạng khác trước khi thay đổi.' 
+        });
+      }
+    }
+
+    await db.query(
+      'UPDATE room_types SET typeName = ?, description = ?, capacity = ?, defaultPrice = ?, status = ? WHERE id = ?',
+      [typeName, description || '', capacity || 1, defaultPrice || 0, status || 'active', id]
+    );
+    res.json({ message: 'Cập nhật hạng phòng thành công' });
+  } catch (error) {
+    console.error('Update room type error:', error);
+    res.status(500).json({ message: 'Lỗi máy chủ', details: error.message });
+  }
+});
+
+// Delete room type
+router.delete('/types/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Check if there are rooms using this room type
+    const [rooms] = await db.query('SELECT id FROM rooms WHERE roomTypeId = ?', [id]);
+    if (rooms.length > 0) {
+      return res.status(400).json({ 
+        message: 'Không thể xóa! Vui lòng chuyển hạng phòng của các phòng hiện tại sang hạng khác trước khi tiến hành xóa.' 
+      });
+    }
+
+    await db.query('DELETE FROM room_types WHERE id = ?', [id]);
+    res.json({ message: 'Xóa hạng phòng thành công' });
+  } catch (error) {
+    console.error('Delete room type error:', error);
+    res.status(500).json({ message: 'Lỗi máy chủ', details: error.message });
   }
 });
 
