@@ -1,30 +1,18 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { 
-  faPhone, 
-  faEnvelope,
-  faUser,
-  faCog
-} from '@fortawesome/free-solid-svg-icons';
-import { 
-  faFacebook, 
-  faTwitter, 
-  faInstagram 
-} from '@fortawesome/free-brands-svg-icons';
+import { faEnvelope, faPhone, faUser } from '@fortawesome/free-solid-svg-icons';
+import { faFacebook, faInstagram, faTwitter } from '@fortawesome/free-brands-svg-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import './header.css';
 
 const Header: React.FC = () => {
   const { user, isAuthenticated, logout } = useAuth();
   const navigate = useNavigate();
-  
-  console.log('Header - user:', user);
-  console.log('Header - isAuthenticated:', isAuthenticated);
 
   const handleLogout = () => {
     logout();
-    navigate("/");
+    navigate('/');
   };
 
   return (
@@ -42,6 +30,7 @@ const Header: React.FC = () => {
           </div>
         </div>
       </div>
+
       <div className="header-main">
         <div className="container">
           <div className="logo">
@@ -49,23 +38,28 @@ const Header: React.FC = () => {
               <h2>HotelHub</h2>
             </Link>
           </div>
+
           <nav className="nav-menu">
             <ul>
               <li><Link to="/">Trang chủ</Link></li>
               <li><Link to="/rooms">Phòng</Link></li>
               <li><Link to="/booking">Đặt phòng</Link></li>
               <li><Link to="/">Liên hệ</Link></li>
-              {isAuthenticated && user?.role === "admin" && (
+              {isAuthenticated && user?.role === 'admin' && (
                 <li><Link to="/admin">Admin</Link></li>
+              )}
+              {isAuthenticated && user?.role === 'employee' && (
+                <li><Link to="/employee">Nhân viên</Link></li>
               )}
             </ul>
           </nav>
+
           <div className="auth-buttons">
             {isAuthenticated && user ? (
               <div className="user-info">
                 <span className="user-greeting">
                   <FontAwesomeIcon icon={faUser} />
-                  <span>{user.fullName}</span>
+                  <span>{user.email}</span>
                 </span>
                 <button className="btn-logout" onClick={handleLogout}>Đăng xuất</button>
               </div>

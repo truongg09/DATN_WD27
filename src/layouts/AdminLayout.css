@@ -14,6 +14,7 @@
   top: 0;
   bottom: 0;
   left: 0;
+  overflow-y: auto;
 }
 
 .admin-logo {
@@ -52,6 +53,7 @@
 }
 
 .admin-user {
+  text-align: center;
   padding: 20px;
   border-top: 1px solid #1f2937;
 }
@@ -61,20 +63,17 @@
   color: rgba(255, 255, 255, 0.85);
 }
 
-.btn-logout {
-  width: 100%;
-  padding: 10px;
-  background-color: transparent;
+.admin-user .btn-logout {
+  padding: 10px 50px;
+  background-color: linear-gradient(135deg, #ab8965 0%, #9a7a5a 100%);
   border: 1px solid rgba(255, 255, 255, 0.3);
   color: rgba(255, 255, 255, 0.85);
-  border-radius: 4px;
+  border-radius: 10px;
   cursor: pointer;
-  transition: all 0.3s;
 }
 
-.btn-logout:hover {
-  border-color: #ff4d4f;
-  color: #ff4d4f;
+.admin-user .btn-logout:hover {
+  background: #70533a;
 }
 
 .admin-content {

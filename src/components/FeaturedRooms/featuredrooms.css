@@ -85,7 +85,6 @@
     border-radius: 12px;
     cursor: pointer;
     font-weight: 600;
-    transition: background 0.3s;
     box-shadow: 0 4px 15px rgba(171, 137, 101, 0.35);
 }
 

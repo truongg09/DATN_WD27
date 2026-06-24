@@ -150,10 +150,38 @@ CREATE TABLE IF NOT EXISTS booking_services (
 CREATE TABLE IF NOT EXISTS payments (
   id INT AUTO_INCREMENT PRIMARY KEY,
   booking_id INT NOT NULL,
-  amount DECIMAL(10, 2) NOT NULL,
+  room_amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
+  service_amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
+  surcharge_amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
+  discount_amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
+  deposit_amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
+  paid_amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
+  remaining_amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
+  total_amount DECIMAL(10, 2) NOT NULL,
   payment_method VARCHAR(50),
-  status ENUM('pending', 'completed', 'failed') DEFAULT 'pending',
-  transaction_id VARCHAR(255),
+  payment_status ENUM('unpaid', 'paid', 'refunded') DEFAULT 'unpaid',
+  transaction_code VARCHAR(255),
+  payment_date TIMESTAMP NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE
+);
+
+-- Invoices table
+CREATE TABLE IF NOT EXISTS invoices (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  invoice_number VARCHAR(50) NOT NULL UNIQUE,
+  booking_id INT NOT NULL,
+  payment_id INT NULL,
+  user_id INT NOT NULL,
+  room_amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
+  service_amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
+  discount_amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
+  total_amount DECIMAL(10, 2) NOT NULL,
+  status ENUM('draft', 'issued', 'cancelled') DEFAULT 'issued',
+  issued_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE,
+  FOREIGN KEY (payment_id) REFERENCES payments(id) ON DELETE SET NULL,
+  FOREIGN KEY (user_id) REFERENCES accounts(id) ON DELETE CASCADE
 );

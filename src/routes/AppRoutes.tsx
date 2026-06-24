@@ -3,8 +3,10 @@ import { Routes, Route } from "react-router-dom";
 // Layouts
 import ClientLayout from "../layouts/ClientLayout";
 import AdminLayout from "../layouts/AdminLayout";
+import EmployeeLayout from "../layouts/EmployeeLayout";
 import AuthLayout from "../layouts/AuthLayout";
 import AdminRoute from "./AdminRoute";
+import EmployeeRoute from "./EmployeeRoute";
 
 // Public Pages
 import Home from "../pages/Home/Home";
@@ -18,6 +20,7 @@ import ForgotPassword from "../pages/ForgotPassword/ForgotPassword";
 import Booking from "../pages/Booking/Booking";
 import BookingHistory from "../pages/Booking/BookingHistory";
 import BookingDetail from "../pages/Booking/BookingDetail";
+import PaymentPage from "../pages/Booking/Payment";
 
 import Profile from "../pages/Profile/Profile";
 import ChangePassword from "../pages/Profile/ChangePassword";
@@ -30,12 +33,25 @@ import RoomManagement from "../pages/Admin/RoomManagement";
 import RoomTypeManagement from "../pages/Admin/RoomTypeManagement";
 import BookingManagement from "../pages/Admin/BookingManagement";
 import CustomerManagement from "../pages/Admin/CustomerManagement";
+import CustomerDetail from "../pages/Admin/CustomerDetail";
 import EmployeeManagement from "../pages/Admin/EmployeeManagement";
 import ServiceManagement from "../pages/Admin/ServiceManagement";
 import VoucherManagement from "../pages/Admin/VoucherManagement";
 import ReviewManagement from "../pages/Admin/ReviewManagement";
 import PaymentManagement from "../pages/Admin/PaymentManagement";
 import ReportManagement from "../pages/Admin/ReportManagement";
+
+// Employee Pages
+import EmployeeDashboard from "../pages/Employee/EmployeeDashboard";
+import BookingCalendar from "../pages/Employee/BookingCalendar";
+import ReceiveBooking from "../pages/Employee/ReceiveBooking";
+import RoomStatus from "../pages/Employee/RoomStatus";
+import Customers from "../pages/Employee/Customers";
+import CheckinCheckout from "../pages/Employee/CheckinCheckout";
+import Payment from "../pages/Employee/Payment";
+import CustomerService from "../pages/Employee/CustomerService";
+import RoomRequests from "../pages/Employee/RoomRequests";
+import Reviews from "../pages/Employee/Reviews";
 
 const AppRoutes = () => {
   return (
@@ -54,6 +70,7 @@ const AppRoutes = () => {
         <Route path="/booking">
           <Route index element={<Booking />} />
           <Route path="history" element={<BookingHistory />} />
+          <Route path=":id/payment" element={<PaymentPage />} />
           <Route path=":id" element={<BookingDetail />} />
         </Route>
 
@@ -91,10 +108,10 @@ const AppRoutes = () => {
             element={<BookingManagement />}
           />
 
-          <Route
-            path="customers"
-            element={<CustomerManagement />}
-          />
+          <Route path="customers">
+            <Route index element={<CustomerManagement />} />
+            <Route path=":id" element={<CustomerDetail />} />
+          </Route>
 
           <Route
             path="employees"
@@ -124,6 +141,58 @@ const AppRoutes = () => {
           <Route
             path="reports"
             element={<ReportManagement />}
+          />
+
+        </Route>
+      </Route>
+
+      {/* EMPLOYEE */}
+      <Route element={<EmployeeRoute />}>
+        <Route path="/employee" element={<EmployeeLayout />}>
+
+          <Route index element={<EmployeeDashboard />} />
+          <Route path="dashboard" element={<EmployeeDashboard />} />
+
+          <Route path="booking-calendar" element={<BookingCalendar />} />
+
+          <Route
+            path="receive-booking"
+            element={<ReceiveBooking />}
+          />
+
+          <Route
+            path="room-status"
+            element={<RoomStatus />}
+          />
+
+          <Route
+            path="customers"
+            element={<Customers />}
+          />
+
+          <Route
+            path="checkin-checkout"
+            element={<CheckinCheckout />}
+          />
+
+          <Route
+            path="payment"
+            element={<Payment />}
+          />
+
+          <Route
+            path="customer-service"
+            element={<CustomerService />}
+          />
+
+          <Route
+            path="room-requests"
+            element={<RoomRequests />}
+          />
+
+          <Route
+            path="reviews"
+            element={<Reviews />}
           />
 
         </Route>
