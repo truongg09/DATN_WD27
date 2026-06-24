@@ -260,9 +260,7 @@ function RoomManagement() {
             ghost
             icon={<EditOutlined />} 
             onClick={() => handleEdit(record)}
-          >
-            Sửa
-          </Button>
+          />
           <Popconfirm
             title="Bạn có chắc chắn muốn xóa phòng này?"
             onConfirm={() => handleDelete(record.id)}
@@ -275,9 +273,7 @@ function RoomManagement() {
               danger 
               ghost
               icon={<DeleteOutlined />}
-            >
-              Xóa
-            </Button>
+            />
           </Popconfirm>
         </Space>
       ),
@@ -309,27 +305,27 @@ function RoomManagement() {
         <Space direction="vertical" style={{ width: '100%' }} size="large">
           <Row gutter={[16, 16]}>
             <Col xs={24} sm={12} md={6}>
-              <Card style={{ backgroundColor: '#f0f2f5', borderLeft: '5px solid #1890ff', borderRadius: '8px' }}>
-                <div style={{ color: '#8c8c8c', fontSize: '14px' }}>Tổng số phòng</div>
-                <div style={{ fontSize: '26px', fontWeight: 'bold', color: '#1890ff', marginTop: '4px' }}>{totalRooms}</div>
+              <Card style={{ backgroundColor: '#e2e8f0', borderLeft: '4px solid #334155', borderRadius: '8px', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
+                <div style={{ color: '#334155', fontSize: '14px', fontWeight: '500' }}>Tổng số phòng</div>
+                <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#0f172a', marginTop: '4px' }}>{totalRooms}</div>
               </Card>
             </Col>
             <Col xs={24} sm={12} md={6}>
-              <Card style={{ backgroundColor: '#f6ffed', borderLeft: '5px solid #52c41a', borderRadius: '8px' }}>
-                <div style={{ color: '#8c8c8c', fontSize: '14px' }}>Đang trống</div>
-                <div style={{ fontSize: '26px', fontWeight: 'bold', color: '#52c41a', marginTop: '4px' }}>{availableRooms}</div>
+              <Card style={{ backgroundColor: '#bbf7d0', borderLeft: '4px solid #15803d', borderRadius: '8px', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
+                <div style={{ color: '#166534', fontSize: '14px', fontWeight: '500' }}>Đang trống</div>
+                <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#14532d', marginTop: '4px' }}>{availableRooms}</div>
               </Card>
             </Col>
             <Col xs={24} sm={12} md={6}>
-              <Card style={{ backgroundColor: '#e6f7ff', borderLeft: '5px solid #13c2c2', borderRadius: '8px' }}>
-                <div style={{ color: '#8c8c8c', fontSize: '14px' }}>Đang ở</div>
-                <div style={{ fontSize: '26px', fontWeight: 'bold', color: '#13c2c2', marginTop: '4px' }}>{occupiedRooms}</div>
+              <Card style={{ backgroundColor: '#bfdbfe', borderLeft: '4px solid #1d4ed8', borderRadius: '8px', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
+                <div style={{ color: '#1e40af', fontSize: '14px', fontWeight: '500' }}>Đang ở</div>
+                <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#1e3a8a', marginTop: '4px' }}>{occupiedRooms}</div>
               </Card>
             </Col>
             <Col xs={24} sm={12} md={6}>
-              <Card style={{ backgroundColor: '#fff2e8', borderLeft: '5px solid #fa8c16', borderRadius: '8px' }}>
-                <div style={{ color: '#8c8c8c', fontSize: '14px' }}>Bảo trì / Dọn dẹp</div>
-                <div style={{ fontSize: '26px', fontWeight: 'bold', color: '#fa8c16', marginTop: '4px' }}>{maintenanceRooms}</div>
+              <Card style={{ backgroundColor: '#fecdd3', borderLeft: '4px solid #be123c', borderRadius: '8px', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
+                <div style={{ color: '#9f1239', fontSize: '14px', fontWeight: '500' }}>Bảo trì / Dọn dẹp</div>
+                <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#881337', marginTop: '4px' }}>{maintenanceRooms}</div>
               </Card>
             </Col>
           </Row>
