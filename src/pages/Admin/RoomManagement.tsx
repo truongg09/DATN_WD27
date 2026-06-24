@@ -11,9 +11,11 @@ import {
   Popconfirm,
   Space,
   Card,
-  Tag
+  Tag,
+  Row,
+  Col
 } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined, DownOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import api from '../../services/api';
 
@@ -48,6 +50,21 @@ function RoomManagement() {
   const [modalVisible, setModalVisible] = useState(false);
   const [editingRoom, setEditingRoom] = useState<Room | null>(null);
   const [form] = Form.useForm();
+  const [searchText, setSearchText] = useState('');
+
+  const totalRooms = rooms.length;
+  const availableRooms = rooms.filter(r => r.status === 'available').length;
+  const occupiedRooms = rooms.filter(r => r.status === 'occupied').length;
+  const maintenanceRooms = rooms.filter(r => r.status === 'maintenance').length;
+
+  const filteredRooms = rooms.filter(room => {
+    const searchLower = searchText.toLowerCase();
+    return (
+      room.roomNumber.toLowerCase().includes(searchLower) ||
+      (room.room_type_name && room.room_type_name.toLowerCase().includes(searchLower)) ||
+      String(room.floor).includes(searchLower)
+    );
+  });
 
   const fetchRooms = async () => {
     setLoading(true);
@@ -59,6 +76,26 @@ function RoomManagement() {
       message.error('Lỗi khi tải danh sách phòng');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleQuickStatusChange = async (id: number, newStatus: 'available' | 'occupied' | 'maintenance', record: Room) => {
+    try {
+      const updatedValues = {
+        roomNumber: record.roomNumber,
+        roomTypeId: record.roomTypeId,
+        floor: record.floor,
+        area: parseFloat(record.area as string) || record.area,
+        status: newStatus
+      };
+      
+      await api.put(`/rooms/${id}`, updatedValues);
+      message.success(`Đã chuyển trạng thái phòng ${record.roomNumber} thành công`);
+      fetchRooms();
+    } catch (error: unknown) {
+      console.error('Quick status change error:', error);
+      const msg = axios.isAxiosError(error) ? error.response?.data?.message : undefined;
+      message.error(msg || 'Lỗi khi cập nhật trạng thái phòng');
     }
   };
 
@@ -193,17 +230,27 @@ function RoomManagement() {
         { text: 'Bảo trì', value: 'maintenance' }
       ],
       onFilter: (value: boolean | Key, record: Room) => record.status === value,
-      render: (status: 'available' | 'occupied' | 'maintenance') => {
-        let color = 'green';
-        let text = 'Trống';
-        if (status === 'occupied') {
-          color = 'blue';
-          text = 'Đang ở';
-        } else if (status === 'maintenance') {
-          color = 'red';
-          text = 'Bảo trì';
-        }
-        return <Tag color={color}>{text}</Tag>;
+      render: (status: 'available' | 'occupied' | 'maintenance', record: Room) => {
+        return (
+          <Select
+            value={status}
+            onChange={(newStatus) => handleQuickStatusChange(record.id, newStatus, record)}
+            style={{ width: 110 }}
+            bordered={false}
+            popupMatchSelectWidth={false}
+            suffixIcon={<DownOutlined style={{ fontSize: '10px', color: '#bfbfbf' }} />}
+          >
+            <Option value="available">
+              <Tag color="green" style={{ cursor: 'pointer', margin: 0 }}>Trống</Tag>
+            </Option>
+            <Option value="occupied">
+              <Tag color="blue" style={{ cursor: 'pointer', margin: 0 }}>Đang ở</Tag>
+            </Option>
+            <Option value="maintenance">
+              <Tag color="red" style={{ cursor: 'pointer', margin: 0 }}>Bảo trì</Tag>
+            </Option>
+          </Select>
+        );
       }
     },
     {
@@ -262,13 +309,50 @@ function RoomManagement() {
           </Space>
         }
       >
-        <Table 
-          columns={columns} 
-          dataSource={rooms} 
-          rowKey="id" 
-          loading={loading}
-          pagination={{ pageSize: 8 }}
-        />
+        <Space direction="vertical" style={{ width: '100%' }} size="large">
+          <Row gutter={[16, 16]}>
+            <Col xs={24} sm={12} md={6}>
+              <Card style={{ backgroundColor: '#f0f2f5', borderLeft: '5px solid #1890ff', borderRadius: '8px' }}>
+                <div style={{ color: '#8c8c8c', fontSize: '14px' }}>Tổng số phòng</div>
+                <div style={{ fontSize: '26px', fontWeight: 'bold', color: '#1890ff', marginTop: '4px' }}>{totalRooms}</div>
+              </Card>
+            </Col>
+            <Col xs={24} sm={12} md={6}>
+              <Card style={{ backgroundColor: '#f6ffed', borderLeft: '5px solid #52c41a', borderRadius: '8px' }}>
+                <div style={{ color: '#8c8c8c', fontSize: '14px' }}>Đang trống</div>
+                <div style={{ fontSize: '26px', fontWeight: 'bold', color: '#52c41a', marginTop: '4px' }}>{availableRooms}</div>
+              </Card>
+            </Col>
+            <Col xs={24} sm={12} md={6}>
+              <Card style={{ backgroundColor: '#e6f7ff', borderLeft: '5px solid #13c2c2', borderRadius: '8px' }}>
+                <div style={{ color: '#8c8c8c', fontSize: '14px' }}>Đang ở</div>
+                <div style={{ fontSize: '26px', fontWeight: 'bold', color: '#13c2c2', marginTop: '4px' }}>{occupiedRooms}</div>
+              </Card>
+            </Col>
+            <Col xs={24} sm={12} md={6}>
+              <Card style={{ backgroundColor: '#fff2e8', borderLeft: '5px solid #fa8c16', borderRadius: '8px' }}>
+                <div style={{ color: '#8c8c8c', fontSize: '14px' }}>Bảo trì / Dọn dẹp</div>
+                <div style={{ fontSize: '26px', fontWeight: 'bold', color: '#fa8c16', marginTop: '4px' }}>{maintenanceRooms}</div>
+              </Card>
+            </Col>
+          </Row>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+            <Input.Search
+              placeholder="Tìm kiếm theo số phòng, loại phòng hoặc tầng..."
+              allowClear
+              onChange={e => setSearchText(e.target.value)}
+              style={{ width: 350 }}
+            />
+          </div>
+          <Table 
+            columns={columns} 
+            dataSource={filteredRooms} 
+            rowKey="id" 
+            loading={loading}
+            pagination={{ pageSize: 8 }}
+          />
+        </Space>
       </Card>
 
       <Modal
