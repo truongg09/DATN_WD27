@@ -223,6 +223,27 @@ const PaymentPage: React.FC = () => {
           </Descriptions>
         </Card>
 
+        <Card title="Hủy phòng sát giờ nhận phòng" className="payment-card cancellation-policy-card">
+          <div className="cancellation-policy">
+            <div className="policy-row header-row">
+              <span>Thời gian hủy</span>
+              <span>Hoàn tiền</span>
+            </div>
+            <div className="policy-row">
+              <span>{'> 7 ngày'}</span>
+              <span>100%</span>
+            </div>
+            <div className="policy-row">
+              <span>3–7 ngày</span>
+              <span>50%</span>
+            </div>
+            <div className="policy-row">
+              <span>{'< 3 ngày'}</span>
+              <span>0%</span>
+            </div>
+          </div>
+        </Card>
+
         <Card title="Chi tiết thanh toán" className="payment-card">
           <div className="payment-summary">
             <div className="payment-row">

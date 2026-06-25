@@ -21,6 +21,7 @@ const invoiceRoutes = require('./routes/invoices');
 const customerRoutes = require('./routes/customers');
 const dashboardRoutes = require('./routes/dashboard');
 const serviceRoutes = require('./routes/services');
+const voucherRoutes = require('./routes/vouchers');
 const bookingService = require('./services/bookingService');
 const ensureOperationalSchema = require('./ensure-operational-schema');
 
@@ -34,6 +35,7 @@ app.use('/api/invoices', invoiceRoutes);
 app.use('/api/customers', customerRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/services', serviceRoutes);
+app.use('/api/vouchers', voucherRoutes);
 
 // Test endpoint
 app.get('/api/health', (req, res) => {

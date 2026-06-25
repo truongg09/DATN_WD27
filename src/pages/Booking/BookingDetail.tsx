@@ -162,6 +162,27 @@ const BookingDetail: React.FC = () => {
           </Card>
         )}
 
+        <Card title="Hủy phòng sát giờ nhận phòng" className="cancellation-policy-card">
+          <div className="cancellation-policy">
+            <div className="policy-row header-row">
+              <span>Thời gian hủy</span>
+              <span>Hoàn tiền</span>
+            </div>
+            <div className="policy-row">
+              <span>{'> 7 ngày'}</span>
+              <span>100%</span>
+            </div>
+            <div className="policy-row">
+              <span>3–7 ngày</span>
+              <span>50%</span>
+            </div>
+            <div className="policy-row">
+              <span>{'< 3 ngày'}</span>
+              <span>0%</span>
+            </div>
+          </div>
+        </Card>
+
         {invoice && (
           <Card title="Hóa đơn" className="invoice-card">
             <div className="invoice-header">
