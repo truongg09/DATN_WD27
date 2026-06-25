@@ -11,6 +11,7 @@ import Home from "../pages/Home/Home";
 import RoomList from "../pages/RoomList/RoomList";
 import RoomDetail from "../pages/RoomDetail/RoomDetail";
 import Contact from "../pages/Contact/Contact";
+import About from "../pages/About/About";
 
 import Login from "../pages/Login/Login";
 import Register from "../pages/Register/Register";
@@ -65,6 +66,7 @@ const AppRoutes = () => {
 
         <Route path="/reviews" element={<ReviewPage />} />
         <Route path="/contact" element={<Contact />} />
+        <Route path="/about" element={<About />} />
 
       </Route>
 
