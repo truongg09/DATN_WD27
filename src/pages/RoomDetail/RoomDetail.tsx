@@ -5,62 +5,43 @@ import {
   faBed, 
   faBath, 
   faExpandArrowsAlt,
-  faWifi,
-  faSnowflake,
-  faTv,
-  faCoffee,
   faCheck,
   faArrowLeft,
-  faStar
+  faStar,
+  faUser
 } from '@fortawesome/free-solid-svg-icons';
 import './RoomDetail.css';
 
-interface RoomData {
-  id: number;
-  name: string;
-  type: string;
-  images: string[];
-  beds: string;
-  baths: string;
-  area: string;
-  maxGuests: number;
-  price: number;
-  originalPrice?: number;
-  description: string;
-  amenities: string[];
-  reviews: number;
-  rating: number;
-}
+import { roomsData } from '../../utils/mockRoomsData';
 
 const RoomDetail: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const [selectedImage, setSelectedImage] = useState(0);
 
-  const roomData: RoomData = {
-    id: 1,
-    name: 'Phòng Deluxe',
-    type: 'deluxe',
-    images: [
-      'https://images.unsplash.com/photo-1590490360182-c33d57733427?w=1200',
-      'https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?w=1200',
-      'https://images.unsplash.com/photo-1566073771259-6a8506099945?w=1200',
-      'https://images.unsplash.com/photo-1611892440504-42a792e24d32?w=1200'
-    ],
-    beds: '2 giường đơn',
-    baths: '1 phòng tắm',
-    area: '40m²',
-    maxGuests: 4,
-    price: 1200000,
-    description: 'Phòng Deluxe của chúng tôi mang đến không gian sang trọng và thoải mái với tầm nhìn tuyệt đẹp. Được thiết kế tinh tế với nội thất cao cấp, phòng này là lựa chọn hoàn hảo cho những ai yêu thích sự riêng tư và tiện nghi. Với diện tích rộng rãi 40m², phòng Deluxe phù hợp cho cặp đôi hoặc gia đình nhỏ.',
-    amenities: ['Wifi miễn phí', 'Điều hòa không khí', 'TV màn hình phẳng', 'Mini bar', 'Két sắt', 'Bàn làm việc', 'Ấm đun nước', 'Áo choàng tắm', 'Máy sấy tóc', 'Gối êm'],
-    reviews: 128,
-    rating: 4.8
-  };
+  const roomData = roomsData.find(room => room.id === Number(id));
 
   const formatPrice = (price: number) => {
     return new Intl.NumberFormat('vi-VN').format(price) + '₫';
   };
+
+  if (!roomData) {
+    return (
+      <div className="room-detail-page" style={{ padding: '120px 20px', textAlign: 'center' }}>
+        <div className="room-detail-container" style={{ maxWidth: '600px', margin: '0 auto' }}>
+          <h2 style={{ fontSize: '32px', color: '#333', marginBottom: '16px' }}>Không tìm thấy phòng nghỉ!</h2>
+          <p style={{ margin: '20px 0 30px', color: '#666', fontSize: '16px' }}>
+            Phòng nghỉ quý khách yêu cầu không tồn tại hoặc hệ thống đang cập nhật. Vui lòng quay lại danh sách để chọn phòng khác.
+          </p>
+          <Link to="/rooms" className="back-link" style={{ justifyContent: 'center', display: 'inline-flex', gap: '8px', color: '#ab8965', fontWeight: '600' }}>
+            <FontAwesomeIcon icon={faArrowLeft} />
+            <span>Quay lại danh sách phòng</span>
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
 
   const handleBooking = () => {
     navigate(`/booking?id=${id}`);

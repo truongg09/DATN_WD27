@@ -18,10 +18,10 @@ const AboutHotel: React.FC = () => {
           </div>
           <div className="about-images">
             <div className="img-main">
-              <img src="https://images.unsplash.com/photo-1561501900-3701fa6a0864?w=600" alt="Hotel" />
+              <img src="https://images.unsplash.com/photo-1571896349842-33c89424de2d?w=800" alt="Hotel Resort" />
             </div>
             <div className="img-secondary">
-              <img src="https://images.unsplash.com/photo-1551882547-ff40c63fe5fa?w=400" alt="Room" />
+              <img src="https://images.unsplash.com/photo-1598928506311-c55ded91a20c?w=500" alt="Hotel Room" />
             </div>
           </div>
         </div>

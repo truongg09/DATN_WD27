@@ -9,92 +9,14 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import './RoomList.css';
 
-interface Room {
-  id: number;
-  name: string;
-  type: string;
-  image: string;
-  beds: string;
-  baths: string;
-  area: string;
-  price: number;
-  originalPrice?: number;
-  available: boolean;
-}
+import { roomsData } from '../../utils/mockRoomsData';
 
 const RoomList: React.FC = () => {
   const [filterType, setFilterType] = useState<string>('all');
   const [sortBy, setSortBy] = useState<string>('default');
 
-  const rooms: Room[] = [
-    {
-      id: 1,
-      name: 'Phòng Deluxe',
-      type: 'deluxe',
-      image: 'https://images.unsplash.com/photo-1590490360182-c33d57733427?w=600',
-      beds: '2 giường đơn',
-      baths: '1 phòng tắm',
-      area: '40m²',
-      price: 1200000,
-      available: true
-    },
-    {
-      id: 2,
-      name: 'Phòng Suite',
-      type: 'suite',
-      image: 'https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?w=600',
-      beds: '1 giường king',
-      baths: '2 phòng tắm',
-      area: '60m²',
-      price: 2500000,
-      available: true
-    },
-    {
-      id: 3,
-      name: 'Presidential Suite',
-      type: 'presidential',
-      image: 'https://images.unsplash.com/photo-1566073771259-6a8506099945?w=600',
-      beds: '2 giường king',
-      baths: '3 phòng tắm',
-      area: '100m²',
-      price: 5000000,
-      originalPrice: 5500000,
-      available: true
-    },
-    {
-      id: 4,
-      name: 'Phòng Superior',
-      type: 'superior',
-      image: 'https://images.unsplash.com/photo-1611892440504-42a792e24d32?w=600',
-      beds: '1 giường đôi',
-      baths: '1 phòng tắm',
-      area: '35m²',
-      price: 950000,
-      available: true
-    },
-    {
-      id: 5,
-      name: 'Phòng Family',
-      type: 'family',
-      image: 'https://images.unsplash.com/photo-1596394516093-501ba68a0ba6?w=600',
-      beds: '2 giường đôi',
-      baths: '2 phòng tắm',
-      area: '55m²',
-      price: 2100000,
-      available: true
-    },
-    {
-      id: 6,
-      name: 'Phòng Standard',
-      type: 'standard',
-      image: 'https://images.unsplash.com/photo-1631049307264-da0ec9d70304?w=600',
-      beds: '1 giường đơn',
-      baths: '1 phòng tắm',
-      area: '28m²',
-      price: 750000,
-      available: true
-    }
-  ];
+  const rooms = roomsData;
+
 
   const formatPrice = (price: number) => {
     return new Intl.NumberFormat('vi-VN').format(price) + '₫';
@@ -135,6 +57,7 @@ const RoomList: React.FC = () => {
               <option value="deluxe">Phòng Deluxe</option>
               <option value="suite">Phòng Suite</option>
               <option value="family">Phòng Family</option>
+              <option value="bungalow">Bungalow Hướng Biển</option>
               <option value="presidential">Presidential Suite</option>
             </select>
           </div>

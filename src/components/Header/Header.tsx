@@ -4,8 +4,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
   faPhone, 
   faEnvelope,
-  faUser,
-  faCog
+  faUser
 } from '@fortawesome/free-solid-svg-icons';
 import { 
   faFacebook, 
@@ -54,7 +53,7 @@ const Header: React.FC = () => {
               <li><Link to="/">Trang chủ</Link></li>
               <li><Link to="/rooms">Phòng</Link></li>
               <li><Link to="/booking">Đặt phòng</Link></li>
-              <li><Link to="/">Liên hệ</Link></li>
+              <li><Link to="/contact">Liên hệ</Link></li>
               {isAuthenticated && user?.role === "admin" && (
                 <li><Link to="/admin">Admin</Link></li>
               )}
