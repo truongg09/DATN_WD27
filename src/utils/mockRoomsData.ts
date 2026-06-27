@@ -132,9 +132,9 @@ export const roomsData: Room[] = [
     id: 6,
     name: 'Bungalow Hướng Biển',
     type: 'bungalow',
-    image: 'https://images.unsplash.com/photo-1540555700478-4be289fbecef?w=600',
+    image: 'https://images.unsplash.com/photo-1582719508461-905c673771fd?w=600',
     images: [
-      'https://images.unsplash.com/photo-1540555700478-4be289fbecef?w=1200',
+      'https://images.unsplash.com/photo-1582719508461-905c673771fd?w=1200',
       'https://images.unsplash.com/photo-1439066615861-d1af74d74000?w=1200',
       'https://images.unsplash.com/photo-1520250497591-112f2f40a3f4?w=1200',
       'https://images.unsplash.com/photo-1590490360182-c33d57733427?w=1200'
