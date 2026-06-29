@@ -35,6 +35,7 @@ const BookingDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const bookingId = Number(id);
+  const isValidBookingId = Number.isInteger(bookingId) && bookingId > 0;
 
   const [loading, setLoading] = useState(true);
   const [booking, setBooking] = useState<Record<string, unknown> | null>(null);
@@ -42,6 +43,12 @@ const BookingDetail: React.FC = () => {
   const [invoice, setInvoice] = useState<Invoice | null>(null);
 
   useEffect(() => {
+    if (!isValidBookingId) {
+      message.error('Mã đặt phòng không hợp lệ');
+      navigate('/booking/history');
+      return;
+    }
+
     const fetchData = async () => {
       setLoading(true);
       try {
@@ -71,11 +78,9 @@ const BookingDetail: React.FC = () => {
       }
     };
 
-    if (bookingId) {
-      fetchData();
-    }
+    fetchData();
     window.scrollTo(0, 0);
-  }, [bookingId, navigate]);
+  }, [bookingId, isValidBookingId, navigate]);
 
   if (loading) {
     return (
