@@ -5,6 +5,9 @@ import {
   fetchReviewByBooking,
   updateReview,
 } from "../../services/reviewService";
+import { useParams } from "react-router-dom";
+import { useAuth } from "../../contexts/AuthContext";
+import { useNavigate } from "react-router-dom";
 
 interface Review {
   id: number;
@@ -17,17 +20,20 @@ interface Review {
 }
 
 function ReviewPage() {
+  const nav = useNavigate();
   const [form] = Form.useForm();
   const [review, setReview] = useState<Review | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Tạm thời hard-code để test
-  const bookingId = 4;
-  const customerId = 4;
+  const { bookingId } = useParams();
+  const { user } = useAuth();
+
+  const currentBookingId = Number(bookingId);
+  const customerId = user?.customerId;
 
   const loadReview = async () => {
     try {
-      const res = await fetchReviewByBooking(bookingId);
+      const res = await fetchReviewByBooking(currentBookingId);
       setReview(res.data);
 
       if (res.data) {
@@ -52,6 +58,10 @@ function ReviewPage() {
   };
 
   const onFinish = async (values: { rating: number; comment: string }) => {
+    if (!customerId || !currentBookingId) {
+      message.error("Thiếu thông tin khách hàng hoặc đặt phòng");
+      return;
+    }
     try {
       setLoading(true);
 
@@ -61,16 +71,28 @@ function ReviewPage() {
           rating: values.rating,
           comment: values.comment,
         });
-        message.success("Cập nhật đánh giá thành công");
+
+        message.success({
+          content: "Cập nhật đánh giá thành công",
+          duration: 1.5,
+          onClose: () => nav("/booking/history"),
+        });
       } else {
         await createReview({
-          bookingId,
+          bookingId: currentBookingId,
           customerId,
           rating: values.rating,
           comment: values.comment,
         });
-        message.success("Gửi đánh giá thành công");
+
+        message.success({
+          content: "Gửi đánh giá thành công và đang chờ duyệt",
+          duration: 1.5,
+          onClose: () => nav("/booking/history"),
+        });
       }
+
+      loadReview();
 
       loadReview();
     } catch (error: any) {
@@ -79,6 +101,9 @@ function ReviewPage() {
       setLoading(false);
     }
   };
+  // console.log("user:", user);
+  // console.log("customerId gửi lên:", customerId);
+  // console.log("bookingId:", currentBookingId);
 
   return (
     <div style={{ padding: "120px 16px 48px" }}>

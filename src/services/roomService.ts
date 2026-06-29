@@ -8,6 +8,10 @@ export const getRoomById = async (id: number) => {
   return api.get(`/rooms/${id}`);
 };
 
+export const getRoomTypes = async () => {
+  return api.get("/rooms/types");
+};
+
 export const createRoom = async (data: Record<string, unknown>) => {
   return api.post("/rooms", data);
 };
