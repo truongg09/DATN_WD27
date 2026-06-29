@@ -79,7 +79,7 @@ const AppRoutes = () => {
           <Route path="change-password" element={<ChangePassword />} />
         </Route>
 
-        <Route path="/reviews" element={<ReviewPage />} />
+        <Route path="/review/:bookingId" element={<ReviewPage />} />
 
       </Route>
 
