@@ -6,10 +6,10 @@ async function fixDB() {
   try {
     console.log('=== Connecting to database...');
     connection = await mysql.createConnection({
-      host: process.env.DB_HOST,
-      user: process.env.DB_USER,
-      password: process.env.DB_PASSWORD,
-      database: process.env.DB_NAME
+      host: process.env.DB_HOST || 'localhost',
+      user: process.env.DB_USER || 'root',
+      password: process.env.DB_PASSWORD || '',
+      database: process.env.DB_NAME || 'hotelbookingdb'
     });
     console.log('✅ Connected to database');
 
@@ -21,6 +21,8 @@ async function fixDB() {
     // Drop old tables that might reference accounts
     console.log('=== Dropping dependent tables...');
     await connection.query('DROP TABLE IF EXISTS reviews');
+    await connection.query('DROP TABLE IF EXISTS room_availability');
+    await connection.query('DROP TABLE IF EXISTS booking_details');
     await connection.query('DROP TABLE IF EXISTS bookings');
     await connection.query('DROP TABLE IF EXISTS accounts');
     console.log('✅ Old tables dropped');
@@ -90,6 +92,39 @@ async function fixDB() {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES accounts(id) ON DELETE CASCADE,
         FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
+      )
+    `);
+    // Booking details
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS booking_details (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        booking_id INT NOT NULL,
+        room_id INT NOT NULL,
+        check_in_date DATE NOT NULL,
+        check_out_date DATE NOT NULL,
+        adults INT NOT NULL DEFAULT 1,
+        children INT NOT NULL DEFAULT 0,
+        room_price DECIMAL(10, 2) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE,
+        FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
+      )
+    `);
+    // Room availability
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS room_availability (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        room_id INT NOT NULL,
+        booking_id INT NULL,
+        date DATE NOT NULL,
+        status ENUM('available', 'booked') DEFAULT 'available',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY unique_room_date (room_id, date),
+        INDEX idx_room_availability_lookup (room_id, date, status),
+        FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE,
+        FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE SET NULL
       )
     `);
     // Reviews

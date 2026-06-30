@@ -55,6 +55,37 @@ CREATE TABLE IF NOT EXISTS bookings (
   FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
 );
 
+-- Booking details table
+CREATE TABLE IF NOT EXISTS booking_details (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  booking_id INT NOT NULL,
+  room_id INT NOT NULL,
+  check_in_date DATE NOT NULL,
+  check_out_date DATE NOT NULL,
+  adults INT NOT NULL DEFAULT 1,
+  children INT NOT NULL DEFAULT 0,
+  room_price DECIMAL(10, 2) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE,
+  FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
+);
+
+-- Room availability table
+CREATE TABLE IF NOT EXISTS room_availability (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  room_id INT NOT NULL,
+  booking_id INT NULL,
+  date DATE NOT NULL,
+  status ENUM('available', 'booked') DEFAULT 'available',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY unique_room_date (room_id, date),
+  INDEX idx_room_availability_lookup (room_id, date, status),
+  FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE,
+  FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE SET NULL
+);
+
 -- Amenities table
 CREATE TABLE IF NOT EXISTS amenities (
   id INT AUTO_INCREMENT PRIMARY KEY,
@@ -119,10 +150,38 @@ CREATE TABLE IF NOT EXISTS booking_services (
 CREATE TABLE IF NOT EXISTS payments (
   id INT AUTO_INCREMENT PRIMARY KEY,
   booking_id INT NOT NULL,
-  amount DECIMAL(10, 2) NOT NULL,
+  room_amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
+  service_amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
+  surcharge_amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
+  discount_amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
+  deposit_amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
+  paid_amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
+  remaining_amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
+  total_amount DECIMAL(10, 2) NOT NULL,
   payment_method VARCHAR(50),
-  status ENUM('pending', 'completed', 'failed') DEFAULT 'pending',
-  transaction_id VARCHAR(255),
+  payment_status ENUM('unpaid', 'paid', 'refunded') DEFAULT 'unpaid',
+  transaction_code VARCHAR(255),
+  payment_date TIMESTAMP NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE
+);
+
+-- Invoices table
+CREATE TABLE IF NOT EXISTS invoices (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  invoice_number VARCHAR(50) NOT NULL UNIQUE,
+  booking_id INT NOT NULL,
+  payment_id INT NULL,
+  user_id INT NOT NULL,
+  room_amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
+  service_amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
+  discount_amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
+  total_amount DECIMAL(10, 2) NOT NULL,
+  status ENUM('draft', 'issued', 'cancelled') DEFAULT 'issued',
+  issued_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE,
+  FOREIGN KEY (payment_id) REFERENCES payments(id) ON DELETE SET NULL,
+  FOREIGN KEY (user_id) REFERENCES accounts(id) ON DELETE CASCADE
 );

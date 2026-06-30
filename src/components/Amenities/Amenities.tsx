@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faSwimmingPool,
@@ -10,7 +10,26 @@ import {
   faPlaneArrival,
   faSyncAlt
 } from '@fortawesome/free-solid-svg-icons';
+import type { IconDefinition } from '@fortawesome/fontawesome-svg-core';
+import { getAmenities } from '../../services/amenityService';
+import type { Amenity } from '../../services/amenityService';
 import './amenities.css';
+
+const iconMap: Record<string, IconDefinition> = {
+  faSwimmingPool,
+  faSpa,
+  faUtensils,
+  faDumbbell,
+  faWifi,
+  faCar,
+  faPlaneArrival,
+  faSyncAlt,
+  faTv,
+  faSnowflake,
+  faGlassWhiskey,
+  faBath,
+  faImage
+};
 
 const Amenities: React.FC = () => {
   const amenities = [
@@ -32,11 +51,11 @@ const Amenities: React.FC = () => {
           <h2>Dịch vụ cao cấp</h2>
         </div>
         <div className="amenities-grid">
-          {amenities.map((amenity, index) => (
-            <div key={index} className="amenity-item">
-              <FontAwesomeIcon icon={amenity.icon} />
-              <h3>{amenity.title}</h3>
-              <p>{amenity.desc}</p>
+          {amenities.map((amenity) => (
+            <div key={amenity.id} className="amenity-item">
+              <FontAwesomeIcon icon={iconMap[amenity.icon] || faWifi} />
+              <h3>{amenity.name}</h3>
+              <p>{amenity.description}</p>
             </div>
           ))}
         </div>

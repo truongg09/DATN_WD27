@@ -68,9 +68,9 @@ router.post('/', async (req, res) => {
     
     // First create the account
     const [accountResult] = await db.query(`
-      INSERT INTO accounts (full_name, email, phone, password, role, status) 
-      VALUES (?, ?, ?, ?, 'employee', 'active')
-    `, [fullName, email, phone, hashedPassword]);
+      INSERT INTO accounts (email, phone, password, role, status) 
+      VALUES ( ?, ?, ?, 'employee', 'active')
+    `, [email, phone, hashedPassword]);
     
     // Then create the employee record linked to the account
     await db.query(`
@@ -121,11 +121,7 @@ router.put('/:id', async (req, res) => {
     // Update accounts table first
     const updateAccountFields = [];
     const updateAccountValues = [];
-    
-    if (fullName) {
-      updateAccountFields.push('full_name = ?');
-      updateAccountValues.push(fullName);
-    }
+
     if (email) {
       updateAccountFields.push('email = ?');
       updateAccountValues.push(email);

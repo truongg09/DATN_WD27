@@ -8,9 +8,9 @@ console.log('DB_NAME:', process.env.DB_NAME);
 async function testConnection() {
   try {
     const connection = await mysql.createConnection({
-      host: process.env.DB_HOST,
-      user: process.env.DB_USER,
-      password: process.env.DB_PASSWORD
+      host: process.env.DB_HOST || 'localhost',
+      user: process.env.DB_USER || 'root',
+      password: process.env.DB_PASSWORD || ''
     });
     console.log('Connected to MySQL!');
     
