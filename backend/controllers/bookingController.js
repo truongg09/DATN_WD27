@@ -168,6 +168,45 @@ const addDamageCharge = async (req, res) => {
   }
 };
 
+const listServiceRequests = async (req, res) => {
+  try {
+    const filters = {};
+    if (req.query.status) {
+      filters.status = req.query.status;
+    }
+    const requests = await bookingService.listServiceRequests(filters);
+    res.json({ data: requests });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
+const confirmServiceRequest = async (req, res) => {
+  try {
+    const requestId = normalizeIdParam(req.params.id);
+    const result = await bookingService.confirmServiceRequest(requestId);
+    res.json({
+      message: 'Service request confirmed successfully',
+      data: result
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
+const rejectServiceRequest = async (req, res) => {
+  try {
+    const requestId = normalizeIdParam(req.params.id);
+    const result = await bookingService.rejectServiceRequest(requestId);
+    res.json({
+      message: 'Service request rejected',
+      data: result
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
 const transferRoom = async (req, res) => {
   try {
     const bookingId = normalizeIdParam(req.params.id);
@@ -234,6 +273,9 @@ module.exports = {
   addServiceCharge,
   saveGuestIdentities,
   addDamageCharge,
+  listServiceRequests,
+  confirmServiceRequest,
+  rejectServiceRequest,
   extendStay,
   transferRoom,
   checkIn,

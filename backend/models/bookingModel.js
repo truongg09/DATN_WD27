@@ -314,6 +314,78 @@ const sumBookingServices = async (bookingId, connection) => {
   return Number(row?.total || 0);
 };
 
+const addBookingServiceRequest = async (bookingId, serviceId, quantity, connection) => {
+  const [result] = await run(connection).query(
+    `
+      INSERT INTO booking_service_requests (bookingId, serviceId, quantity, status)
+      VALUES (?, ?, ?, 'pending')
+    `,
+    [bookingId, serviceId, quantity]
+  );
+  return result.insertId;
+};
+
+const getBookingServiceRequests = async (bookingId, connection) => {
+  const [rows] = await run(connection).query(
+    `
+      SELECT sr.id, sr.bookingId, sr.serviceId, sr.quantity, sr.status, sr.createdAt,
+             s.serviceName, s.price,
+             (s.price * sr.quantity) AS estimatedTotal
+      FROM booking_service_requests sr
+      LEFT JOIN services s ON s.id = sr.serviceId
+      WHERE sr.bookingId = ?
+      ORDER BY sr.id ASC
+    `,
+    [bookingId]
+  );
+  return rows;
+};
+
+const listServiceRequests = async ({ status } = {}) => {
+  const conditions = [];
+  const values = [];
+  if (status) {
+    conditions.push('sr.status = ?');
+    values.push(status);
+  }
+
+  const [rows] = await db.query(
+    `
+      SELECT sr.id, sr.bookingId, sr.serviceId, sr.quantity, sr.status, sr.createdAt,
+             s.serviceName, s.price,
+             (s.price * sr.quantity) AS estimatedTotal,
+             b.status AS bookingStatus, b.room_id AS roomId,
+             COALESCE(b.guest_name, c.fullName) AS bookingCustomer,
+             COALESCE(b.guest_phone, c.phone) AS bookingPhone,
+             r.roomNumber
+      FROM booking_service_requests sr
+      LEFT JOIN services s ON s.id = sr.serviceId
+      LEFT JOIN bookings b ON b.id = sr.bookingId
+      LEFT JOIN customers c ON c.id = b.customerId
+      LEFT JOIN rooms r ON r.id = b.room_id
+      ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}
+      ORDER BY sr.id DESC
+    `,
+    values
+  );
+  return rows;
+};
+
+const getServiceRequestById = async (requestId, connection, lock = false) => {
+  const [rows] = await run(connection).query(
+    `SELECT id, bookingId, serviceId, quantity, status FROM booking_service_requests WHERE id = ? ${lock ? 'FOR UPDATE' : ''}`,
+    [requestId]
+  );
+  return rows[0] || null;
+};
+
+const updateServiceRequestStatus = async (requestId, status, connection) => {
+  await run(connection).query(
+    'UPDATE booking_service_requests SET status = ? WHERE id = ?',
+    [status, requestId]
+  );
+};
+
 const replaceBookingGuests = async (bookingId, guests, connection) => {
   await run(connection).query('DELETE FROM booking_guests WHERE bookingId = ?', [bookingId]);
 
@@ -463,6 +535,11 @@ module.exports = {
   getServiceById,
   addBookingService,
   sumBookingServices,
+  addBookingServiceRequest,
+  getBookingServiceRequests,
+  listServiceRequests,
+  getServiceRequestById,
+  updateServiceRequestStatus,
   replaceBookingGuests,
   addDamageCharge,
   sumDamageCharges,

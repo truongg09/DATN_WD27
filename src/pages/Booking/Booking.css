@@ -718,3 +718,39 @@
     text-align: left;
   }
 }
+
+/* Service requests at booking time */
+.service-request-list {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.service-request-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  background: #faf7f2;
+  border: 1px solid #e8e0d5;
+  border-radius: 10px;
+}
+
+.service-request-name {
+  font-weight: 600;
+}
+
+.service-request-name em {
+  color: #ab8965;
+  font-style: normal;
+  font-weight: 500;
+}
+
+.service-request-note {
+  margin-top: 4px;
+  font-size: 13px;
+  color: #8a8a8a;
+  font-style: italic;
+}

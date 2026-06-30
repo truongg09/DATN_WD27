@@ -25,7 +25,7 @@ function AdminLayout() {
             <li><Link to="/admin/bookings">Đặt phòng</Link></li>
             <li><Link to="/admin/customers">Khách hàng</Link></li>
             <li><Link to="/admin/employees">Nhân viên</Link></li>
-            <li><Link to="/admin/services">Dịch vụ</Link></li>
+            <li><Link to="/admin/services">Quản lý dịch vụ</Link></li>
             <li><Link to="/admin/vouchers">Voucher</Link></li>
             <li><Link to="/admin/reviews">Đánh giá</Link></li>
             <li><Link to="/admin/payments">Thanh toán</Link></li>
