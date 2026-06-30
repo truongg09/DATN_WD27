@@ -199,6 +199,18 @@ const createBooking = async (payload) => {
     const bookingId = await bookingModel.createBooking(payload, totalPrice, connection);
     await bookingModel.createBookingDetail(bookingId, payload, roomPrice, connection);
     await bookingModel.upsertAvailabilityRows(payload.roomId, bookingId, dates, connection);
+
+    // Service requests are recorded as "pending" only — they do not affect the
+    // payment until an admin confirms each one.
+    if (Array.isArray(payload.serviceRequests) && payload.serviceRequests.length > 0) {
+      for (const request of payload.serviceRequests) {
+        const service = await bookingModel.getServiceById(request.serviceId, connection);
+        if (service) {
+          await bookingModel.addBookingServiceRequest(bookingId, request.serviceId, request.quantity, connection);
+        }
+      }
+    }
+
     const payment = await paymentService.createPaymentForBooking(bookingId, {}, connection);
 
     await connection.commit();
@@ -220,7 +232,80 @@ const getBookingById = async (bookingId) => {
   if (!booking) {
     throw new HttpError(404, 'Booking not found');
   }
+  booking.serviceRequests = await bookingModel.getBookingServiceRequests(bookingId);
   return booking;
+};
+
+const listServiceRequests = (filters) => bookingModel.listServiceRequests(filters);
+
+const confirmServiceRequest = async (requestId) => {
+  const connection = await db.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    const request = await bookingModel.getServiceRequestById(requestId, connection, true);
+    if (!request) {
+      throw new HttpError(404, 'Service request not found');
+    }
+    if (request.status !== 'pending') {
+      throw new HttpError(409, 'Service request already processed');
+    }
+
+    const booking = await bookingModel.getBookingById(request.bookingId, connection, true);
+    if (!booking) {
+      throw new HttpError(404, 'Booking not found');
+    }
+    if (['cancelled', 'checked_out'].includes(booking.status)) {
+      throw new HttpError(409, `Cannot confirm service for booking with status ${booking.status}`);
+    }
+
+    const service = await bookingModel.getServiceById(request.serviceId, connection);
+    if (!service) {
+      throw new HttpError(404, 'Service not found');
+    }
+
+    await bookingModel.addBookingService(request.bookingId, service, request.quantity, connection);
+    await bookingModel.updateServiceRequestStatus(requestId, 'confirmed', connection);
+    const payment = await paymentService.recalculatePaymentForBooking(request.bookingId, connection);
+
+    await connection.commit();
+    return {
+      booking: await getBookingById(request.bookingId),
+      payment
+    };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
+const rejectServiceRequest = async (requestId) => {
+  const connection = await db.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    const request = await bookingModel.getServiceRequestById(requestId, connection, true);
+    if (!request) {
+      throw new HttpError(404, 'Service request not found');
+    }
+    if (request.status !== 'pending') {
+      throw new HttpError(409, 'Service request already processed');
+    }
+
+    await bookingModel.updateServiceRequestStatus(requestId, 'rejected', connection);
+
+    await connection.commit();
+    return { booking: await getBookingById(request.bookingId) };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
 };
 
 const cancelBooking = async (bookingId) => {
@@ -560,6 +645,9 @@ module.exports = {
   saveGuestIdentities,
   addServiceCharge,
   addDamageCharge,
+  listServiceRequests,
+  confirmServiceRequest,
+  rejectServiceRequest,
   extendStay,
   transferRoom,
   checkIn,

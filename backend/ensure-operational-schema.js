@@ -46,6 +46,24 @@ const ensureOperationalSchema = async () => {
       FOREIGN KEY (roomId) REFERENCES rooms(id) ON DELETE CASCADE
     )
   `);
+
+  // Service requests made by the customer at booking time.
+  // These are NOT charged until an admin confirms them (status -> confirmed),
+  // at which point the service is copied into booking_services and the bill
+  // is recalculated. Kept separate so pending requests never affect payments.
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS booking_service_requests (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      bookingId INT NOT NULL,
+      serviceId INT NOT NULL,
+      quantity INT NOT NULL DEFAULT 1,
+      status VARCHAR(20) NOT NULL DEFAULT 'pending',
+      note TEXT NULL,
+      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (bookingId) REFERENCES bookings(id) ON DELETE CASCADE,
+      FOREIGN KEY (serviceId) REFERENCES services(id) ON DELETE CASCADE
+    )
+  `);
 };
 
 module.exports = ensureOperationalSchema;
