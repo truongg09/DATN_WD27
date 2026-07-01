@@ -5,13 +5,24 @@ import {
   faBed, 
   faBath, 
   faExpandArrowsAlt,
-  faSearch
+  faSearch,
+  faFilter
 } from '@fortawesome/free-solid-svg-icons';
 import { getRooms } from '../../services/roomService';
 import { unwrapList } from '../../utils/unwrapList';
 import './RoomList.css';
 
-import { roomsData } from '../../utils/mockRoomsData';
+interface RoomFromDB {
+  id: number;
+  roomNumber: string;
+  room_type_name: string;
+  room_type_description?: string;
+  price_per_night: number | string;
+  capacity: number;
+  area: number;
+  floor: number;
+  status: string;
+}
 
 const RoomList: React.FC = () => {
   const [rooms, setRooms] = useState<RoomFromDB[]>([]);
@@ -25,8 +36,21 @@ const RoomList: React.FC = () => {
   const [filterBeds, setFilterBeds] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<string>('all');
 
-  const rooms = roomsData;
-
+  useEffect(() => {
+    const fetchRooms = async () => {
+      try {
+        setLoading(true);
+        const response = await getRooms();
+        const roomList = unwrapList(response);
+        setRooms(roomList);
+      } catch (err: any) {
+        setError(err.message || 'Có lỗi khi tải danh sách phòng');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchRooms();
+  }, []);
 
   const formatPrice = (price: number) => {
     return new Intl.NumberFormat('vi-VN').format(price) + ' VNĐ';
@@ -141,6 +165,7 @@ const RoomList: React.FC = () => {
               value={sortBy} 
               onChange={(e) => setSortBy(e.target.value)}
               className="sort-select"
+              style={{ minWidth: '180px' }}
             >
               <option value="default">Mặc định</option>
               <option value="price-low">Giá: Thấp đến cao</option>
@@ -149,146 +174,77 @@ const RoomList: React.FC = () => {
           </div>
         </div>
 
-        <div className="rooms-count">
-          <p>Có {sortedRooms.length} phòng trống</p>
-        </div>
-
-        <div className="rooms-grid-list">
-          {sortedRooms.map(room => (
-            <div key={room.id} className="room-list-card">
-              <div className="room-list-image">
-                <img src={room.image} alt={room.name} />
-                {room.originalPrice && (
-                  <span className="discount-badge">Giảm giá</span>
-                )}
-              </div>
-              <div className="room-list-info">
-                <div className="room-type-badge">{room.type}</div>
-                <h3>{room.name}</h3>
-                <div className="room-features-list">
-                  <span><FontAwesomeIcon icon={faBed} /> {room.beds}</span>
-                  <span><FontAwesomeIcon icon={faBath} /> {room.baths}</span>
-                  <span><FontAwesomeIcon icon={faExpandArrowsAlt} /> {room.area}</span>
-                </div>
-                <div className="room-description">
-                  <p>
-                    {room.type === 'presidential' && 'Phòng sang trọng nhất với đầy đủ tiện nghi, view tuyệt đẹp và dịch vụ VIP.'}
-                    {room.type === 'suite' && 'Phòng rộng rãi với không gian riêng tư, phòng khách và tầm nhìn panorama.'}
-                    {room.type === 'deluxe' && 'Phòng cao cấp với thiết kế hiện đại, đầy đủ tiện nghi cho kỳ nghỉ hoàn hảo.'}
-                    {room.type === 'family' && 'Phòng lý tưởng cho gia đình với không gian rộng rãi và giường phụ nếu cần.'}
-                    {room.type === 'superior' && 'Phòng tiện nghi với tầm nhìn đẹp, phù hợp cho cặp đôi hoặc du khách đơn.'}
-                    {room.type === 'standard' && 'Phòng cơ bản đầy đủ tiện nghi, lựa chọn tiết kiệm cho du khách.'}
-                  </p>
-                </div>
-                <div className="room-list-footer">
-                  <div className="room-price-section">
-                    <span className="room-price">{formatPrice(room.price)}</span>
-                    <span className="room-price-unit">/đêm</span>
-                    {room.originalPrice && (
-                      <span className="room-original-price">
-                        {formatPrice(room.originalPrice)}
-                      </span>
-                    )}
-                  </div>
-                  <div className="room-actions">
-                    <Link to={`/rooms/${room.id}`}>
-                      <button className="btn-detail">Xem chi tiết</button>
-                    </Link>
-                    <Link to={`/booking?id=${room.id}`}>
-                      <button className="btn-book">Đặt phòng</button>
-                    </Link>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="sort-group">
-              <span className="sort-label">Sắp xếp:</span>
-              <select 
-                value={sortBy} 
-                onChange={(e) => setSortBy(e.target.value)}
-                className="sort-select"
-                style={{ minWidth: '180px' }}
-              >
-                <option value="default">Mặc định</option>
-                <option value="price-low">Giá: Thấp đến cao</option>
-                <option value="price-high">Giá: Cao đến thấp</option>
-              </select>
-            </div>
+        <div className="rooms-filter-grid">
+          <div className="filter-item">
+            <span className="filter-label">Hạng phòng</span>
+            <select 
+              value={filterType} 
+              onChange={(e) => setFilterType(e.target.value)}
+              className="filter-select"
+            >
+              <option value="all">Tất cả hạng phòng</option>
+              <option value="standard">Phòng Standard</option>
+              <option value="superior">Phòng Superior</option>
+              <option value="deluxe">Phòng Deluxe</option>
+              <option value="suite">Phòng Suite</option>
+              <option value="family">Phòng Family</option>
+            </select>
           </div>
 
-          <div className="rooms-filter-grid">
-            <div className="filter-item">
-              <span className="filter-label">Hạng phòng</span>
-              <select 
-                value={filterType} 
-                onChange={(e) => setFilterType(e.target.value)}
-                className="filter-select"
-              >
-                <option value="all">Tất cả hạng phòng</option>
-                <option value="standard">Phòng Standard</option>
-                <option value="superior">Phòng Superior</option>
-                <option value="deluxe">Phòng Deluxe</option>
-                <option value="suite">Phòng Suite</option>
-                <option value="family">Phòng Family</option>
-              </select>
-            </div>
+          <div className="filter-item">
+            <span className="filter-label">Khoảng giá</span>
+            <select 
+              value={filterPrice} 
+              onChange={(e) => setFilterPrice(e.target.value)}
+              className="filter-select"
+            >
+              <option value="all">Tất cả mức giá</option>
+              <option value="under-600k">Dưới 600.000 VNĐ</option>
+              <option value="600k-1m">600.000 VNĐ - 1.000.000 VNĐ</option>
+              <option value="1m-1.5m">1.000.000 VNĐ - 1.500.000 VNĐ</option>
+              <option value="over-1.5m">Trên 1.500.000 VNĐ</option>
+            </select>
+          </div>
 
-            <div className="filter-item">
-              <span className="filter-label">Khoảng giá</span>
-              <select 
-                value={filterPrice} 
-                onChange={(e) => setFilterPrice(e.target.value)}
-                className="filter-select"
-              >
-                <option value="all">Tất cả mức giá</option>
-                <option value="under-600k">Dưới 600.000 VNĐ</option>
-                <option value="600k-1m">600.000 VNĐ - 1.000.000 VNĐ</option>
-                <option value="1m-1.5m">1.000.000 VNĐ - 1.500.000 VNĐ</option>
-                <option value="over-1.5m">Trên 1.500.000 VNĐ</option>
-              </select>
-            </div>
+          <div className="filter-item">
+            <span className="filter-label">Sức chứa</span>
+            <select 
+              value={filterCapacity} 
+              onChange={(e) => setFilterCapacity(e.target.value)}
+              className="filter-select"
+            >
+              <option value="all">Tất cả số người</option>
+              <option value="2">2 người</option>
+              <option value="3">3 người</option>
+              <option value="4">4 người</option>
+            </select>
+          </div>
 
-            <div className="filter-item">
-              <span className="filter-label">Sức chứa</span>
-              <select 
-                value={filterCapacity} 
-                onChange={(e) => setFilterCapacity(e.target.value)}
-                className="filter-select"
-              >
-                <option value="all">Tất cả số người</option>
-                <option value="2">2 người</option>
-                <option value="3">3 người</option>
-                <option value="4">4 người</option>
-              </select>
-            </div>
+          <div className="filter-item">
+            <span className="filter-label">Số giường</span>
+            <select 
+              value={filterBeds} 
+              onChange={(e) => setFilterBeds(e.target.value)}
+              className="filter-select"
+            >
+              <option value="all">Tất cả số giường</option>
+              <option value="1">1 giường</option>
+              <option value="2">2 giường</option>
+            </select>
+          </div>
 
-            <div className="filter-item">
-              <span className="filter-label">Số giường</span>
-              <select 
-                value={filterBeds} 
-                onChange={(e) => setFilterBeds(e.target.value)}
-                className="filter-select"
-              >
-                <option value="all">Tất cả số giường</option>
-                <option value="1">1 giường</option>
-                <option value="2">2 giường</option>
-              </select>
-            </div>
-
-            <div className="filter-item">
-              <span className="filter-label">Trạng thái</span>
-              <select 
-                value={filterStatus} 
-                onChange={(e) => setFilterStatus(e.target.value)}
-                className="filter-select"
-              >
-                <option value="all">Tất cả trạng thái</option>
-                <option value="available">Còn trống</option>
-                <option value="occupied">Đang có khách</option>
-                <option value="maintenance">Đang bảo trì</option>
-              </select>
-            </div>
+          <div className="filter-item">
+            <span className="filter-label">Trạng thái</span>
+            <select 
+              value={filterStatus} 
+              onChange={(e) => setFilterStatus(e.target.value)}
+              className="filter-select"
+            >
+              <option value="all">Tất cả trạng thái</option>
+              <option value="available">Còn trống</option>
+              <option value="occupied">Đang có khách</option>
+              <option value="maintenance">Đang bảo trì</option>
+            </select>
           </div>
         </div>
 

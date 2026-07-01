@@ -26,6 +26,8 @@ const damageReportRoutes = require('./routes/damageReports');
 const bookingServiceRoutes = require('./routes/bookingServices');
 const serviceRequestRoutes = require('./routes/serviceRequests');
 const bookingService = require('./services/bookingService');
+const reviewRoutes = require('./routes/reviews');
+const voucherRoutes = require('./routes/vouchers');
 const ensureOperationalSchema = require('./ensure-operational-schema');
 
 app.use('/api/auth', authRoutes);
@@ -42,6 +44,8 @@ app.use('/api/room-items', roomItemRoutes);
 app.use('/api/damage-reports', damageReportRoutes);
 app.use('/api/booking-services', bookingServiceRoutes);
 app.use('/api/service-requests', serviceRequestRoutes);
+app.use('/api/reviews', reviewRoutes);
+app.use('/api/vouchers', voucherRoutes);
 
 // Test endpoint
 app.get('/api/health', (req, res) => {
