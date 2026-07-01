@@ -15,6 +15,23 @@ import './RoomDetail.css';
 
 import { roomsData } from '../../utils/mockRoomsData';
 
+interface RoomData {
+  id: number;
+  roomNumber: string;
+  floor: number;
+  area: string | number;
+  status: 'available' | 'occupied' | 'maintenance';
+  roomTypeId: number;
+  room_type_name: string;
+  room_type_description: string;
+  capacity: number;
+  price_per_night: string | number;
+  imageUrl?: string;
+  images: string[];
+  db_amenities?: { name: string; icon: string }[];
+  db_reviews?: { id: number; customerName: string; rating: number; comment: string; createdAt: string }[];
+}
+
 const RoomDetail: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -55,6 +72,13 @@ const RoomDetail: React.FC = () => {
       'https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?w=1200',
       'https://images.unsplash.com/photo-1566073771259-6a8506099945?w=1200'
     ];
+  };
+
+  const mapImages = (imagesArr: string[] | undefined, typeName: string): string[] => {
+    if (imagesArr && imagesArr.length > 0) {
+      return imagesArr;
+    }
+    return getDefaultImages(typeName);
   };
 
   const getDetailedDescription = (typeName: string, dbDesc: string): string => {
