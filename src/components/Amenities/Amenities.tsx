@@ -49,7 +49,6 @@ const defaultAmenities = [
 
 const Amenities: React.FC = () => {
   const [amenities, setAmenities] = useState<Amenity[]>([]);
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchAmenities = async () => {
@@ -61,7 +60,7 @@ const Amenities: React.FC = () => {
       } catch (err) {
         // Fallback to default amenities
       } finally {
-        setLoading(false);
+        // finished fetching
       }
     };
     fetchAmenities();

@@ -5,7 +5,6 @@ import {
   faBed, 
   faBath, 
   faExpandArrowsAlt,
-  faSearch,
   faFilter
 } from '@fortawesome/free-solid-svg-icons';
 import { getRooms } from '../../services/roomService';
@@ -30,7 +29,7 @@ const RoomList: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [filterType, setFilterType] = useState<string>('all');
   const [sortBy, setSortBy] = useState<string>('default');
-  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [searchQuery] = useState<string>('');
   const [filterPrice, setFilterPrice] = useState<string>('all');
   const [filterCapacity, setFilterCapacity] = useState<string>('all');
   const [filterBeds, setFilterBeds] = useState<string>('all');
@@ -41,7 +40,7 @@ const RoomList: React.FC = () => {
       try {
         setLoading(true);
         const response = await getRooms();
-        const roomList = unwrapList(response);
+        const roomList = unwrapList(response) as RoomFromDB[];
         setRooms(roomList);
       } catch (err: any) {
         setError(err.message || 'Có lỗi khi tải danh sách phòng');
