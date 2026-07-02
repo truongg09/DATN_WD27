@@ -76,7 +76,10 @@ const RoomDetail: React.FC = () => {
 
   const mapImages = (imagesArr: string[] | undefined, typeName: string): string[] => {
     if (imagesArr && imagesArr.length > 0) {
-      return imagesArr;
+      const firstImage = imagesArr[0];
+      if (firstImage && (firstImage.startsWith('http://') || firstImage.startsWith('https://'))) {
+        return imagesArr;
+      }
     }
     return getDefaultImages(typeName);
   };
