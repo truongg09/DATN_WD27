@@ -218,6 +218,16 @@ const processPayment = async (paymentId, payload) => {
       throw new HttpError(400, 'Payment amount exceeds remaining balance');
     }
 
+    // Đặt cọc (trả một phần khi chưa trả gì) là thanh toán từ xa -> không nhận tiền mặt
+    const isDepositPayment =
+      Number(payment.paidAmount) === 0 && payAmount < Number(payment.remainingAmount);
+    if (isDepositPayment && payload.paymentMethod === 'cash') {
+      throw new HttpError(
+        400,
+        'Đặt cọc giữ phòng phải thanh toán từ xa (chuyển khoản QR/MoMo/VNPay). Tiền mặt chỉ áp dụng khi thanh toán tại khách sạn.'
+      );
+    }
+
     const newPaidAmount = Number(payment.paidAmount) + payAmount;
     const newRemainingAmount = Number(payment.totalAmount) - newPaidAmount;
     const isFullyPaid = newRemainingAmount <= 0;

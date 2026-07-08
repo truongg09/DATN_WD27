@@ -178,6 +178,18 @@ const PaymentPage: React.FC = () => {
   const isHoldExpired = payment?.paymentStatus === 'unpaid' && !hasDeposit && holdRemainingMs <= 0;
   const holdPercent = Math.max(Math.min((holdRemainingMs / HOLD_DURATION_MS) * 100, 100), 0);
 
+  // Đặt cọc là thanh toán từ xa -> không cho chọn tiền mặt tại quầy
+  const isDepositMode = paymentAmountMode === 'deposit' && !hasDeposit;
+  const visibleMethods = isDepositMode
+    ? METHOD_OPTIONS.filter((option) => option.value !== 'cash')
+    : METHOD_OPTIONS;
+
+  useEffect(() => {
+    if (isDepositMode && paymentMethod === 'cash') {
+      setPaymentMethod('bank_transfer');
+    }
+  }, [isDepositMode, paymentMethod]);
+
   // Chính sách hoàn tiền (khớp công thức backend: >7 ngày = 100%, 3–7 ngày = 50%, <3 ngày = 0%)
   const refundInfo = useMemo(() => {
     if (!booking?.check_in) return null;
@@ -550,7 +562,7 @@ const PaymentPage: React.FC = () => {
                   )}
 
                   <div className="method-list">
-                    {METHOD_OPTIONS.map((option) => (
+                    {visibleMethods.map((option) => (
                       <button
                         key={option.value}
                         type="button"
@@ -571,6 +583,13 @@ const PaymentPage: React.FC = () => {
                       </button>
                     ))}
                   </div>
+
+                  {isDepositMode && (
+                    <p className="deposit-online-note">
+                      Đặt cọc giữ phòng được thanh toán từ xa qua QR/ví điện tử. Tiền mặt chỉ áp dụng
+                      khi thanh toán phần còn lại tại khách sạn.
+                    </p>
+                  )}
 
                   <Button
                     className="pay-button"

@@ -564,6 +564,17 @@
   color: #9a7a5a;
 }
 
+.deposit-online-note {
+  margin: -6px 0 14px;
+  padding: 9px 12px;
+  background: #f0f7ff;
+  border: 1px dashed #91caff;
+  border-radius: 10px;
+  font-size: 12.5px;
+  color: #1d4ed8;
+  line-height: 1.5;
+}
+
 /* ===== Pay button ===== */
 .pay-button {
   height: 50px;
