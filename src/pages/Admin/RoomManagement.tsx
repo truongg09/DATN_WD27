@@ -1,0 +1,475 @@
+import { useState, useEffect, type Key } from 'react';
+import {
+  Table,
+  Button,
+  Modal,
+  Form,
+  Input,
+  InputNumber,
+  Select,
+  message,
+  Popconfirm,
+  Space,
+  Card,
+  Tag,
+  Row,
+  Col,
+  Descriptions
+} from 'antd';
+import { PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined, DownOutlined, EyeOutlined } from '@ant-design/icons';
+import axios from 'axios';
+import api from '../../services/api';
+
+const { Option } = Select;
+
+interface RoomType {
+  id: number;
+  typeName: string;
+  description: string;
+  capacity: number;
+  defaultPrice: string | number;
+}
+
+interface Room {
+  id: number;
+  roomNumber: string;
+  floor: number;
+  area: string | number;
+  status: 'available' | 'occupied' | 'maintenance';
+  roomTypeId: number;
+  room_type_name: string;
+  room_type_description: string;
+  capacity: number;
+  price_per_night: string | number;
+  imageUrl?: string;
+}
+
+function RoomManagement() {
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [roomTypes, setRoomTypes] = useState<RoomType[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [detailModalVisible, setDetailModalVisible] = useState(false);
+  const [editingRoom, setEditingRoom] = useState<Room | null>(null);
+  const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
+  const [form] = Form.useForm();
+  const [searchText, setSearchText] = useState('');
+
+  const totalRooms = rooms.length;
+  const availableRooms = rooms.filter(r => r.status === 'available').length;
+  const occupiedRooms = rooms.filter(r => r.status === 'occupied').length;
+  const maintenanceRooms = rooms.filter(r => r.status === 'maintenance').length;
+
+  const filteredRooms = rooms.filter(room => {
+    const searchLower = searchText.toLowerCase();
+    return (
+      room.roomNumber.toLowerCase().includes(searchLower) ||
+      (room.room_type_name && room.room_type_name.toLowerCase().includes(searchLower)) ||
+      String(room.floor).includes(searchLower)
+    );
+  });
+
+  const fetchRooms = async () => {
+    setLoading(true);
+    try {
+      const response = await api.get('/rooms');
+      setRooms(response.data || response);
+    } catch (error) {
+      console.error('Error fetching rooms:', error);
+      message.error('Lỗi khi tải danh sách phòng');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleQuickStatusChange = async (id: number, newStatus: 'available' | 'occupied' | 'maintenance', record: Room) => {
+    try {
+      const updatedValues = {
+        roomNumber: record.roomNumber,
+        roomTypeId: record.roomTypeId,
+        floor: record.floor,
+        area: parseFloat(record.area as string) || record.area,
+        status: newStatus
+      };
+      
+      await api.put(`/rooms/${id}`, updatedValues);
+      message.success(`Đã chuyển trạng thái phòng ${record.roomNumber} thành công`);
+      fetchRooms();
+    } catch (error: unknown) {
+      console.error('Quick status change error:', error);
+      const msg = axios.isAxiosError(error) ? error.response?.data?.message : undefined;
+      message.error(msg || 'Lỗi khi cập nhật trạng thái phòng');
+    }
+  };
+
+  useEffect(() => {
+    void (async () => {
+      setLoading(true);
+      try {
+        const response = await api.get('/rooms');
+        setRooms(response.data || response);
+      } catch (error) {
+        console.error('Error fetching rooms:', error);
+        message.error('Lỗi khi tải danh sách phòng');
+      } finally {
+        setLoading(false);
+      }
+    })();
+
+    void (async () => {
+      try {
+        const response = await api.get('/rooms/types');
+        setRoomTypes(response.data || response);
+      } catch (error) {
+        console.error('Error fetching room types:', error);
+        message.error('Lỗi khi tải danh sách loại phòng');
+      }
+    })();
+  }, []);
+
+  const handleAdd = () => {
+    setEditingRoom(null);
+    form.resetFields();
+    setModalVisible(true);
+  };
+
+  const handleEdit = (room: Room) => {
+    setEditingRoom(room);
+    form.setFieldsValue({
+      roomNumber: room.roomNumber,
+      roomTypeId: room.roomTypeId,
+      floor: room.floor,
+      area: parseFloat(room.area as string) || room.area,
+      status: room.status
+    });
+    setModalVisible(true);
+  };
+
+  const handleViewDetail = (room: Room) => {
+    setSelectedRoom(room);
+    setDetailModalVisible(true);
+  };
+
+  const handleDelete = async (id: number) => {
+    try {
+      await api.delete(`/rooms/${id}`);
+      message.success('Xóa phòng thành công');
+      fetchRooms();
+    } catch (error: unknown) {
+      console.error('Error deleting room:', error);
+      const msg = axios.isAxiosError(error) ? error.response?.data?.message : undefined;
+      message.error(msg || 'Lỗi khi xóa phòng');
+    }
+  };
+
+  const handleModalSubmit = async () => {
+    try {
+      const values = await form.validateFields();
+      if (editingRoom) {
+        // Update
+        await api.put(`/rooms/${editingRoom.id}`, values);
+        message.success('Cập nhật phòng thành công');
+      } else {
+        // Create
+        await api.post('/rooms', values);
+        message.success('Thêm phòng mới thành công');
+      }
+      setModalVisible(false);
+      fetchRooms();
+    } catch (error: unknown) {
+      console.error('Submit error:', error);
+      const msg = axios.isAxiosError(error) ? error.response?.data?.message : undefined;
+      message.error(msg || 'Có lỗi xảy ra, vui lòng thử lại');
+    }
+  };
+
+  const formatPrice = (price: string | number) => {
+    const numPrice = typeof price === 'number' ? price : parseFloat(price) || 0;
+    return new Intl.NumberFormat('vi-VN').format(numPrice) + ' VNĐ';
+  };
+
+  const columns = [
+    {
+      title: 'Số phòng',
+      dataIndex: 'roomNumber',
+      key: 'roomNumber',
+      sorter: (a: Room, b: Room) => a.roomNumber.localeCompare(b.roomNumber),
+      render: (text: string) => <strong>{text}</strong>
+    },
+    {
+      title: 'Loại phòng',
+      dataIndex: 'room_type_name',
+      key: 'room_type_name',
+      filters: roomTypes.map(t => ({ text: t.typeName, value: t.typeName })),
+      onFilter: (value: boolean | Key, record: Room) => record.room_type_name === value,
+    },
+    {
+      title: 'Tầng',
+      dataIndex: 'floor',
+      key: 'floor',
+      sorter: (a: Room, b: Room) => a.floor - b.floor,
+    },
+    {
+      title: 'Diện tích',
+      dataIndex: 'area',
+      key: 'area',
+      render: (area: string | number) => `${area} m²`
+    },
+    {
+      title: 'Giá/đêm',
+      dataIndex: 'price_per_night',
+      key: 'price_per_night',
+      sorter: (a: Room, b: Room) => (parseFloat(a.price_per_night as string) || 0) - (parseFloat(b.price_per_night as string) || 0),
+      render: (price: string | number) => formatPrice(price)
+    },
+    {
+      title: 'Sức chứa',
+      dataIndex: 'capacity',
+      key: 'capacity',
+      render: (capacity: number) => `${capacity} người`
+    },
+    {
+      title: 'Trạng thái',
+      dataIndex: 'status',
+      key: 'status',
+      filters: [
+        { text: 'Trống', value: 'available' },
+        { text: 'Đang ở', value: 'occupied' },
+        { text: 'Bảo trì', value: 'maintenance' }
+      ],
+      onFilter: (value: boolean | Key, record: Room) => record.status === value,
+      render: (status: 'available' | 'occupied' | 'maintenance', record: Room) => {
+        return (
+          <Select
+            value={status}
+            onChange={(newStatus) => handleQuickStatusChange(record.id, newStatus, record)}
+            style={{ width: 110 }}
+            bordered={false}
+            popupMatchSelectWidth={false}
+            suffixIcon={<DownOutlined style={{ fontSize: '10px', color: '#bfbfbf' }} />}
+          >
+            <Option value="available">
+              <Tag style={{ cursor: 'pointer', margin: 0, backgroundColor: '#bbf7d0', color: '#166534', borderColor: '#86efac' }}>Trống</Tag>
+            </Option>
+            <Option value="occupied">
+              <Tag style={{ cursor: 'pointer', margin: 0, backgroundColor: '#bfdbfe', color: '#1e40af', borderColor: '#93c5fd' }}>Đang ở</Tag>
+            </Option>
+            <Option value="maintenance">
+              <Tag style={{ cursor: 'pointer', margin: 0, backgroundColor: '#fecdd3', color: '#9f1239', borderColor: '#fda4af' }}>Bảo trì</Tag>
+            </Option>
+          </Select>
+        );
+      }
+    },
+    {
+      title: 'Hành động',
+      key: 'action',
+      render: (_: unknown, record: Room) => (
+        <Space>
+          <Button
+            type="primary"
+            icon={<EyeOutlined style={{ color: 'white' }} />}
+            size="small"
+            onClick={() => handleViewDetail(record)}
+          >
+          </Button>
+          <Button
+            type="primary"
+            icon={<EditOutlined />}
+            size="small"
+            onClick={() => handleEdit(record)}
+          >
+          </Button>
+          <Popconfirm
+            title="Bạn có chắc chắn muốn xóa?"
+            onConfirm={() => handleDelete(record.id)}
+            okText="Xóa"
+            cancelText="Hủy"
+          >
+            <Button
+              type="primary"
+              danger
+              icon={<DeleteOutlined />}
+              size="small"
+            >
+            </Button>
+          </Popconfirm>
+        </Space>
+      ),
+    },
+  ];
+
+  return (
+    <div style={{ padding: '24px' }}>
+      <Card 
+        title={<span style={{ fontSize: '20px', fontWeight: 'bold' }}>Quản Lý Danh Sách Phòng</span>}
+        extra={
+          <Space>
+            <Button 
+              icon={<ReloadOutlined />} 
+              onClick={fetchRooms}
+            >
+              Làm mới
+            </Button>
+            <Button 
+              type="primary" 
+              icon={<PlusOutlined />} 
+              onClick={handleAdd}
+            >
+              Thêm phòng mới
+            </Button>
+          </Space>
+        }
+      >
+        <Space direction="vertical" style={{ width: '100%' }} size="large">
+          <Row gutter={[16, 16]}>
+            <Col xs={24} sm={12} md={6}>
+              <Card style={{ backgroundColor: '#e2e8f0', borderLeft: '4px solid #334155', borderRadius: '8px', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
+                <div style={{ color: '#334155', fontSize: '14px', fontWeight: '500' }}>Tổng số phòng</div>
+                <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#0f172a', marginTop: '4px' }}>{totalRooms}</div>
+              </Card>
+            </Col>
+            <Col xs={24} sm={12} md={6}>
+              <Card style={{ backgroundColor: '#bbf7d0', borderLeft: '4px solid #15803d', borderRadius: '8px', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
+                <div style={{ color: '#166534', fontSize: '14px', fontWeight: '500' }}>Đang trống</div>
+                <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#14532d', marginTop: '4px' }}>{availableRooms}</div>
+              </Card>
+            </Col>
+            <Col xs={24} sm={12} md={6}>
+              <Card style={{ backgroundColor: '#bfdbfe', borderLeft: '4px solid #1d4ed8', borderRadius: '8px', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
+                <div style={{ color: '#1e40af', fontSize: '14px', fontWeight: '500' }}>Đang ở</div>
+                <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#1e3a8a', marginTop: '4px' }}>{occupiedRooms}</div>
+              </Card>
+            </Col>
+            <Col xs={24} sm={12} md={6}>
+              <Card style={{ backgroundColor: '#fecdd3', borderLeft: '4px solid #be123c', borderRadius: '8px', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
+                <div style={{ color: '#9f1239', fontSize: '14px', fontWeight: '500' }}>Bảo trì / Dọn dẹp</div>
+                <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#881337', marginTop: '4px' }}>{maintenanceRooms}</div>
+              </Card>
+            </Col>
+          </Row>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+            <Input.Search
+              placeholder="Tìm kiếm theo số phòng, loại phòng hoặc tầng..."
+              allowClear
+              onChange={e => setSearchText(e.target.value)}
+              style={{ width: 350 }}
+            />
+          </div>
+          <Table 
+            columns={columns} 
+            dataSource={filteredRooms} 
+            rowKey="id" 
+            loading={loading}
+            pagination={{ pageSize: 8 }}
+          />
+        </Space>
+      </Card>
+
+      <Modal
+        title={editingRoom ? "Cập Nhật Thông Tin Phòng" : "Thêm Phòng Mới"}
+        open={modalVisible}
+        onCancel={() => setModalVisible(false)}
+        footer={null}
+      >
+        <Form
+          form={form}
+          layout="vertical"
+          style={{ marginTop: '16px' }}
+          onFinish={handleModalSubmit}
+        >
+          <Form.Item
+            name="roomNumber"
+            label="Số phòng"
+            rules={[{ required: true, message: 'Vui lòng nhập số phòng!' }]}
+          >
+            <Input placeholder="Ví dụ: 101, 202..." />
+          </Form.Item>
+
+          <Form.Item
+            name="roomTypeId"
+            label="Loại phòng"
+            rules={[{ required: true, message: 'Vui lòng chọn loại phòng!' }]}
+          >
+            <Select placeholder="Chọn loại phòng">
+              {roomTypes.map(t => (
+                <Option key={t.id} value={t.id}>
+                  {t.typeName} ({formatPrice(t.defaultPrice)}/đêm)
+                </Option>
+              ))}
+            </Select>
+          </Form.Item>
+
+          <Form.Item
+            name="floor"
+            label="Tầng"
+            rules={[{ required: true, message: 'Vui lòng nhập số tầng!' }]}
+          >
+            <InputNumber min={1} style={{ width: '100%' }} placeholder="Nhập số tầng" />
+          </Form.Item>
+
+          <Form.Item
+            name="area"
+            label="Diện tích (m²)"
+            rules={[{ required: true, message: 'Vui lòng nhập diện tích!' }]}
+          >
+            <InputNumber min={1} style={{ width: '100%' }} placeholder="Nhập diện tích sử dụng" />
+          </Form.Item>
+
+          <Form.Item
+            name="status"
+            label="Trạng thái"
+            initialValue="available"
+            rules={[{ required: true, message: 'Vui lòng chọn trạng thái phòng!' }]}
+          >
+            <Select>
+              <Option value="available">Trống (Sẵn sàng đón khách)</Option>
+              <Option value="occupied">Đang có khách ở</Option>
+              <Option value="maintenance">Đang bảo trì / dọn dẹp</Option>
+            </Select>
+          </Form.Item>
+          <Form.Item>
+            <Space>
+              <Button type="primary" htmlType="submit" block>
+                {editingRoom ? "Cập nhật" : "Thêm mới"}
+              </Button>
+              <Button onClick={() => setModalVisible(false)} block>
+                Hủy
+              </Button>
+            </Space>
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* Detail Modal */}
+      <Modal
+        title="Chi tiết phòng"
+        open={detailModalVisible}
+        onCancel={() => setDetailModalVisible(false)}
+        footer={null}
+        width={600}
+      >
+        {selectedRoom && (
+          <Descriptions bordered column={1}>
+            <Descriptions.Item label="ID">{selectedRoom.id}</Descriptions.Item>
+            <Descriptions.Item label="Số phòng">{selectedRoom.roomNumber}</Descriptions.Item>
+            <Descriptions.Item label="Loại phòng">{selectedRoom.room_type_name}</Descriptions.Item>
+            <Descriptions.Item label="Mô tả">{selectedRoom.room_type_description || '—'}</Descriptions.Item>
+            <Descriptions.Item label="Tầng">{selectedRoom.floor}</Descriptions.Item>
+            <Descriptions.Item label="Diện tích">{selectedRoom.area} m²</Descriptions.Item>
+            <Descriptions.Item label="Giá/đêm">{formatPrice(selectedRoom.price_per_night)}</Descriptions.Item>
+            <Descriptions.Item label="Sức chứa">{selectedRoom.capacity} người</Descriptions.Item>
+            <Descriptions.Item label="Trạng thái">
+              <Tag color={selectedRoom.status === 'available' ? 'green' : selectedRoom.status === 'occupied' ? 'blue' : 'orange'}>
+                {selectedRoom.status === 'available' ? 'Trống' : selectedRoom.status === 'occupied' ? 'Đang ở' : 'Bảo trì'}
+              </Tag>
+            </Descriptions.Item>
+          </Descriptions>
+        )}
+      </Modal>
+    </div>
+  );
+}
+
+export default RoomManagement;
