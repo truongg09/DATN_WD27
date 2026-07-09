@@ -292,15 +292,15 @@ const listServiceRequests = async (req, res) => {
       rows.map(async (row) => {
         try {
           const [services] = await db.query(
-            'SELECT name, price FROM services WHERE id = ?',
+            'SELECT serviceName, price FROM services WHERE id = ?',
             [row.serviceId]
           );
           if (services.length > 0) {
             return {
               ...row,
-              serviceName: services[0].name,
-              price: services[0].price,
-              estimatedTotal: services[0].price * row.quantity
+              serviceName: services[0].serviceName,
+              price: Number(services[0].price),
+              estimatedTotal: Number(services[0].price) * row.quantity
             };
           }
         } catch (e) {
@@ -338,45 +338,27 @@ const confirmServiceRequest = async (req, res) => {
     }
     
     const request = requests[0];
-    
-    // Get service details
-    const [services] = await db.query(
-      'SELECT price FROM services WHERE id = ?',
-      [request.serviceId]
-    );
-    
-    if (!services.length) {
-      return res.status(404).json({ message: 'Service not found' });
+
+    if (request.status !== 'pending') {
+      return res.status(409).json({ message: 'Yêu cầu dịch vụ này đã được xử lý' });
     }
-    
-    const service = services[0];
-    const totalAmount = service.price * request.quantity;
-    
-    // Add to booking_services
-    await db.query(
-      `INSERT INTO booking_services (bookingId, serviceId, quantity, price, totalAmount, createdAt)
-       VALUES (?, ?, ?, ?, ?, NOW())`,
-      [request.bookingId, request.serviceId, request.quantity, service.price, totalAmount]
-    );
-    
+
+    // Ghi dịch vụ vào booking_services + tính lại hóa đơn/payment (serviceAmount)
+    const result = await bookingService.addServiceCharge(request.bookingId, {
+      serviceId: request.serviceId,
+      quantity: request.quantity
+    });
+
     // Update request status
     await db.query(
       'UPDATE booking_service_requests SET status = ? WHERE id = ?',
       ['confirmed', requestId]
     );
-    
-    // Recalculate booking total
-    await db.query(`
-      UPDATE bookings b
-      SET totalAmount = (
-        SELECT COALESCE(SUM(totalAmount), 0) 
-        FROM booking_services 
-        WHERE bookingId = b.id
-      )
-      WHERE id = ?
-    `, [request.bookingId]);
-    
-    res.json({ message: 'Service request confirmed and added to booking' });
+
+    res.json({
+      message: 'Đã xác nhận dịch vụ và cộng vào hóa đơn của khách',
+      data: result
+    });
   } catch (error) {
     console.error('Error confirming service request:', error);
     res.status(500).json({ message: 'Error confirming service request' });

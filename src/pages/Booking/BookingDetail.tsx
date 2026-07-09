@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { Card, Descriptions, Tag, Button, Spin, message, Divider } from 'antd';
-import { FileTextOutlined, CreditCardOutlined } from '@ant-design/icons';
+import { Card, Descriptions, Tag, Button, Spin, message, Divider, Rate, Input } from 'antd';
+import { FileTextOutlined, CreditCardOutlined, StarOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { getBookingDetail } from '../../services/bookingService';
 import { getPaymentByBookingId } from '../../services/paymentService';
 import { getInvoiceByBookingId } from '../../services/invoiceService';
+import { createReview, getReviews } from '../../services/reviewService';
 import type { Payment } from '../../types/payment';
 import type { Invoice } from '../../types/invoice';
 import './BookingDetail.css';
@@ -41,6 +42,10 @@ const BookingDetail: React.FC = () => {
   const [booking, setBooking] = useState<Record<string, unknown> | null>(null);
   const [payment, setPayment] = useState<Payment | null>(null);
   const [invoice, setInvoice] = useState<Invoice | null>(null);
+  const [existingReview, setExistingReview] = useState<{ rating: number; comment?: string } | null>(null);
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewComment, setReviewComment] = useState('');
+  const [submittingReview, setSubmittingReview] = useState(false);
 
   useEffect(() => {
     if (!isValidBookingId) {
@@ -76,11 +81,38 @@ const BookingDetail: React.FC = () => {
       } finally {
         setLoading(false);
       }
+
+      try {
+        const reviewsRes = await getReviews();
+        const rows = ((reviewsRes as { data?: { bookingId: number; rating: number; comment?: string }[] }).data) || [];
+        const mine = rows.find((row) => Number(row.bookingId) === bookingId);
+        setExistingReview(mine ? { rating: mine.rating, comment: mine.comment } : null);
+      } catch {
+        // Không chặn trang nếu tải đánh giá thất bại
+      }
     };
 
     fetchData();
     window.scrollTo(0, 0);
   }, [bookingId, isValidBookingId, navigate]);
+
+  const handleSubmitReview = async () => {
+    setSubmittingReview(true);
+    try {
+      await createReview({
+        bookingId,
+        rating: reviewRating,
+        comment: reviewComment.trim(),
+      });
+      message.success('Cảm ơn bạn đã đánh giá!');
+      setExistingReview({ rating: reviewRating, comment: reviewComment.trim() });
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { message?: string } } };
+      message.error(err.response?.data?.message || 'Không thể gửi đánh giá');
+    } finally {
+      setSubmittingReview(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -222,6 +254,50 @@ const BookingDetail: React.FC = () => {
                 <span>{formatPrice(invoice.totalAmount)}</span>
               </div>
             </div>
+          </Card>
+        )}
+
+        {status === 'checked_out' && (
+          <Card
+            title={
+              <>
+                <StarOutlined style={{ color: '#faad14', marginRight: 8 }} />
+                Đánh giá kỳ nghỉ của bạn
+              </>
+            }
+          >
+            {existingReview ? (
+              <div>
+                <Rate disabled value={existingReview.rating} />
+                {existingReview.comment && (
+                  <p style={{ marginTop: 10, color: '#4b5563' }}>“{existingReview.comment}”</p>
+                )}
+                <Tag color="green" style={{ marginTop: 8 }}>Bạn đã đánh giá chuyến đi này</Tag>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 520 }}>
+                <p style={{ margin: 0, color: '#6b7280' }}>
+                  Chuyến đi đã hoàn thành — chia sẻ trải nghiệm để giúp khách sau lựa chọn nhé!
+                </p>
+                <Rate value={reviewRating} onChange={setReviewRating} />
+                <Input.TextArea
+                  rows={3}
+                  maxLength={500}
+                  showCount
+                  placeholder="Cảm nhận về phòng, dịch vụ, nhân viên..."
+                  value={reviewComment}
+                  onChange={(e) => setReviewComment(e.target.value)}
+                />
+                <Button
+                  type="primary"
+                  loading={submittingReview}
+                  style={{ alignSelf: 'flex-start' }}
+                  onClick={handleSubmitReview}
+                >
+                  Gửi đánh giá
+                </Button>
+              </div>
+            )}
           </Card>
         )}
 
