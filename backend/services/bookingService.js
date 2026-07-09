@@ -290,6 +290,17 @@ const createBooking = async (payload) => {
     const bookingId = await bookingModel.createBooking(payload, totalPrice, connection);
     await bookingModel.createBookingDetail(bookingId, payload, roomPrice, connection);
     await bookingModel.upsertAvailabilityRows(payload.roomId, bookingId, dates, connection);
+
+    // Lưu các dịch vụ khách yêu cầu khi đặt (chờ lễ tân xác nhận mới tính tiền)
+    if (Array.isArray(payload.serviceRequests) && payload.serviceRequests.length > 0) {
+      for (const request of payload.serviceRequests) {
+        await connection.query(
+          `INSERT INTO booking_service_requests (bookingId, serviceId, quantity, status) VALUES (?, ?, ?, 'pending')`,
+          [bookingId, request.serviceId, request.quantity]
+        );
+      }
+    }
+
     const payment = await paymentService.createPaymentForBooking(bookingId, {}, connection);
 
     await connection.commit();
