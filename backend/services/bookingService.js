@@ -176,7 +176,60 @@ const ensureRoomAvailable = async (payload, connection, lock = false) => {
   };
 };
 
+// Báo giá + kiểm tra phòng trống theo HẠNG PHÒNG (khách không chọn phòng cụ thể).
+// Giá tính từ room_prices/defaultPrice của loại phòng nên không cần phòng vật lý.
+const checkTypeQuote = async (payload) => {
+  await bookingModel.expireUnpaidBookingHolds();
+
+  const [types] = await db.query(
+    'SELECT id, typeName, description, capacity, defaultPrice FROM room_types WHERE id = ?',
+    [payload.roomTypeId]
+  );
+  if (types.length === 0) {
+    throw new HttpError(404, 'Room type not found');
+  }
+  const roomType = types[0];
+
+  const rooms = await bookingModel.listAvailableRoomsByType(
+    payload.roomTypeId,
+    payload.checkIn,
+    payload.checkOut
+  );
+
+  const nightly = await calcNightlyPrices(
+    payload.roomTypeId,
+    roomType.defaultPrice,
+    payload.checkIn,
+    payload.checkOut
+  );
+  const childrenPolicy = await getChildrenPolicy();
+  const childSurcharge = calcChildSurcharge(payload.childrenAges, nightly.nights, childrenPolicy);
+
+  return {
+    available: rooms.length > 0,
+    roomTypeId: payload.roomTypeId,
+    roomTypeName: roomType.typeName,
+    capacity: Number(roomType.capacity),
+    availableRooms: rooms.length,
+    checkIn: payload.checkIn,
+    checkOut: payload.checkOut,
+    nights: nightly.nights,
+    pricePerNight: Number(roomType.defaultPrice),
+    nightlyPrices: nightly.prices,
+    stayAmount: nightly.total,
+    childSurcharge,
+    childrenPolicy,
+    totalAmount: nightly.total + childSurcharge.amount,
+    holdMinutes: HOLD_MINUTES,
+    conflictingBookingIds: []
+  };
+};
+
 const checkAvailability = async (payload) => {
+  if (!payload.roomId && payload.roomTypeId) {
+    return checkTypeQuote(payload);
+  }
+
   const { room, bookingConflicts, available } = await ensureRoomAvailable(payload);
 
   // Giá theo từng đêm (mùa cao điểm/lễ có thể khác nhau) + phụ thu trẻ em
@@ -273,6 +326,22 @@ const createBooking = async (payload) => {
 
   try {
     await connection.beginTransaction();
+
+    // Đặt theo hạng phòng: hệ thống tự gán phòng trống đầu tiên (khóa FOR UPDATE
+    // để hai khách đặt cùng lúc không bị gán trùng một phòng).
+    if (!payload.roomId && payload.roomTypeId) {
+      const availableRooms = await bookingModel.listAvailableRoomsByType(
+        payload.roomTypeId,
+        payload.checkIn,
+        payload.checkOut,
+        connection,
+        true
+      );
+      if (availableRooms.length === 0) {
+        throw new HttpError(409, 'Hạng phòng này đã hết phòng trống trong khoảng ngày đã chọn');
+      }
+      payload.roomId = availableRooms[0].id;
+    }
 
     const { room } = await ensureBookable(payload, connection, true);
     const roomPrice = Number(room.price_per_night);
@@ -996,6 +1065,7 @@ const checkOut = async (bookingId) => {
 };
 
 module.exports = {
+  calcNightlyPrices,
   checkAvailability,
   checkTypeAvailability,
   expireUnpaidBookingHolds,

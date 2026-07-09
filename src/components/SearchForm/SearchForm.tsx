@@ -44,10 +44,13 @@ const SearchForm: React.FC = () => {
   const nights = calculateNights();
 
   const onSubmit = (data: SearchFormData) => {
-    console.log('Search data:', { ...data, childAges });
+    if (!dateRange[0] || !dateRange[1]) {
+      message.warning('Vui lòng chọn ngày nhận và trả phòng');
+      return;
+    }
     const queryParams = new URLSearchParams({
-      checkIn: data.checkIn || '',
-      checkOut: data.checkOut || '',
+      checkIn: dateRange[0].format('YYYY-MM-DD'),
+      checkOut: dateRange[1].format('YYYY-MM-DD'),
       adults: data.adults.toString(),
       children: data.children.toString(),
       rooms: data.rooms.toString(),
@@ -200,7 +203,6 @@ const SearchForm: React.FC = () => {
               <Controller
                 name="checkIn"
                 control={control}
-                rules={{ required: true }}
                 render={() => (
                   <div>
                     <RangePicker
