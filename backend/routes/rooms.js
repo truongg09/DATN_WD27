@@ -1,7 +1,20 @@
 const express = require('express');
 const db = require('../config/db');
+const roomTypeService = require('../services/roomTypeService');
 
 const router = express.Router();
+
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+// Chỉ nhận cặp ngày hợp lệ; thiếu hoặc sai định dạng thì coi như tìm không kèm ngày
+const parseDateRangeQuery = (query) => {
+  const { checkIn, checkOut } = query;
+  if (!checkIn || !checkOut) return {};
+  if (!DATE_PATTERN.test(checkIn) || !DATE_PATTERN.test(checkOut) || checkOut <= checkIn) {
+    return null;
+  }
+  return { checkIn, checkOut };
+};
 
 const ROOM_SELECT = `
   SELECT 
@@ -67,6 +80,47 @@ router.get('/types', async (req, res) => {
       message: 'Internal server error', 
       details: error.message,
       code: error.code
+    });
+  }
+});
+
+// Tìm hạng phòng cho khách: ảnh, tiện nghi, đánh giá, số phòng trống + tổng giá theo khoảng ngày
+router.get('/types/search', async (req, res) => {
+  try {
+    const dateRange = parseDateRangeQuery(req.query);
+    if (dateRange === null) {
+      return res.status(400).json({ message: 'checkIn/checkOut phải theo định dạng YYYY-MM-DD và checkOut sau checkIn' });
+    }
+    const data = await roomTypeService.searchRoomTypes({
+      ...dateRange,
+      guests: req.query.guests
+    });
+    res.json({ data });
+  } catch (error) {
+    console.error('Search room types error:', error);
+    res.status(error.statusCode || 500).json({
+      message: error.statusCode ? error.message : 'Internal server error'
+    });
+  }
+});
+
+// Chi tiết một hạng phòng (gallery, tiện nghi, đánh giá, phòng trống theo ngày nếu có)
+router.get('/types/:id', async (req, res) => {
+  try {
+    const roomTypeId = parseRoomId(req.params.id);
+    if (!roomTypeId) {
+      return res.status(400).json({ message: 'Mã hạng phòng không hợp lệ' });
+    }
+    const dateRange = parseDateRangeQuery(req.query);
+    if (dateRange === null) {
+      return res.status(400).json({ message: 'checkIn/checkOut phải theo định dạng YYYY-MM-DD và checkOut sau checkIn' });
+    }
+    const data = await roomTypeService.getRoomTypeDetail(roomTypeId, dateRange);
+    res.json({ data });
+  } catch (error) {
+    console.error('Get room type detail error:', error);
+    res.status(error.statusCode || 500).json({
+      message: error.statusCode ? error.message : 'Internal server error'
     });
   }
 });

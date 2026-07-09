@@ -12,6 +12,7 @@ import EmployeeRoute from "./EmployeeRoute";
 import Home from "../pages/Home/Home";
 import RoomList from "../pages/RoomList/RoomList";
 import RoomDetail from "../pages/RoomDetail/RoomDetail";
+import RoomTypeDetail from "../pages/RoomTypeDetail/RoomTypeDetail";
 import Contact from "../pages/Contact/Contact";
 import About from "../pages/About/About";
 
@@ -69,6 +70,8 @@ const AppRoutes = () => {
           <Route index element={<RoomList />} />
           <Route path=":id" element={<RoomDetail />} />
         </Route>
+
+        <Route path="/room-types/:id" element={<RoomTypeDetail />} />
 
         <Route path="/booking">
           <Route index element={<Booking />} />
