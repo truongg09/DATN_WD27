@@ -14,7 +14,7 @@ import {
 import { searchRoomTypes } from '../../services/roomService';
 import type { RoomTypeSearchResult } from '../../services/roomService';
 import { unwrapList } from '../../utils/unwrapList';
-import { getRoomTypeCardImage, getRoomTypeGallery } from '../../utils/roomTypeImages';
+import { getRoomTypeCardImage, getRoomTypeGallery, handleRoomImageError } from '../../utils/roomTypeImages';
 import './RoomList.css';
 
 const { RangePicker } = DatePicker;
@@ -242,7 +242,12 @@ const RoomList: React.FC = () => {
               return (
                 <div key={type.id} className={`type-card${soldOut ? ' sold-out' : ''}`}>
                   <Link to={`/room-types/${type.id}?${forwardQuery}`} className="type-card-image">
-                    <img src={getRoomTypeCardImage(type.typeName, type.images)} alt={type.typeName} loading="lazy" />
+                    <img
+                      src={getRoomTypeCardImage(type.typeName, type.images)}
+                      alt={type.typeName}
+                      loading="lazy"
+                      onError={(e) => handleRoomImageError(e, type.typeName)}
+                    />
                     <span className="photo-count">{gallery.length} ảnh</span>
                     {soldOut && <span className="sold-out-badge">Hết phòng</span>}
                   </Link>

@@ -14,7 +14,7 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { getRoomTypeDetail } from '../../services/roomService';
 import type { RoomTypeSearchResult } from '../../services/roomService';
-import { getRoomTypeGallery } from '../../utils/roomTypeImages';
+import { getRoomTypeGallery, handleRoomImageError } from '../../utils/roomTypeImages';
 import './RoomTypeDetail.css';
 
 const { RangePicker } = DatePicker;
@@ -196,7 +196,11 @@ const RoomTypeDetail: React.FC = () => {
         {/* Gallery */}
         <div className="type-gallery">
           <div className="gallery-main">
-            <img src={gallery[selectedImage]} alt={roomType.typeName} />
+            <img
+              src={gallery[selectedImage]}
+              alt={roomType.typeName}
+              onError={(e) => handleRoomImageError(e, roomType.typeName)}
+            />
             <button
               className="gallery-nav prev"
               onClick={() => setSelectedImage((selectedImage - 1 + gallery.length) % gallery.length)}
@@ -221,6 +225,7 @@ const RoomTypeDetail: React.FC = () => {
                 alt=""
                 className={index === selectedImage ? 'active' : ''}
                 onClick={() => setSelectedImage(index)}
+                onError={(e) => handleRoomImageError(e, roomType.typeName)}
               />
             ))}
           </div>

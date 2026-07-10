@@ -10,7 +10,7 @@ import './featuredrooms.css';
 import { searchRoomTypes } from '../../services/roomService';
 import type { RoomTypeSearchResult } from '../../services/roomService';
 import { unwrapList } from '../../utils/unwrapList';
-import { getRoomTypeCardImage } from '../../utils/roomTypeImages';
+import { getRoomTypeCardImage, handleRoomImageError } from '../../utils/roomTypeImages';
 
 const FeaturedRooms: React.FC = () => {
   const [roomTypes, setRoomTypes] = useState<RoomTypeSearchResult[]>([]);
@@ -66,7 +66,11 @@ const FeaturedRooms: React.FC = () => {
             <div key={type.id} className="room-card">
               <div className="room-img">
                 <Link to={`/room-types/${type.id}`}>
-                  <img src={getRoomTypeCardImage(type.typeName, type.images)} alt={`Phòng ${type.typeName}`} />
+                  <img
+                    src={getRoomTypeCardImage(type.typeName, type.images)}
+                    alt={`Phòng ${type.typeName}`}
+                    onError={(e) => handleRoomImageError(e, type.typeName)}
+                  />
                 </Link>
               </div>
               <div className="room-info">
