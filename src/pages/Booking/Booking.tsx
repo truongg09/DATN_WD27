@@ -13,7 +13,7 @@ import type { RoomTypeSearchResult } from '../../services/roomService';
 import { getServices } from '../../services/serviceService';
 import type { Service } from '../../types/service';
 import { unwrapList } from '../../utils/unwrapList';
-import { getRoomTypeCardImage } from '../../utils/roomTypeImages';
+import { getRoomTypeCardImage, handleRoomImageError } from '../../utils/roomTypeImages';
 import './Booking.css';
 
 const { RangePicker } = DatePicker;
@@ -996,7 +996,11 @@ const Booking: React.FC = () => {
               {selectedRoom ? (
                 <>
                   <div className="selected-room">
-                    <img src={selectedRoom.image} alt={selectedRoom.name} />
+                    <img
+                      src={selectedRoom.image}
+                      alt={selectedRoom.name}
+                      onError={(e) => handleRoomImageError(e, selectedRoom.name)}
+                    />
                     <div className="room-summary-info">
                       <div className="room-summary-heading">
                         <h4>Phòng {selectedRoom.name}</h4>
