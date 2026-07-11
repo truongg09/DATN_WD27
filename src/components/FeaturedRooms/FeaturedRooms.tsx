@@ -1,67 +1,94 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { 
-  faBed, 
-  faBath, 
-  faExpandArrowsAlt 
+import {
+  faUserGroup,
+  faExpandArrowsAlt,
+  faStar
 } from '@fortawesome/free-solid-svg-icons';
 import './featuredrooms.css';
+import { searchRoomTypes } from '../../services/roomService';
+import type { RoomTypeSearchResult } from '../../services/roomService';
+import { unwrapList } from '../../utils/unwrapList';
+import { getRoomTypeCardImage, handleRoomImageError } from '../../utils/roomTypeImages';
 
 const FeaturedRooms: React.FC = () => {
-  const rooms = [
-    {
-      id: 1,
-      name: 'Phòng Deluxe',
-      image: 'https://images.unsplash.com/photo-1590490360182-c33d57733427?w=500',
-      beds: '2 giường',
-      baths: '1 phòng tắm',
-      area: '40m²',
-      price: '1.200.000₫'
-    },
-    {
-      id: 2,
-      name: 'Phòng Suite',
-      image: 'https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?w=500',
-      beds: '1 giường king',
-      baths: '2 phòng tắm',
-      area: '60m²',
-      price: '2.500.000₫'
-    },
-    {
-      id: 3,
-      name: 'Presidential Suite',
-      image: 'https://images.unsplash.com/photo-1566073771259-6a8506099945?w=500',
-      beds: '2 giường king',
-      baths: '3 phòng tắm',
-      area: '100m²',
-      price: '5.000.000₫'
-    }
-  ];
+  const [roomTypes, setRoomTypes] = useState<RoomTypeSearchResult[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+
+  useEffect(() => {
+    const fetchRoomTypes = async () => {
+      try {
+        const response = await searchRoomTypes();
+        const list = unwrapList<RoomTypeSearchResult>(response);
+        // Nổi bật = 3 hạng phòng cao cấp nhất còn phòng hoạt động
+        const featured = list
+          .filter((type) => type.totalRooms > 0)
+          .sort((a, b) => b.defaultPrice - a.defaultPrice)
+          .slice(0, 3)
+          .reverse();
+        setRoomTypes(featured);
+      } catch (error) {
+        console.error('Error loading featured room types:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchRoomTypes();
+  }, []);
+
+  const formatPrice = (price: number | string) => {
+    return new Intl.NumberFormat('vi-VN').format(Number(price || 0)) + 'đ';
+  };
+
+  const formatArea = (type: RoomTypeSearchResult) => {
+    if (type.minArea === null) return null;
+    return type.minArea === type.maxArea ? `${type.minArea}m²` : `${type.minArea}–${type.maxArea}m²`;
+  };
+
+  if (loading) {
+    return (
+      <div className="featured-rooms" style={{ minHeight: '200px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div className="spinner"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="featured-rooms">
       <div className="container">
         <div className="section-title">
           <span className="subtitle">Phòng</span>
-          <h2>Phòng nổi bật</h2>
+          <h2>Hạng phòng nổi bật</h2>
         </div>
         <div className="rooms-grid">
-          {rooms.map(room => (
-            <div key={room.id} className="room-card">
+          {roomTypes.map((type) => (
+            <div key={type.id} className="room-card">
               <div className="room-img">
-                <img src={room.image} alt={room.name} />
+                <Link to={`/room-types/${type.id}`}>
+                  <img
+                    src={getRoomTypeCardImage(type.typeName, type.images)}
+                    alt={`Phòng ${type.typeName}`}
+                    onError={(e) => handleRoomImageError(e, type.typeName)}
+                  />
+                </Link>
               </div>
               <div className="room-info">
-                <h3>{room.name}</h3>
+                <Link to={`/room-types/${type.id}`}>
+                  <h3>Phòng {type.typeName}</h3>
+                </Link>
                 <div className="room-features">
-                  <span><FontAwesomeIcon icon={faBed} /> {room.beds}</span>
-                  <span><FontAwesomeIcon icon={faBath} /> {room.baths}</span>
-                  <span><FontAwesomeIcon icon={faExpandArrowsAlt} /> {room.area}</span>
+                  <span><FontAwesomeIcon icon={faUserGroup} /> Tối đa {type.capacity} khách</span>
+                  {formatArea(type) && (
+                    <span><FontAwesomeIcon icon={faExpandArrowsAlt} /> {formatArea(type)}</span>
+                  )}
+                  {type.avgRating !== null && (
+                    <span><FontAwesomeIcon icon={faStar} /> {type.avgRating.toFixed(1)}</span>
+                  )}
                 </div>
                 <div className="room-footer">
-                  <span className="price">{room.price}<small>/đêm</small></span>
-                  <Link to="/booking">
+                  <span className="price">{formatPrice(type.defaultPrice)}<small>/đêm</small></span>
+                  <Link to={`/room-types/${type.id}`}>
                     <button className="btn-book-room">Đặt phòng</button>
                   </Link>
                 </div>

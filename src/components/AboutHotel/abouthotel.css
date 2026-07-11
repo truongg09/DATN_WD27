@@ -51,8 +51,13 @@
 
 .about-images {
     display: grid;
-    grid-template-columns: 2fr 1fr;
+    grid-template-columns: 1fr 1fr;
     gap: 20px;
+}
+
+.about-images a {
+    display: block;
+    height: 100%;
 }
 
 .about-images img {

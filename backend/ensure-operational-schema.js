@@ -64,6 +64,96 @@ const ensureOperationalSchema = async () => {
       FOREIGN KEY (serviceId) REFERENCES services(id) ON DELETE CASCADE
     )
   `);
+
+  // Refund requests created when a customer cancels a paid booking.
+  // Admin reviews them (pending -> approved/rejected); approving marks the payment refunded.
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS payment_refunds (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      paymentId INT NOT NULL,
+      bookingId INT NOT NULL,
+      amount DECIMAL(15,2) NOT NULL DEFAULT 0,
+      refundRate DECIMAL(4,2) NOT NULL DEFAULT 0,
+      paidAmount DECIMAL(15,2) NOT NULL DEFAULT 0,
+      refundMethod ENUM('cash', 'bank_transfer') NOT NULL DEFAULT 'bank_transfer',
+      bankBin VARCHAR(10) NULL,
+      bankName VARCHAR(100) NULL,
+      accountNumber VARCHAR(30) NULL,
+      accountName VARCHAR(100) NULL,
+      status ENUM('pending', 'approved', 'rejected') NOT NULL DEFAULT 'pending',
+      note TEXT NULL,
+      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      processedAt DATETIME NULL,
+      FOREIGN KEY (paymentId) REFERENCES payments(id) ON DELETE CASCADE,
+      FOREIGN KEY (bookingId) REFERENCES bookings(id) ON DELETE CASCADE
+    )
+  `);
+
+  // Ví của khách: tiền hoàn được cộng vào ví (refund_credit), khách rút ra (withdrawal).
+  // Số dư khả dụng = tổng credit approved - tổng withdrawal (pending + approved).
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS wallet_transactions (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      customerId INT NOT NULL,
+      refundId INT NULL,
+      bookingId INT NULL,
+      type ENUM('refund_credit', 'withdrawal') NOT NULL,
+      amount DECIMAL(15,2) NOT NULL,
+      status ENUM('pending', 'approved', 'rejected') NOT NULL DEFAULT 'approved',
+      refundMethod ENUM('cash', 'bank_transfer') NULL,
+      bankBin VARCHAR(10) NULL,
+      bankName VARCHAR(100) NULL,
+      accountNumber VARCHAR(30) NULL,
+      accountName VARCHAR(100) NULL,
+      note TEXT NULL,
+      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      processedAt DATETIME NULL,
+      FOREIGN KEY (customerId) REFERENCES customers(id) ON DELETE CASCADE
+    )
+  `);
+
+  // Key-value store for admin-configurable settings (e.g. payment receiving account).
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS app_settings (
+      settingKey VARCHAR(100) PRIMARY KEY,
+      settingValue TEXT NOT NULL,
+      updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+  `);
+
+  // Vouchers granted to a specific customer (e.g. no-show compensation).
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS customer_vouchers (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      userId INT NOT NULL,
+      voucherId INT NOT NULL,
+      bookingId INT NULL,
+      source VARCHAR(30) NOT NULL DEFAULT 'no_show',
+      isUsed TINYINT(1) NOT NULL DEFAULT 0,
+      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (voucherId) REFERENCES vouchers(id) ON DELETE CASCADE,
+      FOREIGN KEY (bookingId) REFERENCES bookings(id) ON DELETE SET NULL
+    )
+  `);
+
+  // Invoices issued when a payment is fully completed (see invoiceService).
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS invoices (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      bookingId INT NOT NULL,
+      paymentId INT NULL,
+      invoiceCode VARCHAR(50) NOT NULL UNIQUE,
+      subtotal DECIMAL(15,2) NOT NULL DEFAULT 0,
+      discountAmount DECIMAL(15,2) NOT NULL DEFAULT 0,
+      taxAmount DECIMAL(15,2) NOT NULL DEFAULT 0,
+      totalAmount DECIMAL(15,2) NOT NULL DEFAULT 0,
+      status ENUM('draft', 'issued', 'cancelled') DEFAULT 'issued',
+      invoiceDate DATETIME DEFAULT CURRENT_TIMESTAMP,
+      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (bookingId) REFERENCES bookings(id) ON DELETE CASCADE,
+      FOREIGN KEY (paymentId) REFERENCES payments(id) ON DELETE SET NULL
+    )
+  `);
 };
 
 module.exports = ensureOperationalSchema;

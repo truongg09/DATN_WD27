@@ -30,7 +30,11 @@ const buildPaymentAmounts = ({
 };
 
 const generateTransactionCode = (method) => {
-  const prefix = method === 'momo' ? 'MOMO' : method === 'vnpay' ? 'VNPAY' : 'CASH';
+  const prefix =
+    method === 'momo' ? 'MOMO'
+      : method === 'vnpay' ? 'VNPAY'
+        : method === 'bank_transfer' ? 'BANK'
+          : 'CASH';
   const timestamp = Date.now().toString(36).toUpperCase();
   const random = Math.random().toString(36).slice(2, 8).toUpperCase();
   return `${prefix}-${timestamp}-${random}`;
@@ -140,8 +144,11 @@ const getPaymentByBookingId = async (bookingId) => {
   return formatPayment(payment);
 };
 
+const ROOM_TAKEN_MESSAGE = 'Phòng vừa được đặt bởi khách khác, vui lòng đặt phòng khác!';
+
 const processPayment = async (paymentId, payload) => {
   const connection = await db.getConnection();
+  let committed = false;
 
   try {
     await connection.beginTransaction();
@@ -166,11 +173,27 @@ const processPayment = async (paymentId, payload) => {
       throw new HttpError(404, 'Booking not found');
     }
 
+    await bookingModel.getRoomWithType(booking.room_id, connection, true);
+
     if (booking.status === 'cancelled') {
-      throw new HttpError(409, 'Đặt phòng đã hết thời gian giữ chỗ, vui lòng đặt lại phòng khác');
+      const lostRace = await bookingModel.getSecuredConflictingBookings(
+        booking.room_id,
+        booking.check_in,
+        booking.check_out,
+        connection,
+        false,
+        { excludeBookingId: booking.id }
+      );
+
+      throw new HttpError(
+        409,
+        lostRace.length > 0
+          ? ROOM_TAKEN_MESSAGE
+          : 'Đặt phòng đã hết thời gian giữ chỗ, vui lòng đặt lại phòng khác'
+      );
     }
 
-    const conflicts = await bookingModel.getConflictingBookings(
+    const conflicts = await bookingModel.getSecuredConflictingBookings(
       booking.room_id,
       booking.check_in,
       booking.check_out,
@@ -181,7 +204,9 @@ const processPayment = async (paymentId, payload) => {
 
     if (conflicts.length > 0) {
       await bookingModel.updateBookingStatus(booking.id, 'cancelled', connection);
-      throw new HttpError(409, 'Phòng vừa được đặt bởi khách khác, vui lòng đặt phòng khác!');
+      await connection.commit();
+      committed = true;
+      throw new HttpError(409, ROOM_TAKEN_MESSAGE);
     }
 
     const payAmount = payload.amount ?? Number(payment.remainingAmount);
@@ -191,6 +216,16 @@ const processPayment = async (paymentId, payload) => {
 
     if (payAmount > Number(payment.remainingAmount)) {
       throw new HttpError(400, 'Payment amount exceeds remaining balance');
+    }
+
+    // Đặt cọc (trả một phần khi chưa trả gì) là thanh toán từ xa -> không nhận tiền mặt
+    const isDepositPayment =
+      Number(payment.paidAmount) === 0 && payAmount < Number(payment.remainingAmount);
+    if (isDepositPayment && payload.paymentMethod === 'cash') {
+      throw new HttpError(
+        400,
+        'Đặt cọc giữ phòng phải thanh toán từ xa (chuyển khoản QR/MoMo/VNPay). Tiền mặt chỉ áp dụng khi thanh toán tại khách sạn.'
+      );
     }
 
     const newPaidAmount = Number(payment.paidAmount) + payAmount;
@@ -212,12 +247,22 @@ const processPayment = async (paymentId, payload) => {
       connection
     );
 
+    await bookingModel.updateBookingStatus(booking.id, 'confirmed', connection);
+    await bookingModel.cancelCompetingUnpaidBookings(
+      booking.room_id,
+      booking.check_in,
+      booking.check_out,
+      booking.id,
+      connection
+    );
+
     let invoice = null;
     if (isFullyPaid) {
       invoice = await invoiceService.issueInvoiceForPayment(paymentId, connection);
     }
 
     await connection.commit();
+    committed = true;
 
     const updatedPayment = await paymentModel.getPaymentById(paymentId);
     return {
@@ -231,7 +276,9 @@ const processPayment = async (paymentId, payload) => {
             : null
     };
   } catch (error) {
-    await connection.rollback();
+    if (!committed) {
+      await connection.rollback();
+    }
     throw error;
   } finally {
     connection.release();

@@ -5,7 +5,7 @@
 
 .rooms-hero {
   height: 400px;
-  background: linear-gradient(rgba(0,0,0,0.6), rgba(0,0,0,0.6)), 
+  background: linear-gradient(rgba(0,0,0,0.6), rgba(0,0,0,0.6)),
               url('https://images.unsplash.com/photo-1566073771259-6a8506099945?w=1920') center/cover;
   display: flex;
   align-items: center;
@@ -13,6 +13,10 @@
   text-align: center;
   color: #fff;
   margin-top: 130px;
+}
+
+.rooms-hero-compact {
+  height: 280px;
 }
 
 .rooms-hero-content h1 {
@@ -29,41 +33,30 @@
 .rooms-container {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 60px 20px;
+  padding: 40px 20px 60px;
 }
 
-.rooms-filter-bar {
+/* ==== Thanh tìm kiếm trên trang kết quả ==== */
+.results-search-bar {
+  display: flex;
+  align-items: flex-end;
+  gap: 20px;
+  padding: 20px 24px;
+  background: #fff;
+  border-radius: 14px;
+  margin-top: -60px;
+  position: relative;
+  z-index: 5;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+  flex-wrap: wrap;
+}
+
+.results-search-field {
   display: flex;
   flex-direction: column;
-  padding: 24px;
-  background: #fff;
-  border-radius: 12px;
-  margin-bottom: 24px;
-  gap: 20px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
-}
-
-.filter-bar-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  width: 100%;
-  gap: 20px;
-}
-
-.rooms-filter-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 20px;
-  width: 100%;
-  border-top: 1px solid #f0eae1;
-  padding-top: 20px;
-}
-
-.filter-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+  gap: 6px;
+  flex: 1;
+  min-width: 220px;
 }
 
 .filter-label {
@@ -75,82 +68,186 @@
   white-space: nowrap;
 }
 
-.filter-group,
-.sort-group {
+.guest-selector-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 14px;
+  border: 1px solid #d9d9d9;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 14px;
+  color: #333;
+  cursor: pointer;
+  transition: border-color 0.2s;
+  width: 100%;
+}
+
+.guest-selector-btn:hover {
+  border-color: #ab8965;
+}
+
+.guest-stepper-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+  padding: 8px 0;
+}
+
+.guest-stepper {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.btn-apply-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 28px;
+  border: none;
+  background: linear-gradient(135deg, #ab8965 0%, #9a7a5a 100%);
+  color: #fff;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 15px rgba(171, 137, 101, 0.35);
+  height: 40px;
+}
+
+.btn-apply-search:hover {
+  background: #70533a;
+}
+
+.pick-dates-notice {
   display: flex;
   align-items: center;
   gap: 12px;
+  margin-top: 20px;
+  padding: 14px 20px;
+  background: #fdf6ec;
+  border: 1px solid #f0dfc0;
+  border-radius: 10px;
+  color: #8a6d3b;
+  font-size: 14px;
 }
 
-.filter-icon {
-  color: #ab8965;
-  font-size: 18px;
+/* ==== Toolbar: tóm tắt + sắp xếp ==== */
+.results-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 24px 0 20px;
+  gap: 16px;
+  flex-wrap: wrap;
 }
 
-.filter-select,
+.results-summary p {
+  color: #555;
+  font-size: 15px;
+}
+
+.results-controls {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.only-available-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: #555;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.only-available-toggle input {
+  accent-color: #ab8965;
+  width: 16px;
+  height: 16px;
+}
+
 .sort-select {
   padding: 10px 16px;
   border: 2px solid #e8e0d5;
   border-radius: 10px;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 500;
   color: #333;
   background: #fff;
   cursor: pointer;
-  width: 100%;
 }
 
-.filter-select:focus,
 .sort-select:focus {
   outline: none;
   border-color: #ab8965;
 }
 
-.sort-label {
-  color: #ab8965;
-  font-size: 14px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.rooms-count {
-  margin-bottom: 24px;
-  color: #666;
-  font-size: 15px;
-}
-
-.rooms-grid-list {
+/* ==== Card hạng phòng ==== */
+.type-results-list {
   display: flex;
   flex-direction: column;
   gap: 24px;
 }
 
-.room-list-card {
+.type-card {
   display: flex;
   background: #fff;
   border-radius: 16px;
   overflow: hidden;
   border: 1px solid #eee;
+  transition: box-shadow 0.3s ease, transform 0.3s ease;
 }
 
-.room-list-image {
-  width: 400px;
-  min-height: 280px;
+.type-card:hover {
+  box-shadow: 0 12px 35px rgba(0, 0, 0, 0.1);
+  transform: translateY(-2px);
+}
+
+.type-card.sold-out {
+  opacity: 0.75;
+}
+
+.type-card-image {
+  width: 340px;
+  min-height: 260px;
   position: relative;
   flex-shrink: 0;
+  overflow: hidden;
+  display: block;
 }
 
-.room-list-image img {
+.type-card-image img {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  transition: transform 0.4s ease;
 }
 
-.discount-badge {
+.type-card-image:hover img {
+  transform: scale(1.06);
+}
+
+.photo-count {
   position: absolute;
-  top: 16px;
-  left: 16px;
-  background: #e74c3c;
+  bottom: 12px;
+  right: 12px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.sold-out-badge {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  background: #6c6c6c;
   color: #fff;
   padding: 6px 14px;
   border-radius: 20px;
@@ -158,41 +255,61 @@
   font-weight: 600;
 }
 
-.room-list-info {
+.type-card-body {
   flex: 1;
-  padding: 28px 32px;
+  padding: 24px 28px;
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 
-.room-type-badge {
-  display: inline-block;
-  background: #f5f0eb;
-  color: #ab8965;
-  padding: 6px 14px;
-  border-radius: 20px;
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  margin-bottom: 12px;
-  align-self: flex-start;
-}
-
-.room-list-info h3 {
-  font-size: 26px;
-  color: #333;
-  margin-bottom: 14px;
-  font-weight: 600;
-}
-
-.room-features-list {
+.type-card-header {
   display: flex;
-  gap: 24px;
-  margin-bottom: 16px;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 10px;
 }
 
-.room-features-list span {
+.type-card-header h3 {
+  font-size: 24px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.type-card-header h3 a {
+  color: #333;
+  text-decoration: none;
+}
+
+.type-card-header h3 a:hover {
+  color: #ab8965;
+}
+
+.type-rating {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #b8860b;
+  font-weight: 700;
+  font-size: 15px;
+  white-space: nowrap;
+}
+
+.type-rating em {
+  color: #999;
+  font-weight: 400;
+  font-style: normal;
+  font-size: 13px;
+}
+
+.type-specs {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 12px;
+}
+
+.type-specs span {
   color: #666;
   font-size: 14px;
   display: flex;
@@ -200,63 +317,132 @@
   gap: 8px;
 }
 
-.room-features-list i {
+.type-specs svg {
   color: #ab8965;
-  font-size: 16px;
 }
 
-.room-description {
+.type-amenities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.amenity-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #f5f0eb;
+  color: #7a6248;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.amenity-chip svg {
+  color: #8fac65;
+  font-size: 11px;
+}
+
+.amenity-chip.more {
+  background: #eee;
+  color: #777;
+}
+
+.type-description {
   color: #888;
-  font-size: 15px;
+  font-size: 14.5px;
   line-height: 1.6;
-  margin-bottom: 20px;
+  margin: 0 0 8px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
   flex: 1;
 }
 
-.room-list-footer {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding-top: 20px;
-  border-top: 1px solid #eee;
+.capacity-warning {
+  color: #c0392b;
+  font-size: 13px;
+  margin: 4px 0 0;
 }
 
-.room-price-section {
+/* ==== Cột giá bên phải ==== */
+.type-card-price {
+  width: 250px;
+  flex-shrink: 0;
+  border-left: 1px solid #f0eae1;
+  padding: 24px;
   display: flex;
-  align-items: baseline;
-  gap: 8px;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: flex-end;
+  text-align: right;
+  gap: 10px;
+  background: #fffdfa;
 }
 
-.room-price {
-  font-size: 28px;
+.low-stock {
+  color: #c0392b;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.in-stock {
+  color: #2e7d32;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.price-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.price-from {
+  font-size: 13px;
+  color: #999;
+}
+
+.price-main {
+  font-size: 26px;
   font-weight: 700;
   color: #ab8965;
+  line-height: 1.2;
 }
 
-.room-price-unit {
-  font-size: 14px;
+.price-unit {
+  font-size: 13px;
   color: #999;
 }
 
-.room-original-price {
-  font-size: 16px;
-  color: #999;
-  text-decoration: line-through;
-  margin-left: 8px;
+.price-sub {
+  font-size: 12px;
+  color: #aaa;
+  margin-top: 4px;
 }
 
-.room-actions {
+.type-card-actions {
   display: flex;
-  gap: 12px;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.type-card-actions a {
+  width: 100%;
 }
 
 .btn-detail {
-  padding: 12px 24px;
+  width: 100%;
+  padding: 11px 20px;
   border: 2px solid #ab8965;
   background: transparent;
   color: #ab8965;
   border-radius: 10px;
-  font-size: 15px;
+  font-size: 14.5px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.3s;
@@ -267,12 +453,13 @@
 }
 
 .btn-book {
-  padding: 12px 28px;
+  width: 100%;
+  padding: 12px 20px;
   border: none;
   background: linear-gradient(135deg, #ab8965 0%, #9a7a5a 100%);
   color: #fff;
   border-radius: 10px;
-  font-size: 15px;
+  font-size: 14.5px;
   font-weight: 600;
   cursor: pointer;
   box-shadow: 0 4px 15px rgba(171, 137, 101, 0.35);
@@ -282,39 +469,89 @@
   background: #70533a;
 }
 
-@media (max-width: 900px) {
-  .room-list-card {
+.btn-book.disabled {
+  background: #ccc;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+/* ==== Loading / lỗi ==== */
+.rooms-loading {
+  text-align: center;
+  padding: 80px 0;
+  color: #888;
+}
+
+.spinner {
+  width: 44px;
+  height: 44px;
+  border: 4px solid #eee;
+  border-top-color: #ab8965;
+  border-radius: 50%;
+  margin: 0 auto 16px;
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.rooms-error {
+  text-align: center;
+  padding: 60px 20px;
+  background: #fff;
+  border-radius: 14px;
+  color: #888;
+  font-size: 16px;
+}
+
+/* ==== Responsive ==== */
+@media (max-width: 1000px) {
+  .type-card {
     flex-direction: column;
   }
 
-  .room-list-image {
+  .type-card-image {
     width: 100%;
-    height: 250px;
+    height: 240px;
   }
 
-  .rooms-filter-bar {
+  .type-card-price {
+    width: 100%;
+    border-left: none;
+    border-top: 1px solid #f0eae1;
+    align-items: stretch;
+    text-align: left;
+  }
+
+  .price-block {
+    align-items: flex-start;
+  }
+
+  .type-card-actions {
+    flex-direction: row;
+  }
+}
+
+@media (max-width: 640px) {
+  .rooms-hero-compact {
+    height: 200px;
+  }
+
+  .rooms-hero-content h1 {
+    font-size: 32px;
+  }
+
+  .results-search-bar {
+    margin-top: -40px;
+  }
+
+  .results-toolbar {
     flex-direction: column;
     align-items: stretch;
   }
 
-  .filter-select,
-  .sort-select {
-    width: 100%;
-  }
-
-  .room-list-footer {
+  .type-card-actions {
     flex-direction: column;
-    gap: 20px;
-    align-items: flex-start;
-  }
-
-  .room-actions {
-    width: 100%;
-  }
-
-  .btn-detail,
-  .btn-book {
-    flex: 1;
-    text-align: center;
   }
 }

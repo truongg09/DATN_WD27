@@ -116,11 +116,29 @@ const cancelBooking = async (req, res) => {
       }
     }
 
-    const booking = await bookingService.cancelBooking(bookingId);
+    const booking = await bookingService.cancelBooking(bookingId, req.body?.refund || null);
     res.json({
       message: 'Booking cancelled successfully',
       data: booking
     });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
+const getRefundPreview = async (req, res) => {
+  try {
+    const bookingId = normalizeIdParam(req.params.id);
+
+    if (req.user?.role === 'customer') {
+      const currentBooking = await bookingService.getBookingById(bookingId);
+      if (Number(currentBooking.user_id) !== Number(req.user.userId)) {
+        throw new HttpError(403, 'Cannot view another customer booking');
+      }
+    }
+
+    const preview = await bookingService.getRefundPreview(bookingId);
+    res.json({ data: preview });
   } catch (error) {
     sendError(res, error);
   }
@@ -168,45 +186,6 @@ const addDamageCharge = async (req, res) => {
   }
 };
 
-const listServiceRequests = async (req, res) => {
-  try {
-    const filters = {};
-    if (req.query.status) {
-      filters.status = req.query.status;
-    }
-    const requests = await bookingService.listServiceRequests(filters);
-    res.json({ data: requests });
-  } catch (error) {
-    sendError(res, error);
-  }
-};
-
-const confirmServiceRequest = async (req, res) => {
-  try {
-    const requestId = normalizeIdParam(req.params.id);
-    const result = await bookingService.confirmServiceRequest(requestId);
-    res.json({
-      message: 'Service request confirmed successfully',
-      data: result
-    });
-  } catch (error) {
-    sendError(res, error);
-  }
-};
-
-const rejectServiceRequest = async (req, res) => {
-  try {
-    const requestId = normalizeIdParam(req.params.id);
-    const result = await bookingService.rejectServiceRequest(requestId);
-    res.json({
-      message: 'Service request rejected',
-      data: result
-    });
-  } catch (error) {
-    sendError(res, error);
-  }
-};
-
 const transferRoom = async (req, res) => {
   try {
     const bookingId = normalizeIdParam(req.params.id);
@@ -239,10 +218,23 @@ const checkIn = async (req, res) => {
   try {
     const bookingId = normalizeIdParam(req.params.id);
     const payload = req.body?.guests ? normalizeGuestIdentitiesPayload(req.body) : {};
-    const booking = await bookingService.checkIn(bookingId, payload);
+    const result = await bookingService.checkIn(bookingId, payload);
     res.json({
-      message: 'Booking checked in successfully',
-      data: booking
+      message: result.message || 'Booking checked in successfully',
+      data: result
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
+const markNoShow = async (req, res) => {
+  try {
+    const bookingId = normalizeIdParam(req.params.id);
+    const result = await bookingService.markNoShow(bookingId);
+    res.json({
+      message: 'Booking marked as no-show',
+      data: result
     });
   } catch (error) {
     sendError(res, error);
@@ -262,6 +254,134 @@ const checkOut = async (req, res) => {
   }
 };
 
+const listServiceRequests = async (req, res) => {
+  try {
+    const db = require('../config/db');
+    const status = req.query.status;
+    
+    let query = `
+      SELECT 
+        sr.id,
+        sr.bookingId,
+        sr.serviceId,
+        sr.quantity,
+        sr.status,
+        sr.createdAt,
+        b.status as bookingStatus,
+        r.roomNumber,
+        c.fullName as bookingCustomer,
+        c.phone as bookingPhone
+      FROM booking_service_requests sr
+      LEFT JOIN bookings b ON sr.bookingId = b.id
+      LEFT JOIN rooms r ON b.room_id = r.id
+      LEFT JOIN customers c ON b.customerId = c.id
+    `;
+    
+    const params = [];
+    if (status) {
+      query += ' WHERE sr.status = ?';
+      params.push(status);
+    }
+    
+    query += ' ORDER BY sr.createdAt DESC';
+    
+    const [rows] = await db.query(query, params);
+    
+    // Try to fetch service details for each request
+    const enrichedRows = await Promise.all(
+      rows.map(async (row) => {
+        try {
+          const [services] = await db.query(
+            'SELECT serviceName, price FROM services WHERE id = ?',
+            [row.serviceId]
+          );
+          if (services.length > 0) {
+            return {
+              ...row,
+              serviceName: services[0].serviceName,
+              price: Number(services[0].price),
+              estimatedTotal: Number(services[0].price) * row.quantity
+            };
+          }
+        } catch (e) {
+          // Ignore service fetch errors
+        }
+        return {
+          ...row,
+          serviceName: null,
+          price: null,
+          estimatedTotal: null
+        };
+      })
+    );
+    
+    res.json({ data: enrichedRows });
+  } catch (error) {
+    console.error('Error listing service requests:', error);
+    res.status(500).json({ message: 'Error fetching service requests' });
+  }
+};
+
+const confirmServiceRequest = async (req, res) => {
+  try {
+    const db = require('../config/db');
+    const requestId = normalizeIdParam(req.params.id);
+    
+    // Get the service request
+    const [requests] = await db.query(
+      'SELECT * FROM booking_service_requests WHERE id = ?',
+      [requestId]
+    );
+    
+    if (!requests.length) {
+      return res.status(404).json({ message: 'Service request not found' });
+    }
+    
+    const request = requests[0];
+
+    if (request.status !== 'pending') {
+      return res.status(409).json({ message: 'Yêu cầu dịch vụ này đã được xử lý' });
+    }
+
+    // Ghi dịch vụ vào booking_services + tính lại hóa đơn/payment (serviceAmount)
+    const result = await bookingService.addServiceCharge(request.bookingId, {
+      serviceId: request.serviceId,
+      quantity: request.quantity
+    });
+
+    // Update request status
+    await db.query(
+      'UPDATE booking_service_requests SET status = ? WHERE id = ?',
+      ['confirmed', requestId]
+    );
+
+    res.json({
+      message: 'Đã xác nhận dịch vụ và cộng vào hóa đơn của khách',
+      data: result
+    });
+  } catch (error) {
+    console.error('Error confirming service request:', error);
+    res.status(500).json({ message: 'Error confirming service request' });
+  }
+};
+
+const rejectServiceRequest = async (req, res) => {
+  try {
+    const db = require('../config/db');
+    const requestId = normalizeIdParam(req.params.id);
+    
+    await db.query(
+      'UPDATE booking_service_requests SET status = ? WHERE id = ?',
+      ['rejected', requestId]
+    );
+    
+    res.json({ message: 'Service request rejected' });
+  } catch (error) {
+    console.error('Error rejecting service request:', error);
+    res.status(500).json({ message: 'Error rejecting service request' });
+  }
+};
+
 module.exports = {
   checkAvailability,
   checkTypeAvailability,
@@ -269,15 +389,17 @@ module.exports = {
   listBookings,
   listMyBookings,
   getBookingById,
+  getRefundPreview,
   cancelBooking,
   addServiceCharge,
   saveGuestIdentities,
   addDamageCharge,
-  listServiceRequests,
-  confirmServiceRequest,
-  rejectServiceRequest,
   extendStay,
   transferRoom,
   checkIn,
-  checkOut
+  checkOut,
+  markNoShow,
+  listServiceRequests,
+  confirmServiceRequest,
+  rejectServiceRequest
 };

@@ -126,6 +126,17 @@
     border: 2px solid #f0e8e0;
     box-shadow: 0 2px 6px rgba(0,0,0,0.05);
     max-width: 220px;
+    transition: all 0.2s ease;
+}
+
+.user-greeting.is-link {
+    cursor: pointer;
+}
+
+.user-greeting.is-link:hover {
+    border-color: #ab8965;
+    background: #fdfaf7;
+    box-shadow: 0 4px 12px rgba(171, 137, 101, 0.18);
 }
 
 .user-greeting span {

@@ -8,7 +8,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this-in-pro
 
 router.post('/register', async (req, res) => {
   try {
-    const { email, phone, password } = req.body;
+    const { email, phone, password, dob, gender } = req.body;
 
     if (!email || !phone || !password) {
       return res.status(400).json({
@@ -42,8 +42,19 @@ router.post('/register', async (req, res) => {
       [email, phone, hashedPassword]
     );
 
+    const accountId = result.insertId;
+
+    // Tạo bản ghi customer tương ứng
+    await db.query(
+      `
+        INSERT INTO customers (accountId, fullName, phone, dateOfBirth, gender)
+        VALUES (?, ?, ?, ?, ?)
+      `,
+      [accountId, email.split('@')[0], phone, dob || null, gender || null]
+    );
+
     const token = jwt.sign(
-      { userId: result.insertId, email, role: 'customer' },
+      { userId: accountId, email, role: 'customer' },
       JWT_SECRET,
       { expiresIn: '7d' }
     );
@@ -52,7 +63,7 @@ router.post('/register', async (req, res) => {
       message: 'Đăng ký thành công',
       token,
       user: {
-        id: result.insertId,
+        id: accountId,
         email,
         phone,
         role: 'customer'
@@ -122,5 +133,45 @@ router.post('/login', async (req, res) => {
     });
   }
 });
+
+const { requireAuth } = require('../middleware/auth');
+
+router.post('/change-password', requireAuth, async (req, res) => {
+  try {
+    const { oldPassword, newPassword } = req.body;
+    const userId = req.user.userId;
+
+    if (!oldPassword || !newPassword) {
+      return res.status(400).json({ message: 'Vui lòng nhập đầy đủ mật khẩu cũ và mới!' });
+    }
+
+    const [users] = await db.query('SELECT * FROM accounts WHERE id = ?', [userId]);
+    if (users.length === 0) {
+      return res.status(404).json({ message: 'Không tìm thấy tài khoản!' });
+    }
+
+    const user = users[0];
+    let passwordMatch = false;
+
+    if (user.password.startsWith('$2b$')) {
+      passwordMatch = await bcrypt.compare(oldPassword, user.password);
+    } else {
+      passwordMatch = oldPassword === user.password;
+    }
+
+    if (!passwordMatch) {
+      return res.status(400).json({ message: 'Mật khẩu cũ không chính xác!' });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await db.query('UPDATE accounts SET password = ? WHERE id = ?', [hashedPassword, userId]);
+
+    res.json({ message: 'Đổi mật khẩu thành công!' });
+  } catch (error) {
+    console.error('Change password error:', error);
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ', error: error.message });
+  }
+});
+
 
 module.exports = router;
