@@ -51,8 +51,8 @@ const createInvoice = async (payload, connection) => {
   return result.insertId;
 };
 
-const getInvoiceById = async (invoiceId) => {
-  const [rows] = await db.query(`${INVOICE_SELECT} WHERE i.id = ?`, [invoiceId]);
+const getInvoiceById = async (invoiceId, connection) => {
+  const [rows] = await run(connection).query(`${INVOICE_SELECT} WHERE i.id = ?`, [invoiceId]);
   return rows[0] || null;
 };
 

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Button, Card, Input, Typography, message } from "antd";
 import { useForm, Controller } from "react-hook-form";
 import { Link, useNavigate } from "react-router-dom";
@@ -17,7 +18,10 @@ interface RegisterForm {
 function Register() {
   const navigate = useNavigate();
   const { login } = useAuth();
-  const { control, handleSubmit, formState: { errors, isSubmitting } }= useForm<RegisterForm>({
+
+  const [registerLoading, setRegisterLoading] = useState(false);
+
+  const { control, handleSubmit, formState: { errors } }= useForm<RegisterForm>({
     defaultValues: {
       email: "",
       phone: "",
@@ -26,6 +30,7 @@ function Register() {
   });
 
   const onSubmit = async (data: RegisterForm) => {
+    setRegisterLoading(true);
     try {
       const response = await registerService({
         email: data.email,
@@ -33,7 +38,7 @@ function Register() {
         password: data.password,
       });
       login({ user: response.user, token: response.token });
-      message.success("Đăng ký thành công!");
+      message.success("Đăng ký tài khoản thành công!");
       if (response.user.role === "admin") {
         navigate("/admin");
       } else if (response.user.role === "employee") {
@@ -42,8 +47,11 @@ function Register() {
         navigate("/");
       }
     } catch (error: unknown) {
+      console.error("Register error:", error);
       const msg = axios.isAxiosError(error) ? error.response?.data?.message : undefined;
       message.error(msg || "Đăng ký thất bại!");
+    } finally {
+      setRegisterLoading(false);
     }
   };
 
@@ -103,7 +111,7 @@ function Register() {
             <br />
             <br />
 
-            <Button type="primary" htmlType="submit" block loading={isSubmitting}>
+            <Button type="primary" htmlType="submit" block loading={registerLoading}>
               Đăng ký
             </Button>
           </form>

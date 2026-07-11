@@ -1,36 +1,4 @@
 /*
- * Action buttons inside the Service Management tables use an outlined
- * (bordered) style: transparent background, coloured border + text.
- * The global brand style (index.css) forces every `.ant-btn-primary`
- * to a solid brown background with `!important`, so these higher-specificity
- * rules are scoped to the tables on this page only — toolbar buttons
- * (e.g. "Thêm dịch vụ") keep the brand styling.
+ * Action buttons inside the Service Management tables now use solid primary style
+ * to match EmployeeManagement page. The outlined style has been removed.
  */
-
-/* Sửa (edit) — blue outline */
-.service-management .ant-table .ant-btn-primary:not(.ant-btn-dangerous) {
-  background: transparent !important;
-  border: 1px solid #1677ff !important;
-  color: #1677ff !important;
-  box-shadow: none !important;
-}
-
-.service-management .ant-table .ant-btn-primary:not(.ant-btn-dangerous):hover {
-  background: #e6f4ff !important;
-  border-color: #4096ff !important;
-  color: #1677ff !important;
-}
-
-/* Xóa (delete) — red outline */
-.service-management .ant-table .ant-btn-primary.ant-btn-dangerous {
-  background: transparent !important;
-  border: 1px solid #ff4d4f !important;
-  color: #ff4d4f !important;
-  box-shadow: none !important;
-}
-
-.service-management .ant-table .ant-btn-primary.ant-btn-dangerous:hover {
-  background: #fff1f0 !important;
-  border-color: #ff7875 !important;
-  color: #ff4d4f !important;
-}

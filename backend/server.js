@@ -26,6 +26,11 @@ const damageReportRoutes = require('./routes/damageReports');
 const bookingServiceRoutes = require('./routes/bookingServices');
 const serviceRequestRoutes = require('./routes/serviceRequests');
 const bookingService = require('./services/bookingService');
+const reviewRoutes = require('./routes/reviews');
+const voucherRoutes = require('./routes/vouchers');
+const settingsRoutes = require('./routes/settings');
+const refundRoutes = require('./routes/refunds');
+const walletRoutes = require('./routes/wallet');
 const ensureOperationalSchema = require('./ensure-operational-schema');
 
 app.use('/api/auth', authRoutes);
@@ -42,6 +47,11 @@ app.use('/api/room-items', roomItemRoutes);
 app.use('/api/damage-reports', damageReportRoutes);
 app.use('/api/booking-services', bookingServiceRoutes);
 app.use('/api/service-requests', serviceRequestRoutes);
+app.use('/api/reviews', reviewRoutes);
+app.use('/api/vouchers', voucherRoutes);
+app.use('/api/settings', settingsRoutes);
+app.use('/api/refunds', refundRoutes);
+app.use('/api/wallet', walletRoutes);
 
 // Test endpoint
 app.get('/api/health', (req, res) => {
@@ -64,6 +74,16 @@ setInterval(() => {
     console.error('Expire booking holds error:', error);
   });
 }, 60 * 1000);
+
+setInterval(() => {
+  bookingService.processNoShows().catch((error) => {
+    console.error('Process no-show bookings error:', error);
+  });
+}, 60 * 60 * 1000);
+
+bookingService.processNoShows().catch((error) => {
+  console.error('Initial no-show processing error:', error);
+});
 
 // Start server
 ensureOperationalSchema()

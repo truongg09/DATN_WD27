@@ -18,15 +18,16 @@ interface RoomData {
   roomNumber: string;
   floor: number;
   area: string | number;
-  status: string;
+  status: 'available' | 'occupied' | 'maintenance';
   roomTypeId: number;
   room_type_name: string;
   room_type_description: string;
   capacity: number;
   price_per_night: string | number;
+  imageUrl?: string;
   images: string[];
-  db_amenities?: { name: string; icon?: string }[];
-  db_reviews?: { id: number; rating: number; comment: string; createdAt: string; customerName: string }[];
+  db_amenities?: { name: string; icon: string }[];
+  db_reviews?: { id: number; customerName: string; rating: number; comment: string; createdAt: string }[];
 }
 
 const RoomDetail: React.FC = () => {
@@ -37,58 +38,57 @@ const RoomDetail: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [selectedImage, setSelectedImage] = useState(0);
 
-  const mapImages = (images: string[], typeName: string): string[] => {
-    if (!images || images.length === 0) return getDefaultImages(typeName);
-    
-    return images.map(img => {
-      if (img.startsWith('http://') || img.startsWith('https://')) return img;
-      
-      const name = img.toLowerCase();
-      if (name.includes('standard1')) return 'https://images.unsplash.com/photo-1631049307264-da0ec9d70304?w=1200';
-      if (name.includes('standard2')) return 'https://images.unsplash.com/photo-1566073771259-6a8506099945?w=1200';
-      if (name.includes('superior1')) return 'https://images.unsplash.com/photo-1611892440504-42a792e24d32?w=1200';
-      if (name.includes('superior2')) return 'https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?w=1200';
-      if (name.includes('deluxe1')) return 'https://images.unsplash.com/photo-1590490360182-c33d57733427?w=1200';
-      if (name.includes('deluxe2')) return 'https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?w=1200';
-      if (name.includes('family1')) return 'https://images.unsplash.com/photo-1596394516093-501ba68a0ba6?w=1200';
-      if (name.includes('family2')) return 'https://images.unsplash.com/photo-1590490360182-c33d57733427?w=1200';
-      if (name.includes('suite1')) return 'https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?w=1200';
-      if (name.includes('suite2')) return 'https://images.unsplash.com/photo-1566073771259-6a8506099945?w=1200';
-      
-      return 'https://images.unsplash.com/photo-1566073771259-6a8506099945?w=1200';
-    });
-  };
+
 
   const getDefaultImages = (typeName: string): string[] => {
     const name = typeName.toLowerCase();
-    if (name.includes('standard')) {
-      return [
-        'https://images.unsplash.com/photo-1631049307264-da0ec9d70304?w=1200',
-        'https://images.unsplash.com/photo-1566073771259-6a8506099945?w=1200'
+    let mainImages: string[];
+
+    if (name.includes('standard') || name.includes('superior')) {
+      mainImages = [
+        new URL('../../assets/rooms/standard/standard1.jpg', import.meta.url).href,
+        new URL('../../assets/rooms/standard/standard2.jpg', import.meta.url).href,
+        new URL('../../assets/rooms/standard/standard3.jpg', import.meta.url).href,
+        new URL('../../assets/rooms/standard/standard4.jpg', import.meta.url).href
+      ];
+    } else if (name.includes('deluxe')) {
+      mainImages = [
+        new URL('../../assets/rooms/deluxe/deluxe1.jpg', import.meta.url).href,
+        new URL('../../assets/rooms/deluxe/deluxe3.jpg', import.meta.url).href,
+        new URL('../../assets/rooms/deluxe/deluxe4.jpg', import.meta.url).href
+      ];
+    } else if (name.includes('family')) {
+      mainImages = [
+        new URL('../../assets/rooms/family/family1.jpg', import.meta.url).href,
+        new URL('../../assets/rooms/family/family2.jpg', import.meta.url).href,
+        new URL('../../assets/rooms/family/family4.jpg', import.meta.url).href
+      ];
+    } else {
+      mainImages = [
+        new URL('../../assets/rooms/luxury/luxury1.jpg', import.meta.url).href,
+        new URL('../../assets/rooms/luxury/luxury2.jpg', import.meta.url).href,
+        new URL('../../assets/rooms/luxury/luxury3.jpg', import.meta.url).href
       ];
     }
-    if (name.includes('superior')) {
-      return [
-        'https://images.unsplash.com/photo-1611892440504-42a792e24d32?w=1200',
-        'https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?w=1200'
-      ];
-    }
-    if (name.includes('deluxe')) {
-      return [
-        'https://images.unsplash.com/photo-1590490360182-c33d57733427?w=1200',
-        'https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?w=1200'
-      ];
-    }
-    if (name.includes('family')) {
-      return [
-        'https://images.unsplash.com/photo-1596394516093-501ba68a0ba6?w=1200',
-        'https://images.unsplash.com/photo-1590490360182-c33d57733427?w=1200'
-      ];
-    }
-    return [
-      'https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?w=1200',
-      'https://images.unsplash.com/photo-1566073771259-6a8506099945?w=1200'
+
+    const amenitiesImages = [
+      new URL('../../assets/rooms/bathroom/bathroom1.jpg', import.meta.url).href,
+      new URL('../../assets/rooms/bathroom/bathroom2.jpg', import.meta.url).href,
+      new URL('../../assets/rooms/balcony-view/balcony1.jpg', import.meta.url).href,
+      new URL('../../assets/rooms/balcony-view/balcony2.jpg', import.meta.url).href
     ];
+
+    return [...mainImages, ...amenitiesImages];
+  };
+
+  const mapImages = (imagesArr: string[] | undefined, typeName: string): string[] => {
+    if (imagesArr && imagesArr.length > 0) {
+      const firstImage = imagesArr[0];
+      if (firstImage && (firstImage.startsWith('http://') || firstImage.startsWith('https://'))) {
+        return imagesArr;
+      }
+    }
+    return getDefaultImages(typeName);
   };
 
   const getDetailedDescription = (typeName: string, dbDesc: string): string => {
@@ -143,6 +143,9 @@ const RoomDetail: React.FC = () => {
   const formatPrice = (price: number) => {
     return new Intl.NumberFormat('vi-VN').format(price) + ' VNĐ';
   };
+
+
+
 
   const handleBooking = () => {
     navigate(`/booking?id=${id}`);
@@ -202,8 +205,32 @@ const RoomDetail: React.FC = () => {
 
         <div className="room-detail-main">
           <div className="room-gallery">
-            <div className="main-image">
-              <img src={room.images[selectedImage]} alt={`Phòng ${room.roomNumber}`} />
+            <div className="main-image" style={{ position: 'relative' }}>
+              <button 
+                className="gallery-nav-btn prev"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedImage(prev => (prev === 0 ? room.images.length - 1 : prev - 1));
+                }}
+              >
+                &lt;
+              </button>
+              <img 
+                src={room.images[selectedImage]} 
+                alt={`Phòng ${room.roomNumber}`}
+                onClick={() => {
+                  setSelectedImage(prev => (prev === room.images.length - 1 ? 0 : prev + 1));
+                }}
+              />
+              <button 
+                className="gallery-nav-btn next"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedImage(prev => (prev === room.images.length - 1 ? 0 : prev + 1));
+                }}
+              >
+                &gt;
+              </button>
             </div>
             <div className="thumbnail-images">
               {room.images.map((img, index) => (

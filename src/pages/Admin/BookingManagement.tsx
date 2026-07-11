@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Button, DatePicker, Descriptions, Form, Input, InputNumber, message, Modal, Select, Space, Tag } from 'antd';
+import { Button, DatePicker, Descriptions, Form, Input, InputNumber, message, Modal, Select, Space, Tag, Tooltip } from 'antd';
 import {
   CheckOutlined,
   CloseOutlined,
@@ -54,6 +54,7 @@ const statusText: Record<string, string> = {
   checked_in: 'Đã check-in',
   checked_out: 'Đã check-out',
   cancelled: 'Đã hủy',
+  no_show: 'Không đến (No-show)',
 };
 
 const statusColor: Record<string, string> = {
@@ -62,12 +63,14 @@ const statusColor: Record<string, string> = {
   checked_in: 'green',
   checked_out: 'gray',
   cancelled: 'red',
+  no_show: 'volcano',
 };
 
 const normalizeStatus = (status: string | null) => {
   const value = (status || '').toLowerCase();
   if (['checkout', 'check_out', 'checkedout'].includes(value)) return 'checked_out';
   if (['checkin', 'check_in', 'checkedin'].includes(value)) return 'checked_in';
+  if (['no-show', 'noshow'].includes(value)) return 'no_show';
   return value || 'pending';
 };
 
@@ -170,8 +173,15 @@ function BookingManagement() {
 
     try {
       if (operation === 'guests') {
-        await api.post(`/bookings/${selectedBooking.id}/guests`, { guests: values.guests });
-        message.success('Đã lưu CCCD và danh sách người ở');
+        const response = await api.patch(`/bookings/${selectedBooking.id}/check-in`, {
+          guests: values.guests,
+        });
+        const lateCheckIn = response.data?.lateCheckIn;
+        message.success(
+          lateCheckIn
+            ? 'Check-in muộn thành công. Phòng vẫn được giữ vì khách đã thanh toán.'
+            : response.data?.message || 'Check-in thành công'
+        );
       }
 
       if (operation === 'service') {
@@ -252,6 +262,31 @@ function BookingManagement() {
     } catch (error: any) {
       message.error(error.response?.data?.message || 'Lỗi khi check-out');
     }
+  };
+
+  const handleNoShow = (booking: Booking) => {
+    Modal.confirm({
+      title: 'Xác nhận No-show',
+      content:
+        'Khách không đến nhận phòng. Hệ thống sẽ không hoàn tiền và tự động tặng voucher giảm 10% cho lần đặt tiếp theo.',
+      okText: 'Xác nhận No-show',
+      cancelText: 'Đóng',
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          const response = await api.patch(`/bookings/${booking.id}/no-show`);
+          const voucherCode = response.data?.voucher?.code;
+          message.success(
+            voucherCode
+              ? `Đã ghi nhận no-show. Voucher: ${voucherCode}`
+              : 'Đã ghi nhận no-show'
+          );
+          fetchBookings();
+        } catch (error: any) {
+          message.error(error.response?.data?.message || 'Không thể xử lý no-show');
+        }
+      },
+    });
   };
 
   const renderOperationForm = () => {
@@ -418,15 +453,54 @@ function BookingManagement() {
                     </td>
                     <td style={tdStyle}>
                       <Space size="small" wrap>
-                        <Button icon={<EyeOutlined />} size="small" onClick={() => { setSelectedBooking(booking); setViewModalVisible(true); }}>Xem</Button>
-                        {['pending', 'confirmed'].includes(booking.status) && <Button icon={<CloseOutlined />} size="small" danger onClick={() => handleCancel(booking.id)}>Hủy</Button>}
-                        {['pending', 'confirmed'].includes(booking.status) && <Button icon={<CheckOutlined />} size="small" type="primary" onClick={() => handleCheckIn(booking)}>Check-in</Button>}
-                        {booking.status === 'checked_in' && <Button icon={<LogoutOutlined />} size="small" type="primary" onClick={() => handleCheckOut(booking.id)}>Check-out</Button>}
-                        {booking.status === 'checked_in' && <Button icon={<PlusOutlined />} size="small" onClick={() => openOperation('service', booking)}>Dịch vụ</Button>}
-                        {booking.status === 'checked_in' && <Button icon={<ToolOutlined />} size="small" onClick={() => openOperation('damage', booking)}>Hư hỏng</Button>}
-                        {['confirmed', 'checked_in'].includes(booking.status) && <Button icon={<HomeOutlined />} size="small" onClick={() => openOperation('extend', booking)}>Gia hạn</Button>}
-                        {booking.status === 'checked_in' && <Button icon={<SwapOutlined />} size="small" onClick={() => openOperation('transfer', booking)}>Chuyển phòng</Button>}
-                        {booking.status === 'checked_in' && <Button icon={<UserAddOutlined />} size="small" onClick={() => openOperation('guests', booking)}>Người ở</Button>}
+                        <Tooltip title="Xem chi tiết đặt phòng">
+                          <Button type="primary" icon={<EyeOutlined style={{ color: 'white' }} />} size="small" onClick={() => { setSelectedBooking(booking); setViewModalVisible(true); }}></Button>
+                        </Tooltip>
+                        {['pending', 'confirmed'].includes(booking.status) && (
+                          <Tooltip title="Hủy đặt phòng">
+                            <Button type="primary" icon={<CloseOutlined />} size="small" danger onClick={() => handleCancel(booking.id)}></Button>
+                          </Tooltip>
+                        )}
+                        {['pending', 'confirmed'].includes(booking.status) && (
+                          <Tooltip title="Check-in (nhận phòng)">
+                            <Button type="primary" icon={<CheckOutlined />} size="small" onClick={() => handleCheckIn(booking)}></Button>
+                          </Tooltip>
+                        )}
+                        {['pending', 'confirmed'].includes(booking.status) && (
+                          <Tooltip title="Đánh dấu khách không đến (không hoàn tiền, tặng voucher 10%)">
+                            <Button type="primary" danger size="small" onClick={() => handleNoShow(booking)}>No-show</Button>
+                          </Tooltip>
+                        )}
+                        {booking.status === 'checked_in' && (
+                          <Tooltip title="Check-out (trả phòng)">
+                            <Button type="primary" icon={<LogoutOutlined />} size="small" onClick={() => handleCheckOut(booking.id)}></Button>
+                          </Tooltip>
+                        )}
+                        {booking.status === 'checked_in' && (
+                          <Tooltip title="Thêm dịch vụ cho khách">
+                            <Button type="primary" icon={<PlusOutlined />} size="small" onClick={() => openOperation('service', booking)}></Button>
+                          </Tooltip>
+                        )}
+                        {booking.status === 'checked_in' && (
+                          <Tooltip title="Ghi nhận hỏng hóc / đền bù">
+                            <Button type="primary" icon={<ToolOutlined />} size="small" onClick={() => openOperation('damage', booking)}></Button>
+                          </Tooltip>
+                        )}
+                        {['confirmed', 'checked_in'].includes(booking.status) && (
+                          <Tooltip title="Gia hạn thời gian ở">
+                            <Button type="primary" icon={<HomeOutlined />} size="small" onClick={() => openOperation('extend', booking)}></Button>
+                          </Tooltip>
+                        )}
+                        {booking.status === 'checked_in' && (
+                          <Tooltip title="Chuyển phòng">
+                            <Button type="primary" icon={<SwapOutlined />} size="small" onClick={() => openOperation('transfer', booking)}></Button>
+                          </Tooltip>
+                        )}
+                        {booking.status === 'checked_in' && (
+                          <Tooltip title="Khai báo khách ở cùng">
+                            <Button type="primary" icon={<UserAddOutlined />} size="small" onClick={() => openOperation('guests', booking)}></Button>
+                          </Tooltip>
+                        )}
                       </Space>
                     </td>
                   </tr>

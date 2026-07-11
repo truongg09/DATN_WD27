@@ -13,6 +13,7 @@ import {
   Space,
   Card,
   Tag,
+  Descriptions,
 } from 'antd';
 import {
   PlusOutlined,
@@ -20,6 +21,7 @@ import {
   DeleteOutlined,
   ReloadOutlined,
   SearchOutlined,
+  EyeOutlined,
 } from '@ant-design/icons';
 import axios from 'axios';
 import dayjs from 'dayjs';
@@ -68,8 +70,10 @@ function DamageReportsTab() {
   const [bookings, setBookings] = useState<BookingOption[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
+  const [detailVisible, setDetailVisible] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [editingReport, setEditingReport] = useState<DamageReport | null>(null);
+  const [selectedReport, setSelectedReport] = useState<DamageReport | null>(null);
   const [searchText, setSearchText] = useState('');
   const [form] = Form.useForm<DamageFormValues>();
 
@@ -124,6 +128,11 @@ function DamageReportsTab() {
       reportDate: report.reportDate ? dayjs(report.reportDate) : undefined,
     });
     setModalVisible(true);
+  };
+
+  const handleViewDetail = (report: DamageReport) => {
+    setSelectedReport(report);
+    setDetailVisible(true);
   };
 
   const handleDelete = async (id: number) => {
@@ -232,20 +241,31 @@ function DamageReportsTab() {
       key: 'action',
       width: 200,
       render: (_: unknown, record: DamageReport) => (
-        <Space size="middle">
-          <Button type="primary" ghost icon={<EditOutlined />} onClick={() => handleEdit(record)}>
-            Sửa
-          </Button>
+        <Space>
+          <Button
+            type="primary"
+            icon={<EyeOutlined style={{ color: 'white' }} />}
+            size="small"
+            onClick={() => handleViewDetail(record)}
+          />
+          <Button
+            type="primary"
+            icon={<EditOutlined />}
+            size="small"
+            onClick={() => handleEdit(record)}
+          />
           <Popconfirm
-            title="Bạn có chắc chắn muốn xóa báo hỏng này?"
+            title="Bạn có chắc chắn muốn xóa?"
             onConfirm={() => handleDelete(record.id)}
             okText="Xóa"
             cancelText="Hủy"
-            okButtonProps={{ danger: true }}
           >
-            <Button type="primary" danger ghost icon={<DeleteOutlined />}>
-              Xóa
-            </Button>
+            <Button
+              type="primary"
+              danger
+              icon={<DeleteOutlined />}
+              size="small"
+            />
           </Popconfirm>
         </Space>
       ),
@@ -285,14 +305,11 @@ function DamageReportsTab() {
       <Modal
         title={editingReport ? 'Cập Nhật Báo Hỏng' : 'Tạo Báo Hỏng Mới'}
         open={modalVisible}
-        onOk={handleModalSubmit}
         onCancel={() => setModalVisible(false)}
-        okText={editingReport ? 'Cập nhật' : 'Tạo mới'}
-        cancelText="Hủy"
-        confirmLoading={submitting}
+        footer={null}
         forceRender
       >
-        <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
+        <Form form={form} layout="vertical" style={{ marginTop: 16 }} onFinish={handleModalSubmit}>
           <Form.Item
             name="roomItemId"
             label="Vật dụng bị hỏng"
@@ -353,7 +370,39 @@ function DamageReportsTab() {
           <Form.Item name="reportDate" label="Ngày báo hỏng">
             <DatePicker showTime format="DD/MM/YYYY HH:mm" style={{ width: '100%' }} />
           </Form.Item>
+          <Form.Item>
+            <Space>
+              <Button type="primary" htmlType="submit" block loading={submitting}>
+                {editingReport ? 'Cập nhật' : 'Tạo mới'}
+              </Button>
+              <Button onClick={() => setModalVisible(false)} block>
+                Hủy
+              </Button>
+            </Space>
+          </Form.Item>
         </Form>
+      </Modal>
+
+      {/* Detail Modal */}
+      <Modal
+        title="Chi tiết báo hỏng"
+        open={detailVisible}
+        onCancel={() => setDetailVisible(false)}
+        footer={null}
+        width={600}
+      >
+        {selectedReport && (
+          <Descriptions bordered column={1}>
+            <Descriptions.Item label="ID">{selectedReport.id}</Descriptions.Item>
+            <Descriptions.Item label="Vật dụng">{selectedReport.itemName || '—'}</Descriptions.Item>
+            <Descriptions.Item label="Phòng">{selectedReport.roomNumber || '—'}</Descriptions.Item>
+            <Descriptions.Item label="Đơn đặt phòng">{selectedReport.bookingId ? `#${selectedReport.bookingId}` : '—'}</Descriptions.Item>
+            <Descriptions.Item label="Khách hàng">{selectedReport.bookingCustomer || '—'}</Descriptions.Item>
+            <Descriptions.Item label="Mô tả">{selectedReport.description}</Descriptions.Item>
+            <Descriptions.Item label="Phí bồi thường">{formatPrice(selectedReport.compensationFee)}</Descriptions.Item>
+            <Descriptions.Item label="Ngày báo">{selectedReport.reportDate ? dayjs(selectedReport.reportDate).format('DD/MM/YYYY HH:mm') : '—'}</Descriptions.Item>
+          </Descriptions>
+        )}
       </Modal>
     </Card>
   );

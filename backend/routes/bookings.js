@@ -10,6 +10,7 @@ router.post('/', optionalAuth, bookingController.createBooking);
 router.get('/me', requireAuth, bookingController.listMyBookings);
 router.get('/', bookingController.listBookings);
 router.get('/:id', optionalAuth, bookingController.getBookingById);
+router.get('/:id/refund-preview', optionalAuth, bookingController.getRefundPreview);
 router.patch('/:id/cancel', optionalAuth, bookingController.cancelBooking);
 router.post('/:id/guests', bookingController.saveGuestIdentities);
 router.post('/:id/services', bookingController.addServiceCharge);

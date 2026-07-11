@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Button, Empty, message, Popconfirm, Space, Spin, Table, Tag } from 'antd';
+import { Alert, Button, Empty, Input, Modal, message, Radio, Rate, Select, Space, Spin, Table, Tag } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
   CalendarOutlined,
@@ -8,11 +8,20 @@ import {
   EyeOutlined,
   HomeOutlined,
   ReloadOutlined,
+  StarOutlined,
   StopOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { cancelBooking, getBookings } from '../../services/bookingService';
+import {
+  cancelBooking,
+  getBookings,
+  getRefundPreview,
+  type RefundPreview,
+} from '../../services/bookingService';
 import { getPaymentByBookingId } from '../../services/paymentService';
+import { createReview, getReviews } from '../../services/reviewService';
+import { getMyRefunds, type RefundRow } from '../../services/refundService';
+import { VIETQR_BANKS } from '../../utils/vietqr';
 import { useAuth } from '../../contexts/AuthContext';
 import { unwrapList } from '../../utils/unwrapList';
 import type { Payment } from '../../types/payment';
@@ -77,6 +86,19 @@ const BookingHistory: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [cancellingId, setCancellingId] = useState<number | null>(null);
   const [nowTick, setNowTick] = useState(0);
+  const [reviewBooking, setReviewBooking] = useState<BookingRow | null>(null);
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewComment, setReviewComment] = useState('');
+  const [submittingReview, setSubmittingReview] = useState(false);
+  const [reviewedBookingIds, setReviewedBookingIds] = useState<Set<number>>(new Set());
+  const [refundsByBooking, setRefundsByBooking] = useState<Record<number, RefundRow>>({});
+  const [cancelTarget, setCancelTarget] = useState<BookingRow | null>(null);
+  const [cancelPreview, setCancelPreview] = useState<RefundPreview | null>(null);
+  const [cancelPreviewLoading, setCancelPreviewLoading] = useState(false);
+  const [refundMethod, setRefundMethod] = useState<'cash' | 'bank_transfer'>('bank_transfer');
+  const [refundBankBin, setRefundBankBin] = useState<string | undefined>(undefined);
+  const [refundAccountNumber, setRefundAccountNumber] = useState('');
+  const [refundAccountName, setRefundAccountName] = useState('');
 
   useEffect(() => {
     const timer = window.setInterval(() => setNowTick((value) => value + 1), 1000);
@@ -108,6 +130,24 @@ const BookingHistory: React.FC = () => {
       );
 
       setPayments(Object.fromEntries(paymentEntries));
+
+      try {
+        const reviewsRes = await getReviews();
+        const reviewRows = unwrapList<{ bookingId: number }>(reviewsRes);
+        setReviewedBookingIds(new Set(reviewRows.map((review) => review.bookingId)));
+      } catch {
+        // Không chặn trang nếu tải danh sách đánh giá thất bại
+      }
+
+      try {
+        const refundsRes = await getMyRefunds();
+        const refundRows = unwrapList<RefundRow>(refundsRes);
+        setRefundsByBooking(
+          Object.fromEntries(refundRows.map((refund) => [refund.bookingId, refund]))
+        );
+      } catch {
+        // Không chặn trang nếu tải danh sách hoàn tiền thất bại
+      }
     } catch (error: unknown) {
       const err = error as { response?: { status?: number; data?: { message?: string } } };
       if (err.response?.status === 401) {
@@ -146,17 +186,105 @@ const BookingHistory: React.FC = () => {
     ];
   }, [bookings, payments]);
 
-  const handleCancel = async (bookingId: number) => {
-    setCancellingId(bookingId);
+  const openCancelModal = async (record: BookingRow) => {
+    setCancelTarget(record);
+    setCancelPreview(null);
+    setRefundMethod('bank_transfer');
+    setRefundBankBin(undefined);
+    setRefundAccountNumber('');
+    setRefundAccountName('');
+
+    setCancelPreviewLoading(true);
     try {
-      await cancelBooking(bookingId);
-      message.success('Đã hủy đặt phòng');
+      const previewRes = await getRefundPreview(record.id);
+      setCancelPreview(previewRes.data);
+    } catch {
+      message.error('Không thể tải thông tin hoàn tiền');
+      setCancelTarget(null);
+    } finally {
+      setCancelPreviewLoading(false);
+    }
+  };
+
+  const handleConfirmCancel = async () => {
+    if (!cancelTarget) return;
+
+    const refundable = cancelPreview?.refundableAmount ?? 0;
+
+    // Có tiền hoàn -> bắt buộc đủ thông tin nhận tiền
+    if (refundable > 0 && refundMethod === 'bank_transfer') {
+      if (!refundBankBin) {
+        message.error('Vui lòng chọn ngân hàng nhận tiền hoàn');
+        return;
+      }
+      if (!/^[A-Za-z0-9]{4,30}$/.test(refundAccountNumber.replace(/\s+/g, ''))) {
+        message.error('Số tài khoản không hợp lệ (4-30 ký tự chữ/số)');
+        return;
+      }
+      if (refundAccountName.trim().length < 3) {
+        message.error('Vui lòng nhập tên chủ tài khoản');
+        return;
+      }
+    }
+
+    const bank = VIETQR_BANKS.find((item) => item.bin === refundBankBin);
+    const refundPayload =
+      refundable > 0
+        ? refundMethod === 'bank_transfer'
+          ? {
+              refundMethod: 'bank_transfer' as const,
+              bankBin: refundBankBin,
+              bankName: bank?.shortName || '',
+              accountNumber: refundAccountNumber.replace(/\s+/g, ''),
+              accountName: refundAccountName.trim().toUpperCase(),
+            }
+          : { refundMethod: 'cash' as const }
+        : undefined;
+
+    setCancellingId(cancelTarget.id);
+    try {
+      await cancelBooking(cancelTarget.id, refundPayload);
+      if (refundable > 0) {
+        message.success(
+          `Đã hủy đặt phòng. Yêu cầu hoàn ${formatPrice(refundable)} đang chờ khách sạn duyệt.`
+        );
+      } else {
+        message.success('Đã hủy đặt phòng');
+      }
+      setCancelTarget(null);
       await loadHistory();
     } catch (error: unknown) {
       const err = error as { response?: { data?: { message?: string } } };
       message.error(err.response?.data?.message || 'Không thể hủy đặt phòng này');
     } finally {
       setCancellingId(null);
+    }
+  };
+
+  const openReviewModal = (record: BookingRow) => {
+    setReviewBooking(record);
+    setReviewRating(5);
+    setReviewComment('');
+  };
+
+  const handleSubmitReview = async () => {
+    if (!reviewBooking) return;
+
+    setSubmittingReview(true);
+    try {
+      await createReview({
+        bookingId: reviewBooking.id,
+        rating: reviewRating,
+        comment: reviewComment.trim(),
+      });
+      message.success('Cảm ơn bạn đã đánh giá!');
+      setReviewedBookingIds((prev) => new Set(prev).add(reviewBooking.id));
+      setReviewBooking(null);
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { message?: string } } };
+      message.error(err.response?.data?.message || 'Không thể gửi đánh giá');
+    } finally {
+      setSubmittingReview(false);
     }
   };
 
@@ -180,6 +308,8 @@ const BookingHistory: React.FC = () => {
       );
     }
 
+    const refund = refundsByBooking[record.id];
+
     return (
       <div className="history-payment-cell">
         <Tag className="history-status-tag" color={paymentStatusMap[payment.paymentStatus]?.color || 'default'}>
@@ -193,6 +323,18 @@ const BookingHistory: React.FC = () => {
                 ? 'Hết thời gian giữ chỗ'
                 : `Còn ${formatHoldTime(holdRemainingMs)}`}
           </span>
+        )}
+        {refund && (
+          <Tag
+            className="history-status-tag"
+            color={refund.status === 'pending' ? 'gold' : refund.status === 'approved' ? 'green' : 'red'}
+          >
+            {refund.status === 'pending'
+              ? `Chờ hoàn ${formatPrice(Number(refund.amount))}`
+              : refund.status === 'approved'
+                ? `Đã hoàn ${formatPrice(Number(refund.amount))}`
+                : 'Từ chối hoàn tiền'}
+          </Tag>
         )}
       </div>
     );
@@ -287,24 +429,31 @@ const BookingHistory: React.FC = () => {
               )}
 
               {canCancel && (
-                <Popconfirm
-                  title="Hủy đặt phòng?"
-                  description="Bạn có chắc muốn hủy đặt phòng này không?"
-                  okText="Hủy phòng"
-                  cancelText="Đóng"
-                  onConfirm={() => handleCancel(record.id)}
+                <Button
+                  danger
+                  icon={<StopOutlined />}
+                  loading={cancellingId === record.id}
+                  onClick={() => openCancelModal(record)}
                 >
-                  <Button danger icon={<StopOutlined />} loading={cancellingId === record.id}>
-                    Hủy
-                  </Button>
-                </Popconfirm>
+                  Hủy
+                </Button>
+              )}
+
+              {record.status === 'checked_out' && (
+                <Button
+                  icon={<StarOutlined />}
+                  disabled={reviewedBookingIds.has(record.id)}
+                  onClick={() => openReviewModal(record)}
+                >
+                  {reviewedBookingIds.has(record.id) ? 'Đã đánh giá' : 'Đánh giá'}
+                </Button>
               )}
             </Space>
           );
         },
       },
     ],
-    [cancellingId, payments, nowTick]
+    [cancellingId, payments, nowTick, reviewedBookingIds, refundsByBooking]
   );
 
   return (
@@ -369,6 +518,127 @@ const BookingHistory: React.FC = () => {
           </Spin>
         </div>
       </section>
+
+      <Modal
+        open={!!cancelTarget}
+        title={cancelTarget ? `Hủy đặt phòng #${cancelTarget.id}` : ''}
+        okText="Xác nhận hủy phòng"
+        okButtonProps={{ danger: true }}
+        cancelText="Đóng"
+        confirmLoading={cancellingId === cancelTarget?.id}
+        onOk={handleConfirmCancel}
+        onCancel={() => cancellingId === null && setCancelTarget(null)}
+        destroyOnHidden
+        centered
+      >
+        {cancelPreviewLoading ? (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: 32 }}>
+            <Spin />
+          </div>
+        ) : cancelPreview ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {cancelPreview.refundableAmount > 0 ? (
+              <>
+                <Alert
+                  type="info"
+                  showIcon
+                  message={
+                    <>
+                      Bạn sẽ được hoàn <strong>{formatPrice(cancelPreview.refundableAmount)}</strong>{' '}
+                      ({Math.round(Number(cancelPreview.refundRate) * 100)}% số tiền đã thanh toán) —
+                      còn {cancelPreview.daysBeforeCheckIn} ngày trước nhận phòng.
+                    </>
+                  }
+                  description="Yêu cầu hoàn tiền sẽ được gửi đến khách sạn để duyệt. Vui lòng chọn cách nhận tiền."
+                />
+
+                <Radio.Group
+                  value={refundMethod}
+                  onChange={(e) => setRefundMethod(e.target.value)}
+                  options={[
+                    { value: 'bank_transfer', label: 'Chuyển khoản ngân hàng' },
+                    { value: 'cash', label: 'Nhận tiền mặt tại quầy' },
+                  ]}
+                />
+
+                {refundMethod === 'bank_transfer' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <Select
+                      showSearch
+                      placeholder="Chọn ngân hàng nhận tiền"
+                      optionFilterProp="label"
+                      value={refundBankBin}
+                      onChange={setRefundBankBin}
+                      options={VIETQR_BANKS.map((bank) => ({
+                        value: bank.bin,
+                        label: `${bank.shortName} — ${bank.name}`,
+                      }))}
+                    />
+                    <Input
+                      placeholder="Số tài khoản nhận tiền"
+                      maxLength={30}
+                      value={refundAccountNumber}
+                      onChange={(e) => setRefundAccountNumber(e.target.value)}
+                    />
+                    <Input
+                      placeholder="Tên chủ tài khoản (VD: NGUYEN VAN A)"
+                      maxLength={50}
+                      value={refundAccountName}
+                      onChange={(e) => setRefundAccountName(e.target.value)}
+                    />
+                  </div>
+                )}
+
+                {refundMethod === 'cash' && (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    message="Bạn sẽ nhận tiền mặt trực tiếp tại quầy lễ tân, vui lòng mang theo giấy tờ tùy thân."
+                  />
+                )}
+              </>
+            ) : (
+              <Alert
+                type="warning"
+                showIcon
+                message="Hủy đặt phòng này sẽ không được hoàn tiền"
+                description={
+                  Number(cancelPreview.refundRate) === 0 && cancelPreview.daysBeforeCheckIn >= 0
+                    ? `Còn ${cancelPreview.daysBeforeCheckIn} ngày trước nhận phòng (dưới 3 ngày) hoặc bạn chưa thanh toán khoản nào.`
+                    : 'Bạn chưa thanh toán khoản nào cho đặt phòng này.'
+                }
+              />
+            )}
+          </div>
+        ) : null}
+      </Modal>
+
+      <Modal
+        open={!!reviewBooking}
+        title={reviewBooking ? `Đánh giá đặt phòng #${reviewBooking.id}` : ''}
+        okText="Gửi đánh giá"
+        cancelText="Đóng"
+        confirmLoading={submittingReview}
+        onOk={handleSubmitReview}
+        onCancel={() => !submittingReview && setReviewBooking(null)}
+        destroyOnHidden
+        centered
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div>
+            <p style={{ marginBottom: 4 }}>Chất lượng kỳ nghỉ của bạn:</p>
+            <Rate value={reviewRating} onChange={setReviewRating} />
+          </div>
+          <Input.TextArea
+            rows={4}
+            maxLength={500}
+            showCount
+            placeholder="Chia sẻ trải nghiệm của bạn về phòng và dịch vụ..."
+            value={reviewComment}
+            onChange={(e) => setReviewComment(e.target.value)}
+          />
+        </div>
+      </Modal>
     </main>
   );
 };
