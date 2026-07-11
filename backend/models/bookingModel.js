@@ -2,6 +2,7 @@ const db = require('../config/db');
 
 const run = (connection) => connection || db;
 const HOLD_MINUTES = 15;
+const { LATE_CHECKIN_GRACE_HOUR } = require('../utils/bookingPolicy');
 
 const BOOKING_SELECT = `
   SELECT
@@ -101,6 +102,53 @@ const expireUnpaidBookingHolds = async (connection) => {
   );
 };
 
+const getSecuredConflictingBookings = async (
+  roomId,
+  checkIn,
+  checkOut,
+  connection,
+  lock = false,
+  { excludeBookingId } = {}
+) => {
+  const values = [roomId, checkOut, checkIn];
+  const excludeClause = excludeBookingId ? 'AND b.id != ?' : '';
+  if (excludeBookingId) {
+    values.push(excludeBookingId);
+  }
+
+  const [rows] = await run(connection).query(
+    `
+      SELECT b.id, b.status, COALESCE(bd.checkInDate, b.check_in) AS checkInDate,
+             COALESCE(bd.checkOutDate, b.check_out) AS checkOutDate,
+             b.created_at,
+             COALESCE(p.paymentStatus, 'unpaid') AS paymentStatus,
+             COALESCE(p.paidAmount, 0) AS paidAmount
+      FROM bookings b
+      LEFT JOIN booking_details bd ON bd.bookingId = b.id
+      LEFT JOIN payments p ON p.id = (
+        SELECT p2.id
+        FROM payments p2
+        WHERE p2.bookingId = b.id
+        ORDER BY p2.id DESC
+        LIMIT 1
+      )
+      WHERE COALESCE(bd.roomId, b.room_id) = ?
+        AND b.status IN ('pending', 'confirmed', 'checked_in')
+        AND DATE(COALESCE(bd.checkInDate, b.check_in)) < ?
+        AND DATE(COALESCE(bd.checkOutDate, b.check_out)) > ?
+        ${excludeClause}
+        AND (
+          b.status = 'checked_in'
+          OR p.paymentStatus = 'paid'
+          OR COALESCE(p.paidAmount, 0) > 0
+        )
+      ${lock ? 'FOR UPDATE' : ''}
+    `,
+    values
+  );
+  return rows;
+};
+
 const getConflictingBookings = async (
   roomId,
   checkIn,
@@ -150,6 +198,32 @@ const getConflictingBookings = async (
     values
   );
   return rows;
+};
+
+const cancelCompetingUnpaidBookings = async (
+  roomId,
+  checkIn,
+  checkOut,
+  excludeBookingId,
+  connection
+) => {
+  await run(connection).query(
+    `
+      UPDATE bookings b
+      LEFT JOIN booking_details bd ON bd.bookingId = b.id
+      JOIN payments p ON p.bookingId = b.id
+      SET b.status = 'cancelled',
+          b.bookingStatus = 'cancelled'
+      WHERE COALESCE(bd.roomId, b.room_id) = ?
+        AND b.id != ?
+        AND b.status IN ('pending', 'confirmed')
+        AND DATE(COALESCE(bd.checkInDate, b.check_in)) < ?
+        AND DATE(COALESCE(bd.checkOutDate, b.check_out)) > ?
+        AND p.paymentStatus = 'unpaid'
+        AND COALESCE(p.paidAmount, 0) <= 0
+    `,
+    [roomId, excludeBookingId, checkOut, checkIn]
+  );
 };
 
 const listAvailableRoomsByType = async (roomTypeId, checkIn, checkOut, connection, lock = false) => {
@@ -314,78 +388,6 @@ const sumBookingServices = async (bookingId, connection) => {
   return Number(row?.total || 0);
 };
 
-const addBookingServiceRequest = async (bookingId, serviceId, quantity, connection) => {
-  const [result] = await run(connection).query(
-    `
-      INSERT INTO booking_service_requests (bookingId, serviceId, quantity, status)
-      VALUES (?, ?, ?, 'pending')
-    `,
-    [bookingId, serviceId, quantity]
-  );
-  return result.insertId;
-};
-
-const getBookingServiceRequests = async (bookingId, connection) => {
-  const [rows] = await run(connection).query(
-    `
-      SELECT sr.id, sr.bookingId, sr.serviceId, sr.quantity, sr.status, sr.createdAt,
-             s.serviceName, s.price,
-             (s.price * sr.quantity) AS estimatedTotal
-      FROM booking_service_requests sr
-      LEFT JOIN services s ON s.id = sr.serviceId
-      WHERE sr.bookingId = ?
-      ORDER BY sr.id ASC
-    `,
-    [bookingId]
-  );
-  return rows;
-};
-
-const listServiceRequests = async ({ status } = {}) => {
-  const conditions = [];
-  const values = [];
-  if (status) {
-    conditions.push('sr.status = ?');
-    values.push(status);
-  }
-
-  const [rows] = await db.query(
-    `
-      SELECT sr.id, sr.bookingId, sr.serviceId, sr.quantity, sr.status, sr.createdAt,
-             s.serviceName, s.price,
-             (s.price * sr.quantity) AS estimatedTotal,
-             b.status AS bookingStatus, b.room_id AS roomId,
-             COALESCE(b.guest_name, c.fullName) AS bookingCustomer,
-             COALESCE(b.guest_phone, c.phone) AS bookingPhone,
-             r.roomNumber
-      FROM booking_service_requests sr
-      LEFT JOIN services s ON s.id = sr.serviceId
-      LEFT JOIN bookings b ON b.id = sr.bookingId
-      LEFT JOIN customers c ON c.id = b.customerId
-      LEFT JOIN rooms r ON r.id = b.room_id
-      ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}
-      ORDER BY sr.id DESC
-    `,
-    values
-  );
-  return rows;
-};
-
-const getServiceRequestById = async (requestId, connection, lock = false) => {
-  const [rows] = await run(connection).query(
-    `SELECT id, bookingId, serviceId, quantity, status FROM booking_service_requests WHERE id = ? ${lock ? 'FOR UPDATE' : ''}`,
-    [requestId]
-  );
-  return rows[0] || null;
-};
-
-const updateServiceRequestStatus = async (requestId, status, connection) => {
-  await run(connection).query(
-    'UPDATE booking_service_requests SET status = ? WHERE id = ?',
-    [status, requestId]
-  );
-};
-
 const replaceBookingGuests = async (bookingId, guests, connection) => {
   await run(connection).query('DELETE FROM booking_guests WHERE bookingId = ?', [bookingId]);
 
@@ -471,6 +473,20 @@ const transferBookingRoom = async (booking, toRoom, payload, connection) => {
   );
 };
 
+// Các khoảng giá theo mùa/thời điểm của một loại phòng (bảng room_prices)
+const listRoomPriceRanges = async (roomTypeId, connection) => {
+  const [rows] = await run(connection).query(
+    `
+      SELECT startDate, endDate, price, priceType
+      FROM room_prices
+      WHERE roomTypeId = ?
+      ORDER BY DATEDIFF(endDate, startDate) ASC, id DESC
+    `,
+    [roomTypeId]
+  );
+  return rows;
+};
+
 const getBookingById = async (bookingId, connection, lock = false) => {
   const [rows] = await run(connection).query(
     `${BOOKING_SELECT} WHERE b.id = ? ${lock ? 'FOR UPDATE' : ''}`,
@@ -506,8 +522,8 @@ const listBookings = async ({ userId, status } = {}) => {
 
 const updateBookingStatus = async (bookingId, status, connection) => {
   await run(connection).query(
-    'UPDATE bookings SET status = ? WHERE id = ?',
-    [status, bookingId]
+    'UPDATE bookings SET status = ?, bookingStatus = ? WHERE id = ?',
+    [status, status, bookingId]
   );
 };
 
@@ -520,14 +536,39 @@ const updateRoomStatus = async (roomId, status, connection) => {
   );
 };
 
+const listEligibleNoShowBookings = async (connection) => {
+  const [rows] = await run(connection).query(
+    `
+      SELECT
+        b.id,
+        b.user_id,
+        b.room_id,
+        b.status,
+        DATE(COALESCE(bd.checkInDate, b.check_in)) AS check_in,
+        COALESCE(p.paidAmount, 0) AS paid_amount,
+        COALESCE(p.paymentStatus, 'unpaid') AS payment_status
+      FROM bookings b
+      LEFT JOIN booking_details bd ON bd.bookingId = b.id
+      JOIN payments p ON p.bookingId = b.id
+      WHERE b.status = 'confirmed'
+        AND COALESCE(p.paidAmount, 0) > 0
+        AND NOW() > DATE_ADD(DATE(COALESCE(bd.checkInDate, b.check_in)), INTERVAL 1 DAY) + INTERVAL ${LATE_CHECKIN_GRACE_HOUR} HOUR
+    `
+  );
+  return rows;
+};
+
 module.exports = {
   getAccountById,
   getOrCreateCustomerId,
   getRoomWithType,
   expireUnpaidBookingHolds,
+  getSecuredConflictingBookings,
   getConflictingBookings,
+  cancelCompetingUnpaidBookings,
   listAvailableRoomsByType,
   listRoomTypeAvailability,
+  listRoomPriceRanges,
   getBookedAvailabilityRows,
   createBooking,
   createBookingDetail,
@@ -535,11 +576,6 @@ module.exports = {
   getServiceById,
   addBookingService,
   sumBookingServices,
-  addBookingServiceRequest,
-  getBookingServiceRequests,
-  listServiceRequests,
-  getServiceRequestById,
-  updateServiceRequestStatus,
   replaceBookingGuests,
   addDamageCharge,
   sumDamageCharges,
@@ -549,5 +585,6 @@ module.exports = {
   listBookings,
   updateBookingStatus,
   releaseAvailabilityByBooking,
-  updateRoomStatus
+  updateRoomStatus,
+  listEligibleNoShowBookings
 };

@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { useNavigate } from 'react-router-dom';
-import { DatePicker, Button, Popover, Typography } from 'antd';
+import { DatePicker, Button, Popover, Typography, Select, message } from 'antd';
 import { CalendarOutlined, UserOutlined, SearchOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import './searchform.css';
 
 const { RangePicker } = DatePicker;
 const { Text } = Typography;
+const { Option } = Select;
 
 interface SearchFormData {
   checkIn: string;
@@ -29,6 +30,7 @@ const SearchForm: React.FC = () => {
 
   const [guestOpen, setGuestOpen] = useState(false);
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null]>([null, null]);
+  const [childAges, setChildAges] = useState<number[]>([]);
 
   const adults = watch('adults');
   const children = watch('children');
@@ -42,8 +44,66 @@ const SearchForm: React.FC = () => {
   const nights = calculateNights();
 
   const onSubmit = (data: SearchFormData) => {
-    console.log('Search data:', data);
-    navigate('/rooms');
+    if (!dateRange[0] || !dateRange[1]) {
+      message.warning('Vui lòng chọn ngày nhận và trả phòng');
+      return;
+    }
+    const queryParams = new URLSearchParams({
+      checkIn: dateRange[0].format('YYYY-MM-DD'),
+      checkOut: dateRange[1].format('YYYY-MM-DD'),
+      adults: data.adults.toString(),
+      children: data.children.toString(),
+      rooms: data.rooms.toString(),
+      childAges: childAges.join(','),
+    });
+    navigate(`/rooms?${queryParams.toString()}`);
+  };
+
+  const handleDecreaseAdults = () => {
+    if (adults <= 1) return;
+    if (adults <= rooms) {
+      message.warning("Số phòng không thể nhiều hơn số khách người lớn");
+      return;
+    }
+    setValue('adults', adults - 1);
+  };
+
+  const handleIncreaseAdults = () => {
+    setValue('adults', adults + 1);
+  };
+
+  const handleDecreaseChildren = () => {
+    const newChildren = Math.max(0, children - 1);
+    setValue('children', newChildren);
+    setChildAges(childAges.slice(0, newChildren));
+  };
+
+  const handleIncreaseChildren = () => {
+    if (children >= 6) {
+      message.warning("Số lượng trẻ em tối đa là 6");
+      return;
+    }
+    const newChildren = children + 1;
+    setValue('children', newChildren);
+    setChildAges([...childAges, 8]); // tuổi mặc định là 8
+  };
+
+  const handleDecreaseRooms = () => {
+    setValue('rooms', Math.max(1, rooms - 1));
+  };
+
+  const handleIncreaseRooms = () => {
+    if (rooms >= adults) {
+      message.warning("Số phòng không thể nhiều hơn số khách người lớn");
+      return;
+    }
+    setValue('rooms', rooms + 1);
+  };
+
+  const handleAgeChange = (index: number, val: number) => {
+    const newAges = [...childAges];
+    newAges[index] = val;
+    setChildAges(newAges);
   };
 
   const guestContent = (
@@ -55,13 +115,13 @@ const SearchForm: React.FC = () => {
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <Button 
             shape="circle" 
-            onClick={() => setValue('adults', Math.max(1, adults - 1))}
+            onClick={handleDecreaseAdults}
             disabled={adults <= 1}
           >-</Button>
           <Text strong style={{ minWidth: '24px', textAlign: 'center' }}>{adults}</Text>
           <Button 
             shape="circle" 
-            onClick={() => setValue('adults', adults + 1)}
+            onClick={handleIncreaseAdults}
           >+</Button>
         </div>
       </div>
@@ -72,33 +132,59 @@ const SearchForm: React.FC = () => {
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <Button 
             shape="circle" 
-            onClick={() => setValue('children', Math.max(0, children - 1))}
+            onClick={handleDecreaseChildren}
             disabled={children <= 0}
           >-</Button>
           <Text strong style={{ minWidth: '24px', textAlign: 'center' }}>{children}</Text>
           <Button 
             shape="circle" 
-            onClick={() => setValue('children', children + 1)}
+            onClick={handleIncreaseChildren}
           >+</Button>
         </div>
       </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <Text strong>Phòng</Text>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <Button 
             shape="circle" 
-            onClick={() => setValue('rooms', Math.max(1, rooms - 1))}
+            onClick={handleDecreaseRooms}
             disabled={rooms <= 1}
           >-</Button>
           <Text strong style={{ minWidth: '24px', textAlign: 'center' }}>{rooms}</Text>
           <Button 
             shape="circle" 
-            onClick={() => setValue('rooms', rooms + 1)}
+            onClick={handleIncreaseRooms}
           >+</Button>
         </div>
       </div>
+
+      {/* Renders children age selectors if children > 0 */}
+      {children > 0 && (
+        <div style={{ marginTop: '16px', borderTop: '1px solid #e8e8e8', paddingTop: '12px' }}>
+          <Text strong style={{ display: 'block', marginBottom: '8px', color: '#ab8965' }}>Tuổi của trẻ em</Text>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {childAges.map((age, index) => (
+              <div key={index} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text style={{ fontSize: '13px' }}>Trẻ em {index + 1}</Text>
+                <Select
+                  value={age}
+                  style={{ width: '120px' }}
+                  onChange={(val) => handleAgeChange(index, val)}
+                  size="small"
+                >
+                  {Array.from({ length: 18 }, (_, i) => (
+                    <Option key={i} value={i}>
+                      {i === 0 ? 'Dưới 1 tuổi' : `${i} tuổi`}
+                    </Option>
+                  ))}
+                </Select>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 
@@ -117,7 +203,6 @@ const SearchForm: React.FC = () => {
               <Controller
                 name="checkIn"
                 control={control}
-                rules={{ required: true }}
                 render={() => (
                   <div>
                     <RangePicker

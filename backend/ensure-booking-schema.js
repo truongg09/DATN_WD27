@@ -88,6 +88,26 @@ async function ensureBookingSchema() {
       `);
     }
 
+    const [invoiceTables] = await connection.query('SHOW TABLES LIKE "invoices"');
+    if (invoiceTables.length === 0) {
+      await connection.query(`
+        CREATE TABLE invoices (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          bookingId INT NOT NULL,
+          paymentId INT NOT NULL,
+          invoiceCode VARCHAR(50) NOT NULL UNIQUE,
+          subtotal DECIMAL(15,2) NOT NULL DEFAULT 0,
+          discountAmount DECIMAL(15,2) NOT NULL DEFAULT 0,
+          taxAmount DECIMAL(15,2) NOT NULL DEFAULT 0,
+          totalAmount DECIMAL(15,2) NOT NULL DEFAULT 0,
+          status VARCHAR(20) NOT NULL DEFAULT 'issued',
+          invoiceDate DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (bookingId) REFERENCES bookings(id) ON DELETE CASCADE,
+          FOREIGN KEY (paymentId) REFERENCES payments(id) ON DELETE CASCADE
+        )
+      `);
+    }
+
     console.log('Booking schema is ready.');
   } catch (error) {
     console.error('Failed to ensure booking schema:', error);

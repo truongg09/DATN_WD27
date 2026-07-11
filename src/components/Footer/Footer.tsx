@@ -35,7 +35,7 @@ const Footer: React.FC = () => {
               <li><Link to="/">Trang chủ</Link></li>
               <li><Link to="/rooms">Phòng</Link></li>
               <li><Link to="/booking">Đặt phòng</Link></li>
-              <li><Link to="/">Liên hệ</Link></li>
+              <li><Link to="/contact">Liên hệ</Link></li>
             </ul>
           </div>
           <div className="footer-col">

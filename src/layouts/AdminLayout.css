@@ -52,6 +52,13 @@
   color: white;
 }
 
+/* Badge của antd tự áp màu chữ tối - ép kế thừa màu trắng của sidebar */
+.admin-nav .ant-badge {
+  color: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+
 .admin-user {
   text-align: center;
   padding: 20px;

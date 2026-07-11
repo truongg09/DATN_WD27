@@ -36,11 +36,35 @@ export const getBookingDetail = async (
   return api.get(`/bookings/${id}`);
 };
 
+export interface RefundRequestPayload {
+  refundMethod: "cash" | "bank_transfer";
+  bankBin?: string;
+  bankName?: string;
+  accountNumber?: string;
+  accountName?: string;
+}
+
+export interface RefundPreview {
+  bookingId: number;
+  canCancel: boolean;
+  bookingStatus: string;
+  paymentId: number | null;
+  daysBeforeCheckIn: number;
+  refundRate: number;
+  refundableAmount: number;
+}
+
+export const getRefundPreview = async (id: number) => {
+  return api.get(`/bookings/${id}/refund-preview`) as Promise<{ data: RefundPreview }>;
+};
+
 export const cancelBooking = async (
-  id: number
+  id: number,
+  refund?: RefundRequestPayload
 ) => {
   return api.patch(
-    `/bookings/${id}/cancel`
+    `/bookings/${id}/cancel`,
+    refund ? { refund } : {}
   );
 };
 

@@ -1,8 +1,16 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faEnvelope, faPhone, faUser } from '@fortawesome/free-solid-svg-icons';
-import { faFacebook, faInstagram, faTwitter } from '@fortawesome/free-brands-svg-icons';
+import { 
+  faPhone, 
+  faEnvelope,
+  faUser
+} from '@fortawesome/free-solid-svg-icons';
+import { 
+  faFacebook, 
+  faTwitter, 
+  faInstagram 
+} from '@fortawesome/free-brands-svg-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import './header.css';
 
@@ -44,8 +52,8 @@ const Header: React.FC = () => {
               <li><Link to="/">Trang chủ</Link></li>
               <li><Link to="/rooms">Phòng</Link></li>
               <li><Link to="/booking">Đặt phòng</Link></li>
-              <li><Link to="/">Liên hệ</Link></li>
-              {isAuthenticated && user?.role === 'admin' && (
+              <li><Link to="/contact">Liên hệ</Link></li>
+              {isAuthenticated && user?.role === "admin" && (
                 <li><Link to="/admin">Admin</Link></li>
               )}
               {isAuthenticated && user?.role === 'employee' && (
@@ -57,10 +65,19 @@ const Header: React.FC = () => {
           <div className="auth-buttons">
             {isAuthenticated && user ? (
               <div className="user-info">
-                <span className="user-greeting">
-                  <FontAwesomeIcon icon={faUser} />
-                  <span>{user.email}</span>
-                </span>
+                {user.role === 'customer' ? (
+                  <Link to="/profile" style={{ textDecoration: 'none' }}>
+                    <span className="user-greeting is-link">
+                      <FontAwesomeIcon icon={faUser} />
+                      <span>{user.email}</span>
+                    </span>
+                  </Link>
+                ) : (
+                  <span className="user-greeting">
+                    <FontAwesomeIcon icon={faUser} />
+                    <span>{user.email}</span>
+                  </span>
+                )}
                 <button className="btn-logout" onClick={handleLogout}>Đăng xuất</button>
               </div>
             ) : (

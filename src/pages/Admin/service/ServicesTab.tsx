@@ -11,14 +11,9 @@ import {
   Space,
   Card,
   Tag,
+  Descriptions,
 } from 'antd';
-import {
-  PlusOutlined,
-  EditOutlined,
-  DeleteOutlined,
-  ReloadOutlined,
-  SearchOutlined,
-} from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined, EyeOutlined, SearchOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import api from '../../../services/api';
 import { unwrapList } from '../../../utils/unwrapList';
@@ -37,8 +32,10 @@ function ServicesTab() {
   const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
+  const [detailVisible, setDetailVisible] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [editingService, setEditingService] = useState<Service | null>(null);
+  const [selectedService, setSelectedService] = useState<Service | null>(null);
   const [searchText, setSearchText] = useState('');
   const [form] = Form.useForm<ServiceFormValues>();
 
@@ -73,6 +70,11 @@ function ServicesTab() {
       description: service.description,
     });
     setModalVisible(true);
+  };
+
+  const handleViewDetail = (service: Service) => {
+    setSelectedService(service);
+    setDetailVisible(true);
   };
 
   const handleDelete = async (id: number) => {
@@ -146,20 +148,31 @@ function ServicesTab() {
       key: 'action',
       width: 200,
       render: (_: unknown, record: Service) => (
-        <Space size="middle">
-          <Button type="primary" ghost icon={<EditOutlined />} onClick={() => handleEdit(record)}>
-            Sửa
-          </Button>
+        <Space>
+          <Button
+            type="primary"
+            icon={<EyeOutlined style={{ color: 'white' }} />}
+            size="small"
+            onClick={() => handleViewDetail(record)}
+          />
+          <Button
+            type="primary"
+            icon={<EditOutlined />}
+            size="small"
+            onClick={() => handleEdit(record)}
+          />
           <Popconfirm
-            title="Bạn có chắc chắn muốn xóa dịch vụ này?"
+            title="Bạn có chắc chắn muốn xóa?"
             onConfirm={() => handleDelete(record.id)}
             okText="Xóa"
             cancelText="Hủy"
-            okButtonProps={{ danger: true }}
           >
-            <Button type="primary" danger ghost icon={<DeleteOutlined />}>
-              Xóa
-            </Button>
+            <Button
+              type="primary"
+              danger
+              icon={<DeleteOutlined />}
+              size="small"
+            />
           </Popconfirm>
         </Space>
       ),
@@ -199,14 +212,11 @@ function ServicesTab() {
       <Modal
         title={editingService ? 'Cập Nhật Dịch Vụ' : 'Thêm Dịch Vụ Mới'}
         open={modalVisible}
-        onOk={handleModalSubmit}
         onCancel={() => setModalVisible(false)}
-        okText={editingService ? 'Cập nhật' : 'Thêm mới'}
-        cancelText="Hủy"
-        confirmLoading={submitting}
+        footer={null}
         forceRender
       >
-        <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
+        <Form form={form} layout="vertical" style={{ marginTop: 16 }} onFinish={handleModalSubmit}>
           <Form.Item
             name="serviceName"
             label="Tên dịch vụ"
@@ -232,7 +242,35 @@ function ServicesTab() {
           <Form.Item name="description" label="Mô tả">
             <TextArea rows={3} placeholder="Mô tả chi tiết về dịch vụ (không bắt buộc)" />
           </Form.Item>
+          <Form.Item>
+            <Space>
+              <Button type="primary" htmlType="submit" block loading={submitting}>
+                {editingService ? 'Cập nhật' : 'Thêm mới'}
+              </Button>
+              <Button onClick={() => setModalVisible(false)} block>
+                Hủy
+              </Button>
+            </Space>
+          </Form.Item>
         </Form>
+      </Modal>
+
+      {/* Detail Modal */}
+      <Modal
+        title="Chi tiết dịch vụ"
+        open={detailVisible}
+        onCancel={() => setDetailVisible(false)}
+        footer={null}
+        width={600}
+      >
+        {selectedService && (
+          <Descriptions bordered column={1}>
+            <Descriptions.Item label="ID">{selectedService.id}</Descriptions.Item>
+            <Descriptions.Item label="Tên dịch vụ">{selectedService.serviceName}</Descriptions.Item>
+            <Descriptions.Item label="Giá">{formatPrice(selectedService.price)}</Descriptions.Item>
+            <Descriptions.Item label="Mô tả">{selectedService.description || '—'}</Descriptions.Item>
+          </Descriptions>
+        )}
       </Modal>
     </Card>
   );
