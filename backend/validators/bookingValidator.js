@@ -64,19 +64,36 @@ const normalizeServiceRequestsPayload = (value) => {
     .filter((item) => item.quantity > 0);
 };
 
+// Tuổi từng trẻ em (0-17) dùng để tính phụ thu
+const normalizeChildrenAges = (value) => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((age) => Number(age))
+    .filter((age) => Number.isInteger(age) && age >= 0 && age <= 17);
+};
+
 const normalizeBookingPayload = (body, userFromToken) => {
   const userId = body.userId ?? body.customerId ?? userFromToken;
   const roomId = body.roomId ?? body.room_id;
+  const roomTypeId = body.roomTypeId ?? body.room_type_id;
   const checkIn = body.checkIn ?? body.checkInDate ?? body.check_in;
   const checkOut = body.checkOut ?? body.checkOutDate ?? body.check_out;
 
+  // Khách đặt theo hạng phòng (roomTypeId) - hệ thống tự gán phòng trống;
+  // roomId chỉ dùng khi lễ tân/admin chỉ định phòng cụ thể.
+  if (!roomId && !roomTypeId) {
+    throw new HttpError(400, 'roomId is required');
+  }
+
   const payload = {
     userId: toPositiveInt(userId, 'userId'),
-    roomId: toPositiveInt(roomId, 'roomId'),
+    roomId: roomId ? toPositiveInt(roomId, 'roomId') : null,
+    roomTypeId: roomTypeId ? toPositiveInt(roomTypeId, 'roomTypeId') : null,
     checkIn: normalizeDate(checkIn, 'checkIn'),
     checkOut: normalizeDate(checkOut, 'checkOut'),
     adults: toNonNegativeInt(body.adults, 'adults', 1),
     children: toNonNegativeInt(body.children, 'children', 0),
+    childrenAges: normalizeChildrenAges(body.childrenAges ?? body.children_ages),
     notes: body.notes ?? body.specialRequests ?? null,
     guestName: body.guestName ?? body.guest_name ?? null,
     guestEmail: body.guestEmail ?? body.guest_email ?? null,
@@ -99,13 +116,20 @@ const normalizeBookingPayload = (body, userFromToken) => {
 
 const normalizeAvailabilityPayload = (body) => {
   const roomId = body.roomId ?? body.room_id;
+  const roomTypeId = body.roomTypeId ?? body.room_type_id;
   const checkIn = body.checkIn ?? body.checkInDate ?? body.check_in;
   const checkOut = body.checkOut ?? body.checkOutDate ?? body.check_out;
 
+  if (!roomId && !roomTypeId) {
+    throw new HttpError(400, 'roomId is required');
+  }
+
   const payload = {
-    roomId: toPositiveInt(roomId, 'roomId'),
+    roomId: roomId ? toPositiveInt(roomId, 'roomId') : null,
+    roomTypeId: roomTypeId ? toPositiveInt(roomTypeId, 'roomTypeId') : null,
     checkIn: normalizeDate(checkIn, 'checkIn'),
-    checkOut: normalizeDate(checkOut, 'checkOut')
+    checkOut: normalizeDate(checkOut, 'checkOut'),
+    childrenAges: normalizeChildrenAges(body.childrenAges ?? body.children_ages)
   };
 
   assertDateRange(payload.checkIn, payload.checkOut);

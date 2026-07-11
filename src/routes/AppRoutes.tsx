@@ -12,6 +12,9 @@ import EmployeeRoute from "./EmployeeRoute";
 import Home from "../pages/Home/Home";
 import RoomList from "../pages/RoomList/RoomList";
 import RoomDetail from "../pages/RoomDetail/RoomDetail";
+import RoomTypeDetail from "../pages/RoomTypeDetail/RoomTypeDetail";
+import Contact from "../pages/Contact/Contact";
+import About from "../pages/About/About";
 
 import Login from "../pages/Login/Login";
 import Register from "../pages/Register/Register";
@@ -39,6 +42,7 @@ import ServiceManagement from "../pages/Admin/ServiceManagement";
 import VoucherManagement from "../pages/Admin/VoucherManagement";
 import ReviewManagement from "../pages/Admin/ReviewManagement";
 import PaymentManagement from "../pages/Admin/PaymentManagement";
+import PaymentSettings from "../pages/Admin/PaymentSettings";
 import ReportManagement from "../pages/Admin/ReportManagement";
 
 // Employee Pages
@@ -67,6 +71,8 @@ const AppRoutes = () => {
           <Route path=":id" element={<RoomDetail />} />
         </Route>
 
+        <Route path="/room-types/:id" element={<RoomTypeDetail />} />
+
         <Route path="/booking">
           <Route index element={<Booking />} />
           <Route path="history" element={<BookingHistory />} />
@@ -80,6 +86,8 @@ const AppRoutes = () => {
         </Route>
 
         <Route path="/reviews" element={<ReviewPage />} />
+        <Route path="/contact" element={<Contact />} />
+        <Route path="/about" element={<About />} />
 
       </Route>
 
@@ -136,6 +144,11 @@ const AppRoutes = () => {
           <Route
             path="payments"
             element={<PaymentManagement />}
+          />
+
+          <Route
+            path="payment-settings"
+            element={<PaymentSettings />}
           />
 
           <Route

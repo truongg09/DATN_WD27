@@ -1,312 +1,345 @@
-import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { DatePicker, Popover, Button, Typography } from 'antd';
+import { UserOutlined, SearchOutlined } from '@ant-design/icons';
+import dayjs from 'dayjs';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { 
-  faBed, 
-  faBath, 
+import {
+  faUserGroup,
   faExpandArrowsAlt,
-  faSearch
+  faStar,
+  faCheck,
+  faBell,
 } from '@fortawesome/free-solid-svg-icons';
-import { getRooms } from '../../services/roomService';
+import { searchRoomTypes } from '../../services/roomService';
+import type { RoomTypeSearchResult } from '../../services/roomService';
 import { unwrapList } from '../../utils/unwrapList';
+import { getRoomTypeCardImage, getRoomTypeGallery, handleRoomImageError } from '../../utils/roomTypeImages';
 import './RoomList.css';
 
-interface RoomFromDB {
-  id: number;
-  roomNumber: string;
-  floor: number;
-  area: string | number;
-  status: string;
-  roomTypeId: number;
-  room_type_name: string;
-  room_type_description: string;
-  capacity: number;
-  price_per_night: string | number;
-  imageUrl?: string;
-}
+const { RangePicker } = DatePicker;
+const { Text } = Typography;
+
+const DATE_FORMAT = 'YYYY-MM-DD';
+
+const formatPrice = (price: number) => new Intl.NumberFormat('vi-VN').format(price) + 'đ';
 
 const RoomList: React.FC = () => {
-  const [rooms, setRooms] = useState<RoomFromDB[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const checkIn = searchParams.get('checkIn') || '';
+  const checkOut = searchParams.get('checkOut') || '';
+  const adults = Math.max(1, parseInt(searchParams.get('adults') || '2', 10) || 2);
+  const children = Math.max(0, parseInt(searchParams.get('children') || '0', 10) || 0);
+  const childAges = searchParams.get('childAges') || '';
+  const hasDates =
+    dayjs(checkIn, DATE_FORMAT, true).isValid() &&
+    dayjs(checkOut, DATE_FORMAT, true).isValid() &&
+    dayjs(checkOut).isAfter(dayjs(checkIn));
+
+  // Draft của thanh tìm kiếm (chỉ áp dụng khi bấm Tìm kiếm)
+  const [dateRange, setDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null]>([
+    hasDates ? dayjs(checkIn) : null,
+    hasDates ? dayjs(checkOut) : null,
+  ]);
+  const [draftAdults, setDraftAdults] = useState(adults);
+  const [draftChildren, setDraftChildren] = useState(children);
+  const [guestOpen, setGuestOpen] = useState(false);
+
+  const [roomTypes, setRoomTypes] = useState<RoomTypeSearchResult[]>([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filterType, setFilterType] = useState<string>('all');
-  const [sortBy, setSortBy] = useState<string>('default');
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  const [filterPrice, setFilterPrice] = useState<string>('all');
-  const [filterCapacity, setFilterCapacity] = useState<string>('all');
-  const [filterBeds, setFilterBeds] = useState<string>('all');
-  const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [sortBy, setSortBy] = useState<string>('recommended');
+  const [onlyAvailable, setOnlyAvailable] = useState(true);
 
   useEffect(() => {
-    const fetchRooms = async () => {
+    const fetchTypes = async () => {
       try {
         setLoading(true);
-        const response = await getRooms();
-        setRooms(unwrapList<RoomFromDB>(response));
         setError(null);
+        const response = await searchRoomTypes({
+          ...(hasDates ? { checkIn, checkOut } : {}),
+          guests: adults + children,
+        });
+        setRoomTypes(unwrapList(response) as RoomTypeSearchResult[]);
       } catch (err) {
-        console.error('Lỗi khi tải danh sách phòng:', err);
-        setError('Không thể tải danh sách phòng. Vui lòng thử lại sau.');
+        setError((err as Error).message || 'Có lỗi khi tải danh sách hạng phòng');
       } finally {
         setLoading(false);
       }
     };
+    fetchTypes();
+  }, [checkIn, checkOut, adults, children, hasDates]);
 
-    fetchRooms();
-  }, []);
+  const nights = hasDates ? dayjs(checkOut).diff(dayjs(checkIn), 'day') : 0;
 
-  const formatPrice = (price: number) => {
-    return new Intl.NumberFormat('vi-VN').format(price) + ' VNĐ';
+  const applySearch = () => {
+    const params = new URLSearchParams({
+      checkIn: dateRange[0]?.format(DATE_FORMAT) || '',
+      checkOut: dateRange[1]?.format(DATE_FORMAT) || '',
+      adults: String(draftAdults),
+      children: String(draftChildren),
+      childAges: childAges
+        .split(',')
+        .filter(Boolean)
+        .slice(0, draftChildren)
+        .concat(Array(Math.max(0, draftChildren - childAges.split(',').filter(Boolean).length)).fill('8'))
+        .join(','),
+    });
+    setSearchParams(params);
   };
 
-  const getRoomImage = (type: string) => {
-    const lowerType = type.toLowerCase();
-    if (lowerType.includes('standard')) {
-      return 'https://images.unsplash.com/photo-1631049307264-da0ec9d70304?w=600';
+  // Query string truyền tiếp sang trang chi tiết / đặt phòng
+  const forwardQuery = useMemo(() => {
+    const params = new URLSearchParams({
+      adults: String(adults),
+      children: String(children),
+    });
+    if (hasDates) {
+      params.set('checkIn', checkIn);
+      params.set('checkOut', checkOut);
     }
-    if (lowerType.includes('superior')) {
-      return 'https://images.unsplash.com/photo-1611892440504-42a792e24d32?w=600';
-    }
-    if (lowerType.includes('deluxe')) {
-      return 'https://images.unsplash.com/photo-1590490360182-c33d57733427?w=600';
-    }
-    if (lowerType.includes('family')) {
-      return 'https://images.unsplash.com/photo-1596394516093-501ba68a0ba6?w=600';
-    }
-    if (lowerType.includes('suite')) {
-      return 'https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?w=600';
-    }
-    return 'https://images.unsplash.com/photo-1566073771259-6a8506099945?w=600';
-  };
+    if (childAges) params.set('childAges', childAges);
+    return params.toString();
+  }, [adults, children, checkIn, checkOut, childAges, hasDates]);
 
-  const getBedsCount = (typeName: string): number => {
-    const name = typeName.toLowerCase();
-    if (name.includes('standard') || name.includes('superior')) return 1;
-    if (name.includes('deluxe') || name.includes('family') || name.includes('suite')) return 2;
-    return 1;
-  };
+  const sortedTypes = useMemo(() => {
+    const list = roomTypes.filter((type) => {
+      if (!onlyAvailable || !hasDates) return true;
+      return (type.availableRooms ?? 0) > 0;
+    });
+    return [...list].sort((a, b) => {
+      if (sortBy === 'price-low') return a.defaultPrice - b.defaultPrice;
+      if (sortBy === 'price-high') return b.defaultPrice - a.defaultPrice;
+      if (sortBy === 'rating') return (b.avgRating ?? 0) - (a.avgRating ?? 0);
+      // recommended: hạng còn phòng và đủ sức chứa lên trước, sau đó theo giá
+      const aSoldOut = hasDates && (a.availableRooms ?? 0) === 0 ? 1 : 0;
+      const bSoldOut = hasDates && (b.availableRooms ?? 0) === 0 ? 1 : 0;
+      if (aSoldOut !== bSoldOut) return aSoldOut - bSoldOut;
+      const aFits = a.fitsGuests === false ? 1 : 0;
+      const bFits = b.fitsGuests === false ? 1 : 0;
+      if (aFits !== bFits) return aFits - bFits;
+      return a.defaultPrice - b.defaultPrice;
+    });
+  }, [roomTypes, sortBy, onlyAvailable, hasDates]);
 
-  const filteredRooms = rooms.filter(room => {
-    const matchesType = filterType === 'all' || room.room_type_name.toLowerCase().includes(filterType.toLowerCase());
-    
-    const roomName = `Phòng ${room.roomNumber}`.toLowerCase();
-    const roomTypeNameWithPrefix = `Phòng ${room.room_type_name}`.toLowerCase();
-    const floorStr = `Tầng ${room.floor}`.toLowerCase();
-    const query = searchQuery.toLowerCase();
-    
-    const matchesSearch = searchQuery === '' || 
-      room.roomNumber.toLowerCase().includes(query) ||
-      room.room_type_name.toLowerCase().includes(query) ||
-      roomName.includes(query) ||
-      roomTypeNameWithPrefix.includes(query) ||
-      room.floor.toString() === query ||
-      floorStr.includes(query);
-
-    const price = parseFloat(room.price_per_night as string) || 0;
-    let matchesPrice = true;
-    if (filterPrice === 'under-600k') matchesPrice = price < 600000;
-    else if (filterPrice === '600k-1m') matchesPrice = price >= 600000 && price <= 1000000;
-    else if (filterPrice === '1m-1.5m') matchesPrice = price >= 1000000 && price <= 1500000;
-    else if (filterPrice === 'over-1.5m') matchesPrice = price > 1500000;
-
-    let matchesCapacity = true;
-    if (filterCapacity !== 'all') {
-      matchesCapacity = room.capacity === parseInt(filterCapacity);
-    }
-
-    let matchesBeds = true;
-    if (filterBeds !== 'all') {
-      const beds = getBedsCount(room.room_type_name);
-      matchesBeds = beds === parseInt(filterBeds);
-    }
-
-    const matchesStatus = filterStatus === 'all' || room.status === filterStatus;
-      
-    return matchesType && matchesSearch && matchesPrice && matchesCapacity && matchesBeds && matchesStatus;
-  });
-
-  const sortedRooms = [...filteredRooms].sort((a, b) => {
-    const priceA = parseFloat(a.price_per_night as string) || 0;
-    const priceB = parseFloat(b.price_per_night as string) || 0;
-    if (sortBy === 'price-low') return priceA - priceB;
-    if (sortBy === 'price-high') return priceB - priceA;
-    return 0;
-  });
+  const guestContent = (
+    <div style={{ padding: 8, minWidth: 240 }}>
+      <div className="guest-stepper-row">
+        <Text strong>Người lớn</Text>
+        <div className="guest-stepper">
+          <Button shape="circle" size="small" disabled={draftAdults <= 1} onClick={() => setDraftAdults(draftAdults - 1)}>-</Button>
+          <Text strong style={{ minWidth: 24, textAlign: 'center' }}>{draftAdults}</Text>
+          <Button shape="circle" size="small" onClick={() => setDraftAdults(draftAdults + 1)}>+</Button>
+        </div>
+      </div>
+      <div className="guest-stepper-row">
+        <Text strong>Trẻ em</Text>
+        <div className="guest-stepper">
+          <Button shape="circle" size="small" disabled={draftChildren <= 0} onClick={() => setDraftChildren(draftChildren - 1)}>-</Button>
+          <Text strong style={{ minWidth: 24, textAlign: 'center' }}>{draftChildren}</Text>
+          <Button shape="circle" size="small" disabled={draftChildren >= 6} onClick={() => setDraftChildren(draftChildren + 1)}>+</Button>
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <div className="rooms-page">
-      <div className="rooms-hero">
+      <div className="rooms-hero rooms-hero-compact">
         <div className="rooms-hero-content">
-          <h1>Danh sách phòng</h1>
-          <p>Chọn phòng phù hợp với nhu cầu của bạn</p>
+          <h1>Chọn hạng phòng</h1>
+          <p>Tìm hạng phòng phù hợp cho kỳ nghỉ của bạn</p>
         </div>
       </div>
 
       <div className="rooms-container">
-        <div className="rooms-filter-bar">
-          <div className="filter-bar-header">
-            <div className="search-group" style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, maxWidth: '400px', border: '2px solid #e8e0d5', borderRadius: '10px', padding: '2px 12px', background: '#fff' }}>
-              <FontAwesomeIcon icon={faSearch} style={{ color: '#ab8965' }} />
-              <input 
-                type="text" 
-                placeholder="Tìm số phòng hoặc tên phòng..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                style={{ border: 'none', outline: 'none', width: '100%', padding: '8px 4px', fontSize: '15px', background: 'transparent' }}
-              />
-            </div>
-
-            <div className="sort-group">
-              <span className="sort-label">Sắp xếp:</span>
-              <select 
-                value={sortBy} 
-                onChange={(e) => setSortBy(e.target.value)}
-                className="sort-select"
-                style={{ minWidth: '180px' }}
-              >
-                <option value="default">Mặc định</option>
-                <option value="price-low">Giá: Thấp đến cao</option>
-                <option value="price-high">Giá: Cao đến thấp</option>
-              </select>
-            </div>
+        {/* Thanh tìm kiếm: ngày + số khách */}
+        <div className="results-search-bar">
+          <div className="results-search-field">
+            <span className="filter-label">Ngày nhận – trả phòng</span>
+            <RangePicker
+              value={dateRange}
+              minDate={dayjs()}
+              placeholder={['Ngày đến', 'Ngày đi']}
+              onChange={(dates) =>
+                setDateRange((dates as [dayjs.Dayjs | null, dayjs.Dayjs | null]) || [null, null])
+              }
+            />
           </div>
+          <div className="results-search-field">
+            <span className="filter-label">Khách</span>
+            <Popover content={guestContent} trigger="click" open={guestOpen} onOpenChange={setGuestOpen} placement="bottom">
+              <button type="button" className="guest-selector-btn">
+                <UserOutlined />
+                <span>{draftAdults} người lớn{draftChildren > 0 ? `, ${draftChildren} trẻ em` : ''}</span>
+              </button>
+            </Popover>
+          </div>
+          <button type="button" className="btn-apply-search" onClick={applySearch}>
+            <SearchOutlined /> Tìm kiếm
+          </button>
+        </div>
 
-          <div className="rooms-filter-grid">
-            <div className="filter-item">
-              <span className="filter-label">Hạng phòng</span>
-              <select 
-                value={filterType} 
-                onChange={(e) => setFilterType(e.target.value)}
-                className="filter-select"
-              >
-                <option value="all">Tất cả hạng phòng</option>
-                <option value="standard">Phòng Standard</option>
-                <option value="superior">Phòng Superior</option>
-                <option value="deluxe">Phòng Deluxe</option>
-                <option value="suite">Phòng Suite</option>
-                <option value="family">Phòng Family</option>
-              </select>
-            </div>
+        {!hasDates && (
+          <div className="pick-dates-notice">
+            <FontAwesomeIcon icon={faBell} />
+            <span>Chọn ngày nhận – trả phòng để xem chính xác tình trạng phòng trống và tổng giá cho kỳ nghỉ.</span>
+          </div>
+        )}
 
-            <div className="filter-item">
-              <span className="filter-label">Khoảng giá</span>
-              <select 
-                value={filterPrice} 
-                onChange={(e) => setFilterPrice(e.target.value)}
-                className="filter-select"
-              >
-                <option value="all">Tất cả mức giá</option>
-                <option value="under-600k">Dưới 600.000 VNĐ</option>
-                <option value="600k-1m">600.000 VNĐ - 1.000.000 VNĐ</option>
-                <option value="1m-1.5m">1.000.000 VNĐ - 1.500.000 VNĐ</option>
-                <option value="over-1.5m">Trên 1.500.000 VNĐ</option>
-              </select>
-            </div>
-
-            <div className="filter-item">
-              <span className="filter-label">Sức chứa</span>
-              <select 
-                value={filterCapacity} 
-                onChange={(e) => setFilterCapacity(e.target.value)}
-                className="filter-select"
-              >
-                <option value="all">Tất cả số người</option>
-                <option value="2">2 người</option>
-                <option value="3">3 người</option>
-                <option value="4">4 người</option>
-              </select>
-            </div>
-
-            <div className="filter-item">
-              <span className="filter-label">Số giường</span>
-              <select 
-                value={filterBeds} 
-                onChange={(e) => setFilterBeds(e.target.value)}
-                className="filter-select"
-              >
-                <option value="all">Tất cả số giường</option>
-                <option value="1">1 giường</option>
-                <option value="2">2 giường</option>
-              </select>
-            </div>
-
-            <div className="filter-item">
-              <span className="filter-label">Trạng thái</span>
-              <select 
-                value={filterStatus} 
-                onChange={(e) => setFilterStatus(e.target.value)}
-                className="filter-select"
-              >
-                <option value="all">Tất cả trạng thái</option>
-                <option value="available">Còn trống</option>
-                <option value="occupied">Đang có khách</option>
-                <option value="maintenance">Đang bảo trì</option>
-              </select>
-            </div>
+        <div className="results-toolbar">
+          <div className="results-summary">
+            {hasDates ? (
+              <p>
+                <strong>{dayjs(checkIn).format('DD/MM/YYYY')} → {dayjs(checkOut).format('DD/MM/YYYY')}</strong>
+                {' · '}{nights} đêm · {adults} người lớn{children > 0 ? `, ${children} trẻ em` : ''}
+              </p>
+            ) : (
+              <p>Tất cả hạng phòng của khách sạn</p>
+            )}
+          </div>
+          <div className="results-controls">
+            {hasDates && (
+              <label className="only-available-toggle">
+                <input
+                  type="checkbox"
+                  checked={onlyAvailable}
+                  onChange={(e) => setOnlyAvailable(e.target.checked)}
+                />
+                Chỉ hiện hạng còn phòng
+              </label>
+            )}
+            <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="sort-select">
+              <option value="recommended">Đề xuất cho bạn</option>
+              <option value="price-low">Giá: Thấp đến cao</option>
+              <option value="price-high">Giá: Cao đến thấp</option>
+              <option value="rating">Đánh giá cao nhất</option>
+            </select>
           </div>
         </div>
 
         {loading ? (
           <div className="rooms-loading">
             <div className="spinner"></div>
-            <p>Đang tải danh sách phòng...</p>
+            <p>Đang tìm phòng trống...</p>
           </div>
         ) : error ? (
+          <div className="rooms-error"><p>{error}</p></div>
+        ) : sortedTypes.length === 0 ? (
           <div className="rooms-error">
-            <p>{error}</p>
+            <p>Không còn hạng phòng nào trống trong khoảng ngày đã chọn. Vui lòng thử ngày khác.</p>
           </div>
         ) : (
-          <>
-            <div className="rooms-count">
-              <p>Có {sortedRooms.length} phòng trống</p>
-            </div>
+          <div className="type-results-list">
+            {sortedTypes.map((type) => {
+              const soldOut = hasDates && (type.availableRooms ?? 0) === 0;
+              const lowStock = hasDates && !soldOut && (type.availableRooms ?? 0) <= 3;
+              const overCapacity = type.fitsGuests === false;
+              const gallery = getRoomTypeGallery(type.typeName, type.images);
+              const totalStay = type.stayAmount ?? (nights > 0 ? type.defaultPrice * nights : 0);
 
-            <div className="rooms-grid-list">
-              {sortedRooms.map(room => {
-                const price = parseFloat(room.price_per_night as string) || 0;
-                return (
-                  <div key={room.id} className="room-list-card">
-                    <div className="room-list-image">
-                      <img src={getRoomImage(room.room_type_name)} alt={`Phòng ${room.roomNumber}`} />
-                      {room.status !== 'available' && (
-                        <span className="status-badge occupied">Hết phòng</span>
+              return (
+                <div key={type.id} className={`type-card${soldOut ? ' sold-out' : ''}`}>
+                  <Link to={`/room-types/${type.id}?${forwardQuery}`} className="type-card-image">
+                    <img
+                      src={getRoomTypeCardImage(type.typeName, type.images)}
+                      alt={type.typeName}
+                      loading="lazy"
+                      onError={(e) => handleRoomImageError(e, type.typeName)}
+                    />
+                    <span className="photo-count">{gallery.length} ảnh</span>
+                    {soldOut && <span className="sold-out-badge">Hết phòng</span>}
+                  </Link>
+
+                  <div className="type-card-body">
+                    <div className="type-card-header">
+                      <h3>
+                        <Link to={`/room-types/${type.id}?${forwardQuery}`}>Phòng {type.typeName}</Link>
+                      </h3>
+                      {type.avgRating !== null && (
+                        <span className="type-rating">
+                          <FontAwesomeIcon icon={faStar} /> {type.avgRating.toFixed(1)}
+                          <em>({type.reviewCount} đánh giá)</em>
+                        </span>
                       )}
                     </div>
-                    <div className="room-list-info">
-                      <div className="room-type-badge">{room.room_type_name}</div>
-                      <h3>Phòng {room.roomNumber} (Tầng {room.floor})</h3>
-                      <div className="room-features-list">
-                        <span><FontAwesomeIcon icon={faBed} /> Tối đa {room.capacity} người</span>
-                        <span><FontAwesomeIcon icon={faBath} /> 1 phòng tắm</span>
-                        <span><FontAwesomeIcon icon={faExpandArrowsAlt} /> {room.area}m²</span>
+
+                    <div className="type-specs">
+                      <span><FontAwesomeIcon icon={faUserGroup} /> Tối đa {type.capacity} khách</span>
+                      {type.minArea !== null && (
+                        <span>
+                          <FontAwesomeIcon icon={faExpandArrowsAlt} />{' '}
+                          {type.minArea === type.maxArea ? `${type.minArea}m²` : `${type.minArea}–${type.maxArea}m²`}
+                        </span>
+                      )}
+                    </div>
+
+                    {type.amenities.length > 0 && (
+                      <div className="type-amenities">
+                        {type.amenities.slice(0, 5).map((amenity) => (
+                          <span key={amenity.name} className="amenity-chip">
+                            <FontAwesomeIcon icon={faCheck} /> {amenity.name}
+                          </span>
+                        ))}
+                        {type.amenities.length > 5 && (
+                          <span className="amenity-chip more">+{type.amenities.length - 5}</span>
+                        )}
                       </div>
-                      <div className="room-description">
-                        <p>{room.room_type_description || 'Phòng tiện nghi sạch sẽ, dịch vụ chu đáo.'}</p>
-                      </div>
-                      <div className="room-list-footer">
-                        <div className="room-price-section">
-                          <span className="room-price">{formatPrice(price)}</span>
-                          <span className="room-price-unit">/đêm</span>
-                        </div>
-                        <div className="room-actions">
-                          <Link to={`/rooms/${room.id}`}>
-                            <button className="btn-detail">Xem chi tiết</button>
-                          </Link>
-                          {room.status === 'available' ? (
-                            <Link to={`/booking?id=${room.id}`}>
-                              <button className="btn-book">Đặt phòng</button>
-                            </Link>
-                          ) : (
-                            <button className="btn-book disabled" disabled>Hết phòng</button>
-                          )}
-                        </div>
-                      </div>
+                    )}
+
+                    <p className="type-description">
+                      {type.description || 'Phòng tiện nghi, sạch sẽ với dịch vụ chu đáo.'}
+                    </p>
+
+                    {overCapacity && (
+                      <p className="capacity-warning">
+                        Hạng phòng này ở tối đa {type.capacity} khách/phòng — bạn có thể cần đặt thêm phòng.
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="type-card-price">
+                    {lowStock && (
+                      <span className="low-stock">Chỉ còn {type.availableRooms} phòng!</span>
+                    )}
+                    {hasDates && !soldOut && !lowStock && (
+                      <span className="in-stock">Còn {type.availableRooms} phòng trống</span>
+                    )}
+
+                    <div className="price-block">
+                      {hasDates && totalStay > 0 ? (
+                        <>
+                          <span className="price-main">{formatPrice(totalStay)}</span>
+                          <span className="price-unit">cho {nights} đêm</span>
+                          <span className="price-sub">{formatPrice(Math.round(totalStay / nights))}/đêm · chưa gồm phụ thu</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="price-from">Chỉ từ</span>
+                          <span className="price-main">{formatPrice(type.defaultPrice)}</span>
+                          <span className="price-unit">/đêm</span>
+                        </>
+                      )}
+                    </div>
+
+                    <div className="type-card-actions">
+                      <Link to={`/room-types/${type.id}?${forwardQuery}`}>
+                        <button className="btn-detail">Xem chi tiết</button>
+                      </Link>
+                      {soldOut ? (
+                        <button className="btn-book disabled" disabled>Hết phòng</button>
+                      ) : (
+                        <Link to={`/booking?type=${type.id}&${forwardQuery}`}>
+                          <button className="btn-book">Đặt ngay</button>
+                        </Link>
+                      )}
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          </>
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
     </div>

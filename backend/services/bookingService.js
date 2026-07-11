@@ -1,7 +1,16 @@
 const db = require('../config/db');
 const bookingModel = require('../models/bookingModel');
 const paymentService = require('./paymentService');
+const voucherService = require('./voucherService');
 const HttpError = require('../utils/httpError');
+const {
+  dayString,
+  isWithinLateCheckInWindow,
+  isLateCheckIn,
+  isPastNoShowDeadline,
+  getLateCheckInDeadline,
+  LATE_CHECKIN_GRACE_HOUR
+} = require('../utils/bookingPolicy');
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const HOLD_MINUTES = 15;
@@ -23,6 +32,66 @@ const getStayDates = (checkIn, checkOut) => {
   }
 
   return dates;
+};
+
+// Giá từng đêm: ưu tiên khoảng giá trong room_prices (khoảng hẹp hơn thắng),
+// đêm nào không có khoảng giá thì dùng giá mặc định của loại phòng.
+const calcNightlyPrices = async (roomTypeId, fallbackPrice, checkIn, checkOut, connection) => {
+  const nights = getStayDates(dayString(checkIn), dayString(checkOut));
+  const ranges = roomTypeId
+    ? await bookingModel.listRoomPriceRanges(roomTypeId, connection)
+    : [];
+
+  const prices = nights.map((night) => {
+    const range = ranges.find(
+      (item) => dayString(item.startDate) <= night && night <= dayString(item.endDate)
+    );
+    return {
+      date: night,
+      price: range ? Number(range.price) : Number(fallbackPrice || 0)
+    };
+  });
+
+  return {
+    nights: prices.length,
+    prices,
+    total: prices.reduce((sum, item) => sum + item.price, 0)
+  };
+};
+
+// Chính sách phụ thu trẻ em (admin cấu hình trong app_settings, key children_policy)
+const DEFAULT_CHILDREN_POLICY = {
+  freeMaxAge: 5, // 0-5 tuổi miễn phí
+  childMaxAge: 11, // 6-11 tuổi tính phụ thu; >= 12 tính như người lớn
+  surchargePerNight: 200000
+};
+
+const getChildrenPolicy = async (connection) => {
+  try {
+    const [rows] = await (connection || db).query(
+      "SELECT settingValue FROM app_settings WHERE settingKey = 'children_policy'"
+    );
+    if (rows.length === 0) return { ...DEFAULT_CHILDREN_POLICY };
+    return { ...DEFAULT_CHILDREN_POLICY, ...JSON.parse(rows[0].settingValue) };
+  } catch {
+    return { ...DEFAULT_CHILDREN_POLICY };
+  }
+};
+
+// Phụ thu trẻ em = số trẻ trong độ tuổi phụ thu x phụ thu/đêm x số đêm
+const calcChildSurcharge = (childrenAges, nights, policy) => {
+  const ages = Array.isArray(childrenAges) ? childrenAges : [];
+  const chargeableChildren = ages.filter(
+    (age) => Number(age) > policy.freeMaxAge && Number(age) <= policy.childMaxAge
+  ).length;
+  const adultsFromChildren = ages.filter((age) => Number(age) > policy.childMaxAge).length;
+
+  return {
+    chargeableChildren,
+    adultsFromChildren,
+    surchargePerNight: policy.surchargePerNight,
+    amount: chargeableChildren * policy.surchargePerNight * nights
+  };
 };
 
 const ensureBookable = async (payload, connection, lock = false) => {
@@ -107,16 +176,84 @@ const ensureRoomAvailable = async (payload, connection, lock = false) => {
   };
 };
 
+// Báo giá + kiểm tra phòng trống theo HẠNG PHÒNG (khách không chọn phòng cụ thể).
+// Giá tính từ room_prices/defaultPrice của loại phòng nên không cần phòng vật lý.
+const checkTypeQuote = async (payload) => {
+  await bookingModel.expireUnpaidBookingHolds();
+
+  const [types] = await db.query(
+    'SELECT id, typeName, description, capacity, defaultPrice FROM room_types WHERE id = ?',
+    [payload.roomTypeId]
+  );
+  if (types.length === 0) {
+    throw new HttpError(404, 'Room type not found');
+  }
+  const roomType = types[0];
+
+  const rooms = await bookingModel.listAvailableRoomsByType(
+    payload.roomTypeId,
+    payload.checkIn,
+    payload.checkOut
+  );
+
+  const nightly = await calcNightlyPrices(
+    payload.roomTypeId,
+    roomType.defaultPrice,
+    payload.checkIn,
+    payload.checkOut
+  );
+  const childrenPolicy = await getChildrenPolicy();
+  const childSurcharge = calcChildSurcharge(payload.childrenAges, nightly.nights, childrenPolicy);
+
+  return {
+    available: rooms.length > 0,
+    roomTypeId: payload.roomTypeId,
+    roomTypeName: roomType.typeName,
+    capacity: Number(roomType.capacity),
+    availableRooms: rooms.length,
+    checkIn: payload.checkIn,
+    checkOut: payload.checkOut,
+    nights: nightly.nights,
+    pricePerNight: Number(roomType.defaultPrice),
+    nightlyPrices: nightly.prices,
+    stayAmount: nightly.total,
+    childSurcharge,
+    childrenPolicy,
+    totalAmount: nightly.total + childSurcharge.amount,
+    holdMinutes: HOLD_MINUTES,
+    conflictingBookingIds: []
+  };
+};
+
 const checkAvailability = async (payload) => {
+  if (!payload.roomId && payload.roomTypeId) {
+    return checkTypeQuote(payload);
+  }
+
   const { room, bookingConflicts, available } = await ensureRoomAvailable(payload);
+
+  // Giá theo từng đêm (mùa cao điểm/lễ có thể khác nhau) + phụ thu trẻ em
+  const nightly = await calcNightlyPrices(
+    room.roomTypeId,
+    room.price_per_night,
+    payload.checkIn,
+    payload.checkOut
+  );
+  const childrenPolicy = await getChildrenPolicy();
+  const childSurcharge = calcChildSurcharge(payload.childrenAges, nightly.nights, childrenPolicy);
 
   return {
     available,
     roomId: payload.roomId,
     checkIn: payload.checkIn,
     checkOut: payload.checkOut,
-    nights: getNightCount(payload.checkIn, payload.checkOut),
+    nights: nightly.nights,
     pricePerNight: Number(room.price_per_night),
+    nightlyPrices: nightly.prices,
+    stayAmount: nightly.total,
+    childSurcharge,
+    childrenPolicy,
+    totalAmount: nightly.total + childSurcharge.amount,
     holdMinutes: HOLD_MINUTES,
     conflictingBookingIds: bookingConflicts.map((booking) => booking.id)
   };
@@ -190,24 +327,50 @@ const createBooking = async (payload) => {
   try {
     await connection.beginTransaction();
 
+    // Đặt theo hạng phòng: hệ thống tự gán phòng trống đầu tiên (khóa FOR UPDATE
+    // để hai khách đặt cùng lúc không bị gán trùng một phòng).
+    if (!payload.roomId && payload.roomTypeId) {
+      const availableRooms = await bookingModel.listAvailableRoomsByType(
+        payload.roomTypeId,
+        payload.checkIn,
+        payload.checkOut,
+        connection,
+        true
+      );
+      if (availableRooms.length === 0) {
+        throw new HttpError(409, 'Hạng phòng này đã hết phòng trống trong khoảng ngày đã chọn');
+      }
+      payload.roomId = availableRooms[0].id;
+    }
+
     const { room } = await ensureBookable(payload, connection, true);
-    const nights = getNightCount(payload.checkIn, payload.checkOut);
     const roomPrice = Number(room.price_per_night);
-    const totalPrice = roomPrice * nights;
     const dates = getStayDates(payload.checkIn, payload.checkOut);
+
+    // Tổng tiền = giá từng đêm (theo room_prices) + phụ thu trẻ em.
+    // Giá được chốt tại thời điểm đặt (khóa giá) - đổi giá sau này không ảnh hưởng booking cũ.
+    const nightly = await calcNightlyPrices(
+      room.roomTypeId,
+      roomPrice,
+      payload.checkIn,
+      payload.checkOut,
+      connection
+    );
+    const childrenPolicy = await getChildrenPolicy(connection);
+    const childSurcharge = calcChildSurcharge(payload.childrenAges, nightly.nights, childrenPolicy);
+    const totalPrice = nightly.total + childSurcharge.amount;
 
     const bookingId = await bookingModel.createBooking(payload, totalPrice, connection);
     await bookingModel.createBookingDetail(bookingId, payload, roomPrice, connection);
     await bookingModel.upsertAvailabilityRows(payload.roomId, bookingId, dates, connection);
 
-    // Service requests are recorded as "pending" only — they do not affect the
-    // payment until an admin confirms each one.
+    // Lưu các dịch vụ khách yêu cầu khi đặt (chờ lễ tân xác nhận mới tính tiền)
     if (Array.isArray(payload.serviceRequests) && payload.serviceRequests.length > 0) {
       for (const request of payload.serviceRequests) {
-        const service = await bookingModel.getServiceById(request.serviceId, connection);
-        if (service) {
-          await bookingModel.addBookingServiceRequest(bookingId, request.serviceId, request.quantity, connection);
-        }
+        await connection.query(
+          `INSERT INTO booking_service_requests (bookingId, serviceId, quantity, status) VALUES (?, ?, ?, 'pending')`,
+          [bookingId, request.serviceId, request.quantity]
+        );
       }
     }
 
@@ -232,83 +395,72 @@ const getBookingById = async (bookingId) => {
   if (!booking) {
     throw new HttpError(404, 'Booking not found');
   }
-  booking.serviceRequests = await bookingModel.getBookingServiceRequests(bookingId);
   return booking;
 };
 
-const listServiceRequests = (filters) => bookingModel.listServiceRequests(filters);
+const getRefundPreview = async (bookingId) => {
+  const booking = await bookingModel.getBookingById(bookingId);
+  if (!booking) {
+    throw new HttpError(404, 'Booking not found');
+  }
 
-const confirmServiceRequest = async (requestId) => {
-  const connection = await db.getConnection();
-
+  let payment = null;
   try {
-    await connection.beginTransaction();
+    payment = await paymentService.getPaymentByBookingId(bookingId);
+  } catch {
+    payment = null;
+  }
 
-    const request = await bookingModel.getServiceRequestById(requestId, connection, true);
-    if (!request) {
-      throw new HttpError(404, 'Service request not found');
+  return {
+    bookingId,
+    canCancel: ['pending', 'confirmed'].includes(booking.status),
+    bookingStatus: booking.status,
+    paymentId: payment?.id || null,
+    ...getRefundPolicy(booking.check_in, payment?.paidAmount || 0)
+  };
+};
+
+const normalizeRefundRequest = (refundRequest) => {
+  if (!refundRequest || typeof refundRequest !== 'object' || !refundRequest.refundMethod) {
+    return null;
+  }
+
+  const method = refundRequest.refundMethod === 'cash' ? 'cash' : 'bank_transfer';
+
+  if (method === 'bank_transfer') {
+    const accountNumber = String(refundRequest.accountNumber || '').replace(/\s+/g, '');
+    const accountName = String(refundRequest.accountName || '').trim().toUpperCase();
+    const bankName = String(refundRequest.bankName || '').trim();
+
+    if (!/^[A-Za-z0-9]{4,30}$/.test(accountNumber)) {
+      throw new HttpError(400, 'Số tài khoản nhận hoàn tiền không hợp lệ (4-30 ký tự chữ/số)');
     }
-    if (request.status !== 'pending') {
-      throw new HttpError(409, 'Service request already processed');
+    if (accountName.length < 3) {
+      throw new HttpError(400, 'Vui lòng nhập tên chủ tài khoản nhận hoàn tiền');
+    }
+    if (!bankName) {
+      throw new HttpError(400, 'Vui lòng chọn ngân hàng nhận hoàn tiền');
     }
 
-    const booking = await bookingModel.getBookingById(request.bookingId, connection, true);
-    if (!booking) {
-      throw new HttpError(404, 'Booking not found');
-    }
-    if (['cancelled', 'checked_out'].includes(booking.status)) {
-      throw new HttpError(409, `Cannot confirm service for booking with status ${booking.status}`);
-    }
-
-    const service = await bookingModel.getServiceById(request.serviceId, connection);
-    if (!service) {
-      throw new HttpError(404, 'Service not found');
-    }
-
-    await bookingModel.addBookingService(request.bookingId, service, request.quantity, connection);
-    await bookingModel.updateServiceRequestStatus(requestId, 'confirmed', connection);
-    const payment = await paymentService.recalculatePaymentForBooking(request.bookingId, connection);
-
-    await connection.commit();
     return {
-      booking: await getBookingById(request.bookingId),
-      payment
+      refundMethod: 'bank_transfer',
+      bankBin: String(refundRequest.bankBin || '').slice(0, 10) || null,
+      bankName: bankName.slice(0, 100),
+      accountNumber,
+      accountName: accountName.slice(0, 100)
     };
-  } catch (error) {
-    await connection.rollback();
-    throw error;
-  } finally {
-    connection.release();
   }
+
+  return {
+    refundMethod: 'cash',
+    bankBin: null,
+    bankName: null,
+    accountNumber: null,
+    accountName: null
+  };
 };
 
-const rejectServiceRequest = async (requestId) => {
-  const connection = await db.getConnection();
-
-  try {
-    await connection.beginTransaction();
-
-    const request = await bookingModel.getServiceRequestById(requestId, connection, true);
-    if (!request) {
-      throw new HttpError(404, 'Service request not found');
-    }
-    if (request.status !== 'pending') {
-      throw new HttpError(409, 'Service request already processed');
-    }
-
-    await bookingModel.updateServiceRequestStatus(requestId, 'rejected', connection);
-
-    await connection.commit();
-    return { booking: await getBookingById(request.bookingId) };
-  } catch (error) {
-    await connection.rollback();
-    throw error;
-  } finally {
-    connection.release();
-  }
-};
-
-const cancelBooking = async (bookingId) => {
+const cancelBooking = async (bookingId, refundRequest = null) => {
   const connection = await db.getConnection();
 
   try {
@@ -323,20 +475,67 @@ const cancelBooking = async (bookingId) => {
       throw new HttpError(409, `Cannot cancel booking with status ${booking.status}`);
     }
 
-    let refundPolicy = null;
+    let payment = null;
     try {
-      const payment = await paymentService.getPaymentByBookingId(bookingId);
-      refundPolicy = getRefundPolicy(booking.check_in, payment.paidAmount);
+      payment = await paymentService.getPaymentByBookingId(bookingId);
     } catch {
-      refundPolicy = getRefundPolicy(booking.check_in, 0);
+      payment = null;
     }
 
+    const refundPolicy = getRefundPolicy(booking.check_in, payment?.paidAmount || 0);
+
     await bookingModel.updateBookingStatus(bookingId, 'cancelled', connection);
+
+    // Khách đã trả tiền và còn được hoàn -> luôn tạo yêu cầu hoàn tiền chờ admin duyệt.
+    // Không có thông tin nhận tiền (VD: admin hủy hộ) -> mặc định nhận tại quầy.
+    let refund = null;
+    if (payment && refundPolicy.refundableAmount > 0) {
+      const providedRequest = normalizeRefundRequest(refundRequest);
+      const normalizedRequest = providedRequest || {
+        refundMethod: 'cash',
+        bankBin: null,
+        bankName: null,
+        accountNumber: null,
+        accountName: null
+      };
+      const autoNote = providedRequest
+        ? null
+        : 'Tạo tự động khi hủy. Khách nhận tiền tại quầy hoặc khách sạn sẽ liên hệ.';
+
+      const [result] = await connection.query(
+        `
+          INSERT INTO payment_refunds
+            (paymentId, bookingId, amount, refundRate, paidAmount, refundMethod, bankBin, bankName, accountNumber, accountName, status, note)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+        `,
+        [
+          payment.id,
+          bookingId,
+          refundPolicy.refundableAmount,
+          refundPolicy.refundRate,
+          payment.paidAmount,
+          normalizedRequest.refundMethod,
+          normalizedRequest.bankBin,
+          normalizedRequest.bankName,
+          normalizedRequest.accountNumber,
+          normalizedRequest.accountName,
+          autoNote
+        ]
+      );
+
+      refund = {
+        id: result.insertId,
+        amount: refundPolicy.refundableAmount,
+        refundMethod: normalizedRequest.refundMethod,
+        status: 'pending'
+      };
+    }
 
     await connection.commit();
     return {
       ...(await bookingModel.getBookingById(bookingId)),
-      refundPolicy
+      refundPolicy,
+      refund
     };
   } catch (error) {
     await connection.rollback();
@@ -474,8 +673,17 @@ const extendStay = async (bookingId, payload) => {
       });
     }
 
-    const addedNights = getNightCount(currentCheckOut, payload.checkOut);
-    const addedAmount = Number(booking.room_price || booking.price_per_night || 0) * addedNights;
+    // Tính tiền các đêm gia hạn theo giá từng đêm (room_prices)
+    const currentRoom = await bookingModel.getRoomWithType(booking.room_id, connection);
+    const addedNightly = await calcNightlyPrices(
+      currentRoom?.roomTypeId,
+      booking.room_price || booking.price_per_night || currentRoom?.price_per_night || 0,
+      currentCheckOut,
+      payload.checkOut,
+      connection
+    );
+    const addedNights = addedNightly.nights;
+    const addedAmount = addedNightly.total;
     const newTotalPrice = Number(booking.total_price || 0) + addedAmount;
 
     await bookingModel.updateBookingStay(bookingId, payload.checkOut, newTotalPrice, connection);
@@ -535,18 +743,62 @@ const transferRoom = async (bookingId, payload) => {
       });
     }
 
+    const fromRoom = await bookingModel.getRoomWithType(booking.room_id, connection);
+
     await bookingModel.transferBookingRoom(booking, toRoom, payload, connection);
     await bookingModel.updateRoomStatus(booking.room_id, 'available', connection);
     await bookingModel.updateRoomStatus(toRoom.id, 'occupied', connection);
 
-    const currentNights = getNightCount(dayString(booking.check_in), dayString(booking.check_out));
-    const newTotalPrice = Number(toRoom.price_per_night || 0) * currentNights;
-    await bookingModel.updateBookingStay(bookingId, dayString(booking.check_out), newTotalPrice, connection);
+    // Tính riêng từng giai đoạn: các đêm đã ở phòng cũ giữ giá cũ,
+    // các đêm từ ngày chuyển trở đi tính theo giá phòng mới.
+    const stayStart = dayString(booking.check_in);
+    const stayEnd = dayString(booking.check_out);
+    const splitDate =
+      dayString(payload.fromDate) < stayStart
+        ? stayStart
+        : dayString(payload.fromDate) > stayEnd
+          ? stayEnd
+          : dayString(payload.fromDate);
+
+    const oldStage = await calcNightlyPrices(
+      fromRoom?.roomTypeId,
+      booking.room_price || fromRoom?.price_per_night || 0,
+      stayStart,
+      splitDate,
+      connection
+    );
+    const newStage = await calcNightlyPrices(
+      toRoom.roomTypeId,
+      toRoom.price_per_night,
+      splitDate,
+      stayEnd,
+      connection
+    );
+    const newTotalPrice = oldStage.total + newStage.total;
+
+    await bookingModel.updateBookingStay(bookingId, stayEnd, newTotalPrice, connection);
     const payment = await paymentService.recalculatePaymentForBooking(bookingId, connection);
 
     await connection.commit();
     return {
       booking: await bookingModel.getBookingById(bookingId),
+      priceBreakdown: {
+        oldRoom: {
+          roomNumber: fromRoom?.roomNumber,
+          from: stayStart,
+          to: splitDate,
+          nights: oldStage.nights,
+          amount: oldStage.total
+        },
+        newRoom: {
+          roomNumber: toRoom.roomNumber,
+          from: splitDate,
+          to: stayEnd,
+          nights: newStage.nights,
+          amount: newStage.total
+        },
+        totalPrice: newTotalPrice
+      },
       payment
     };
   } catch (error) {
@@ -555,13 +807,6 @@ const transferRoom = async (bookingId, payload) => {
   } finally {
     connection.release();
   }
-};
-
-const dayString = (value) => {
-  if (value instanceof Date) {
-    return value.toISOString().slice(0, 10);
-  }
-  return String(value).slice(0, 10);
 };
 
 const checkIn = async (bookingId, payload = {}) => {
@@ -580,8 +825,24 @@ const checkIn = async (bookingId, payload = {}) => {
     }
 
     const payment = await paymentService.getPaymentByBookingId(bookingId);
-    if (!payment || payment.remainingAmount > 0 || payment.paymentStatus !== 'paid') {
+    if (!payment || Number(payment.paidAmount || 0) <= 0) {
+      throw new HttpError(409, 'Vui lòng thanh toán trước khi check-in');
+    }
+
+    if (payment.remainingAmount > 0 || payment.paymentStatus !== 'paid') {
       throw new HttpError(409, 'Vui lòng thanh toán đủ số tiền còn lại trước khi check-in');
+    }
+
+    const now = new Date();
+    if (!isWithinLateCheckInWindow(booking.check_in, now)) {
+      const checkInDay = new Date(`${dayString(booking.check_in)}T00:00:00`);
+      if (now < checkInDay) {
+        throw new HttpError(409, 'Chưa đến ngày nhận phòng');
+      }
+      throw new HttpError(
+        409,
+        `Đã quá thời gian check-in muộn (trước ${LATE_CHECKIN_GRACE_HOUR}:00 ngày hôm sau). Vui lòng liên hệ lễ tân.`
+      );
     }
 
     if (Array.isArray(payload.guests) && payload.guests.length > 0) {
@@ -592,7 +853,125 @@ const checkIn = async (bookingId, payload = {}) => {
     await bookingModel.updateRoomStatus(booking.room_id, 'occupied', connection);
 
     await connection.commit();
-    return bookingModel.getBookingById(bookingId);
+
+    const updatedBooking = await bookingModel.getBookingById(bookingId);
+    const lateCheckIn = isLateCheckIn(booking.check_in, now);
+
+    return {
+      ...updatedBooking,
+      lateCheckIn,
+      message: lateCheckIn
+        ? 'Check-in muộn thành công. Phòng vẫn được giữ theo cam kết vì khách đã thanh toán.'
+        : 'Check-in thành công'
+    };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
+const markNoShow = async (bookingId, { allowBeforeDeadline = false, connection: externalConnection } = {}) => {
+  const ownsConnection = !externalConnection;
+  const connection = externalConnection || (await db.getConnection());
+
+  try {
+    if (ownsConnection) {
+      await connection.beginTransaction();
+    }
+
+    const booking = await bookingModel.getBookingById(bookingId, connection, true);
+    if (!booking) {
+      throw new HttpError(404, 'Booking not found');
+    }
+
+    if (booking.status === 'no_show') {
+      throw new HttpError(409, 'Booking is already marked as no-show');
+    }
+
+    if (!['confirmed', 'pending'].includes(booking.status)) {
+      throw new HttpError(409, `Cannot mark no-show for booking with status ${booking.status}`);
+    }
+
+    const paymentRow = await paymentService.getPaymentByBookingId(bookingId);
+    if (!paymentRow || Number(paymentRow.paidAmount || 0) <= 0) {
+      throw new HttpError(409, 'Chỉ áp dụng no-show cho booking đã thanh toán');
+    }
+
+    if (!allowBeforeDeadline && !isPastNoShowDeadline(booking.check_in)) {
+      const deadline = getLateCheckInDeadline(booking.check_in);
+      throw new HttpError(
+        409,
+        `Chưa đến thời điểm xử lý no-show. Hệ thống sẽ tự động xử lý sau ${deadline.toLocaleString('vi-VN')}`
+      );
+    }
+
+    await bookingModel.updateBookingStatus(bookingId, 'no_show', connection);
+    await bookingModel.updateRoomStatus(booking.room_id, 'available', connection);
+
+    const voucher = await voucherService.createNoShowCompensationVoucher(
+      booking.user_id,
+      bookingId,
+      connection
+    );
+
+    if (ownsConnection) {
+      await connection.commit();
+    }
+
+    return {
+      booking: await bookingModel.getBookingById(bookingId, ownsConnection ? undefined : connection),
+      voucher: {
+        code: voucher.code,
+        discountPercentage: Number(voucher.discountPercentage),
+        validFrom: voucher.validFrom,
+        validUntil: voucher.validUntil,
+        message: `Đã tặng voucher giảm ${voucherService.NO_SHOW_DISCOUNT_PERCENT}% cho lần đặt phòng tiếp theo`
+      },
+      refundPolicy: {
+        refunded: false,
+        message: 'Không hoàn tiền theo chính sách no-show'
+      }
+    };
+  } catch (error) {
+    if (ownsConnection) {
+      await connection.rollback();
+    }
+    throw error;
+  } finally {
+    if (ownsConnection) {
+      connection.release();
+    }
+  }
+};
+
+const processNoShows = async () => {
+  const connection = await db.getConnection();
+  const results = [];
+
+  try {
+    await connection.beginTransaction();
+    const candidates = await bookingModel.listEligibleNoShowBookings(connection);
+
+    for (const candidate of candidates) {
+      try {
+        const result = await markNoShow(candidate.id, {
+          allowBeforeDeadline: true,
+          connection
+        });
+        results.push({ bookingId: candidate.id, status: 'processed', voucherCode: result.voucher.code });
+      } catch (error) {
+        results.push({
+          bookingId: candidate.id,
+          status: 'skipped',
+          reason: error.message
+        });
+      }
+    }
+
+    await connection.commit();
+    return results;
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -624,8 +1003,59 @@ const checkOut = async (bookingId) => {
     await bookingModel.updateBookingStatus(bookingId, 'checked_out', connection);
     await bookingModel.updateRoomStatus(booking.room_id, 'available', connection);
 
+    // Check-out sớm: hoàn 50% tiền các đêm chưa ở (tạo yêu cầu hoàn chờ admin duyệt)
+    let earlyCheckout = null;
+    const today = dayString(new Date());
+    const checkOutDay = dayString(booking.check_out);
+
+    if (today < checkOutDay) {
+      const room = await bookingModel.getRoomWithType(booking.room_id, connection);
+      const unusedNightly = await calcNightlyPrices(
+        room?.roomTypeId,
+        booking.room_price || room?.price_per_night || 0,
+        today,
+        checkOutDay,
+        connection
+      );
+
+      const refundAmount = Math.min(
+        Math.round(unusedNightly.total * 0.5),
+        Number(payment.paidAmount || 0)
+      );
+
+      if (refundAmount > 0) {
+        const [result] = await connection.query(
+          `
+            INSERT INTO payment_refunds
+              (paymentId, bookingId, amount, refundRate, paidAmount, refundMethod, status, note)
+            VALUES (?, ?, ?, 0.5, ?, 'cash', 'pending', ?)
+          `,
+          [
+            payment.id,
+            bookingId,
+            refundAmount,
+            payment.paidAmount,
+            `Check-out sớm: hoàn 50% của ${unusedNightly.nights} đêm chưa ở (${today} → ${checkOutDay})`
+          ]
+        );
+
+        earlyCheckout = {
+          refundId: result.insertId,
+          unusedNights: unusedNightly.nights,
+          unusedAmount: unusedNightly.total,
+          refundRate: 0.5,
+          refundAmount,
+          status: 'pending',
+          message: `Check-out sớm ${unusedNightly.nights} đêm. Hoàn 50% = ${refundAmount.toLocaleString('vi-VN')}₫, chờ khách sạn duyệt.`
+        };
+      }
+    }
+
     await connection.commit();
-    return bookingModel.getBookingById(bookingId);
+    return {
+      ...(await bookingModel.getBookingById(bookingId)),
+      earlyCheckout
+    };
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -635,21 +1065,22 @@ const checkOut = async (bookingId) => {
 };
 
 module.exports = {
+  calcNightlyPrices,
   checkAvailability,
   checkTypeAvailability,
   expireUnpaidBookingHolds,
   createBooking,
   listBookings,
   getBookingById,
+  getRefundPreview,
   cancelBooking,
   saveGuestIdentities,
   addServiceCharge,
   addDamageCharge,
-  listServiceRequests,
-  confirmServiceRequest,
-  rejectServiceRequest,
   extendStay,
   transferRoom,
   checkIn,
-  checkOut
+  checkOut,
+  markNoShow,
+  processNoShows
 };

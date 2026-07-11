@@ -12,6 +12,7 @@ import {
   Space,
   Card,
   Tag,
+  Descriptions,
 } from 'antd';
 import {
   PlusOutlined,
@@ -19,6 +20,7 @@ import {
   DeleteOutlined,
   ReloadOutlined,
   SearchOutlined,
+  EyeOutlined,
 } from '@ant-design/icons';
 import axios from 'axios';
 import api from '../../../services/api';
@@ -52,8 +54,10 @@ function RoomItemsTab() {
   const [rooms, setRooms] = useState<RoomOption[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
+  const [detailVisible, setDetailVisible] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [editingItem, setEditingItem] = useState<RoomItem | null>(null);
+  const [selectedItem, setSelectedItem] = useState<RoomItem | null>(null);
   const [searchText, setSearchText] = useState('');
   const [form] = Form.useForm<RoomItemFormValues>();
 
@@ -100,6 +104,11 @@ function RoomItemsTab() {
       status: item.status || 'normal',
     });
     setModalVisible(true);
+  };
+
+  const handleViewDetail = (item: RoomItem) => {
+    setSelectedItem(item);
+    setDetailVisible(true);
   };
 
   const handleDelete = async (id: number) => {
@@ -183,20 +192,31 @@ function RoomItemsTab() {
       key: 'action',
       width: 200,
       render: (_: unknown, record: RoomItem) => (
-        <Space size="middle">
-          <Button type="primary" ghost icon={<EditOutlined />} onClick={() => handleEdit(record)}>
-            Sửa
-          </Button>
+        <Space>
+          <Button
+            type="primary"
+            icon={<EyeOutlined style={{ color: 'white' }} />}
+            size="small"
+            onClick={() => handleViewDetail(record)}
+          />
+          <Button
+            type="primary"
+            icon={<EditOutlined />}
+            size="small"
+            onClick={() => handleEdit(record)}
+          />
           <Popconfirm
-            title="Bạn có chắc chắn muốn xóa vật dụng này?"
+            title="Bạn có chắc chắn muốn xóa?"
             onConfirm={() => handleDelete(record.id)}
             okText="Xóa"
             cancelText="Hủy"
-            okButtonProps={{ danger: true }}
           >
-            <Button type="primary" danger ghost icon={<DeleteOutlined />}>
-              Xóa
-            </Button>
+            <Button
+              type="primary"
+              danger
+              icon={<DeleteOutlined />}
+              size="small"
+            />
           </Popconfirm>
         </Space>
       ),
@@ -236,14 +256,11 @@ function RoomItemsTab() {
       <Modal
         title={editingItem ? 'Cập Nhật Vật Dụng' : 'Thêm Vật Dụng Mới'}
         open={modalVisible}
-        onOk={handleModalSubmit}
         onCancel={() => setModalVisible(false)}
-        okText={editingItem ? 'Cập nhật' : 'Thêm mới'}
-        cancelText="Hủy"
-        confirmLoading={submitting}
+        footer={null}
         forceRender
       >
-        <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
+        <Form form={form} layout="vertical" style={{ marginTop: 16 }} onFinish={handleModalSubmit}>
           <Form.Item name="roomId" label="Phòng" rules={[{ required: true, message: 'Vui lòng chọn phòng!' }]}>
             <Select
               showSearch
@@ -274,7 +291,40 @@ function RoomItemsTab() {
           <Form.Item name="status" label="Tình trạng" rules={[{ required: true, message: 'Vui lòng chọn tình trạng!' }]}>
             <Select options={ROOM_ITEM_STATUS_OPTIONS} placeholder="Chọn tình trạng" />
           </Form.Item>
+          <Form.Item>
+            <Space>
+              <Button type="primary" htmlType="submit" block loading={submitting}>
+                {editingItem ? 'Cập nhật' : 'Thêm mới'}
+              </Button>
+              <Button onClick={() => setModalVisible(false)} block>
+                Hủy
+              </Button>
+            </Space>
+          </Form.Item>
         </Form>
+      </Modal>
+
+      {/* Detail Modal */}
+      <Modal
+        title="Chi tiết vật dụng"
+        open={detailVisible}
+        onCancel={() => setDetailVisible(false)}
+        footer={null}
+        width={600}
+      >
+        {selectedItem && (
+          <Descriptions bordered column={1}>
+            <Descriptions.Item label="ID">{selectedItem.id}</Descriptions.Item>
+            <Descriptions.Item label="Phòng">{selectedItem.roomNumber || '—'}</Descriptions.Item>
+            <Descriptions.Item label="Tên vật dụng">{selectedItem.itemName}</Descriptions.Item>
+            <Descriptions.Item label="Số lượng">{selectedItem.quantity}</Descriptions.Item>
+            <Descriptions.Item label="Tình trạng">
+              <Tag color={ROOM_ITEM_STATUS[selectedItem.status]?.color || 'default'}>
+                {ROOM_ITEM_STATUS[selectedItem.status]?.label || selectedItem.status}
+              </Tag>
+            </Descriptions.Item>
+          </Descriptions>
+        )}
       </Modal>
     </Card>
   );

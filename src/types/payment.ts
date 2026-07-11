@@ -1,4 +1,4 @@
-export type PaymentMethod = "cash" | "momo" | "vnpay";
+export type PaymentMethod = "cash" | "momo" | "vnpay" | "bank_transfer";
 
 export type PaymentStatus = "unpaid" | "paid" | "refunded";
 

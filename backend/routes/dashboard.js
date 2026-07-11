@@ -1,7 +1,44 @@
 const express = require('express');
 const db = require('../config/db');
+const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
+
+// Đếm các yêu cầu từ khách đang chờ xử lý - dùng cho badge đỏ trên menu admin
+router.get('/pending-counts', requireAuth, async (req, res) => {
+  try {
+    if (!['admin', 'staff'].includes(req.user?.role)) {
+      return res.status(403).json({ message: 'Chỉ quản trị viên được xem' });
+    }
+
+    const [[bookings]] = await db.query(
+      "SELECT COUNT(*) AS c FROM bookings WHERE status = 'pending'"
+    );
+    const [[serviceRequests]] = await db.query(
+      "SELECT COUNT(*) AS c FROM booking_service_requests WHERE status = 'pending'"
+    );
+    const [[refunds]] = await db.query(
+      "SELECT COUNT(*) AS c FROM payment_refunds WHERE status = 'pending'"
+    );
+    const [[withdrawals]] = await db.query(
+      "SELECT COUNT(*) AS c FROM wallet_transactions WHERE type = 'withdrawal' AND status = 'pending'"
+    );
+
+    const data = {
+      pendingBookings: Number(bookings.c) || 0,
+      pendingServiceRequests: Number(serviceRequests.c) || 0,
+      pendingRefunds: Number(refunds.c) || 0,
+      pendingWithdrawals: Number(withdrawals.c) || 0
+    };
+    data.total =
+      data.pendingBookings + data.pendingServiceRequests + data.pendingRefunds + data.pendingWithdrawals;
+
+    res.json({ data });
+  } catch (error) {
+    console.error('Pending counts error:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
 
 function formatLocalDateTime(d) {
   const pad = (n) => String(n).padStart(2, '0');

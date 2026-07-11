@@ -529,4 +529,51 @@ router.post('/lock', async (req, res) => {
   }
 });
 
+// GET /api/customers/by-account/:accountId
+router.get('/by-account/:accountId', async (req, res) => {
+  try {
+    const accountId = parseInt(req.params.accountId, 10);
+    if (!accountId) {
+      return res.status(400).json({ ok: false, error: 'Invalid account ID' });
+    }
+
+    const [rows] = await db.query(
+      `
+        ${CUSTOMER_SELECT}
+        AND c.accountId = ?
+      `,
+      [accountId]
+    );
+
+    if (rows.length === 0) {
+      // Auto-create customer record if it doesn't exist
+      const [accRows] = await db.query('SELECT email, phone FROM accounts WHERE id = ?', [accountId]);
+      if (accRows.length === 0) {
+        return res.status(404).json({ ok: false, error: 'Account not found' });
+      }
+      
+      const account = accRows[0];
+      const defaultName = account.email ? account.email.split('@')[0] : 'Guest';
+      const [insertResult] = await db.query(
+        'INSERT INTO customers (accountId, fullName, phone) VALUES (?, ?, ?)',
+        [accountId, defaultName, account.phone || '']
+      );
+
+      const [newRows] = await db.query(
+        `
+          ${CUSTOMER_SELECT}
+          AND c.id = ?
+        `,
+        [insertResult.insertId]
+      );
+      return res.json({ ok: true, data: formatCustomerRow(newRows[0]) });
+    }
+
+    res.json({ ok: true, data: formatCustomerRow(rows[0]) });
+  } catch (error) {
+    console.error('Get customer by account ID error:', error);
+    res.status(500).json({ ok: false, error: 'Internal server error' });
+  }
+});
+
 module.exports = router;

@@ -158,6 +158,22 @@ function CustomerManagement() {
     fetchCustomers();
   }, [currentPage, pageSize, searchQuery, filterStatus]);
 
+  const handleEdit = (customer: Customer) => {
+    setEditingCustomer(customer);
+    form.setFieldsValue({
+      email: customer.email,
+      fullName: customer.fullName,
+      phone: customer.phone,
+      gender: customer.gender,
+      dateOfBirth: customer.dateOfBirth ? dayjs(customer.dateOfBirth) : undefined,
+      citizenId: customer.citizenId,
+      nationality: customer.nationality,
+      address: customer.address,
+      status: customer.status
+    });
+    setModalVisible(true);
+  };
+
   useEffect(() => {
     const editId = searchParams.get('edit');
     if (!editId || customers.length === 0) return;
@@ -173,22 +189,6 @@ function CustomerManagement() {
     setEditingCustomer(null);
     form.resetFields();
     form.setFieldsValue({ status: 'active' });
-    setModalVisible(true);
-  };
-
-  const handleEdit = (customer: Customer) => {
-    setEditingCustomer(customer);
-    form.setFieldsValue({
-      email: customer.email,
-      fullName: customer.fullName,
-      phone: customer.phone,
-      gender: customer.gender,
-      dateOfBirth: customer.dateOfBirth ? dayjs(customer.dateOfBirth) : undefined,
-      citizenId: customer.citizenId,
-      nationality: customer.nationality,
-      address: customer.address,
-      status: customer.status
-    });
     setModalVisible(true);
   };
 
@@ -349,25 +349,22 @@ function CustomerManagement() {
           style={{ display: 'flex', justifyContent: 'center' }}
         >
           <Button
-            shape="circle"
-            icon={<EyeOutlined />}
+            type="primary"
+            icon={<EyeOutlined style={{ color: 'white' }} />}
+            size="small"
             onClick={() => handleViewDetail(record.id)}
-            title="Xem chi tiết"
-            style={{ background: '#f1efe9', border: 'none', color: brand.textSecondary }}
           />
           <Button
-            shape="circle"
+            type="primary"
             icon={<EditOutlined />}
+            size="small"
             onClick={() => handleEdit(record)}
-            title="Sửa thông tin"
-            style={{ background: '#f4ece1', border: 'none', color: brand.primaryDark }}
           />
           <Dropdown menu={{ items: getRowMenu(record) }} trigger={['click']} placement="bottomRight">
             <Button
-              shape="circle"
-              icon={<MoreOutlined style={{ fontSize: 18 }} />}
-              title="Thêm hành động"
-              style={{ background: '#f1efe9', border: 'none', color: brand.textSecondary }}
+              type="primary"
+              icon={<MoreOutlined />}
+              size="small"
             />
           </Dropdown>
         </Space>

@@ -42,7 +42,7 @@ const issueInvoiceForPayment = async (paymentId, connection) => {
     connection
   );
 
-  const invoice = await invoiceModel.getInvoiceById(invoiceId);
+  const invoice = await invoiceModel.getInvoiceById(invoiceId, connection);
   return formatInvoice(invoice);
 };
 

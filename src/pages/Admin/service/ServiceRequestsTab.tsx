@@ -152,7 +152,7 @@ function ServiceRequestsTab() {
         r.status === 'pending' ? (
           <Space>
             <Popconfirm
-              title="Xác nhận dịch vụ này và cộng vào hóa đơn?"
+              title="Bạn có chắc chắn muốn xác nhận?"
               onConfirm={() => handleConfirm(r.id)}
               okText="Xác nhận"
               cancelText="Hủy"
@@ -160,21 +160,24 @@ function ServiceRequestsTab() {
               <Button
                 type="primary"
                 icon={<CheckOutlined />}
+                size="small"
                 loading={processingId === r.id}
-              >
-                Xác nhận
-              </Button>
+              />
             </Popconfirm>
             <Popconfirm
-              title="Từ chối yêu cầu dịch vụ này?"
+              title="Bạn có chắc chắn muốn từ chối?"
               onConfirm={() => handleReject(r.id)}
               okText="Từ chối"
               cancelText="Hủy"
               okButtonProps={{ danger: true }}
             >
-              <Button danger icon={<CloseOutlined />} loading={processingId === r.id}>
-                Từ chối
-              </Button>
+              <Button
+                type="primary"
+                danger
+                icon={<CloseOutlined />}
+                size="small"
+                loading={processingId === r.id}
+              />
             </Popconfirm>
           </Space>
         ) : (

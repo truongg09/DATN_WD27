@@ -16,6 +16,7 @@ interface LoginForm {
 function Login() {
   const navigate = useNavigate();
   const { login } = useAuth();
+
   const {
     control,
     handleSubmit,
@@ -101,11 +102,8 @@ function Login() {
           </form>
 
           <br />
-
           <Link to="/forgot-password">Quên mật khẩu?</Link>
-
           <br />
-
           <Link to="/register">Chưa có tài khoản?</Link>
         </Card>
       </div>
@@ -114,3 +112,4 @@ function Login() {
 }
 
 export default Login;
+
