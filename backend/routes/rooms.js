@@ -49,7 +49,7 @@ const parseRoomId = (id) => {
 router.get('/', async (req, res) => {
   try {
     console.log('=== GET ROOMS CALLED ===');
-    const [rooms] = await db.query(`${ROOM_SELECT} ORDER BY r.id ASC`);
+    const [rooms] = await db.query(`${ROOM_SELECT} WHERE r.isDeleted = 0 ORDER BY r.id ASC`);
     console.log('=== GET ROOMS SUCCESS ===');
     console.log('Found', rooms.length, 'rooms');
     res.json({ data: rooms });
@@ -80,8 +80,9 @@ router.get('/types', async (req, res) => {
         GROUP_CONCAT(DISTINCT r.roomNumber ORDER BY r.roomNumber ASC SEPARATOR ', ') AS roomNumbers,
         GROUP_CONCAT(DISTINCT rta.amenityId) AS amenityIds
       FROM room_types rt 
-      LEFT JOIN rooms r ON r.roomTypeId = rt.id 
+      LEFT JOIN rooms r ON r.roomTypeId = rt.id AND r.isDeleted = 0
       LEFT JOIN room_type_amenities rta ON rta.roomTypeId = rt.id
+      WHERE rt.isDeleted = 0
       GROUP BY rt.id 
       ORDER BY rt.id ASC
     `);
@@ -194,29 +195,15 @@ router.delete('/types/:id', async (req, res) => {
     const { id } = req.params;
 
     // Check if there are rooms belonging to this room type
-    const [rooms] = await db.query('SELECT id FROM rooms WHERE roomTypeId = ?', [id]);
+    const [rooms] = await db.query('SELECT id FROM rooms WHERE roomTypeId = ? AND isDeleted = 0', [id]);
     if (rooms.length > 0) {
       return res.status(400).json({ 
         message: `Không thể xóa hạng phòng này vì đang có ${rooms.length} phòng hoạt động thuộc hạng này!` 
       });
     }
 
-    // Delete related images first (if room_images table exists)
-    try {
-      await db.query('DELETE FROM room_images WHERE roomTypeId = ?', [id]);
-    } catch (e) {
-      console.warn('Skip room_images cleanup: table might not exist or other error', e.message);
-    }
-    
-    // Delete related amenities associations (if room_type_amenities table exists)
-    try {
-      await db.query('DELETE FROM room_type_amenities WHERE roomTypeId = ?', [id]);
-    } catch (e) {
-      console.warn('Skip room_type_amenities cleanup: table might not exist or other error', e.message);
-    }
-
-    // Now delete the room type
-    await db.query('DELETE FROM room_types WHERE id = ?', [id]);
+    // Now soft delete the room type
+    await db.query('UPDATE room_types SET isDeleted = 1 WHERE id = ?', [id]);
     res.json({ message: 'Xóa hạng phòng thành công' });
   } catch (error) {
     console.error('Delete room type error:', error);
@@ -237,7 +224,7 @@ router.get('/:id', async (req, res) => {
              (SELECT imageUrl FROM room_images WHERE roomTypeId = rt.id LIMIT 1) AS imageUrl
       FROM rooms r
       JOIN room_types rt ON r.roomTypeId = rt.id
-      WHERE r.id = ?
+      WHERE r.id = ? AND r.isDeleted = 0
     `, [id]);
     console.log('2. Room query result:', rooms);
 
@@ -303,7 +290,7 @@ router.post('/bulk', async (req, res) => {
     }
 
     const roomNumbers = rooms.map(r => String(r.roomNumber).trim());
-    const [existing] = await db.query('SELECT roomNumber FROM rooms WHERE roomNumber IN (?)', [roomNumbers]);
+    const [existing] = await db.query('SELECT roomNumber FROM rooms WHERE roomNumber IN (?) AND isDeleted = 0', [roomNumbers]);
     
     if (existing.length > 0) {
       const existingNumbers = existing.map(e => e.roomNumber).join(', ');
@@ -338,7 +325,7 @@ router.post('/', async (req, res) => {
     const { roomNumber, roomTypeId, floor, area, status, maintenanceNote, maintenanceExpectedCompletion } = req.body;
     
     // Check if room number already exists
-    const [existing] = await db.query('SELECT id FROM rooms WHERE roomNumber = ?', [roomNumber]);
+    const [existing] = await db.query('SELECT id FROM rooms WHERE roomNumber = ? AND isDeleted = 0', [roomNumber]);
     if (existing.length > 0) {
       return res.status(400).json({ message: 'Số phòng này đã tồn tại!' });
     }
@@ -361,7 +348,7 @@ router.put('/:id', async (req, res) => {
     const { roomNumber, roomTypeId, floor, area, status, maintenanceNote, maintenanceExpectedCompletion } = req.body;
 
     // Check if room number already exists for another room
-    const [existing] = await db.query('SELECT id FROM rooms WHERE roomNumber = ? AND id != ?', [roomNumber, id]);
+    const [existing] = await db.query('SELECT id FROM rooms WHERE roomNumber = ? AND id != ? AND isDeleted = 0', [roomNumber, id]);
     if (existing.length > 0) {
       return res.status(400).json({ message: 'Số phòng này đã tồn tại!' });
     }
@@ -383,7 +370,7 @@ router.delete('/:id', async (req, res) => {
     const { id } = req.params;
 
     // Check if the room exists and its status
-    const [rooms] = await db.query('SELECT status, roomNumber FROM rooms WHERE id = ?', [id]);
+    const [rooms] = await db.query('SELECT status, roomNumber FROM rooms WHERE id = ? AND isDeleted = 0', [id]);
     if (rooms.length === 0) {
       return res.status(404).json({ message: 'Không tìm thấy phòng!' });
     }
@@ -404,27 +391,8 @@ router.delete('/:id', async (req, res) => {
       return res.status(400).json({ message: 'Không thể xóa phòng đang có đơn đặt phòng (hoặc đã cọc) chưa hoàn thành!' });
     }
 
-    // First delete all records from tables that reference this room (to avoid foreign key errors)
-    // 1. Delete damage_reports referencing the items of this room
-    await db.query(`
-      DELETE FROM damage_reports 
-      WHERE roomItemId IN (SELECT id FROM room_items WHERE roomId = ?)
-    `, [id]);
-
-    // 2. Delete room_items referencing this room
-    await db.query('DELETE FROM room_items WHERE roomId = ?', [id]);
-
-    // 3. Delete booking_room_transfers referencing this room
-    await db.query('DELETE FROM booking_room_transfers WHERE fromRoomId = ? OR toRoomId = ?', [id, id]);
-
-    // 4. Delete booking_damage_charges referencing this room
-    await db.query('DELETE FROM booking_damage_charges WHERE roomId = ?', [id]);
-
-    // 5. Delete booking_details referencing this room
-    await db.query('DELETE FROM booking_details WHERE roomId = ?', [id]);
-
-    // Now delete the room
-    await db.query('DELETE FROM rooms WHERE id = ?', [id]);
+    // Perform soft delete
+    await db.query('UPDATE rooms SET isDeleted = 1 WHERE id = ?', [id]);
 
     res.json({ message: 'Xóa phòng thành công' });
   } catch (error) {
