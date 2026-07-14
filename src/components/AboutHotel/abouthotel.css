@@ -65,3 +65,22 @@
     object-fit: cover;
     border-radius: 10px;
 }
+
+@media (max-width: 768px) {
+    .about-hotel {
+        padding: 50px 16px;
+    }
+
+    .about-content {
+        grid-template-columns: 1fr;
+        gap: 30px;
+    }
+
+    .about-text h2 {
+        font-size: 28px;
+    }
+
+    .about-images {
+        grid-template-columns: 1fr 1fr;
+    }
+}
