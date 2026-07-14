@@ -67,9 +67,20 @@ const normalizePaymentFilters = (query) => {
   return filters;
 };
 
+const normalizeConfirmPaymentPayload = (body) => {
+  if (body.amount === undefined) {
+    throw new HttpError(400, 'amount is required');
+  }
+  return {
+    amount: toAmount(body.amount, 'amount'),
+    transactionCode: body.transactionCode || body.transaction_code || undefined
+  };
+};
+
 module.exports = {
   normalizeCreatePaymentPayload,
   normalizeProcessPaymentPayload,
+  normalizeConfirmPaymentPayload,
   normalizePaymentFilters,
   normalizeIdParam
 };
