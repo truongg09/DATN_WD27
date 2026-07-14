@@ -15,11 +15,15 @@ router.get('/', async (req, res) => {
         r.comment,
         r.createdAt,
         COALESCE(c.fullName, a.email) AS customerName,
-        bk.status AS bookingStatus
+        bk.status AS bookingStatus,
+        bd.roomId,
+        rm.roomTypeId
       FROM reviews r
       LEFT JOIN customers c ON r.customerId = c.id
       LEFT JOIN accounts a ON c.accountId = a.id
       LEFT JOIN bookings bk ON r.bookingId = bk.id
+      LEFT JOIN booking_details bd ON bd.bookingId = bk.id
+      LEFT JOIN rooms rm ON bd.roomId = rm.id
       ORDER BY r.createdAt DESC
     `);
     res.json({ data: reviews });
