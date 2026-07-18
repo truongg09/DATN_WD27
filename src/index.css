@@ -4,11 +4,17 @@
   box-sizing: border-box;
 }
 
+html {
+  scroll-behavior: smooth;
+  overflow-x: hidden;
+}
+
 body {
   font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
   color: #333;
   background: #fff;
   line-height: 1.6;
+  overflow-x: hidden;
 }
 
 #root {

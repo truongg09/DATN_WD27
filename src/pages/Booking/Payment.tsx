@@ -255,7 +255,17 @@ const PaymentPage: React.FC = () => {
     setSubmitting(true);
     setRoomTakenError(false);
     try {
-      await processPayment(payment.id, { paymentMethod, amount: paymentAmount });
+      const result = await processPayment(payment.id, { paymentMethod, amount: paymentAmount });
+
+      if (result.data.redirectUrl && paymentMethod !== 'cash') {
+        message.info('Đang chuyển hướng đến cổng thanh toán...');
+        if (result.data.redirectUrl.startsWith('/')) {
+          navigate(result.data.redirectUrl);
+          return;
+        }
+        window.open(result.data.redirectUrl, '_blank');
+        return;
+      }
 
       setQrModalOpen(false);
       message.success('Thanh toán thành công!');
