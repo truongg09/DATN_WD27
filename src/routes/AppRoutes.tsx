@@ -24,6 +24,7 @@ import Booking from "../pages/Booking/Booking";
 import BookingHistory from "../pages/Booking/BookingHistory";
 import BookingDetail from "../pages/Booking/BookingDetail";
 import PaymentPage from "../pages/Booking/Payment";
+import PaymentSandbox from "../pages/Booking/PaymentSandbox";
 
 import Profile from "../pages/Profile/Profile";
 import ChangePassword from "../pages/Profile/ChangePassword";
@@ -77,6 +78,7 @@ const AppRoutes = () => {
           <Route index element={<Booking />} />
           <Route path="history" element={<BookingHistory />} />
           <Route path=":id/payment" element={<PaymentPage />} />
+          <Route path=":id/payment/sandbox" element={<PaymentSandbox />} />
           <Route path=":id" element={<BookingDetail />} />
         </Route>
 

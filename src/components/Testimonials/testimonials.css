@@ -55,3 +55,18 @@
     color: #ab8965;
     font-size: 14px;
 }
+
+@media (max-width: 768px) {
+    .testimonials {
+        padding: 50px 16px;
+    }
+
+    .testimonials-grid {
+        grid-template-columns: 1fr;
+        gap: 24px;
+    }
+
+    .testimonial-card {
+        padding: 24px 20px;
+    }
+}
