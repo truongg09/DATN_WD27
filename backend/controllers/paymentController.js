@@ -2,6 +2,7 @@ const paymentService = require('../services/paymentService');
 const {
   normalizeCreatePaymentPayload,
   normalizeProcessPaymentPayload,
+  normalizeConfirmPaymentPayload,
   normalizePaymentFilters,
   normalizeIdParam
 } = require('../validators/paymentValidator');
@@ -85,11 +86,26 @@ const refundPayment = async (req, res) => {
   }
 };
 
+const confirmPayment = async (req, res) => {
+  try {
+    const paymentId = normalizeIdParam(req.params.id);
+    const payload = normalizeConfirmPaymentPayload(req.body);
+    const result = await paymentService.confirmPayment(paymentId, payload);
+    res.json({
+      message: 'Payment confirmed successfully',
+      data: result
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
 module.exports = {
   createPayment,
   listPayments,
   getPaymentById,
   getPaymentByBookingId,
   processPayment,
+  confirmPayment,
   refundPayment
 };

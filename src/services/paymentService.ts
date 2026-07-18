@@ -47,3 +47,15 @@ export const processPayment = async (
 export const refundPayment = async (id: number) => {
   return api.patch(`/payments/${id}/refund`) as Promise<ApiResponse<Payment>>;
 };
+
+export const confirmPayment = async (
+  id: number,
+  data: { amount: number; transactionCode: string }
+) => {
+  return api.post(`/payments/${id}/confirm`, data) as Promise<
+    ApiResponse<{
+      payment: Payment;
+      invoice?: import("../types/invoice").Invoice;
+    }>
+  >;
+};
