@@ -228,10 +228,34 @@ const processPayment = async (paymentId, payload) => {
       );
     }
 
+    const transactionCode = generateTransactionCode(payload.paymentMethod);
+    const isOnline = ['momo', 'vnpay'].includes(payload.paymentMethod);
+
+    if (isOnline) {
+      // Just save the method & transaction code, leave status unpaid until they confirm on the sandbox page
+      await paymentModel.updatePayment(
+        paymentId,
+        {
+          paymentMethod: payload.paymentMethod,
+          transactionCode
+        },
+        connection
+      );
+
+      await connection.commit();
+
+      const updatedPayment = await paymentModel.getPaymentById(paymentId);
+      return {
+        payment: formatPayment(updatedPayment),
+        invoice: null,
+        redirectUrl: `/booking/${booking.id}/payment/sandbox?method=${payload.paymentMethod}&amount=${payAmount}&txn=${transactionCode}`
+      };
+    }
+
+    // Cash payment processed immediately
     const newPaidAmount = Number(payment.paidAmount) + payAmount;
     const newRemainingAmount = Number(payment.totalAmount) - newPaidAmount;
     const isFullyPaid = newRemainingAmount <= 0;
-    const transactionCode = generateTransactionCode(payload.paymentMethod);
     const paymentDate = new Date();
 
     await paymentModel.updatePayment(
@@ -268,12 +292,105 @@ const processPayment = async (paymentId, payload) => {
     return {
       payment: formatPayment(updatedPayment),
       invoice,
-      redirectUrl:
-        payload.paymentMethod === 'momo'
-          ? `https://test-payment.momo.vn/pay?txn=${transactionCode}`
-          : payload.paymentMethod === 'vnpay'
-            ? `https://sandbox.vnpayment.vn/paymentv2/vpcpay.html?vnp_TxnRef=${transactionCode}`
-            : null
+      redirectUrl: null
+    };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
+const confirmPayment = async (paymentId, payload) => {
+  const connection = await db.getConnection();
+  let committed = false;
+
+  try {
+    await connection.beginTransaction();
+
+    await bookingModel.expireUnpaidBookingHolds(connection);
+
+    const payment = await paymentModel.getPaymentById(paymentId, connection, true);
+    if (!payment) {
+      throw new HttpError(404, 'Payment not found');
+    }
+
+    if (payment.paymentStatus === 'paid') {
+      throw new HttpError(409, 'Payment is already completed');
+    }
+
+    if (payment.paymentStatus === 'refunded') {
+      throw new HttpError(409, 'Cannot pay a refunded payment');
+    }
+
+    const booking = await bookingModel.getBookingById(payment.bookingId, connection, true);
+    if (!booking) {
+      throw new HttpError(404, 'Booking not found');
+    }
+
+    if (booking.status === 'cancelled') {
+      throw new HttpError(409, 'Đặt phòng đã hết thời gian giữ chỗ, vui lòng đặt lại phòng khác');
+    }
+
+    const conflicts = await bookingModel.getConflictingBookings(
+      booking.room_id,
+      booking.check_in,
+      booking.check_out,
+      connection,
+      true,
+      { excludeBookingId: booking.id }
+    );
+
+    if (conflicts.length > 0) {
+      await bookingModel.updateBookingStatus(booking.id, 'cancelled', connection);
+      throw new HttpError(409, 'Phòng vừa được đặt bởi khách khác, vui lòng đặt phòng khác!');
+    }
+
+    const payAmount = Number(payload.amount);
+    if (payAmount <= 0) {
+      throw new HttpError(400, 'Payment amount must be greater than 0');
+    }
+
+    if (payAmount > Number(payment.remainingAmount)) {
+      throw new HttpError(400, 'Payment amount exceeds remaining balance');
+    }
+
+    const newPaidAmount = Number(payment.paidAmount) + payAmount;
+    const newRemainingAmount = Number(payment.totalAmount) - newPaidAmount;
+    const isFullyPaid = newRemainingAmount <= 0;
+    const transactionCode = payload.transactionCode || payment.transactionCode || generateTransactionCode(payment.paymentMethod);
+    const paymentDate = new Date();
+
+    await paymentModel.updatePayment(
+      paymentId,
+      {
+        paidAmount: newPaidAmount,
+        remainingAmount: Math.max(newRemainingAmount, 0),
+        paymentStatus: isFullyPaid ? 'paid' : 'unpaid',
+        transactionCode,
+        paymentDate
+      },
+      connection
+    );
+
+    // Update booking status to confirmed if it was pending
+    if (booking.status === 'pending') {
+      await bookingModel.updateBookingStatus(booking.id, 'confirmed', connection);
+    }
+
+    let invoice = null;
+    if (isFullyPaid) {
+      invoice = await invoiceService.issueInvoiceForPayment(paymentId, connection);
+    }
+
+    await connection.commit();
+    committed = true;
+
+    const updatedPayment = await paymentModel.getPaymentById(paymentId);
+    return {
+      payment: formatPayment(updatedPayment),
+      invoice
     };
   } catch (error) {
     if (!committed) {
@@ -331,5 +448,6 @@ module.exports = {
   getPaymentById,
   getPaymentByBookingId,
   processPayment,
+  confirmPayment,
   refundPayment
 };

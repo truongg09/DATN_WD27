@@ -30,11 +30,24 @@ interface RoomType {
   capacity: number;
   defaultPrice: string | number;
   roomCount?: number;
+  availableCount?: number;
+  occupiedCount?: number;
+  maintenanceCount?: number;
+  reservedCount?: number;
+  roomNumbers?: string;
+  amenityIds?: string;
   status: 'active' | 'inactive';
+}
+
+interface Amenity {
+  id: number;
+  name: string;
+  icon?: string;
 }
 
 function RoomTypeManagement() {
   const [roomTypes, setRoomTypes] = useState<RoomType[]>([]);
+  const [amenities, setAmenities] = useState<Amenity[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
@@ -87,8 +100,18 @@ function RoomTypeManagement() {
     }
   };
 
+  const fetchAmenities = async () => {
+    try {
+      const response = await api.get('/amenities');
+      setAmenities(response.data || response);
+    } catch (error) {
+      console.error('Error fetching amenities:', error);
+    }
+  };
+
   useEffect(() => {
     fetchRoomTypes();
+    fetchAmenities();
   }, []);
 
   const handleAdd = () => {
@@ -104,7 +127,8 @@ function RoomTypeManagement() {
       capacity: type.capacity,
       defaultPrice: typeof type.defaultPrice === 'number' ? type.defaultPrice : parseFloat(type.defaultPrice) || 0,
       description: type.description,
-      status: type.status || 'active'
+      status: type.status || 'active',
+      amenityIds: type.amenityIds ? type.amenityIds.split(',').map(Number) : []
     });
     setModalVisible(true);
   };
@@ -172,7 +196,35 @@ function RoomTypeManagement() {
       dataIndex: 'roomCount',
       key: 'roomCount',
       sorter: (a: RoomType, b: RoomType) => (a.roomCount || 0) - (b.roomCount || 0),
-      render: (count: number) => <strong>{count || 0} phòng</strong>
+      render: (count: number, record: RoomType) => (
+        <div>
+          <div style={{ marginBottom: 4 }}><strong>{count || 0} phòng</strong></div>
+          {count > 0 && (
+            <Space size={4} wrap>
+              {record.availableCount !== undefined && record.availableCount > 0 && (
+                <Tag color="green" style={{ margin: 0, fontSize: '11px', padding: '0 4px' }}>
+                  {record.availableCount} trống
+                </Tag>
+              )}
+              {record.occupiedCount !== undefined && record.occupiedCount > 0 && (
+                <Tag color="blue" style={{ margin: 0, fontSize: '11px', padding: '0 4px' }}>
+                  {record.occupiedCount} ở
+                </Tag>
+              )}
+              {record.reservedCount !== undefined && record.reservedCount > 0 && (
+                <Tag color="orange" style={{ margin: 0, fontSize: '11px', padding: '0 4px' }}>
+                  {record.reservedCount} cọc
+                </Tag>
+              )}
+              {record.maintenanceCount !== undefined && record.maintenanceCount > 0 && (
+                <Tag color="red" style={{ margin: 0, fontSize: '11px', padding: '0 4px' }}>
+                  {record.maintenanceCount} bảo trì
+                </Tag>
+              )}
+            </Space>
+          )}
+        </div>
+      )
     },
     {
       title: 'Giá mặc định / đêm',
@@ -357,6 +409,27 @@ function RoomTypeManagement() {
           </Form.Item>
 
           <Form.Item
+            name="amenityIds"
+            label="Tiện nghi của hạng phòng"
+          >
+            <Select
+              mode="multiple"
+              placeholder="Chọn các tiện nghi (Wifi, Tivi, Điều hòa...)"
+              allowClear
+              optionFilterProp="label"
+              style={{ width: '100%' }}
+            >
+              {amenities.map(item => (
+                <Option key={item.id} value={item.id} label={item.name}>
+                  {item.name}
+                </Option>
+              ))}
+            </Select>
+          </Form.Item>
+
+
+
+          <Form.Item
             name="status"
             label="Trạng thái"
             initialValue="active"
@@ -394,8 +467,31 @@ function RoomTypeManagement() {
             <Descriptions.Item label="Tên hạng phòng">{selectedType.typeName}</Descriptions.Item>
             <Descriptions.Item label="Sức chứa">{selectedType.capacity} người</Descriptions.Item>
             <Descriptions.Item label="Số lượng phòng">{selectedType.roomCount || 0} phòng</Descriptions.Item>
+            <Descriptions.Item label="Danh sách số phòng">
+              {selectedType.roomNumbers ? (
+                selectedType.roomNumbers.split(', ').map(num => (
+                  <Tag color="blue" key={num} style={{ margin: '2px' }}>{num}</Tag>
+                ))
+              ) : (
+                <span style={{ color: '#ccc' }}>Không có phòng nào thuộc hạng này</span>
+              )}
+            </Descriptions.Item>
             <Descriptions.Item label="Giá mặc định">{formatPrice(selectedType.defaultPrice)}</Descriptions.Item>
+            <Descriptions.Item label="Tiện nghi">
+              {selectedType.amenityIds ? (
+                selectedType.amenityIds.split(',').map(idStr => {
+                  const amId = Number(idStr);
+                  const found = amenities.find(a => a.id === amId);
+                  return found ? (
+                    <Tag color="purple" key={amId} style={{ margin: '2px' }}>{found.name}</Tag>
+                  ) : null;
+                })
+              ) : (
+                <span style={{ color: '#ccc' }}>Chưa thiết lập tiện nghi</span>
+              )}
+            </Descriptions.Item>
             <Descriptions.Item label="Mô tả">{selectedType.description || '—'}</Descriptions.Item>
+
             <Descriptions.Item label="Trạng thái">
               <Tag color={selectedType.status === 'active' ? 'green' : 'orange'}>
                 {selectedType.status === 'active' ? 'Hoạt động' : 'Ngừng hoạt động'}
