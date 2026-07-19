@@ -2,7 +2,7 @@ const HttpError = require('../utils/httpError');
 const { normalizeIdParam } = require('./bookingValidator');
 
 const PAYMENT_METHODS = ['cash', 'momo', 'vnpay', 'bank_transfer'];
-const PAYMENT_STATUSES = ['unpaid', 'paid', 'refunded'];
+const PAYMENT_STATUSES = ['unpaid', 'deposit_paid', 'paid', 'refunded'];
 
 const toAmount = (value, fieldName, defaultValue = 0) => {
   if (value === undefined || value === null || value === '') {
@@ -67,20 +67,9 @@ const normalizePaymentFilters = (query) => {
   return filters;
 };
 
-const normalizeConfirmPaymentPayload = (body) => {
-  if (body.amount === undefined) {
-    throw new HttpError(400, 'amount is required');
-  }
-  return {
-    amount: toAmount(body.amount, 'amount'),
-    transactionCode: body.transactionCode || body.transaction_code || undefined
-  };
-};
-
 module.exports = {
   normalizeCreatePaymentPayload,
   normalizeProcessPaymentPayload,
-  normalizeConfirmPaymentPayload,
   normalizePaymentFilters,
   normalizeIdParam
 };
