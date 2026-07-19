@@ -44,11 +44,13 @@ const checkTypeAvailability = async (req, res) => {
 const createBooking = async (req, res) => {
   try {
     const userFromToken = req.user?.userId;
-    const payload = normalizeBookingPayload(req.body, userFromToken);
-
-    if (userFromToken && payload.userId !== userFromToken) {
-      throw new HttpError(403, 'Cannot create booking for another user');
-    }
+    // A customer must never be able to choose another account by changing the
+    // userId sent from the browser. The JWT is the source of truth. This also
+    // avoids false 403 responses caused by stale localStorage user data.
+    const payload = normalizeBookingPayload(
+      req.user?.role === 'customer' ? { ...req.body, userId: userFromToken } : req.body,
+      userFromToken
+    );
 
     const booking = await bookingService.createBooking(payload);
     res.status(201).json({
@@ -360,8 +362,7 @@ const confirmServiceRequest = async (req, res) => {
       data: result
     });
   } catch (error) {
-    console.error('Error confirming service request:', error);
-    res.status(500).json({ message: 'Error confirming service request' });
+    sendError(res, error);
   }
 };
 

@@ -29,18 +29,24 @@ const createInvoice = async (payload, connection) => {
         bookingId,
         paymentId,
         invoiceCode,
+        roomAmount,
+        serviceAmount,
+        surchargeAmount,
         subtotal,
         discountAmount,
         taxAmount,
         totalAmount,
         status,
         invoiceDate
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
     `,
     [
       payload.bookingId,
       payload.paymentId,
       payload.invoiceCode,
+      payload.roomAmount,
+      payload.serviceAmount,
+      payload.surchargeAmount,
       payload.subtotal,
       payload.discountAmount,
       payload.taxAmount || 0,

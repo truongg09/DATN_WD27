@@ -7,13 +7,17 @@ const PAYMENT_SELECT = `
     p.*,
     b.status AS booking_status,
     COALESCE(b.guest_name, c.fullName, a.email) AS customer_name,
-    r.roomNumber AS room_number
+    r.roomNumber AS room_number,
+    pcr.status AS verification_status,
+    pcr.amount AS verification_amount,
+    pcr.submittedAt AS verification_submitted_at
   FROM payments p
   JOIN bookings b ON b.id = p.bookingId
   LEFT JOIN customers c ON c.accountId = b.user_id
   LEFT JOIN accounts a ON a.id = b.user_id
   LEFT JOIN booking_details bd ON bd.bookingId = b.id
   LEFT JOIN rooms r ON r.id = COALESCE(bd.roomId, b.room_id)
+  LEFT JOIN payment_confirmation_requests pcr ON pcr.paymentId = p.id
 `;
 
 const createPayment = async (payload, connection) => {
@@ -66,6 +70,14 @@ const getPaymentByBookingId = async (bookingId, connection) => {
   return rows[0] || null;
 };
 
+const getPaymentByTransactionCode = async (transactionCode, connection) => {
+  const [rows] = await run(connection).query(
+    `${PAYMENT_SELECT} WHERE p.transactionCode = ? ORDER BY p.id DESC LIMIT 1`,
+    [transactionCode]
+  );
+  return rows[0] || null;
+};
+
 const listPayments = async ({ bookingId, paymentStatus } = {}) => {
   const conditions = [];
   const values = [];
@@ -106,10 +118,45 @@ const updatePayment = async (paymentId, fields, connection) => {
   );
 };
 
+const upsertConfirmationRequest = async ({ paymentId, bookingId, amount, paymentMethod, note }, connection) => {
+  await run(connection).query(
+    `
+      INSERT INTO payment_confirmation_requests
+        (paymentId, bookingId, amount, paymentMethod, status, note, submittedAt, confirmedBy, confirmedAt)
+      VALUES (?, ?, ?, ?, 'pending', ?, NOW(), NULL, NULL)
+      ON DUPLICATE KEY UPDATE
+        amount = VALUES(amount), paymentMethod = VALUES(paymentMethod), status = 'pending',
+        note = VALUES(note), submittedAt = NOW(), confirmedBy = NULL, confirmedAt = NULL
+    `,
+    [paymentId, bookingId, amount, paymentMethod, note || null]
+  );
+};
+
+const getConfirmationRequest = async (paymentId, connection, lock = false) => {
+  const [rows] = await run(connection).query(
+    `SELECT * FROM payment_confirmation_requests WHERE paymentId = ? ${lock ? 'FOR UPDATE' : ''}`,
+    [paymentId]
+  );
+  return rows[0] || null;
+};
+
+const confirmConfirmationRequest = async (paymentId, confirmedBy, connection) => {
+  await run(connection).query(
+    `UPDATE payment_confirmation_requests
+     SET status = 'confirmed', confirmedBy = ?, confirmedAt = NOW()
+     WHERE paymentId = ? AND status = 'pending'`,
+    [confirmedBy || null, paymentId]
+  );
+};
+
 module.exports = {
   createPayment,
   getPaymentById,
   getPaymentByBookingId,
+  getPaymentByTransactionCode,
   listPayments,
-  updatePayment
+  updatePayment,
+  upsertConfirmationRequest,
+  getConfirmationRequest,
+  confirmConfirmationRequest
 };
