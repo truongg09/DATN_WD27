@@ -61,9 +61,19 @@ async function ensureBookingSchema() {
           checkOutDate DATE NULL,
           adults INT NULL,
           children INT NULL,
-          roomPrice DECIMAL(15,2) NULL
+          roomPrice DECIMAL(15,2) NULL,
+          occupancySurcharge DECIMAL(15,2) NOT NULL DEFAULT 0
         )
       `);
+    }
+
+    const [detailColumns] = await connection.query('DESCRIBE booking_details');
+    const detailAlters = [
+      addColumn(detailColumns, 'occupancySurcharge', 'DECIMAL(15,2) NOT NULL DEFAULT 0 AFTER roomPrice')
+    ].filter(Boolean);
+
+    if (detailAlters.length > 0) {
+      await connection.query(`ALTER TABLE booking_details ${detailAlters.join(', ')}`);
     }
 
     const [paymentTables] = await connection.query('SHOW TABLES LIKE "payments"');
@@ -96,6 +106,9 @@ async function ensureBookingSchema() {
           bookingId INT NOT NULL,
           paymentId INT NOT NULL,
           invoiceCode VARCHAR(50) NOT NULL UNIQUE,
+          roomAmount DECIMAL(15,2) NOT NULL DEFAULT 0,
+          serviceAmount DECIMAL(15,2) NOT NULL DEFAULT 0,
+          surchargeAmount DECIMAL(15,2) NOT NULL DEFAULT 0,
           subtotal DECIMAL(15,2) NOT NULL DEFAULT 0,
           discountAmount DECIMAL(15,2) NOT NULL DEFAULT 0,
           taxAmount DECIMAL(15,2) NOT NULL DEFAULT 0,

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, Descriptions, Tag, Button, Spin, message, Divider, Rate, Input } from 'antd';
 import { FileTextOutlined, CreditCardOutlined, StarOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
@@ -28,6 +28,7 @@ const bookingStatusMap: Record<string, { label: string; color: string }> = {
 
 const paymentStatusMap: Record<string, { label: string; color: string }> = {
   unpaid: { label: 'Chưa thanh toán', color: 'orange' },
+  deposit_paid: { label: 'Đã đặt cọc', color: 'blue' },
   paid: { label: 'Đã thanh toán', color: 'green' },
   refunded: { label: 'Đã hoàn tiền', color: 'red' },
 };
@@ -35,6 +36,7 @@ const paymentStatusMap: Record<string, { label: string; color: string }> = {
 const BookingDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const bookingId = Number(id);
   const isValidBookingId = Number.isInteger(bookingId) && bookingId > 0;
 
@@ -96,6 +98,20 @@ const BookingDetail: React.FC = () => {
     window.scrollTo(0, 0);
   }, [bookingId, isValidBookingId, navigate]);
 
+  useEffect(() => {
+    const gateway = searchParams.get('gateway');
+    const gatewayReportedSuccess = searchParams.get('payment') === 'success';
+    const isGatewayReturn = gatewayReportedSuccess || gateway === 'momo';
+    const isSettled = payment?.paymentStatus === 'paid' || payment?.paymentStatus === 'deposit_paid';
+
+    // Never trust a gateway query parameter alone. The success notice is shown
+    // only after the backend has verified the callback and updated the payment.
+    if (isGatewayReturn && isSettled) {
+      message.success('Thanh toán thành công!');
+      navigate(`/booking/${bookingId}`, { replace: true });
+    }
+  }, [bookingId, navigate, payment?.paymentStatus, searchParams]);
+
   const handleSubmitReview = async () => {
     setSubmittingReview(true);
     try {
@@ -148,11 +164,11 @@ const BookingDetail: React.FC = () => {
             <Descriptions.Item label="Trả phòng">{formatDate(String(booking.check_out))}</Descriptions.Item>
             <Descriptions.Item label="Người lớn">{String(booking.adults || '-')}</Descriptions.Item>
             <Descriptions.Item label="Trẻ em">{String(booking.children || 0)}</Descriptions.Item>
-            <Descriptions.Item label="Tổng tiền" span={2}>
+            <Descriptions.Item label="Tổng tiền" span={{ xs: 1, sm: 2 }}>
               <strong>{formatPrice(Number(booking.total_price))}</strong>
             </Descriptions.Item>
             {booking.notes ? (
-              <Descriptions.Item label="Ghi chú" span={2}>
+              <Descriptions.Item label="Ghi chú" span={{ xs: 1, sm: 2 }}>
                 {String(booking.notes)}
               </Descriptions.Item>
             ) : null}
@@ -163,7 +179,7 @@ const BookingDetail: React.FC = () => {
           <Card
             title="Thanh toán"
             extra={
-              payment.paymentStatus === 'unpaid' ? (
+              ['unpaid', 'deposit_paid'].includes(payment.paymentStatus) ? (
                 <Button
                   type="primary"
                   icon={<CreditCardOutlined />}
@@ -174,12 +190,17 @@ const BookingDetail: React.FC = () => {
               ) : null
             }
           >
-            <Descriptions column={{ xs: 1, sm: 2 }} bordered>
+            <Descriptions column={1} bordered>
               <Descriptions.Item label="Trạng thái">
                 <Tag color={paymentStatusMap[payment.paymentStatus]?.color}>
                   {paymentStatusMap[payment.paymentStatus]?.label}
                 </Tag>
               </Descriptions.Item>
+              {payment.verificationStatus === 'pending' && (
+                <Descriptions.Item label="Đối soát chuyển khoản">
+                  <Tag color="gold">Chờ khách sạn xác nhận</Tag>
+                </Descriptions.Item>
+              )}
               <Descriptions.Item label="Phương thức">
                 {payment.paymentMethod === 'bank_transfer'
                   ? 'Chuyển khoản QR'
@@ -190,7 +211,7 @@ const BookingDetail: React.FC = () => {
               <Descriptions.Item label="Tổng">{formatPrice(payment.totalAmount)}</Descriptions.Item>
               <Descriptions.Item label="Đã trả">{formatPrice(payment.paidAmount)}</Descriptions.Item>
               {payment.transactionCode && (
-                <Descriptions.Item label="Mã GD" span={2}>
+                <Descriptions.Item label="Mã GD">
                   {payment.transactionCode}
                 </Descriptions.Item>
               )}

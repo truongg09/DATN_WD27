@@ -1,8 +1,8 @@
 const paymentService = require('../services/paymentService');
+const HttpError = require('../utils/httpError');
 const {
   normalizeCreatePaymentPayload,
   normalizeProcessPaymentPayload,
-  normalizeConfirmPaymentPayload,
   normalizePaymentFilters,
   normalizeIdParam
 } = require('../validators/paymentValidator');
@@ -86,15 +86,78 @@ const refundPayment = async (req, res) => {
   }
 };
 
-const confirmPayment = async (req, res) => {
+const createGatewayOrder = async (req, res) => {
   try {
     const paymentId = normalizeIdParam(req.params.id);
-    const payload = normalizeConfirmPaymentPayload(req.body);
-    const result = await paymentService.confirmPayment(paymentId, payload);
-    res.json({
-      message: 'Payment confirmed successfully',
-      data: result
-    });
+    const payload = normalizeProcessPaymentPayload(req.body);
+    const data = await paymentService.createGatewayOrder(paymentId, { ...payload, ipAddress: req.ip });
+    res.json({ data });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
+const vnpayReturn = async (req, res) => {
+  const { verifyVnpay, FRONTEND_URL } = require('../services/paymentGatewayService');
+  const orderId = String(req.query.vnp_TxnRef || '');
+  const bookingId = orderId.split('-')[1] || '';
+  let success = false;
+  try {
+    if (verifyVnpay(req.query) && req.query.vnp_ResponseCode === '00') {
+      await paymentService.settleGatewayPayment({ orderId, paymentMethod: 'vnpay', amount: Number(req.query.vnp_Amount) / 100 });
+      success = true;
+    }
+  } catch (error) {
+    console.error('VNPay return error:', error);
+  }
+  res.redirect(`${FRONTEND_URL}/booking/${bookingId}?gateway=vnpay&payment=${success ? 'success' : 'failed'}`);
+};
+
+const vnpayIpn = async (req, res) => {
+  const { verifyVnpay } = require('../services/paymentGatewayService');
+  try {
+    if (!verifyVnpay(req.query)) return res.json({ RspCode: '97', Message: 'Invalid signature' });
+    if (req.query.vnp_ResponseCode === '00') {
+      await paymentService.settleGatewayPayment({ orderId: String(req.query.vnp_TxnRef), paymentMethod: 'vnpay', amount: Number(req.query.vnp_Amount) / 100 });
+    }
+    res.json({ RspCode: '00', Message: 'Confirm Success' });
+  } catch (error) {
+    res.json({ RspCode: '99', Message: error.message });
+  }
+};
+
+const momoIpn = async (req, res) => {
+  const { verifyMomo } = require('../services/paymentGatewayService');
+  try {
+    if (!verifyMomo(req.body)) return res.status(400).json({ message: 'Invalid MoMo signature' });
+    if (Number(req.body.resultCode) === 0) {
+      await paymentService.settleGatewayPayment({ orderId: req.body.orderId, paymentMethod: 'momo', amount: Number(req.body.amount) });
+    }
+    res.json({ resultCode: 0, message: 'Success' });
+  } catch (error) {
+    res.status(500).json({ resultCode: 99, message: error.message });
+  }
+};
+
+const submitTransferConfirmation = async (req, res) => {
+  try {
+    const paymentId = normalizeIdParam(req.params.id);
+    const payload = normalizeProcessPaymentPayload(req.body);
+    const payment = await paymentService.submitTransferConfirmation(paymentId, payload);
+    res.status(202).json({ message: 'Payment verification requested', data: payment });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
+const confirmTransferPayment = async (req, res) => {
+  try {
+    if (!['admin', 'employee', 'staff'].includes(req.user?.role)) {
+      throw new HttpError(403, 'Only admin or receptionist can confirm payment');
+    }
+    const paymentId = normalizeIdParam(req.params.id);
+    const payment = await paymentService.confirmTransferPayment(paymentId, req.user.userId);
+    res.json({ message: 'Payment confirmed', data: payment });
   } catch (error) {
     sendError(res, error);
   }
@@ -106,6 +169,11 @@ module.exports = {
   getPaymentById,
   getPaymentByBookingId,
   processPayment,
-  confirmPayment,
-  refundPayment
+  refundPayment,
+  createGatewayOrder,
+  vnpayReturn,
+  vnpayIpn,
+  momoIpn,
+  submitTransferConfirmation,
+  confirmTransferPayment
 };
