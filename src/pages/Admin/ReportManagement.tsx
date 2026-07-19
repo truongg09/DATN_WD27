@@ -162,7 +162,7 @@ function ReportManagement() {
               title="Tổng doanh thu phòng"
               value={kpis.revenueTotal}
               precision={0}
-              valueStyle={{ color: '#3f8600' }}
+              styles={{ content: { color: '#3f8600' } }}
               prefix={<RiseOutlined />}
               suffix="₫"
             />
@@ -173,7 +173,7 @@ function ReportManagement() {
             <Statistic
               title="Tổng đơn đặt phòng"
               value={kpis.bookingsTotal}
-              valueStyle={{ color: '#2b6cb0' }}
+              styles={{ content: { color: '#2b6cb0' } }}
               suffix=" đơn"
             />
           </Card>
@@ -183,7 +183,7 @@ function ReportManagement() {
             <Statistic
               title="Công suất phòng TB"
               value={kpis.occupancyRate}
-              valueStyle={{ color: '#d69e2e' }}
+              styles={{ content: { color: '#d69e2e' } }}
               suffix="%"
             />
           </Card>
@@ -193,7 +193,7 @@ function ReportManagement() {
             <Statistic
               title="Khách hàng mới"
               value={kpis.newCustomers}
-              valueStyle={{ color: '#4a5568' }}
+              styles={{ content: { color: '#4a5568' } }}
               suffix=" thành viên"
             />
           </Card>
