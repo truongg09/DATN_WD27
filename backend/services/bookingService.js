@@ -1,6 +1,7 @@
 const db = require('../config/db');
 const bookingModel = require('../models/bookingModel');
 const paymentService = require('./paymentService');
+const emailService = require('./emailService');
 const voucherService = require('./voucherService');
 const HttpError = require('../utils/httpError');
 const {
@@ -357,7 +358,15 @@ const createBooking = async (payload) => {
     const totalPrice = nightly.total + childSurcharge.amount;
 
     const bookingId = await bookingModel.createBooking(payload, totalPrice, connection);
-    await bookingModel.createBookingDetail(bookingId, payload, roomPrice, connection);
+    // Keep the guest surcharge on the booking detail so payments can always
+    // display accommodation, guest surcharge, and extra services separately.
+    await bookingModel.createBookingDetail(
+      bookingId,
+      payload,
+      roomPrice,
+      childSurcharge.amount,
+      connection
+    );
     await bookingModel.upsertAvailabilityRows(payload.roomId, bookingId, dates, connection);
 
     // Lưu các dịch vụ khách yêu cầu khi đặt (chờ lễ tân xác nhận mới tính tiền)
@@ -375,6 +384,7 @@ const createBooking = async (payload) => {
     await connection.commit();
 
     const booking = await bookingModel.getBookingById(bookingId);
+    void emailService.sendBookingConfirmation(booking);
     return { ...booking, payment };
   } catch (error) {
     await connection.rollback();

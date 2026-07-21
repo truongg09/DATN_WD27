@@ -2,7 +2,7 @@ const HttpError = require('../utils/httpError');
 const { normalizeIdParam } = require('./bookingValidator');
 
 const PAYMENT_METHODS = ['cash', 'momo', 'vnpay', 'bank_transfer'];
-const PAYMENT_STATUSES = ['unpaid', 'paid', 'refunded'];
+const PAYMENT_STATUSES = ['unpaid', 'deposit_paid', 'paid', 'refunded'];
 
 const toAmount = (value, fieldName, defaultValue = 0) => {
   if (value === undefined || value === null || value === '') {

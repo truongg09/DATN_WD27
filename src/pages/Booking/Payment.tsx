@@ -10,7 +10,7 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { getBookingDetail } from '../../services/bookingService';
-import { getPaymentByBookingId, processPayment } from '../../services/paymentService';
+import { createGatewayOrder, getPaymentByBookingId, processPayment, submitTransferConfirmation } from '../../services/paymentService';
 import { getPaymentSettings, type PaymentSettings } from '../../services/settingsService';
 import { buildVietQrPayload, findBankByBin, toTransferText } from '../../utils/vietqr';
 import type { Payment, PaymentMethod } from '../../types/payment';
@@ -43,6 +43,7 @@ const formatHoldTime = (milliseconds: number) => {
 
 const statusLabels: Record<string, { label: string; color: string }> = {
   unpaid: { label: 'Chưa thanh toán', color: 'orange' },
+  deposit_paid: { label: 'Đã đặt cọc', color: 'blue' },
   paid: { label: 'Đã thanh toán', color: 'green' },
   refunded: { label: 'Đã hoàn tiền', color: 'red' },
 };
@@ -220,21 +221,16 @@ const PaymentPage: React.FC = () => {
   }, [paymentSettings?.transferPrefix, bookingId]);
 
   const qrValue = useMemo(() => {
-    if (paymentMethod === 'bank_transfer') {
-      if (!paymentSettings) return '';
-      return buildVietQrPayload({
-        bankBin: paymentSettings.bankBin,
-        accountNumber: paymentSettings.accountNumber,
-        amount: paymentAmount,
-        addInfo: transferContent,
-      });
-    }
+    // MoMo and VNPay must be initialized by the backend so their signed
+    // gateway URLs never expose secrets or omit mandatory gateway fields.
+    if (paymentMethod !== 'bank_transfer' || !paymentSettings) return '';
 
-    const orderInfo = encodeURIComponent(`Thanh toan dat phong ${transferContent}`);
-    if (paymentMethod === 'momo') {
-      return `https://test-payment.momo.vn/pay?amount=${paymentAmount}&orderId=${transferContent}&orderInfo=${orderInfo}`;
-    }
-    return `https://sandbox.vnpayment.vn/paymentv2/vpcpay.html?vnp_Amount=${paymentAmount * 100}&vnp_TxnRef=${transferContent}&vnp_OrderInfo=${orderInfo}`;
+    return buildVietQrPayload({
+      bankBin: paymentSettings.bankBin,
+      accountNumber: paymentSettings.accountNumber,
+      amount: paymentAmount,
+      addInfo: transferContent,
+    });
   }, [paymentMethod, paymentSettings, paymentAmount, transferContent]);
 
   const bank = paymentSettings ? findBankByBin(paymentSettings.bankBin) : undefined;
@@ -282,11 +278,27 @@ const PaymentPage: React.FC = () => {
     }
   };
 
-  const handlePay = () => {
+  const submitBankTransferForVerification = async () => {
+    if (!payment) return;
+    setSubmitting(true);
+    try {
+      await submitTransferConfirmation(payment.id, { paymentMethod: 'bank_transfer', amount: paymentAmount });
+      setQrModalOpen(false);
+      message.success('Đã gửi yêu cầu xác nhận. Khách sạn sẽ đối soát giao dịch trước khi ghi nhận thanh toán.');
+      navigate(`/booking/${bookingId}`);
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { message?: string } } };
+      message.error(err.response?.data?.message || 'Không thể gửi yêu cầu xác nhận thanh toán');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handlePay = async () => {
     if (!payment) return;
 
     if (paymentMethod === 'cash') {
-      submitPayment();
+      message.info('Vui lòng thanh toán tiền mặt tại quầy. Lễ tân sẽ xác nhận giao dịch cho bạn.');
       return;
     }
 
@@ -296,6 +308,19 @@ const PaymentPage: React.FC = () => {
     }
 
     // Các phương thức QR: hiện mã để khách quét, xác nhận xong mới ghi nhận thanh toán
+    if (paymentMethod === 'momo' || paymentMethod === 'vnpay') {
+      setSubmitting(true);
+      try {
+        const response = await createGatewayOrder(payment.id, { paymentMethod, amount: paymentAmount });
+        window.location.assign(response.data.paymentUrl);
+      } catch (error: unknown) {
+        const err = error as { response?: { data?: { message?: string } } };
+        message.error(err.response?.data?.message || 'Không thể khởi tạo cổng thanh toán');
+        setSubmitting(false);
+      }
+      return;
+    }
+
     setQrModalOpen(true);
   };
 
@@ -520,9 +545,15 @@ const PaymentPage: React.FC = () => {
                   <span>Tiền phòng</span>
                   <span>{formatPrice(payment.roomAmount)}</span>
                 </div>
+                {payment.surchargeAmount > 0 && (
+                  <div className="summary-row">
+                    <span>Phụ thu người ở</span>
+                    <span>{formatPrice(payment.surchargeAmount)}</span>
+                  </div>
+                )}
                 {payment.serviceAmount > 0 && (
                   <div className="summary-row">
-                    <span>Dịch vụ</span>
+                    <span>Dịch vụ phát sinh</span>
                     <span>{formatPrice(payment.serviceAmount)}</span>
                   </div>
                 )}
@@ -610,8 +641,11 @@ const PaymentPage: React.FC = () => {
                     disabled={isHoldExpired}
                     onClick={handlePay}
                   >
-                    {paymentMethod === 'cash' ? 'Xác nhận thanh toán' : 'Hiện mã QR thanh toán'} ·{' '}
-                    {formatPrice(paymentAmount)}
+                    {paymentMethod === 'vnpay'
+                      ? `Xác nhận thanh toán bằng VNPay - ${formatPrice(paymentAmount)}`
+                      : paymentMethod === 'momo'
+                        ? `Xác nhận thanh toán bằng MoMo - ${formatPrice(paymentAmount)}`
+                        : <>{paymentMethod === 'cash' ? 'Xác nhận thanh toán' : 'Hiện mã QR thanh toán'} · {formatPrice(paymentAmount)}</>}
                   </Button>
 
                   <div className="secure-note">
@@ -627,7 +661,7 @@ const PaymentPage: React.FC = () => {
                   <Alert
                     type="success"
                     showIcon
-                    message="Đã thanh toán thành công"
+                    title="Đã thanh toán thành công"
                     description={
                       payment.transactionCode ? `Mã giao dịch: ${payment.transactionCode}` : undefined
                     }
@@ -773,15 +807,20 @@ const PaymentPage: React.FC = () => {
               <li>Mở ứng dụng {paymentMethod === 'bank_transfer' ? 'ngân hàng' : methodTitle(paymentMethod)} trên điện thoại</li>
               <li>Chọn quét mã QR và quét mã bên cạnh</li>
               <li>Kiểm tra đúng số tiền, nội dung rồi xác nhận</li>
-              <li>Quay lại đây và bấm “Tôi đã thanh toán”</li>
+              <li>Quay lại đây và gửi yêu cầu xác nhận thanh toán</li>
             </ol>
 
             <div className="qr-actions">
               <Button size="large" disabled={submitting} onClick={() => setQrModalOpen(false)}>
                 Hủy
               </Button>
-              <Button size="large" type="primary" loading={submitting} onClick={submitPayment}>
-                Tôi đã thanh toán
+              <Button
+                size="large"
+                type="primary"
+                loading={submitting}
+                onClick={paymentMethod === 'bank_transfer' ? submitBankTransferForVerification : submitPayment}
+              >
+                {paymentMethod === 'bank_transfer' ? 'Tôi đã chuyển khoản' : 'Tôi đã thanh toán'}
               </Button>
             </div>
           </div>

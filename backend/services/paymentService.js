@@ -2,6 +2,7 @@ const db = require('../config/db');
 const paymentModel = require('../models/paymentModel');
 const bookingModel = require('../models/bookingModel');
 const invoiceService = require('./invoiceService');
+const emailService = require('./emailService');
 const HttpError = require('../utils/httpError');
 const { formatPayment } = require('../utils/formatters');
 
@@ -16,6 +17,12 @@ const buildPaymentAmounts = ({
   const paidAmount = Math.min(depositAmount, totalAmount);
   const remainingAmount = totalAmount - paidAmount;
 
+  const paymentStatus = remainingAmount <= 0
+    ? 'paid'
+    : paidAmount > 0
+      ? 'deposit_paid'
+      : 'unpaid';
+
   return {
     roomAmount,
     serviceAmount,
@@ -25,7 +32,7 @@ const buildPaymentAmounts = ({
     paidAmount,
     remainingAmount,
     totalAmount,
-    paymentStatus: remainingAmount <= 0 ? 'paid' : 'unpaid'
+    paymentStatus
   };
 };
 
@@ -40,6 +47,28 @@ const generateTransactionCode = (method) => {
   return `${prefix}-${timestamp}-${random}`;
 };
 
+const createGatewayOrder = async (paymentId, { paymentMethod, amount, ipAddress }) => {
+  if (!['momo', 'vnpay'].includes(paymentMethod)) {
+    throw new HttpError(400, 'Gateway payment method must be momo or vnpay');
+  }
+  const payment = await getPaymentById(paymentId);
+  if (payment.paymentStatus === 'paid' || payment.paymentStatus === 'refunded') {
+    throw new HttpError(409, 'Payment cannot be sent to gateway');
+  }
+  const payableAmount = Number(amount ?? payment.remainingAmount);
+  if (payableAmount <= 0 || payableAmount > Number(payment.remainingAmount)) {
+    throw new HttpError(400, 'Invalid gateway payment amount');
+  }
+  const orderId = `${paymentMethod.toUpperCase()}-${payment.id}-${Date.now()}`;
+  const orderInfo = `Thanh toan booking ${payment.bookingId}`;
+  await paymentModel.updatePayment(payment.id, { paymentMethod, transactionCode: orderId });
+  const gateway = require('./paymentGatewayService');
+  const paymentUrl = paymentMethod === 'vnpay'
+    ? gateway.createVnpayUrl({ orderId, amount: payableAmount, orderInfo, ipAddress })
+    : await gateway.createMomoPayment({ orderId, bookingId: payment.bookingId, amount: payableAmount, orderInfo });
+  return { orderId, paymentUrl };
+};
+
 const createPaymentForBooking = async (bookingId, options = {}, connection) => {
   const booking = await bookingModel.getBookingById(bookingId, connection, !!connection);
   if (!booking) {
@@ -51,10 +80,11 @@ const createPaymentForBooking = async (bookingId, options = {}, connection) => {
     return formatPayment(existing);
   }
 
+  const occupancySurcharge = Number(booking.occupancy_surcharge || 0);
   const amounts = buildPaymentAmounts({
-    roomAmount: Number(booking.total_price),
+    roomAmount: Math.max(Number(booking.total_price || 0) - occupancySurcharge, 0),
     serviceAmount: options.serviceAmount || 0,
-    surchargeAmount: options.surchargeAmount || 0,
+    surchargeAmount: occupancySurcharge + Number(options.surchargeAmount || 0),
     discountAmount: options.discountAmount || 0,
     depositAmount: options.depositAmount || 0
   });
@@ -99,22 +129,31 @@ const recalculatePaymentForBooking = async (bookingId, connection) => {
     return null;
   }
 
-  const roomAmount = Number(booking.total_price || 0);
+  const guestSurcharge = Number(booking.occupancy_surcharge || 0);
+  const roomAmount = Math.max(Number(booking.total_price || 0) - guestSurcharge, 0);
   const serviceAmount = await bookingModel.sumBookingServices(bookingId, connection);
-  const surchargeAmount = await bookingModel.sumDamageCharges(bookingId, connection);
+  const damageSurcharge = await bookingModel.sumDamageCharges(bookingId, connection);
+  const surchargeAmount = guestSurcharge + damageSurcharge;
   const discountAmount = Number(payment.discountAmount || 0);
   const paidAmount = Number(payment.paidAmount || 0);
   const totalAmount = Math.max(roomAmount + serviceAmount + surchargeAmount - discountAmount, 0);
   const remainingAmount = Math.max(totalAmount - paidAmount, 0);
+
+  const paymentStatus = remainingAmount <= 0
+    ? 'paid'
+    : paidAmount > 0
+      ? 'deposit_paid'
+      : 'unpaid';
 
   await paymentModel.updatePayment(
     payment.id,
     {
       roomAmount,
       serviceAmount,
+      surchargeAmount,
       totalAmount,
       remainingAmount,
-      paymentStatus: remainingAmount <= 0 ? 'paid' : 'unpaid'
+      paymentStatus
     },
     connection
   );
@@ -264,7 +303,7 @@ const processPayment = async (paymentId, payload) => {
         paymentMethod: payload.paymentMethod,
         paidAmount: newPaidAmount,
         remainingAmount: Math.max(newRemainingAmount, 0),
-        paymentStatus: isFullyPaid ? 'paid' : 'unpaid',
+        paymentStatus: isFullyPaid ? 'paid' : 'deposit_paid',
         transactionCode,
         paymentDate
       },
@@ -289,6 +328,8 @@ const processPayment = async (paymentId, payload) => {
     committed = true;
 
     const updatedPayment = await paymentModel.getPaymentById(paymentId);
+    const updatedBooking = await bookingModel.getBookingById(booking.id);
+    void emailService.sendPaymentConfirmation(updatedBooking, formatPayment(updatedPayment));
     return {
       payment: formatPayment(updatedPayment),
       invoice,
@@ -440,9 +481,74 @@ const refundPayment = async (paymentId) => {
   }
 };
 
+const settleGatewayPayment = async ({ orderId, paymentMethod, amount }) => {
+  const payment = await paymentModel.getPaymentByTransactionCode(orderId);
+  if (!payment) throw new HttpError(404, 'Gateway order not found');
+  if (payment.paymentStatus === 'paid') return formatPayment(payment);
+  if (payment.paymentStatus === 'refunded') throw new HttpError(409, 'Payment was refunded');
+  const paid = Number(amount);
+  if (!Number.isFinite(paid) || paid <= 0 || paid > Number(payment.remainingAmount)) {
+    throw new HttpError(400, 'Gateway amount is invalid');
+  }
+  const result = await processPayment(payment.id, { paymentMethod, amount: paid });
+  return result.payment;
+};
+
+const submitTransferConfirmation = async (paymentId, payload) => {
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+    const payment = await paymentModel.getPaymentById(paymentId, connection, true);
+    if (!payment) throw new HttpError(404, 'Payment not found');
+    if (payment.paymentStatus === 'paid' || payment.paymentStatus === 'refunded') {
+      throw new HttpError(409, 'Payment cannot be submitted for verification');
+    }
+    if (payload.paymentMethod !== 'bank_transfer') {
+      throw new HttpError(400, 'Only bank transfer can be manually verified');
+    }
+    const amount = Number(payload.amount ?? payment.remainingAmount);
+    if (amount <= 0 || amount > Number(payment.remainingAmount)) {
+      throw new HttpError(400, 'Verification amount is invalid');
+    }
+    await paymentModel.upsertConfirmationRequest({
+      paymentId: payment.id,
+      bookingId: payment.bookingId,
+      amount,
+      paymentMethod: payload.paymentMethod,
+      note: payload.note
+    }, connection);
+    await connection.commit();
+    return formatPayment(await paymentModel.getPaymentById(paymentId));
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
+const confirmTransferPayment = async (paymentId, confirmedBy) => {
+  const request = await paymentModel.getConfirmationRequest(paymentId);
+  if (!request) throw new HttpError(404, 'Payment verification request not found');
+  if (request.status !== 'pending') throw new HttpError(409, 'Payment verification request is no longer pending');
+
+  // Only this server-side confirmation calls processPayment, which is the only
+  // point where paidAmount and paymentStatus may be changed for a bank transfer.
+  const result = await processPayment(paymentId, {
+    paymentMethod: 'bank_transfer',
+    amount: Number(request.amount)
+  });
+  await paymentModel.confirmConfirmationRequest(paymentId, confirmedBy);
+  return result.payment;
+};
+
 module.exports = {
   createPaymentForBooking,
   createPayment,
+  createGatewayOrder,
+  settleGatewayPayment,
+  submitTransferConfirmation,
+  confirmTransferPayment,
   recalculatePaymentForBooking,
   listPayments,
   getPaymentById,

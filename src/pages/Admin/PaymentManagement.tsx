@@ -22,7 +22,7 @@ import {
   CloseOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { getPayments, refundPayment } from '../../services/paymentService';
+import { confirmTransferPayment, getPayments, refundPayment } from '../../services/paymentService';
 import {
   listRefunds,
   approveRefund,
@@ -43,8 +43,23 @@ const formatPrice = (price: number) =>
 
 const statusMap: Record<string, { label: string; color: string }> = {
   unpaid: { label: 'Chưa thanh toán', color: 'orange' },
+  deposit_paid: { label: 'Đã đặt cọc', color: 'blue' },
   paid: { label: 'Đã thanh toán', color: 'green' },
   refunded: { label: 'Đã hoàn tiền', color: 'red' },
+};
+
+const bookingStatusMap: Record<string, { label: string; color: string }> = {
+  pending: { label: 'Chờ xác nhận', color: 'gold' },
+  confirmed: { label: 'Đã xác nhận', color: 'blue' },
+  checked_in: { label: 'Đã check-in', color: 'cyan' },
+  checked_out: { label: 'Đã check-out', color: 'green' },
+  cancelled: { label: 'Đã hủy', color: 'red' },
+};
+
+const verificationStatusMap: Record<string, { label: string; color: string }> = {
+  pending: { label: 'Chờ đối soát', color: 'gold' },
+  confirmed: { label: 'Đã xác nhận', color: 'green' },
+  rejected: { label: 'Từ chối', color: 'red' },
 };
 
 const methodLabels: Record<string, string> = {
@@ -66,6 +81,7 @@ function PaymentManagement() {
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
   const [detailVisible, setDetailVisible] = useState(false);
+  const [confirmingPaymentId, setConfirmingPaymentId] = useState<number | null>(null);
 
   const [refunds, setRefunds] = useState<RefundRow[]>([]);
   const [refundsLoading, setRefundsLoading] = useState(false);
@@ -173,6 +189,20 @@ function PaymentManagement() {
     } catch (error: unknown) {
       const err = error as { response?: { data?: { message?: string } } };
       message.error(err.response?.data?.message || 'Hoàn tiền thất bại');
+    }
+  };
+
+  const handleConfirmTransfer = async (payment: Payment) => {
+    setConfirmingPaymentId(payment.id);
+    try {
+      await confirmTransferPayment(payment.id);
+      message.success(`Đã xác nhận thanh toán cho booking #${payment.bookingId}`);
+      fetchPayments();
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { message?: string } } };
+      message.error(err.response?.data?.message || 'Không thể xác nhận thanh toán');
+    } finally {
+      setConfirmingPaymentId(null);
     }
   };
 
@@ -332,7 +362,15 @@ function PaymentManagement() {
       render: (method: string) => methodLabels[method] || method || '-',
     },
     {
-      title: 'Trạng thái',
+      title: 'Trạng thái đặt phòng',
+      dataIndex: 'bookingStatus',
+      key: 'bookingStatus',
+      render: (status: string) => (
+        <Tag color={bookingStatusMap[status]?.color}>{bookingStatusMap[status]?.label || status || '-'}</Tag>
+      ),
+    },
+    {
+      title: 'Trạng thái thanh toán',
       dataIndex: 'paymentStatus',
       key: 'paymentStatus',
       render: (status: string) => (
@@ -353,6 +391,22 @@ function PaymentManagement() {
               setDetailVisible(true);
             }}
           />
+          {record.verificationStatus === 'pending' && (
+            <Popconfirm
+              title={`Xác nhận đã nhận ${formatPrice(Number(record.verificationAmount || 0))}?`}
+              description="Chỉ xác nhận sau khi đối soát giao dịch ngân hàng."
+              onConfirm={() => handleConfirmTransfer(record)}
+              okText="Xác nhận"
+              cancelText="Hủy"
+            >
+              <Button
+                type="primary"
+                icon={<CheckOutlined />}
+                size="small"
+                loading={confirmingPaymentId === record.id}
+              />
+            </Popconfirm>
+          )}
           {record.paymentStatus === 'paid' && (
             <Popconfirm
               title="Bạn có chắc chắn muốn hoàn tiền?"
@@ -467,8 +521,8 @@ function PaymentManagement() {
   ];
 
   return (
-    <div style={{ padding: 24 }}>
-      <Card>
+    <div style={{ padding: '12px 8px 24px' }}>
+      <Card styles={{ body: { padding: '16px 10px 20px' } }}>
         <Tabs
           defaultActiveKey="payments"
           items={[
@@ -486,6 +540,7 @@ function PaymentManagement() {
                       onChange={setStatusFilter}
                       options={[
                         { value: 'unpaid', label: 'Chưa thanh toán' },
+                        { value: 'deposit_paid', label: 'Đã đặt cọc' },
                         { value: 'paid', label: 'Đã thanh toán' },
                         { value: 'refunded', label: 'Đã hoàn tiền' },
                       ]}
@@ -495,6 +550,7 @@ function PaymentManagement() {
                     </Button>
                   </Space>
                   <Table
+                    style={{ width: '100%' }}
                     rowKey="id"
                     columns={paymentColumns}
                     dataSource={payments}
@@ -613,8 +669,16 @@ function PaymentManagement() {
           <Descriptions column={1} bordered size="small">
             <Descriptions.Item label="Mã thanh toán">{selectedPayment.id}</Descriptions.Item>
             <Descriptions.Item label="Booking ID">{selectedPayment.bookingId}</Descriptions.Item>
+            <Descriptions.Item label="Trạng thái đặt phòng">
+              <Tag color={bookingStatusMap[selectedPayment.bookingStatus || '']?.color}>
+                {bookingStatusMap[selectedPayment.bookingStatus || '']?.label || selectedPayment.bookingStatus || '-'}
+              </Tag>
+            </Descriptions.Item>
             <Descriptions.Item label="Tiền phòng">
               {formatPrice(selectedPayment.roomAmount)}
+            </Descriptions.Item>
+            <Descriptions.Item label="Phụ thu người ở">
+              {formatPrice(selectedPayment.surchargeAmount)}
             </Descriptions.Item>
             <Descriptions.Item label="Dịch vụ">
               {formatPrice(selectedPayment.serviceAmount)}
@@ -634,11 +698,18 @@ function PaymentManagement() {
             <Descriptions.Item label="Phương thức">
               {methodLabels[selectedPayment.paymentMethod || ''] || '-'}
             </Descriptions.Item>
-            <Descriptions.Item label="Trạng thái">
+            <Descriptions.Item label="Trạng thái thanh toán">
               <Tag color={statusMap[selectedPayment.paymentStatus]?.color}>
                 {statusMap[selectedPayment.paymentStatus]?.label}
               </Tag>
             </Descriptions.Item>
+            {selectedPayment.verificationStatus && (
+              <Descriptions.Item label="Trạng thái đối soát">
+                <Tag color={verificationStatusMap[selectedPayment.verificationStatus]?.color}>
+                  {verificationStatusMap[selectedPayment.verificationStatus]?.label || selectedPayment.verificationStatus}
+                </Tag>
+              </Descriptions.Item>
+            )}
             {selectedPayment.transactionCode && (
               <Descriptions.Item label="Mã giao dịch">
                 {selectedPayment.transactionCode}

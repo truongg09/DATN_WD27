@@ -84,6 +84,7 @@ function AdminLayout() {
             </li>
             <li><Link to="/admin/vouchers">Voucher</Link></li>
             <li><Link to="/admin/reviews">Đánh giá</Link></li>
+            <li><Link to="/admin/invoices">Quản lý hóa đơn</Link></li>
             <li>
               <Link to="/admin/payments">
                 {withBadge('Thanh toán', counts.pendingRefunds + counts.pendingWithdrawals)}
