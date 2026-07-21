@@ -43,6 +43,7 @@ import ServiceManagement from "../pages/Admin/ServiceManagement";
 import VoucherManagement from "../pages/Admin/VoucherManagement";
 import ReviewManagement from "../pages/Admin/ReviewManagement";
 import PaymentManagement from "../pages/Admin/PaymentManagement";
+import InvoiceManagement from "../pages/Admin/InvoiceManagement";
 import PaymentSettings from "../pages/Admin/PaymentSettings";
 import ReportManagement from "../pages/Admin/ReportManagement";
 
@@ -147,6 +148,8 @@ const AppRoutes = () => {
             path="payments"
             element={<PaymentManagement />}
           />
+
+          <Route path="invoices" element={<InvoiceManagement />} />
 
           <Route
             path="payment-settings"

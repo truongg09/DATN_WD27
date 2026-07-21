@@ -19,6 +19,7 @@ const BOOKING_SELECT = `
     bd.adults,
     bd.children,
     bd.roomPrice AS room_price,
+    COALESCE(bd.occupancySurcharge, 0) AS occupancy_surcharge,
     COALESCE(b.guest_name, c.fullName) AS customer_name,
     COALESCE(b.guest_email, a.email) AS customer_email,
     COALESCE(b.guest_phone, c.phone, a.phone) AS customer_phone,
@@ -338,12 +339,12 @@ const createBooking = async (payload, totalPrice, connection) => {
   return result.insertId;
 };
 
-const createBookingDetail = async (bookingId, payload, roomPrice, connection) => {
+const createBookingDetail = async (bookingId, payload, roomPrice, occupancySurcharge = 0, connection) => {
   await run(connection).query(
     `
       INSERT INTO booking_details
-        (bookingId, roomId, checkInDate, checkOutDate, adults, children, roomPrice)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+        (bookingId, roomId, checkInDate, checkOutDate, adults, children, roomPrice, occupancySurcharge)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       bookingId,
@@ -352,7 +353,8 @@ const createBookingDetail = async (bookingId, payload, roomPrice, connection) =>
       payload.checkOut,
       payload.adults,
       payload.children,
-      roomPrice
+      roomPrice,
+      occupancySurcharge
     ]
   );
 };
