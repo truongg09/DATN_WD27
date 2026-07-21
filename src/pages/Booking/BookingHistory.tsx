@@ -72,6 +72,7 @@ const bookingStatusMap: Record<string, { label: string; color: string }> = {
 
 const paymentStatusMap: Record<string, { label: string; color: string }> = {
   unpaid: { label: 'Chưa thanh toán', color: 'orange' },
+  deposit_paid: { label: 'Đã đặt cọc', color: 'blue' },
   paid: { label: 'Đã thanh toán', color: 'green' },
   refunded: { label: 'Đã hoàn tiền', color: 'red' },
 };
@@ -315,7 +316,10 @@ const BookingHistory: React.FC = () => {
         <Tag className="history-status-tag" color={paymentStatusMap[payment.paymentStatus]?.color || 'default'}>
           {paymentStatusMap[payment.paymentStatus]?.label || payment.paymentStatus}
         </Tag>
-        {payment.paymentStatus === 'unpaid' && (
+        {payment.verificationStatus === 'pending' && (
+          <Tag className="history-status-tag" color="gold">Chờ đối soát chuyển khoản</Tag>
+        )}
+        {(payment.paymentStatus === 'unpaid' || payment.paymentStatus === 'deposit_paid') && (
           <span className={`history-hold-time ${isHoldExpired ? 'expired' : ''}`}>
             {hasDeposit
               ? 'Đã cọc, cần thanh toán phần còn lại'
@@ -404,13 +408,13 @@ const BookingHistory: React.FC = () => {
           const hasDeposit = Number(payment?.paidAmount || 0) > 0;
           const holdRemainingMs = getHoldRemainingMs(record.created_at);
           const isHoldExpired =
-            (!payment || payment.paymentStatus === 'unpaid') &&
+            (!payment || ['unpaid', 'deposit_paid'].includes(payment.paymentStatus)) &&
             !hasDeposit &&
             holdRemainingMs <= 0 &&
             record.status !== 'cancelled';
           const canCancel = ['pending', 'confirmed'].includes(record.status);
           const canPay =
-            (!payment || payment.paymentStatus === 'unpaid') &&
+            (!payment || ['unpaid', 'deposit_paid'].includes(payment.paymentStatus)) &&
             !isHoldExpired &&
             record.status !== 'cancelled';
 

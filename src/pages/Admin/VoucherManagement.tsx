@@ -229,7 +229,7 @@ function VoucherManagement() {
               title="Tổng voucher"
               value={totalVouchers}
               prefix={<GiftOutlined style={{ color: '#a78362' }} />}
-              valueStyle={{ color: '#2b2420' }}
+              styles={{ content: { color: '#2b2420' } }}
             />
           </Card>
         </Col>
@@ -239,7 +239,7 @@ function VoucherManagement() {
               title="Đang hoạt động"
               value={activeVouchers}
               prefix={<CalendarOutlined style={{ color: '#3f8f5f' }} />}
-              valueStyle={{ color: '#3f8f5f' }}
+              styles={{ content: { color: '#3f8f5f' } }}
             />
           </Card>
         </Col>
@@ -249,7 +249,7 @@ function VoucherManagement() {
               title="Đã hết hạn"
               value={expiredVouchers}
               prefix={<DollarOutlined style={{ color: '#bb4a3c' }} />}
-              valueStyle={{ color: '#bb4a3c' }}
+              styles={{ content: { color: '#bb4a3c' } }}
             />
           </Card>
         </Col>
