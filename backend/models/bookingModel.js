@@ -10,6 +10,17 @@ const BOOKING_SELECT = `
     b.user_id,
     b.status,
     b.total_price,
+    COALESCE(
+      (
+        SELECT p.totalAmount
+        FROM payments p
+        WHERE p.bookingId = b.id
+        ORDER BY p.id DESC
+        LIMIT 1
+      ),
+      b.total_price,
+      0
+    ) AS payable_total,
     b.created_at,
     b.notes,
     bd.id AS detail_id,
@@ -390,6 +401,19 @@ const sumBookingServices = async (bookingId, connection) => {
   return Number(row?.total || 0);
 };
 
+const createCustomerNotification = async (accountId, title, content, connection) => {
+  if (!accountId) return null;
+
+  const [result] = await run(connection).query(
+    `
+      INSERT INTO notifications (accountId, title, content, isRead)
+      VALUES (?, ?, ?, 0)
+    `,
+    [accountId, title, content]
+  );
+  return result.insertId;
+};
+
 const replaceBookingGuests = async (bookingId, guests, connection) => {
   await run(connection).query('DELETE FROM booking_guests WHERE bookingId = ?', [bookingId]);
 
@@ -578,6 +602,7 @@ module.exports = {
   getServiceById,
   addBookingService,
   sumBookingServices,
+  createCustomerNotification,
   replaceBookingGuests,
   addDamageCharge,
   sumDamageCharges,

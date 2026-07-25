@@ -51,14 +51,16 @@ const verifyVnpay = (query) => {
   requireEnv(['VNPAY_HASH_SECRET'], 'VNPay');
   const { vnp_SecureHash: signature, vnp_SecureHashType: _ignored, ...params } = query;
   if (!signature) return false;
-  const expected = hmac('sha512', process.env.VNPAY_HASH_SECRET, vnpayQueryString(params));
-  return expected.length === String(signature).length && crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(String(signature)));
+  const expected = hmac('sha512', process.env.VNPAY_HASH_SECRET, vnpayQueryString(params)).toLowerCase();
+  const received = String(signature).trim().toLowerCase();
+  return expected.length === received.length
+    && crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(received));
 };
 
 const createMomoPayment = async ({ orderId, bookingId, amount, orderInfo }) => {
   requireEnv(['MOMO_PARTNER_CODE', 'MOMO_ACCESS_KEY', 'MOMO_SECRET_KEY'], 'MoMo');
   const requestId = `${orderId}-${Date.now()}`;
-  const redirectUrl = `${FRONTEND_URL}/booking/${bookingId}?gateway=momo`;
+  const redirectUrl = `${API_BASE_URL}/api/payments/gateway/momo/return`;
   const ipnUrl = `${API_BASE_URL}/api/payments/gateway/momo/ipn`;
   const requestType = 'payWithMethod';
   const raw = `accessKey=${process.env.MOMO_ACCESS_KEY}&amount=${Math.round(amount)}&extraData=&ipnUrl=${ipnUrl}&orderId=${orderId}&orderInfo=${orderInfo}&partnerCode=${process.env.MOMO_PARTNER_CODE}&redirectUrl=${redirectUrl}&requestId=${requestId}&requestType=${requestType}`;

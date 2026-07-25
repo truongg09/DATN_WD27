@@ -1,6 +1,22 @@
 const db = require('./config/db');
 
 const ensureOperationalSchema = async () => {
+  // Room APIs use soft deletion. Older database dumps do not contain these
+  // columns, which makes GET /api/rooms and /api/rooms/types fail with 500.
+  const [roomColumns] = await db.query('DESCRIBE rooms');
+  if (!roomColumns.some((column) => column.Field === 'isDeleted')) {
+    await db.query(
+      'ALTER TABLE rooms ADD COLUMN isDeleted TINYINT(1) NOT NULL DEFAULT 0'
+    );
+  }
+
+  const [roomTypeColumns] = await db.query('DESCRIBE room_types');
+  if (!roomTypeColumns.some((column) => column.Field === 'isDeleted')) {
+    await db.query(
+      'ALTER TABLE room_types ADD COLUMN isDeleted TINYINT(1) NOT NULL DEFAULT 0'
+    );
+  }
+
   // The surcharge for guests (for example, chargeable children) is stored on
   // the booking detail. It must not be merged into the accommodation amount.
   const [bookingDetailTables] = await db.query('SHOW TABLES LIKE "booking_details"');

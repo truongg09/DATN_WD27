@@ -87,9 +87,11 @@ const PaymentSandbox: React.FC = () => {
     if (!payment) return;
     setSubmitting(true);
     try {
-      await confirmPayment(payment.id, { amount, transactionCode: txn });
-      message.success(`Thanh toán ${formatPrice(amount)} qua ${method.toUpperCase()} thành công!`);
-      navigate(`/booking/${bookingId}`);
+      const response = await confirmPayment(payment.id, { amount, transactionCode: txn });
+      const status = response.data.payment.paymentStatus;
+      navigate(
+        `/booking/${bookingId}?gateway=${method.toLowerCase()}&payment=success&status=${encodeURIComponent(status)}`
+      );
     } catch (error: unknown) {
       const err = error as { response?: { data?: { message?: string } } };
       message.error(err.response?.data?.message || 'Không thể xác nhận thanh toán');

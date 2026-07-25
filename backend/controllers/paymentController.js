@@ -115,17 +115,34 @@ const createGatewayOrder = async (req, res) => {
 const vnpayReturn = async (req, res) => {
   const { verifyVnpay, FRONTEND_URL } = require('../services/paymentGatewayService');
   const orderId = String(req.query.vnp_TxnRef || '');
-  const bookingId = orderId.split('-')[1] || '';
+  const paymentId = Number(orderId.split('-')[1]);
+  let bookingId = '';
   let success = false;
+  let paymentStatus = '';
   try {
+    if (Number.isInteger(paymentId) && paymentId > 0) {
+      const payment = await paymentService.getPaymentById(paymentId);
+      bookingId = String(payment.bookingId);
+    }
     if (verifyVnpay(req.query) && req.query.vnp_ResponseCode === '00') {
-      await paymentService.settleGatewayPayment({ orderId, paymentMethod: 'vnpay', amount: Number(req.query.vnp_Amount) / 100 });
-      success = true;
+      const settledPayment = await paymentService.settleGatewayPayment({
+        orderId,
+        paymentMethod: 'vnpay',
+        amount: Number(req.query.vnp_Amount) / 100
+      });
+      const payment = await paymentService.getPaymentByBookingId(settledPayment.bookingId);
+      bookingId = String(payment.bookingId);
+      paymentStatus = payment.paymentStatus;
+      success =
+        Number(payment.paidAmount) > 0
+        && ['deposit_paid', 'paid'].includes(payment.paymentStatus);
     }
   } catch (error) {
     console.error('VNPay return error:', error);
   }
-  res.redirect(`${FRONTEND_URL}/booking/${bookingId}?gateway=vnpay&payment=${success ? 'success' : 'failed'}`);
+  res.redirect(
+    `${FRONTEND_URL}/booking/${bookingId}?gateway=vnpay&payment=${success ? 'success' : 'failed'}${paymentStatus ? `&status=${encodeURIComponent(paymentStatus)}` : ''}`
+  );
 };
 
 const vnpayIpn = async (req, res) => {
@@ -152,6 +169,41 @@ const momoIpn = async (req, res) => {
   } catch (error) {
     res.status(500).json({ resultCode: 99, message: error.message });
   }
+};
+
+const momoReturn = async (req, res) => {
+  const { verifyMomo, FRONTEND_URL } = require('../services/paymentGatewayService');
+  const orderId = String(req.query.orderId || '');
+  const paymentId = Number(orderId.split('-')[1]);
+  let bookingId = '';
+  let success = false;
+  let paymentStatus = '';
+
+  try {
+    if (Number.isInteger(paymentId) && paymentId > 0) {
+      const payment = await paymentService.getPaymentById(paymentId);
+      bookingId = String(payment.bookingId);
+    }
+    if (verifyMomo(req.query) && Number(req.query.resultCode) === 0) {
+      const settledPayment = await paymentService.settleGatewayPayment({
+        orderId,
+        paymentMethod: 'momo',
+        amount: Number(req.query.amount)
+      });
+      const payment = await paymentService.getPaymentByBookingId(settledPayment.bookingId);
+      bookingId = String(payment.bookingId);
+      paymentStatus = payment.paymentStatus;
+      success =
+        Number(payment.paidAmount) > 0
+        && ['deposit_paid', 'paid'].includes(payment.paymentStatus);
+    }
+  } catch (error) {
+    console.error('MoMo return error:', error);
+  }
+
+  res.redirect(
+    `${FRONTEND_URL}/booking/${bookingId}?gateway=momo&payment=${success ? 'success' : 'failed'}${paymentStatus ? `&status=${encodeURIComponent(paymentStatus)}` : ''}`
+  );
 };
 
 const submitTransferConfirmation = async (req, res) => {
@@ -189,6 +241,7 @@ module.exports = {
   createGatewayOrder,
   vnpayReturn,
   vnpayIpn,
+  momoReturn,
   momoIpn,
   submitTransferConfirmation,
   confirmTransferPayment
