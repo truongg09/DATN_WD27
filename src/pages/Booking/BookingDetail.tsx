@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, Descriptions, Tag, Button, Spin, message, Divider, Rate, Input } from 'antd';
 import { FileTextOutlined, CreditCardOutlined, StarOutlined } from '@ant-design/icons';
@@ -48,6 +48,7 @@ const BookingDetail: React.FC = () => {
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState('');
   const [submittingReview, setSubmittingReview] = useState(false);
+  const handledPaymentCallbackRef = useRef('');
 
   useEffect(() => {
     if (!isValidBookingId) {
@@ -100,14 +101,52 @@ const BookingDetail: React.FC = () => {
 
   useEffect(() => {
     const gateway = searchParams.get('gateway');
-    const gatewayReportedSuccess = searchParams.get('payment') === 'success';
+    const paymentResult = searchParams.get('payment');
+    const callbackStatus = searchParams.get('status');
+    if (!paymentResult || !payment) return;
+
+    const callbackKey = `${gateway || ''}:${paymentResult || ''}:${callbackStatus || ''}`;
+    if (handledPaymentCallbackRef.current === callbackKey) return;
+    handledPaymentCallbackRef.current = callbackKey;
+
+    const gatewayReportedSuccess = paymentResult === 'success';
     const isGatewayReturn = gatewayReportedSuccess || gateway === 'momo';
     const isSettled = payment?.paymentStatus === 'paid' || payment?.paymentStatus === 'deposit_paid';
+    const callbackMatchesPayment =
+      callbackStatus === 'paid'
+        ? payment?.paymentStatus === 'paid'
+        : callbackStatus === 'deposit_paid'
+          ? payment?.paymentStatus === 'deposit_paid'
+          : false;
 
     // Never trust a gateway query parameter alone. The success notice is shown
     // only after the backend has verified the callback and updated the payment.
-    if (isGatewayReturn && isSettled) {
-      message.success('Thanh toán thành công!');
+    if (isGatewayReturn && isSettled && callbackMatchesPayment) {
+      const isFullyPaid = payment?.paymentStatus === 'paid';
+      message.success({
+        content: isFullyPaid
+          ? 'Thanh toán thành công! Đơn đặt phòng đã được thanh toán đầy đủ.'
+          : `Đặt cọc thành công! Hệ thống đã ghi nhận khoản cọc. Số tiền còn lại: ${formatPrice(payment?.remainingAmount ?? 0)}.`,
+        duration: 6,
+      });
+      navigate(`/booking/${bookingId}`, { replace: true });
+      return;
+    }
+
+    if (gatewayReportedSuccess && callbackStatus && !callbackMatchesPayment) {
+      message.warning({
+        content: 'Giao dịch chưa được hệ thống ghi nhận đầy đủ. Vui lòng kiểm tra lại hoặc thử thanh toán lại.',
+        duration: 7,
+      });
+      navigate(`/booking/${bookingId}`, { replace: true });
+      return;
+    }
+
+    if (paymentResult === 'failed') {
+      message.error({
+        content: 'Thanh toán chưa thành công hoặc giao dịch đã bị hủy. Vui lòng thử lại.',
+        duration: 6,
+      });
       navigate(`/booking/${bookingId}`, { replace: true });
     }
   }, [bookingId, navigate, payment?.paymentStatus, searchParams]);
@@ -210,6 +249,11 @@ const BookingDetail: React.FC = () => {
               </Descriptions.Item>
               <Descriptions.Item label="Tổng">{formatPrice(payment.totalAmount)}</Descriptions.Item>
               <Descriptions.Item label="Đã trả">{formatPrice(payment.paidAmount)}</Descriptions.Item>
+              {payment.remainingAmount > 0 && (
+                <Descriptions.Item label="Còn phải thanh toán">
+                  <strong>{formatPrice(payment.remainingAmount)}</strong>
+                </Descriptions.Item>
+              )}
               {payment.transactionCode && (
                 <Descriptions.Item label="Mã GD">
                   {payment.transactionCode}
