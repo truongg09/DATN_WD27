@@ -264,8 +264,7 @@ const PaymentPage: React.FC = () => {
       }
 
       setQrModalOpen(false);
-      message.success('Thanh toán thành công!');
-      navigate(`/booking/${bookingId}`);
+      navigate(`/booking/${bookingId}?payment=success`);
     } catch (error: unknown) {
       const err = error as { response?: { data?: { message?: string } } };
       const errorMessage = err.response?.data?.message || 'Thanh toán thất bại';

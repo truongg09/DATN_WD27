@@ -61,7 +61,13 @@ const createGatewayOrder = async (paymentId, { paymentMethod, amount, ipAddress 
   }
   const orderId = `${paymentMethod.toUpperCase()}-${payment.id}-${Date.now()}`;
   const orderInfo = `Thanh toan booking ${payment.bookingId}`;
-  await paymentModel.updatePayment(payment.id, { paymentMethod, transactionCode: orderId });
+  // paymentDate belongs to the previously completed installment. Clear it
+  // when opening a new gateway order so its callback is processed exactly once.
+  await paymentModel.updatePayment(payment.id, {
+    paymentMethod,
+    transactionCode: orderId,
+    paymentDate: null
+  });
   const gateway = require('./paymentGatewayService');
   const paymentUrl = paymentMethod === 'vnpay'
     ? gateway.createVnpayUrl({ orderId, amount: payableAmount, orderInfo, ipAddress })
@@ -111,7 +117,9 @@ const createPayment = async (payload) => {
     await connection.commit();
     return payment;
   } catch (error) {
-    await connection.rollback();
+    if (!committed) {
+      await connection.rollback();
+    }
     throw error;
   } finally {
     connection.release();
@@ -271,23 +279,18 @@ const processPayment = async (paymentId, payload) => {
     const isOnline = ['momo', 'vnpay'].includes(payload.paymentMethod);
 
     if (isOnline) {
-      // Just save the method & transaction code, leave status unpaid until they confirm on the sandbox page
-      await paymentModel.updatePayment(
-        paymentId,
-        {
-          paymentMethod: payload.paymentMethod,
-          transactionCode
-        },
-        connection
-      );
-
+      // Compatibility for older frontend bundles that still call /pay:
+      // always send online payments through the real sandbox gateway instead
+      // of the removed local simulation page.
       await connection.commit();
-
-      const updatedPayment = await paymentModel.getPaymentById(paymentId);
+      const gatewayOrder = await createGatewayOrder(paymentId, {
+        paymentMethod: payload.paymentMethod,
+        amount: payAmount
+      });
       return {
-        payment: formatPayment(updatedPayment),
+        payment: formatPayment(await paymentModel.getPaymentById(paymentId)),
         invoice: null,
-        redirectUrl: `/booking/${booking.id}/payment/sandbox?method=${payload.paymentMethod}&amount=${payAmount}&txn=${transactionCode}`
+        redirectUrl: gatewayOrder.paymentUrl
       };
     }
 
@@ -319,13 +322,19 @@ const processPayment = async (paymentId, payload) => {
       connection
     );
 
-    let invoice = null;
-    if (isFullyPaid) {
-      invoice = await invoiceService.issueInvoiceForPayment(paymentId, connection);
-    }
-
     await connection.commit();
     committed = true;
+
+    // Payment settlement is the source of truth. Invoice generation is a
+    // follow-up operation and must never roll back money already received.
+    let invoice = null;
+    if (isFullyPaid) {
+      try {
+        invoice = await invoiceService.issueInvoiceForPayment(paymentId);
+      } catch (error) {
+        console.error(`Issue invoice for payment #${paymentId} failed:`, error);
+      }
+    }
 
     const updatedPayment = await paymentModel.getPaymentById(paymentId);
     const updatedBooking = await bookingModel.getBookingById(booking.id);
@@ -336,7 +345,9 @@ const processPayment = async (paymentId, payload) => {
       redirectUrl: null
     };
   } catch (error) {
-    await connection.rollback();
+    if (!committed) {
+      await connection.rollback();
+    }
     throw error;
   } finally {
     connection.release();
@@ -355,6 +366,23 @@ const confirmPayment = async (paymentId, payload) => {
     const payment = await paymentModel.getPaymentById(paymentId, connection, true);
     if (!payment) {
       throw new HttpError(404, 'Payment not found');
+    }
+
+    // VNPay/MoMo may notify through both the browser return URL and IPN.
+    // Match the callback to the currently-open order while holding the row
+    // lock, then make duplicate callbacks idempotent.
+    if (payload.gatewayOrderId) {
+      if (payment.transactionCode !== payload.gatewayOrderId) {
+        throw new HttpError(409, 'Gateway order is no longer active');
+      }
+      if (payment.paymentDate) {
+        await connection.commit();
+        committed = true;
+        return {
+          payment: formatPayment(payment),
+          invoice: null
+        };
+      }
     }
 
     if (payment.paymentStatus === 'paid') {
@@ -400,7 +428,11 @@ const confirmPayment = async (paymentId, payload) => {
     const newPaidAmount = Number(payment.paidAmount) + payAmount;
     const newRemainingAmount = Number(payment.totalAmount) - newPaidAmount;
     const isFullyPaid = newRemainingAmount <= 0;
-    const transactionCode = payload.transactionCode || payment.transactionCode || generateTransactionCode(payment.paymentMethod);
+    const transactionCode =
+      payload.gatewayOrderId
+      || payload.transactionCode
+      || payment.transactionCode
+      || generateTransactionCode(payment.paymentMethod);
     const paymentDate = new Date();
 
     await paymentModel.updatePayment(
@@ -408,7 +440,7 @@ const confirmPayment = async (paymentId, payload) => {
       {
         paidAmount: newPaidAmount,
         remainingAmount: Math.max(newRemainingAmount, 0),
-        paymentStatus: isFullyPaid ? 'paid' : 'unpaid',
+        paymentStatus: isFullyPaid ? 'paid' : 'deposit_paid',
         transactionCode,
         paymentDate
       },
@@ -420,13 +452,18 @@ const confirmPayment = async (paymentId, payload) => {
       await bookingModel.updateBookingStatus(booking.id, 'confirmed', connection);
     }
 
-    let invoice = null;
-    if (isFullyPaid) {
-      invoice = await invoiceService.issueInvoiceForPayment(paymentId, connection);
-    }
-
     await connection.commit();
     committed = true;
+
+    // Keep a successful gateway payment even if invoice creation fails.
+    let invoice = null;
+    if (isFullyPaid) {
+      try {
+        invoice = await invoiceService.issueInvoiceForPayment(paymentId);
+      } catch (error) {
+        console.error(`Issue invoice for payment #${paymentId} failed:`, error);
+      }
+    }
 
     const updatedPayment = await paymentModel.getPaymentById(paymentId);
     return {
@@ -484,13 +521,23 @@ const refundPayment = async (paymentId) => {
 const settleGatewayPayment = async ({ orderId, paymentMethod, amount }) => {
   const payment = await paymentModel.getPaymentByTransactionCode(orderId);
   if (!payment) throw new HttpError(404, 'Gateway order not found');
-  if (payment.paymentStatus === 'paid') return formatPayment(payment);
+  // The other gateway notification may already have settled this exact order.
+  if (payment.paymentDate) return formatPayment(payment);
   if (payment.paymentStatus === 'refunded') throw new HttpError(409, 'Payment was refunded');
   const paid = Number(amount);
   if (!Number.isFinite(paid) || paid <= 0 || paid > Number(payment.remainingAmount)) {
     throw new HttpError(400, 'Gateway amount is invalid');
   }
-  const result = await processPayment(payment.id, { paymentMethod, amount: paid });
+
+  // A verified gateway callback settles the existing order directly. Calling
+  // processPayment here would create another VNPay/MoMo order instead of
+  // recording the money that has already been received.
+  const result = await confirmPayment(payment.id, {
+    amount: paid,
+    transactionCode: orderId,
+    gatewayOrderId: orderId,
+    paymentMethod
+  });
   return result.payment;
 };
 
