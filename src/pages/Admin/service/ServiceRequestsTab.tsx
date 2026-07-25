@@ -81,8 +81,19 @@ function ServiceRequestsTab() {
   const handleConfirm = async (id: number) => {
     setProcessingId(id);
     try {
-      await api.patch(`/service-requests/${id}/confirm`);
-      message.success('Đã xác nhận & cộng dịch vụ vào hóa đơn');
+      const response = await api.patch(`/service-requests/${id}/confirm`);
+      const result = (response as unknown as {
+        data?: {
+          service?: { totalPrice?: number };
+          payment?: { remainingAmount?: number };
+        };
+      }).data;
+      const service = result?.service;
+      const payment = result?.payment;
+      message.warning(
+        `Đã cộng ${formatPrice(service?.totalPrice || 0)} tiền dịch vụ. Khách còn phải thanh toán ${formatPrice(payment?.remainingAmount || 0)}.`,
+        7
+      );
       void fetchRequests();
     } catch (error: unknown) {
       const msg = axios.isAxiosError(error) ? error.response?.data?.message : undefined;

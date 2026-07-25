@@ -13,12 +13,15 @@ router.post('/', requireAuth, requireStaff, paymentController.createPayment);
 router.get('/', requireAuth, requireStaff, paymentController.listPayments);
 router.get('/gateway/vnpay/return', paymentController.vnpayReturn);
 router.get('/gateway/vnpay/ipn', paymentController.vnpayIpn);
+router.get('/gateway/momo/return', paymentController.momoReturn);
 router.post('/gateway/momo/ipn', paymentController.momoIpn);
 router.get('/booking/:bookingId', requireAuth, requireBookingPaymentAccess, paymentController.getPaymentByBookingId);
 router.post('/:id/gateway-order', requireAuth, requirePaymentAccess, paymentController.createGatewayOrder);
 router.post('/:id/transfer-confirmation', requireAuth, requirePaymentAccess, paymentController.submitTransferConfirmation);
 router.post('/:id/confirm-transfer', requireAuth, requireStaff, paymentController.confirmTransferPayment);
-router.post('/:id/confirm', requireAuth, requireStaff, paymentController.confirmPayment);
+// Used by the local payment sandbox as well as staff tools. Authorization is
+// limited to the booking owner or staff by requirePaymentAccess.
+router.post('/:id/confirm', requireAuth, requirePaymentAccess, paymentController.confirmPayment);
 router.get('/:id', requireAuth, requirePaymentAccess, paymentController.getPaymentById);
 router.post('/:id/pay', requireAuth, requireStaff, paymentController.processPayment);
 router.patch('/:id/refund', requireAuth, requireStaff, paymentController.refundPayment);
