@@ -19,7 +19,7 @@ import {
   type RefundPreview,
 } from '../../services/bookingService';
 import { getPaymentByBookingId } from '../../services/paymentService';
-import { createReview, getReviews } from '../../services/reviewService';
+import { createReview, getReviews, updateReview } from '../../services/reviewService';
 import { getMyRefunds, type RefundRow } from '../../services/refundService';
 import { VIETQR_BANKS } from '../../utils/vietqr';
 import { useAuth } from '../../contexts/AuthContext';
@@ -38,7 +38,21 @@ interface BookingRow {
   created_at?: string;
 }
 
+interface ReviewRow {
+  id: number;
+  bookingId: number;
+  rating: number;
+  comment: string;
+}
+
+interface ReviewInfo {
+  id: number;
+  rating: number;
+  comment: string;
+}
+
 type PaymentByBooking = Record<number, Payment | null>;
+type ReviewsByBooking = Record<number, ReviewInfo>;
 
 const HOLD_MINUTES = 15;
 
@@ -91,7 +105,8 @@ const BookingHistory: React.FC = () => {
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState('');
   const [submittingReview, setSubmittingReview] = useState(false);
-  const [reviewedBookingIds, setReviewedBookingIds] = useState<Set<number>>(new Set());
+  const [editingReviewId, setEditingReviewId] = useState<number | null>(null);
+  const [reviewsByBooking, setReviewsByBooking] = useState<ReviewsByBooking>({});
   const [refundsByBooking, setRefundsByBooking] = useState<Record<number, RefundRow>>({});
   const [cancelTarget, setCancelTarget] = useState<BookingRow | null>(null);
   const [cancelPreview, setCancelPreview] = useState<RefundPreview | null>(null);
@@ -133,9 +148,21 @@ const BookingHistory: React.FC = () => {
       setPayments(Object.fromEntries(paymentEntries));
 
       try {
-        const reviewsRes = await getReviews();
-        const reviewRows = unwrapList<{ bookingId: number }>(reviewsRes);
-        setReviewedBookingIds(new Set(reviewRows.map((review) => review.bookingId)));
+        const bookingIds = bookingRows.map((b) => b.id).join(',');
+        if (bookingIds) {
+          const reviewsRes = await getReviews({ bookingIds });
+          const reviewRows = unwrapList<ReviewRow>(reviewsRes);
+          setReviewsByBooking(
+            Object.fromEntries(
+              reviewRows.map((r) => [
+                r.bookingId,
+                { id: r.id, rating: r.rating, comment: r.comment },
+              ])
+            )
+          );
+        } else {
+          setReviewsByBooking({});
+        }
       } catch {
         // Không chặn trang nếu tải danh sách đánh giá thất bại
       }
@@ -264,8 +291,16 @@ const BookingHistory: React.FC = () => {
 
   const openReviewModal = (record: BookingRow) => {
     setReviewBooking(record);
-    setReviewRating(5);
-    setReviewComment('');
+    const existing = reviewsByBooking[record.id];
+    if (existing) {
+      setEditingReviewId(existing.id);
+      setReviewRating(existing.rating);
+      setReviewComment(existing.comment);
+    } else {
+      setEditingReviewId(null);
+      setReviewRating(5);
+      setReviewComment('');
+    }
   };
 
   const handleSubmitReview = async () => {
@@ -273,17 +308,41 @@ const BookingHistory: React.FC = () => {
 
     setSubmittingReview(true);
     try {
-      await createReview({
-        bookingId: reviewBooking.id,
-        rating: reviewRating,
-        comment: reviewComment.trim(),
-      });
-      message.success('Cảm ơn bạn đã đánh giá!');
-      setReviewedBookingIds((prev) => new Set(prev).add(reviewBooking.id));
+      if (editingReviewId) {
+        await updateReview(editingReviewId, {
+          rating: reviewRating,
+          comment: reviewComment.trim(),
+        });
+        message.success('Đã cập nhật đánh giá!');
+        setReviewsByBooking((prev) => ({
+          ...prev,
+          [reviewBooking.id]: {
+            id: editingReviewId,
+            rating: reviewRating,
+            comment: reviewComment.trim(),
+          },
+        }));
+      } else {
+        const res = await createReview({
+          bookingId: reviewBooking.id,
+          rating: reviewRating,
+          comment: reviewComment.trim(),
+        });
+        message.success('Cảm ơn bạn đã đánh giá!');
+        const newId = (res as { data?: { data?: { id?: number } } })?.data?.data?.id ?? 0;
+        setReviewsByBooking((prev) => ({
+          ...prev,
+          [reviewBooking.id]: {
+            id: newId,
+            rating: reviewRating,
+            comment: reviewComment.trim(),
+          },
+        }));
+      }
       setReviewBooking(null);
     } catch (error: unknown) {
       const err = error as { response?: { data?: { message?: string } } };
-      message.error(err.response?.data?.message || 'Không thể gửi đánh giá');
+      message.error(err.response?.data?.message || 'Không thể lưu đánh giá');
     } finally {
       setSubmittingReview(false);
     }
@@ -417,6 +476,7 @@ const BookingHistory: React.FC = () => {
             (!payment || ['unpaid', 'deposit_paid'].includes(payment.paymentStatus)) &&
             !isHoldExpired &&
             record.status !== 'cancelled';
+          const existingReview = reviewsByBooking[record.id];
 
           return (
             <Space className="history-actions" wrap>
@@ -444,12 +504,8 @@ const BookingHistory: React.FC = () => {
               )}
 
               {record.status === 'checked_out' && (
-                <Button
-                  icon={<StarOutlined />}
-                  disabled={reviewedBookingIds.has(record.id)}
-                  onClick={() => openReviewModal(record)}
-                >
-                  {reviewedBookingIds.has(record.id) ? 'Đã đánh giá' : 'Đánh giá'}
+                <Button icon={<StarOutlined />} onClick={() => openReviewModal(record)}>
+                  {existingReview ? 'Xem/Sửa đánh giá' : 'Đánh giá'}
                 </Button>
               )}
             </Space>
@@ -457,7 +513,7 @@ const BookingHistory: React.FC = () => {
         },
       },
     ],
-    [cancellingId, payments, nowTick, reviewedBookingIds, refundsByBooking]
+    [cancellingId, payments, nowTick, reviewsByBooking, refundsByBooking]
   );
 
   return (
@@ -619,8 +675,14 @@ const BookingHistory: React.FC = () => {
 
       <Modal
         open={!!reviewBooking}
-        title={reviewBooking ? `Đánh giá đặt phòng #${reviewBooking.id}` : ''}
-        okText="Gửi đánh giá"
+        title={
+          reviewBooking
+            ? editingReviewId
+              ? `Sửa đánh giá đặt phòng #${reviewBooking.id}`
+              : `Đánh giá đặt phòng #${reviewBooking.id}`
+            : ''
+        }
+        okText={editingReviewId ? 'Cập nhật đánh giá' : 'Gửi đánh giá'}
         cancelText="Đóng"
         confirmLoading={submittingReview}
         onOk={handleSubmitReview}
