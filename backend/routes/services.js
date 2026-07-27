@@ -38,7 +38,7 @@ router.get('/', async (_req, res) => {
     res.json({ data: services });
   } catch (error) {
     console.error('List services error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
   }
 });
 
@@ -59,7 +59,7 @@ router.get('/:id', async (req, res) => {
     res.json({ data: services[0] });
   } catch (error) {
     console.error('Get service error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
   }
 });
 
@@ -84,7 +84,7 @@ router.post('/', async (req, res) => {
       .json({ data: { id: result.insertId }, message: 'Thêm dịch vụ thành công' });
   } catch (error) {
     console.error('Create service error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
   }
 });
 
@@ -118,7 +118,7 @@ router.put('/:id', async (req, res) => {
     res.json({ message: 'Cập nhật dịch vụ thành công' });
   } catch (error) {
     console.error('Update service error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
   }
 });
 
@@ -147,7 +147,7 @@ router.delete('/:id', async (req, res) => {
     res.json({ message: 'Xóa dịch vụ thành công' });
   } catch (error) {
     console.error('Delete service error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
   }
 });
 

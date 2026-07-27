@@ -14,7 +14,7 @@ const createVoucher = async (
   const [result] = await run(connection).query(
     `
       INSERT INTO vouchers (code, discountType, discountValue, quantity, startDate, endDate, status)
-      VALUES (?, 'percent', ?, ?, ?, ?, 'active')
+      VALUES (?, 'percentage', ?, ?, ?, ?, 'active')
     `,
     [code, discountPercentage, usageLimit, validFrom, validUntil]
   );

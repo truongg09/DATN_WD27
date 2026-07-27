@@ -14,7 +14,7 @@ const buildInvoiceCode = async (connection) => {
 const issueInvoiceForPayment = async (paymentId, connection) => {
   const payment = await paymentModel.getPaymentById(paymentId, connection, !!connection);
   if (!payment) {
-    throw new HttpError(404, 'Payment not found');
+    throw new HttpError(404, 'Không tìm thấy thanh toán');
   }
 
   const existing = await invoiceModel.getInvoiceByBookingId(payment.bookingId);
@@ -54,7 +54,7 @@ const listInvoices = async (filters) => {
 const getInvoiceById = async (invoiceId) => {
   const invoice = await invoiceModel.getInvoiceById(invoiceId);
   if (!invoice) {
-    throw new HttpError(404, 'Invoice not found');
+    throw new HttpError(404, 'Không tìm thấy hóa đơn');
   }
   return formatInvoice(invoice);
 };
@@ -62,7 +62,7 @@ const getInvoiceById = async (invoiceId) => {
 const getInvoiceByBookingId = async (bookingId) => {
   const invoice = await invoiceModel.getInvoiceByBookingId(bookingId);
   if (!invoice) {
-    throw new HttpError(404, 'Invoice not found for this booking');
+    throw new HttpError(404, 'Không tìm thấy hóa đơn của đặt phòng này');
   }
   return formatInvoice(invoice);
 };

@@ -1,6 +1,62 @@
 const db = require('./config/db');
 
 const ensureOperationalSchema = async () => {
+  const [bookingColumns] = await db.query('DESCRIBE bookings');
+  if (!bookingColumns.some((column) => column.Field === 'cancellation_reason')) {
+    await db.query('ALTER TABLE bookings ADD COLUMN cancellation_reason TEXT NULL AFTER notes');
+  }
+  await db.query(
+    `UPDATE vouchers SET discountType = 'percentage' WHERE discountType = 'percent'`
+  );
+
+  // Luôn có dịch vụ giường phụ để khách có thể chọn ngay trên trang đặt phòng.
+  const [extraBeds] = await db.query(
+    `SELECT id FROM services
+     WHERE LOWER(serviceName) IN ('extra bed', 'kê thêm giường', 'giường phụ')
+     LIMIT 1`
+  );
+  if (extraBeds.length === 0) {
+    await db.query(
+      `INSERT INTO services (serviceName, price, description)
+       VALUES ('Kê thêm giường', 250000, 'Tối đa 1 giường phụ/phòng; đăng ký trước 18:00 ngày nhận phòng.')`
+    );
+  }
+  // Việt hóa dữ liệu dịch vụ mẫu đã tồn tại trong các bản database cũ.
+  await db.query(`
+    UPDATE services
+    SET
+      description = CASE LOWER(TRIM(serviceName))
+        WHEN 'breakfast' THEN 'Buffet sáng phục vụ từ 06:30 đến 10:00.'
+        WHEN 'laundry' THEN 'Dịch vụ giặt và ủi quần áo.'
+        WHEN 'spa' THEN 'Dịch vụ chăm sóc và thư giãn tại spa.'
+        WHEN 'airport pickup' THEN 'Xe đưa đón giữa khách sạn và sân bay.'
+        WHEN 'room service' THEN 'Phục vụ đồ ăn và thức uống tại phòng.'
+        WHEN 'dinner buffet' THEN 'Buffet tối phục vụ từ 18:00 đến 21:30.'
+        WHEN 'massage' THEN 'Dịch vụ massage thư giãn.'
+        WHEN 'bicycle rental' THEN 'Thuê xe đạp sử dụng trong ngày.'
+        WHEN 'mini bar' THEN 'Đồ ăn nhẹ và nước uống trong minibar.'
+        WHEN 'extra bed' THEN 'Tối đa 1 giường phụ mỗi phòng; đăng ký trước 18:00 ngày nhận phòng.'
+        ELSE description
+      END,
+      serviceName = CASE LOWER(TRIM(serviceName))
+        WHEN 'breakfast' THEN 'Buffet sáng'
+        WHEN 'laundry' THEN 'Giặt ủi'
+        WHEN 'spa' THEN 'Spa thư giãn'
+        WHEN 'airport pickup' THEN 'Đưa đón sân bay'
+        WHEN 'room service' THEN 'Phục vụ tại phòng'
+        WHEN 'dinner buffet' THEN 'Buffet tối'
+        WHEN 'massage' THEN 'Massage'
+        WHEN 'bicycle rental' THEN 'Thuê xe đạp'
+        WHEN 'mini bar' THEN 'Đồ uống minibar'
+        WHEN 'extra bed' THEN 'Kê thêm giường'
+        ELSE serviceName
+      END
+    WHERE LOWER(TRIM(serviceName)) IN (
+      'breakfast', 'laundry', 'spa', 'airport pickup', 'room service',
+      'dinner buffet', 'massage', 'bicycle rental', 'mini bar', 'extra bed'
+    )
+  `);
+
   await db.query(`
     CREATE TABLE IF NOT EXISTS booking_guests (
       id INT AUTO_INCREMENT PRIMARY KEY,

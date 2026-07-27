@@ -7,11 +7,15 @@ const { LATE_CHECKIN_GRACE_HOUR } = require('../utils/bookingPolicy');
 const BOOKING_SELECT = `
   SELECT
     b.id,
+    b.bookingCode AS booking_code,
+    b.voucherId AS voucher_id,
     b.user_id,
     b.status,
     b.total_price,
+    b.totalAmount AS booking_total_amount,
     b.created_at,
     b.notes,
+    b.cancellation_reason,
     bd.id AS detail_id,
     bd.roomId AS room_id,
     DATE(COALESCE(bd.checkInDate, b.check_in)) AS check_in,
@@ -23,8 +27,12 @@ const BOOKING_SELECT = `
     COALESCE(b.guest_email, a.email) AS customer_email,
     COALESCE(b.guest_phone, c.phone, a.phone) AS customer_phone,
     r.roomNumber AS room_number,
+    r.floor AS room_floor,
+    r.area AS room_area,
+    r.status AS room_status,
     rt.typeName AS room_type_name,
-    rt.defaultPrice AS price_per_night
+    rt.defaultPrice AS price_per_night,
+    rt.capacity AS room_capacity
   FROM bookings b
   LEFT JOIN booking_details bd ON bd.bookingId = b.id
   LEFT JOIN customers c ON c.accountId = b.user_id

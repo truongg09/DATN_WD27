@@ -10,7 +10,7 @@ const sendError = (res, error) => {
   console.error('Payment API error:', error);
   const statusCode = error.statusCode || 500;
   res.status(statusCode).json({
-    message: statusCode === 500 ? 'Internal server error' : error.message,
+    message: statusCode === 500 ? 'Lỗi máy chủ nội bộ' : error.message,
     ...(error.details ? { details: error.details } : {})
   });
 };
@@ -20,7 +20,7 @@ const createPayment = async (req, res) => {
     const payload = normalizeCreatePaymentPayload(req.body);
     const payment = await paymentService.createPayment(payload);
     res.status(201).json({
-      message: 'Payment created successfully',
+      message: 'Tạo thanh toán thành công',
       data: payment
     });
   } catch (error) {
@@ -64,7 +64,7 @@ const processPayment = async (req, res) => {
     const payload = normalizeProcessPaymentPayload(req.body);
     const result = await paymentService.processPayment(paymentId, payload);
     res.json({
-      message: 'Payment processed successfully',
+      message: 'Xử lý thanh toán thành công',
       data: result
     });
   } catch (error) {
@@ -77,7 +77,7 @@ const refundPayment = async (req, res) => {
     const paymentId = normalizeIdParam(req.params.id);
     const payment = await paymentService.refundPayment(paymentId);
     res.json({
-      message: 'Payment refunded successfully',
+      message: 'Hoàn tiền thành công',
       data: payment
     });
   } catch (error) {

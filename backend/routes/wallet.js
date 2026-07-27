@@ -60,7 +60,7 @@ router.get('/me', requireAuth, async (req, res) => {
     res.json({ data: { balance, transactions } });
   } catch (error) {
     console.error('Get wallet error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
   }
 });
 
@@ -142,7 +142,7 @@ router.post('/withdraw', requireAuth, async (req, res) => {
   } catch (error) {
     await connection.rollback();
     console.error('Withdraw error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
   } finally {
     connection.release();
   }
@@ -177,7 +177,7 @@ router.get('/withdrawals', requireAuth, requireStaff, async (req, res) => {
     res.json({ data: rows });
   } catch (error) {
     console.error('List withdrawals error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
   }
 });
 
@@ -200,7 +200,7 @@ router.patch('/withdrawals/:id/approve', requireAuth, requireStaff, async (req, 
     res.json({ message: 'Đã duyệt rút tiền' });
   } catch (error) {
     console.error('Approve withdrawal error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
   }
 });
 
@@ -223,7 +223,7 @@ router.patch('/withdrawals/:id/reject', requireAuth, requireStaff, async (req, r
     res.json({ message: 'Đã từ chối lệnh rút, số dư được hoàn lại ví' });
   } catch (error) {
     console.error('Reject withdrawal error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
   }
 });
 

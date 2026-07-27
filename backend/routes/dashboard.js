@@ -36,7 +36,7 @@ router.get('/pending-counts', requireAuth, async (req, res) => {
     res.json({ data });
   } catch (error) {
     console.error('Pending counts error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
   }
 });
 
@@ -256,7 +256,7 @@ router.get('/', async (req, res) => {
     });
   } catch (error) {
     console.error('Dashboard error:', error);
-    res.status(500).json({ ok: false, error: 'Internal server error' });
+    res.status(500).json({ ok: false, error: 'Lỗi máy chủ nội bộ' });
   }
 });
 
