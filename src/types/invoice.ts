@@ -15,6 +15,7 @@ export interface Invoice {
   checkOut: string;
   roomAmount: number;
   serviceAmount: number;
+  surchargeAmount: number;
   discountAmount: number;
   totalAmount: number;
   status: InvoiceStatus;

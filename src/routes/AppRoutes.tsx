@@ -24,6 +24,7 @@ import Booking from "../pages/Booking/Booking";
 import BookingHistory from "../pages/Booking/BookingHistory";
 import BookingDetail from "../pages/Booking/BookingDetail";
 import PaymentPage from "../pages/Booking/Payment";
+import PaymentSandbox from "../pages/Booking/PaymentSandbox";
 
 import Profile from "../pages/Profile/Profile";
 import ChangePassword from "../pages/Profile/ChangePassword";
@@ -42,6 +43,7 @@ import ServiceManagement from "../pages/Admin/ServiceManagement";
 import VoucherManagement from "../pages/Admin/VoucherManagement";
 import ReviewManagement from "../pages/Admin/ReviewManagement";
 import PaymentManagement from "../pages/Admin/PaymentManagement";
+import InvoiceManagement from "../pages/Admin/InvoiceManagement";
 import PaymentSettings from "../pages/Admin/PaymentSettings";
 import ReportManagement from "../pages/Admin/ReportManagement";
 
@@ -77,6 +79,7 @@ const AppRoutes = () => {
           <Route index element={<Booking />} />
           <Route path="history" element={<BookingHistory />} />
           <Route path=":id/payment" element={<PaymentPage />} />
+          <Route path=":id/payment/sandbox" element={<PaymentSandbox />} />
           <Route path=":id" element={<BookingDetail />} />
         </Route>
 
@@ -145,6 +148,8 @@ const AppRoutes = () => {
             path="payments"
             element={<PaymentManagement />}
           />
+
+          <Route path="invoices" element={<InvoiceManagement />} />
 
           <Route
             path="payment-settings"

@@ -13,6 +13,17 @@ const BOOKING_SELECT = `
     b.status,
     b.total_price,
     b.totalAmount AS booking_total_amount,
+    COALESCE(
+      (
+        SELECT p.totalAmount
+        FROM payments p
+        WHERE p.bookingId = b.id
+        ORDER BY p.id DESC
+        LIMIT 1
+      ),
+      b.total_price,
+      0
+    ) AS payable_total,
     b.created_at,
     b.notes,
     b.cancellation_reason,
@@ -23,6 +34,7 @@ const BOOKING_SELECT = `
     bd.adults,
     bd.children,
     bd.roomPrice AS room_price,
+    COALESCE(bd.occupancySurcharge, 0) AS occupancy_surcharge,
     COALESCE(b.guest_name, c.fullName) AS customer_name,
     COALESCE(b.guest_email, a.email) AS customer_email,
     COALESCE(b.guest_phone, c.phone, a.phone) AS customer_phone,
@@ -346,12 +358,12 @@ const createBooking = async (payload, totalPrice, connection) => {
   return result.insertId;
 };
 
-const createBookingDetail = async (bookingId, payload, roomPrice, connection) => {
+const createBookingDetail = async (bookingId, payload, roomPrice, occupancySurcharge = 0, connection) => {
   await run(connection).query(
     `
       INSERT INTO booking_details
-        (bookingId, roomId, checkInDate, checkOutDate, adults, children, roomPrice)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+        (bookingId, roomId, checkInDate, checkOutDate, adults, children, roomPrice, occupancySurcharge)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       bookingId,
@@ -360,7 +372,8 @@ const createBookingDetail = async (bookingId, payload, roomPrice, connection) =>
       payload.checkOut,
       payload.adults,
       payload.children,
-      roomPrice
+      roomPrice,
+      occupancySurcharge
     ]
   );
 };
@@ -394,6 +407,19 @@ const sumBookingServices = async (bookingId, connection) => {
     [bookingId]
   );
   return Number(row?.total || 0);
+};
+
+const createCustomerNotification = async (accountId, title, content, connection) => {
+  if (!accountId) return null;
+
+  const [result] = await run(connection).query(
+    `
+      INSERT INTO notifications (accountId, title, content, isRead)
+      VALUES (?, ?, ?, 0)
+    `,
+    [accountId, title, content]
+  );
+  return result.insertId;
 };
 
 const replaceBookingGuests = async (bookingId, guests, connection) => {
@@ -584,6 +610,7 @@ module.exports = {
   getServiceById,
   addBookingService,
   sumBookingServices,
+  createCustomerNotification,
   replaceBookingGuests,
   addDamageCharge,
   sumDamageCharges,

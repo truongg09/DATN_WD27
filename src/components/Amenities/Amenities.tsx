@@ -13,7 +13,8 @@ import {
   faSnowflake,
   faGlassMartini,
   faBath,
-  faImage
+  faImage,
+  faDoorOpen
 } from '@fortawesome/free-solid-svg-icons';
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core';
 import { getAmenities } from '../../services/amenityService';
@@ -21,6 +22,19 @@ import type { Amenity } from '../../services/amenityService';
 import './amenities.css';
 
 const iconMap: Record<string, IconDefinition> = {
+  // DB key mappings
+  wifi: faWifi,
+  tv: faTv,
+  ac: faSnowflake,
+  bar: faGlassMartini,
+  pool: faSwimmingPool,
+  gym: faDumbbell,
+  parking: faCar,
+  food: faUtensils,
+  bath: faBath,
+  balcony: faDoorOpen,
+
+  // FontAwesome variable mappings (fallback)
   faSwimmingPool,
   faSpa,
   faUtensils,
@@ -33,7 +47,8 @@ const iconMap: Record<string, IconDefinition> = {
   faSnowflake,
   faGlassMartini,
   faBath,
-  faImage
+  faImage,
+  faDoorOpen
 };
 
 const defaultAmenities = [

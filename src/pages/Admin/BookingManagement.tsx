@@ -27,6 +27,7 @@ interface Booking {
   check_out: string | null;
   status: string;
   total_price: string | number | null;
+  payable_total?: string | number | null;
   adults: number | null;
   children: number | null;
   notes?: string | null;
@@ -189,18 +190,25 @@ function BookingManagement() {
           serviceId: values.serviceId,
           quantity: values.quantity,
         });
-        const serviceTotal = Number(response.data?.service?.totalPrice || 0);
-        const remainingAmount = Number(response.data?.payment?.remainingAmount || 0);
-        Modal.info({
-          title: 'Đã thêm dịch vụ và cập nhật thanh toán',
+        const result = (response as unknown as {
+          data?: {
+            service?: { serviceName?: string; totalPrice?: number };
+            payment?: { remainingAmount?: number };
+          };
+        }).data;
+        const service = result?.service;
+        const payment = result?.payment;
+        Modal.warning({
+          title: 'Đã cộng dịch vụ — cần thanh toán thêm',
           content: (
             <div>
               <p>
-                Phí dịch vụ tăng thêm: <strong>{formatPrice(serviceTotal)}</strong>.
+                {service?.serviceName || 'Dịch vụ'} đã được cộng thêm{' '}
+                <strong>{formatPrice(service?.totalPrice || 0)}</strong>.
               </p>
               <p>
-                Khách hàng cần thanh toán thêm. Số tiền còn lại hiện tại:{' '}
-                <strong>{formatPrice(remainingAmount)}</strong>.
+                Số tiền khách còn phải thanh toán:{' '}
+                 <strong>{formatPrice(payment?.remainingAmount || 0)}</strong>.
               </p>
             </div>
           ),
@@ -463,7 +471,7 @@ function BookingManagement() {
                       <div>Trả: {formatDate(booking.check_out)}</div>
                     </td>
                     <td style={tdStyle}>{booking.adults ?? 0} người lớn, {booking.children ?? 0} trẻ em</td>
-                    <td style={tdStyle}>{formatPrice(booking.total_price)}</td>
+                    <td style={tdStyle}>{formatPrice(booking.payable_total ?? booking.total_price)}</td>
                     <td style={tdStyle}>
                       <Tag color={statusColor[booking.status] || 'default'}>{statusText[booking.status] || booking.status}</Tag>
                     </td>
@@ -538,7 +546,9 @@ function BookingManagement() {
             <Descriptions.Item label="Ngày nhận">{formatDate(selectedBooking.check_in)}</Descriptions.Item>
             <Descriptions.Item label="Ngày trả">{formatDate(selectedBooking.check_out)}</Descriptions.Item>
             <Descriptions.Item label="Số khách">{selectedBooking.adults ?? 0} người lớn, {selectedBooking.children ?? 0} trẻ em</Descriptions.Item>
-            <Descriptions.Item label="Tổng tiền">{formatPrice(selectedBooking.total_price)}</Descriptions.Item>
+            <Descriptions.Item label="Tổng tiền">
+              {formatPrice(selectedBooking.payable_total ?? selectedBooking.total_price)}
+            </Descriptions.Item>
             <Descriptions.Item label="Trạng thái"><Tag color={statusColor[selectedBooking.status] || 'default'}>{statusText[selectedBooking.status] || selectedBooking.status}</Tag></Descriptions.Item>
             {selectedBooking.notes && <Descriptions.Item label="Ghi chú">{selectedBooking.notes}</Descriptions.Item>}
           </Descriptions>

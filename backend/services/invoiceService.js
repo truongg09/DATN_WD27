@@ -24,8 +24,9 @@ const issueInvoiceForPayment = async (paymentId, connection) => {
 
   const roomAmount = Number(payment.roomAmount ?? 0);
   const serviceAmount = Number(payment.serviceAmount ?? 0);
+  const surchargeAmount = Number(payment.surchargeAmount ?? 0);
   const discountAmount = Number(payment.discountAmount ?? 0);
-  const subtotal = roomAmount + serviceAmount;
+  const subtotal = roomAmount + serviceAmount + surchargeAmount;
 
   const invoiceCode = await buildInvoiceCode(connection);
   const invoiceId = await invoiceModel.createInvoice(
@@ -33,6 +34,9 @@ const issueInvoiceForPayment = async (paymentId, connection) => {
       invoiceCode,
       bookingId: payment.bookingId,
       paymentId: payment.id,
+      roomAmount,
+      serviceAmount,
+      surchargeAmount,
       subtotal,
       discountAmount,
       taxAmount: 0,
