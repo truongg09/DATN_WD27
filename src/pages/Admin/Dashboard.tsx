@@ -9,6 +9,7 @@ import {
   Select,
   DatePicker,
   Tag,
+  Alert,
 } from "antd";
 import type { Dayjs } from "dayjs";
 import {
@@ -53,6 +54,7 @@ type StatsResponse = {
   ok: boolean;
   range: { from: string; to: string };
   mode: string;
+  rangeFallback?: boolean;
   kpis: {
     revenueTotal: number;
     bookingsTotal: number;
@@ -124,6 +126,26 @@ const formatCompactVND = (value: number) => {
 };
 
 const formatPercent = (value: number) => `${(value ?? 0).toFixed(1)}%`;
+
+// Trả về header Authorization nếu có token, đồng thời báo hiệu khi không có token
+// để nơi gọi có thể xử lý (thay vì âm thầm gọi API không có auth).
+function getAuthHeaders(): { headers: Record<string, string>; hasToken: boolean } {
+  const token = localStorage.getItem("token");
+  return {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    hasToken: Boolean(token),
+  };
+}
+
+// Xử lý khi phiên đăng nhập hết hạn / không hợp lệ: xoá token và điều hướng về trang login,
+// kèm theo query để trang login có thể hiển thị thông báo phù hợp.
+function handleUnauthorized() {
+  localStorage.removeItem("token");
+  const alreadyOnLogin = window.location.pathname.includes("/login");
+  if (!alreadyOnLogin) {
+    window.location.href = "/login?reason=session_expired";
+  }
+}
 
 function KpiCard({
   icon,
@@ -276,17 +298,9 @@ function TodayOpsPanel({
     };
   };
 
-  const pendingStyle = getTaskStyle(
-    data.pendingBookings.count
-  );
-
-  const checkinStyle = getTaskStyle(
-    data.checkInsToday.count
-  );
-
-  const checkoutStyle = getTaskStyle(
-    data.checkOutsToday.count
-  );
+  const pendingStyle = getTaskStyle(data.pendingBookings.count);
+  const checkinStyle = getTaskStyle(data.checkInsToday.count);
+  const checkoutStyle = getTaskStyle(data.checkOutsToday.count);
 
   const stat = (
     icon: React.ReactNode,
@@ -434,11 +448,15 @@ function AdminDashboard() {
     let alive = true;
     (async () => {
       try {
-        const token = localStorage.getItem("token");
-        const res = await fetch(`${API_BASE}/dashboard/today`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
+        const { headers } = getAuthHeaders();
+        const res = await fetch(`${API_BASE}/dashboard/today`, { headers });
+
+        if (res.status === 401) {
+          handleUnauthorized();
+          return;
+        }
         if (!res.ok) return;
+
         const json = (await res.json()) as TodayOpsResponse;
         if (alive) setTodayOps(json);
       } catch {
@@ -503,11 +521,13 @@ function AdminDashboard() {
           url.searchParams.set("roomTypeId", String(roomTypeId));
         }
 
-        const token = localStorage.getItem("token");
+        const { headers } = getAuthHeaders();
+        const res = await fetch(url.toString(), { headers });
 
-        const res = await fetch(url.toString(), {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
+        if (res.status === 401) {
+          handleUnauthorized();
+          return;
+        }
 
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
@@ -537,14 +557,9 @@ function AdminDashboard() {
     ((data.revenueSeries?.data?.length ?? 0) > 0 ||
       (data.bookingSeries?.data?.length ?? 0) > 0);
 
-      const maxRevenue = Math.max(
-        ...(data?.revenueSeries?.data ?? [0])
-      );
+  const maxRevenue = Math.max(...(data?.revenueSeries?.data ?? [0]));
 
-      const maxIndex =
-        data?.revenueSeries?.data?.findIndex(
-          (v) => v === maxRevenue
-        ) ?? -1;
+  const maxIndex = data?.revenueSeries?.data?.findIndex((v) => v === maxRevenue) ?? -1;
 
   const revenueChartOptions = useMemo(() => {
     return {
@@ -591,21 +606,21 @@ function AdminDashboard() {
               return `${Math.round(v / 1000000)} triệu`;
             }
             return v.toString();
-          }
+          },
         },
       },
       tooltip: {
         theme: "light",
         x: {
-          formatter: value => `Ngày ${value}`
-          },
+          formatter: (value: string) =>
+            data?.mode === "custom" ? value : `Ngày ${value}`,
+        },
         y: {
-          formatter: (value: number) =>
-            `Doanh thu: ${formatVND(value)}`,
+          formatter: (value: number) => `Doanh thu: ${formatVND(value)}`,
         },
       },
     } satisfies ApexCharts.ApexOptions;
-  }, [data]);
+  }, [data, maxIndex]);
 
   const revenueChartSeries = useMemo(
     () => [{ name: "Doanh thu", data: data?.revenueSeries?.data ?? [] }],
@@ -671,13 +686,7 @@ function AdminDashboard() {
     return {
       chart: { type: "donut", height: 300 },
       labels: data?.paymentMethodDonut?.labels ?? [],
-      colors: [
-        brand.primary,
-        brand.teal,
-        brand.accent,
-        brand.success,
-        brand.danger,
-      ],
+      colors: [brand.primary, brand.teal, brand.accent, brand.success, brand.danger],
       dataLabels: { enabled: true, style: { fontSize: "11px" } },
       stroke: { width: 2, colors: ["#fff"] },
       legend: {
@@ -689,10 +698,7 @@ function AdminDashboard() {
     } satisfies ApexCharts.ApexOptions;
   }, [data]);
 
-  const paymentDonutSeries = useMemo(
-    () => data?.paymentMethodDonut?.data ?? [],
-    [data],
-  );
+  const paymentDonutSeries = useMemo(() => data?.paymentMethodDonut?.data ?? [], [data]);
 
   const periodLabel = useMemo(() => {
     if (!data?.range?.from) return "";
@@ -700,8 +706,7 @@ function AdminDashboard() {
     if (data.mode === "year") return `Năm ${from.getFullYear()}`;
     if (data.mode === "custom" && data.range.to) {
       const to = new Date(data.range.to);
-      const fmt = (d: Date) =>
-        `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`;
+      const fmt = (d: Date) => `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`;
       return `${fmt(from)} - ${fmt(to)}`;
     }
     return `Tháng ${from.getMonth() + 1}/${from.getFullYear()}`;
@@ -778,16 +783,13 @@ function AdminDashboard() {
           icon: <StarOutlined />,
           label: "Đánh giá trung bình",
           value:
-            data.kpis?.avgRating != null
-              ? `${data.kpis.avgRating.toFixed(1)} / 5`
-              : "Chưa có",
+            data.kpis?.avgRating != null ? `${data.kpis.avgRating.toFixed(1)} / 5` : "Chưa có",
           color: brand.teal,
           bg: brand.tealBg,
         },
       ]
     : [];
 
-    
   return (
     <ConfigProvider
       theme={{
@@ -843,8 +845,7 @@ function AdminDashboard() {
                 maxWidth: 480,
               }}
             >
-              Doanh thu, booking, khách hàng mới và tỷ lệ lấp đầy phòng theo kỳ
-              báo cáo.
+              Doanh thu, booking, khách hàng mới và tỷ lệ lấp đầy phòng theo kỳ báo cáo.
             </p>
           </div>
 
@@ -898,17 +899,25 @@ function AdminDashboard() {
             {mode === "custom" && (
               <RangePicker
                 value={customRange}
-                onChange={(range) =>
-                  setCustomRange(range as [Dayjs, Dayjs] | null)
-                }
+                onChange={(range) => setCustomRange(range as [Dayjs, Dayjs] | null)}
                 format="DD/MM/YYYY"
                 allowClear={false}
               />
             )}
           </div>
         </div>
-            
+
         <TodayOpsPanel data={todayOps} loading={todayLoading} />
+
+        {!loading && !error && data?.rangeFallback && (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 16, borderRadius: 10 }}
+            message="Khoảng thời gian tùy chỉnh không hợp lệ"
+            description="Hệ thống đã tự động hiển thị dữ liệu của tháng hiện tại thay vì khoảng ngày bạn chọn. Vui lòng chọn lại khoảng ngày hợp lệ (ngày bắt đầu phải trước hoặc bằng ngày kết thúc)."
+          />
+        )}
 
         {loading && (
           <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
@@ -922,11 +931,7 @@ function AdminDashboard() {
                     padding: 18,
                   }}
                 >
-                  <Skeleton
-                    active
-                    title={false}
-                    paragraph={{ rows: 2, width: ["60%", "40%"] }}
-                  />
+                  <Skeleton active title={false} paragraph={{ rows: 2, width: ["60%", "40%"] }} />
                 </div>
               </Col>
             ))}
@@ -946,9 +951,7 @@ function AdminDashboard() {
             <h2 style={{ margin: "0 0 8px", color: brand.textPrimary }}>
               Không thể tải dashboard
             </h2>
-            <p style={{ margin: "0 0 16px", color: brand.textSecondary }}>
-              {error}
-            </p>
+            <p style={{ margin: "0 0 16px", color: brand.textSecondary }}>{error}</p>
             <button
               type="button"
               onClick={() => setReloadKey((k) => k + 1)}

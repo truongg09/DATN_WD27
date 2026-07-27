@@ -1,39 +1,30 @@
 import { useState, useEffect } from 'react';
-import type { CSSProperties } from 'react';
 import {
-  Card,
-  Row,
-  Col,
   Table,
   Button,
   Select,
   Typography,
   Space,
   message,
-  Statistic,
   Tag,
-  Divider,
-  Avatar
 } from 'antd';
 import {
   FileExcelOutlined,
   FilePdfOutlined,
   ReloadOutlined,
-  RiseOutlined,
   FallOutlined,
   DollarCircleOutlined,
   CalendarOutlined,
   HomeOutlined,
   CreditCardOutlined,
-  PieChartOutlined,
-  BarChartOutlined
 } from '@ant-design/icons';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import api from '../../services/api';
+import './ReportManagement.css';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 const { Option } = Select;
 
 // ---- Kiểu dữ liệu khớp với response thật của API /api/reports/monthly ----
@@ -82,17 +73,6 @@ const CURRENT_YEAR = new Date().getFullYear();
 // Danh sách năm động: 2 năm trước tới năm hiện tại, thay vì hardcode 2024/2025/2026
 const YEAR_OPTIONS = Array.from({ length: 3 }, (_, i) => CURRENT_YEAR - 2 + i);
 
-// Style dùng chung cho mọi Card để đồng bộ bo góc + đổ bóng nhẹ, không đổi bảng màu hiện có
-const CARD_STYLE: CSSProperties = {
-  borderRadius: 12,
-  boxShadow: '0 2px 8px rgba(0,0,0,0.06)'
-};
-
-const STAT_CARD_STYLE: CSSProperties = {
-  ...CARD_STYLE,
-  height: '100%'
-};
-
 function ReportManagement() {
   const [year, setYear] = useState<number>(CURRENT_YEAR);
   const [loading, setLoading] = useState(false);
@@ -131,7 +111,6 @@ function ReportManagement() {
   }, [year]);
 
   // ---- XUẤT EXCEL THẬT (dùng thư viện xlsx / SheetJS) ----
-  // Cần cài: npm install xlsx
   const handleExportExcel = () => {
     if (monthlyData.length === 0) {
       message.warning('Chưa có dữ liệu để xuất');
@@ -162,7 +141,6 @@ function ReportManagement() {
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, `Năm ${year}`);
 
-      // Thêm sheet phụ: theo loại phòng
       if (byRoomType.length > 0) {
         const roomTypeSheet = XLSX.utils.json_to_sheet(
           byRoomType.map((r) => ({
@@ -174,7 +152,6 @@ function ReportManagement() {
         XLSX.utils.book_append_sheet(workbook, roomTypeSheet, 'Theo loại phòng');
       }
 
-      // Thêm sheet phụ: theo phương thức thanh toán
       if (byPaymentMethod.length > 0) {
         const paymentSheet = XLSX.utils.json_to_sheet(
           byPaymentMethod.map((p) => ({
@@ -197,7 +174,6 @@ function ReportManagement() {
   };
 
   // ---- XUẤT PDF THẬT (dùng jsPDF + jspdf-autotable) ----
-  // Cần cài: npm install jspdf jspdf-autotable
   const handleExportPDF = () => {
     if (monthlyData.length === 0) {
       message.warning('Chưa có dữ liệu để xuất');
@@ -236,7 +212,7 @@ function ReportManagement() {
           `${m.occupancyRate}%`
         ]),
         styles: { fontSize: 8 },
-        headStyles: { fillColor: [46, 125, 50] }
+        headStyles: { fillColor: [171, 137, 101] }
       });
 
       doc.save(`Bao_cao_khach_san_${year}.pdf`);
@@ -323,219 +299,145 @@ function ReportManagement() {
     }
   ];
 
+  const occupancyOk = (summary?.avgOccupancyRate || 0) > 50;
+
   return (
-    <div style={{ padding: '24px', maxWidth: 1400, margin: '0 auto' }}>
-      <Card style={{ ...CARD_STYLE, marginBottom: 20 }} styles={{ body: { padding: '20px 24px' } }}>
-        <Row justify="space-between" align="middle" gutter={[16, 12]}>
-          <Col flex="auto">
-            <Space align="center" size={10}>
-              <BarChartOutlined style={{ fontSize: 20, color: '#8c8c8c' }} />
-              <Title level={3} style={{ margin: 0 }}>Báo cáo & Thống kê tài chính</Title>
-            </Space>
-            <div style={{ marginTop: 4 }}>
-              <Text type="secondary">
-                Phân tích tình hình kinh doanh theo năm · dữ liệu thời gian thực từ hệ thống
-              </Text>
+    <main className="report-mgmt-page">
+      <section className="report-mgmt-shell">
+        <div className="report-mgmt-hero">
+          <div>
+            <span className="report-mgmt-eyebrow">HotelHub · Admin</span>
+            <h1>Báo cáo &amp; Thống kê tài chính</h1>
+            <p>Phân tích tình hình kinh doanh theo năm, dữ liệu thời gian thực từ hệ thống.</p>
+          </div>
+          <div className="report-mgmt-toolbar">
+            <Select
+              value={year}
+              onChange={setYear}
+              style={{ width: 130 }}
+              suffixIcon={<CalendarOutlined />}
+            >
+              {YEAR_OPTIONS.map((y) => (
+                <Option key={y} value={y}>Năm {y}</Option>
+              ))}
+            </Select>
+            <Button icon={<ReloadOutlined />} onClick={fetchReportData} loading={loading}>
+              Làm mới
+            </Button>
+            <Button
+              className="report-export-pdf-btn"
+              icon={<FilePdfOutlined />}
+              onClick={handleExportPDF}
+              loading={exporting}
+            >
+              Xuất PDF
+            </Button>
+            <Button
+              className="report-export-excel-btn"
+              icon={<FileExcelOutlined />}
+              onClick={handleExportExcel}
+              loading={exporting}
+            >
+              Xuất Excel
+            </Button>
+          </div>
+        </div>
+
+        <div className="report-mgmt-stats">
+          <div className="report-stat-card">
+            <span className="report-stat-label">
+              <DollarCircleOutlined /> Tổng doanh thu
+            </span>
+            <div className="report-stat-value">
+              {(summary?.totalRevenue || 0).toLocaleString('vi-VN')}
+              <span className="unit">₫</span>
             </div>
-          </Col>
-          <Col>
-            <Space size={10} wrap>
-              <Select value={year} onChange={setYear} style={{ width: 120 }} suffixIcon={<CalendarOutlined />}>
-                {YEAR_OPTIONS.map((y) => (
-                  <Option key={y} value={y}>Năm {y}</Option>
-                ))}
-              </Select>
-              <Button icon={<ReloadOutlined />} onClick={fetchReportData} loading={loading}>
-                Làm mới
-              </Button>
-              <Divider type="vertical" style={{ height: 24, margin: '0 2px' }} />
-              <Button
-                type="primary"
-                icon={<FilePdfOutlined />}
-                onClick={handleExportPDF}
-                loading={exporting}
-                danger
-              >
-                Xuất PDF
-              </Button>
-              <Button
-                type="primary"
-                icon={<FileExcelOutlined />}
-                onClick={handleExportExcel}
-                loading={exporting}
-                style={{ backgroundColor: '#2e7d32', borderColor: '#2e7d32' }}
-              >
-                Xuất Excel
-              </Button>
-            </Space>
-          </Col>
-        </Row>
-      </Card>
+            <span className="report-stat-sub">Đã thu: {formatVND(summary?.totalPaid || 0)}</span>
+          </div>
 
-      <Row gutter={[20, 20]} style={{ marginBottom: 20 }}>
-        <Col xs={24} sm={12} lg={6}>
-          <Card style={STAT_CARD_STYLE} styles={{ body: { padding: 20 } }}>
-            <Space align="start" size={14}>
-              <Avatar
-                shape="square"
-                size={44}
-                icon={<DollarCircleOutlined />}
-                style={{ backgroundColor: 'rgba(63,134,0,0.1)', color: '#3f8600', borderRadius: 10 }}
-              />
-              <div>
-                <Text type="secondary" style={{ fontSize: 13 }}>Tổng doanh thu</Text>
-                <Statistic
-                  value={summary?.totalRevenue || 0}
-                  formatter={(value)=>Number(value).toLocaleString('vi-VN')}
-                  suffix="₫"
-                />
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  Đã thu: {formatVND(summary?.totalPaid || 0)}
-                </Text>
-              </div>
-            </Space>
-          </Card>
-        </Col>
-        <Col xs={24} sm={12} lg={6}>
-          <Card style={STAT_CARD_STYLE} styles={{ body: { padding: 20 } }}>
-            <Space align="start" size={14}>
-              <Avatar
-                shape="square"
-                size={44}
-                icon={<CreditCardOutlined />}
-                style={{
-                  backgroundColor: summary?.totalOutstanding ? 'rgba(207,19,34,0.1)' : 'rgba(63,134,0,0.1)',
-                  color: summary?.totalOutstanding ? '#cf1322' : '#3f8600',
-                  borderRadius: 10
-                }}
-              />
-              <div>
-                <Text type="secondary" style={{ fontSize: 13 }}>Công nợ còn lại</Text>
-                <Statistic
-                  value={summary?.totalOutstanding || 0}
-                  precision={0}
-                  styles={{
-                    content: {
-                      color: summary?.totalOutstanding ? '#cf1322' : '#3f8600',
-                      fontSize: 22,
-                      lineHeight: 1.3
-                    }
-                  }}
-                  prefix={summary?.totalOutstanding ? <FallOutlined style={{ fontSize: 14 }} /> : undefined}
-                  suffix="₫"
-                />
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  {summary?.totalOutstanding ? 'Cần thu hồi từ khách' : 'Không có công nợ'}
-                </Text>
-              </div>
-            </Space>
-          </Card>
-        </Col>
-        <Col xs={24} sm={12} lg={6}>
-          <Card style={STAT_CARD_STYLE} styles={{ body: { padding: 20 } }}>
-            <Space align="start" size={14}>
-              <Avatar
-                shape="square"
-                size={44}
-                icon={<CalendarOutlined />}
-                style={{ backgroundColor: 'rgba(43,108,176,0.1)', color: '#2b6cb0', borderRadius: 10 }}
-              />
-              <div>
-                <Text type="secondary" style={{ fontSize: 13 }}>Tổng đơn đặt phòng</Text>
-                <Statistic
-                  value={summary?.totalBookings || 0}
-                  styles={{ content: { color: '#2b6cb0', fontSize: 22, lineHeight: 1.3 } }}
-                  suffix=" đơn"
-                />
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  Tỷ lệ hủy/no-show: {summary?.cancelRate || 0}%
-                </Text>
-              </div>
-            </Space>
-          </Card>
-        </Col>
-        <Col xs={24} sm={12} lg={6}>
-          <Card style={STAT_CARD_STYLE} styles={{ body: { padding: 20 } }}>
-            <Space align="start" size={14}>
-              <Avatar
-                shape="square"
-                size={44}
-                icon={<HomeOutlined />}
-                style={{ backgroundColor: 'rgba(214,158,46,0.12)', color: '#d69e2e', borderRadius: 10 }}
-              />
-              <div>
-                <Text type="secondary" style={{ fontSize: 13 }}>Công suất phòng TB</Text>
-                <Statistic
-                  value={summary?.avgOccupancyRate || 0}
-                  styles={{ content: { color: '#d69e2e', fontSize: 22, lineHeight: 1.3 } }}
-                  suffix="%"
-                />
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  Khách hàng mới: {summary?.newCustomers || 0}
-                </Text>
-              </div>
-            </Space>
-          </Card>
-        </Col>
-      </Row>
+          <div className="report-stat-card">
+            <span className="report-stat-label">
+              <CreditCardOutlined /> Công nợ còn lại
+            </span>
+            <div className={`report-stat-value ${summary?.totalOutstanding ? 'is-danger' : 'is-success'}`}>
+              {summary?.totalOutstanding ? <FallOutlined style={{ fontSize: 16 }} /> : null}
+              {(summary?.totalOutstanding || 0).toLocaleString('vi-VN')}
+              <span className="unit">₫</span>
+            </div>
+            <span className="report-stat-sub">
+              {summary?.totalOutstanding ? 'Cần thu hồi từ khách' : 'Không có công nợ'}
+            </span>
+          </div>
 
-      <Card
-        title={
-          <Space size={8}>
-            <BarChartOutlined style={{ color: '#8c8c8c' }} />
-            <span>Bảng tổng hợp chi tiết năm {year}</span>
-          </Space>
-        }
-        style={{ ...CARD_STYLE, marginBottom: 20 }}
-        styles={{ header: { borderBottom: '1px solid #f0f0f0' }, body: { paddingTop: 12 } }}
-      >
-        <Table
-          columns={columns}
-          dataSource={monthlyData}
-          rowKey="month"
-          loading={loading}
-          pagination={false}
-          scroll={{ x: 900 }}
-          size="middle"
-          summary={(pageData) => {
-            let totalRoom = 0, totalService = 0, totalPaid = 0, totalRemaining = 0, totalBookings = 0, totalCancelled = 0;
-            pageData.forEach((r) => {
-              totalRoom += r.roomRevenue;
-              totalService += r.serviceRevenue;
-              totalPaid += r.paidAmount;
-              totalRemaining += r.remainingAmount;
-              totalBookings += r.bookingsCount;
-              totalCancelled += r.cancelledCount;
-            });
-            return (
-              <Table.Summary.Row style={{ background: '#fafafa', fontWeight: 'bold' }}>
-                <Table.Summary.Cell index={0} align="left">Tổng cộng</Table.Summary.Cell>
-                <Table.Summary.Cell index={1}>{formatVND(totalRoom)}</Table.Summary.Cell>
-                <Table.Summary.Cell index={2}>{formatVND(totalService)}</Table.Summary.Cell>
-                <Table.Summary.Cell index={3}>{formatVND(totalPaid)}</Table.Summary.Cell>
-                <Table.Summary.Cell index={4}>{formatVND(totalRemaining)}</Table.Summary.Cell>
-                <Table.Summary.Cell index={5}>{totalBookings} đơn</Table.Summary.Cell>
-                <Table.Summary.Cell index={6}>{totalCancelled}</Table.Summary.Cell>
-                <Table.Summary.Cell index={7}>-</Table.Summary.Cell>
-              </Table.Summary.Row>
-            );
-          }}
-        />
-      </Card>
+          <div className="report-stat-card">
+            <span className="report-stat-label">
+              <CalendarOutlined /> Tổng đơn đặt phòng
+            </span>
+            <div className="report-stat-value is-info">
+              {summary?.totalBookings || 0}
+              <span className="unit">đơn</span>
+            </div>
+            <span className="report-stat-sub">Tỷ lệ hủy/no-show: {summary?.cancelRate || 0}%</span>
+          </div>
 
-      <Row gutter={[20, 20]}>
-        <Col xs={24} md={12}>
-          <Card
-            title={
-              <Space size={8}>
-                <PieChartOutlined style={{ color: '#8c8c8c' }} />
-                <span>Doanh thu theo loại phòng</span>
-              </Space>
-            }
-            style={CARD_STYLE}
-            styles={{ header: { borderBottom: '1px solid #f0f0f0' } }}
-          >
+          <div className="report-stat-card">
+            <span className="report-stat-label">
+              <HomeOutlined /> Công suất phòng TB
+            </span>
+            <div className={`report-stat-value ${occupancyOk ? 'is-success' : 'is-warning'}`}>
+              {summary?.avgOccupancyRate || 0}
+              <span className="unit">%</span>
+            </div>
+            <span className="report-stat-sub">Khách hàng mới: {summary?.newCustomers || 0}</span>
+          </div>
+        </div>
+
+        <div className="report-table-panel">
+          <div className="report-table-header">
+            <h2>Bảng tổng hợp chi tiết năm {year}</h2>
+          </div>
+          <Table
+            className="report-mgmt-table"
+            columns={columns}
+            dataSource={monthlyData}
+            rowKey="month"
+            loading={loading}
+            pagination={false}
+            scroll={{ x: 900 }}
+            size="middle"
+            summary={(pageData) => {
+              let totalRoom = 0, totalService = 0, totalPaid = 0, totalRemaining = 0, totalBookings = 0, totalCancelled = 0;
+              pageData.forEach((r) => {
+                totalRoom += r.roomRevenue;
+                totalService += r.serviceRevenue;
+                totalPaid += r.paidAmount;
+                totalRemaining += r.remainingAmount;
+                totalBookings += r.bookingsCount;
+                totalCancelled += r.cancelledCount;
+              });
+              return (
+                <Table.Summary.Row className="report-summary-row">
+                  <Table.Summary.Cell index={0} align="left">Tổng cộng</Table.Summary.Cell>
+                  <Table.Summary.Cell index={1}>{formatVND(totalRoom)}</Table.Summary.Cell>
+                  <Table.Summary.Cell index={2}>{formatVND(totalService)}</Table.Summary.Cell>
+                  <Table.Summary.Cell index={3}>{formatVND(totalPaid)}</Table.Summary.Cell>
+                  <Table.Summary.Cell index={4}>{formatVND(totalRemaining)}</Table.Summary.Cell>
+                  <Table.Summary.Cell index={5}>{totalBookings} đơn</Table.Summary.Cell>
+                  <Table.Summary.Cell index={6}>{totalCancelled}</Table.Summary.Cell>
+                  <Table.Summary.Cell index={7}>-</Table.Summary.Cell>
+                </Table.Summary.Row>
+              );
+            }}
+          />
+        </div>
+
+        <div className="report-breakdown-grid">
+          <div className="report-table-panel">
+            <div className="report-table-header">
+              <h2>Doanh thu theo loại phòng</h2>
+            </div>
             <Table
+              className="report-mgmt-table"
               columns={roomTypeColumns}
               dataSource={byRoomType}
               rowKey="roomType"
@@ -543,20 +445,14 @@ function ReportManagement() {
               pagination={false}
               size="small"
             />
-          </Card>
-        </Col>
-        <Col xs={24} md={12}>
-          <Card
-            title={
-              <Space size={8}>
-                <CreditCardOutlined style={{ color: '#8c8c8c' }} />
-                <span>Doanh thu theo phương thức thanh toán</span>
-              </Space>
-            }
-            style={CARD_STYLE}
-            styles={{ header: { borderBottom: '1px solid #f0f0f0' } }}
-          >
+          </div>
+
+          <div className="report-table-panel">
+            <div className="report-table-header">
+              <h2>Doanh thu theo phương thức thanh toán</h2>
+            </div>
             <Table
+              className="report-mgmt-table"
               columns={paymentMethodColumns}
               dataSource={byPaymentMethod}
               rowKey="method"
@@ -564,10 +460,10 @@ function ReportManagement() {
               pagination={false}
               size="small"
             />
-          </Card>
-        </Col>
-      </Row>
-    </div>
+          </div>
+        </div>
+      </section>
+    </main>
   );
 }
 
