@@ -555,3 +555,38 @@
     flex-direction: column;
   }
 }
+
+.room-status-stats {
+  display: flex;
+  gap: 16px;
+  margin: 12px 0;
+  padding: 8px 12px;
+  background: #fbf9f6;
+  border-radius: 8px;
+  border: 1px dashed #e8e0d5;
+}
+
+.status-stat {
+  font-size: 13px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.status-stat.available {
+  color: #166534;
+}
+
+.status-stat.occupied {
+  color: #1e40af;
+}
+
+.status-stat.maintenance {
+  color: #9f1239;
+}
+
+.status-stat.reserved {
+  color: #d97706;
+}
+

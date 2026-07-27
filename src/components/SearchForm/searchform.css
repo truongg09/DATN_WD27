@@ -148,3 +148,38 @@
   color: #ab8965;
   font-weight: 600;
 }
+
+@media (max-width: 768px) {
+  .search-form-section {
+    padding: 40px 16px;
+  }
+
+  .search-form-section h2 {
+    font-size: 24px;
+    margin-bottom: 24px;
+  }
+
+  .search-form-wrapper {
+    padding: 20px 16px;
+    border-radius: 20px;
+  }
+
+  .search-form {
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .search-field {
+    min-width: 100%;
+  }
+
+  .search-button-wrapper {
+    padding-top: 8px;
+    width: 100%;
+  }
+
+  .custom-search-button {
+    width: 100%;
+    padding: 14px 20px;
+  }
+}

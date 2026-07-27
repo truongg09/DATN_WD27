@@ -86,3 +86,33 @@
 .btn-book-room:hover {
     background: #70533a;
 }
+
+@media (max-width: 992px) {
+    .rooms-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 24px;
+    }
+}
+
+@media (max-width: 768px) {
+    .featured-rooms {
+        padding: 50px 16px;
+    }
+
+    .rooms-grid {
+        grid-template-columns: 1fr;
+        gap: 24px;
+    }
+
+    .room-img img {
+        height: 220px;
+    }
+
+    .room-info h3 {
+        font-size: 20px;
+    }
+
+    .room-footer .price {
+        font-size: 22px;
+    }
+}

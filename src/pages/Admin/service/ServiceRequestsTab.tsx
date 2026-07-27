@@ -82,10 +82,17 @@ function ServiceRequestsTab() {
     setProcessingId(id);
     try {
       const response = await api.patch(`/service-requests/${id}/confirm`);
-      const addedAmount = Number(response.data?.service?.totalPrice || 0);
-      const remainingAmount = Number(response.data?.payment?.remainingAmount || 0);
-      message.success(
-        `Đã cộng ${formatPrice(addedAmount)} phí dịch vụ. Khách cần thanh toán thêm; còn lại ${formatPrice(remainingAmount)}.`
+      const result = (response as unknown as {
+        data?: {
+          service?: { totalPrice?: number };
+          payment?: { remainingAmount?: number };
+        };
+      }).data;
+      const service = result?.service;
+      const payment = result?.payment;
+      message.warning(
+        `Đã cộng ${formatPrice(service?.totalPrice || 0)} tiền dịch vụ. Khách còn phải thanh toán ${formatPrice(payment?.remainingAmount || 0)}.`,
+        7
       );
       void fetchRequests();
     } catch (error: unknown) {
@@ -152,8 +159,10 @@ function ServiceRequestsTab() {
       title: 'Hành động',
       key: 'action',
       width: 230,
-      render: (_: unknown, r: ServiceRequest) =>
-        r.status === 'pending' ? (
+      render: (_: unknown, r: ServiceRequest) => {
+        const canConfirm = ['confirmed', 'checked_in'].includes(r.bookingStatus || '');
+
+        return r.status === 'pending' ? (
           <Space>
             <Popconfirm
               title="Bạn có chắc chắn muốn xác nhận?"
@@ -166,6 +175,10 @@ function ServiceRequestsTab() {
                 icon={<CheckOutlined />}
                 size="small"
                 loading={processingId === r.id}
+                disabled={!canConfirm}
+                title={!canConfirm
+                  ? `Không thể xác nhận khi booking ở trạng thái ${r.bookingStatus || 'không xác định'}`
+                  : undefined}
               />
             </Popconfirm>
             <Popconfirm
@@ -186,7 +199,8 @@ function ServiceRequestsTab() {
           </Space>
         ) : (
           <span style={{ color: '#aaa' }}>Đã xử lý</span>
-        ),
+        );
+      },
     },
   ];
 

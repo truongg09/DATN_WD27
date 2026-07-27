@@ -44,6 +44,38 @@ export const processPayment = async (
   >;
 };
 
+export const createGatewayOrder = async (
+  id: number,
+  data: { paymentMethod: Extract<PaymentMethod, "momo" | "vnpay">; amount: number }
+) => {
+  return api.post(`/payments/${id}/gateway-order`, data) as Promise<
+    ApiResponse<{ orderId: string; paymentUrl: string }>
+  >;
+};
+
+export const submitTransferConfirmation = async (
+  id: number,
+  data: { paymentMethod: "bank_transfer"; amount: number }
+) => {
+  return api.post(`/payments/${id}/transfer-confirmation`, data) as Promise<ApiResponse<Payment>>;
+};
+
+export const confirmTransferPayment = async (id: number) => {
+  return api.post(`/payments/${id}/confirm-transfer`) as Promise<ApiResponse<Payment>>;
+};
+
 export const refundPayment = async (id: number) => {
   return api.patch(`/payments/${id}/refund`) as Promise<ApiResponse<Payment>>;
+};
+
+export const confirmPayment = async (
+  id: number,
+  data: { amount: number; transactionCode: string }
+) => {
+  return api.post(`/payments/${id}/confirm`, data) as Promise<
+    ApiResponse<{
+      payment: Payment;
+      invoice?: import("../types/invoice").Invoice;
+    }>
+  >;
 };

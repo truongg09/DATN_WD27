@@ -59,3 +59,47 @@
     font-size: 14px;
     line-height: 1.5;
 }
+
+@media (max-width: 992px) {
+    .amenities-grid {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
+
+@media (max-width: 768px) {
+    .amenities {
+        padding: 50px 16px;
+    }
+
+    .amenities-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 16px;
+    }
+
+    .amenity-item {
+        padding: 20px 16px;
+    }
+
+    .section-title {
+        margin-bottom: 30px;
+    }
+
+    .section-title h2 {
+        font-size: 26px;
+    }
+}
+
+@media (max-width: 480px) {
+    .amenities-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+    }
+
+    .amenity-item {
+        padding: 16px 12px;
+    }
+
+    .amenity-item h3 {
+        font-size: 15px;
+    }
+}
