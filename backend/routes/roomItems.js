@@ -45,7 +45,7 @@ router.get('/', async (_req, res) => {
     res.json({ data: items });
   } catch (error) {
     console.error('List room items error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
   }
 });
 
@@ -63,7 +63,7 @@ router.get('/:id', async (req, res) => {
     res.json({ data: items[0] });
   } catch (error) {
     console.error('Get room item error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
   }
 });
 
@@ -83,7 +83,7 @@ router.post('/', async (req, res) => {
       .json({ data: { id: result.insertId }, message: 'Thêm vật dụng thành công' });
   } catch (error) {
     console.error('Create room item error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
   }
 });
 
@@ -108,7 +108,7 @@ router.put('/:id', async (req, res) => {
     res.json({ message: 'Cập nhật vật dụng thành công' });
   } catch (error) {
     console.error('Update room item error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
   }
 });
 
@@ -136,7 +136,7 @@ router.delete('/:id', async (req, res) => {
     res.json({ message: 'Xóa vật dụng thành công' });
   } catch (error) {
     console.error('Delete room item error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
   }
 });
 

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
-import { Button, Spin, message, Tag, Alert, Modal, QRCode, Radio, Tooltip } from 'antd';
+import { Button, Spin, message, Tag, Alert, Modal, QRCode, Tooltip } from 'antd';
 import {
   CheckCircleFilled,
   CopyOutlined,
@@ -108,7 +108,6 @@ const PaymentPage: React.FC = () => {
   const [payment, setPayment] = useState<Payment | null>(null);
   const [paymentSettings, setPaymentSettings] = useState<PaymentSettings | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('bank_transfer');
-  const [paymentAmountMode, setPaymentAmountMode] = useState<'deposit' | 'full'>('deposit');
   const [holdRemainingMs, setHoldRemainingMs] = useState(0);
   const [roomTakenError, setRoomTakenError] = useState(false);
   const [qrModalOpen, setQrModalOpen] = useState(false);
@@ -167,28 +166,12 @@ const PaymentPage: React.FC = () => {
 
   const isPaid = payment?.paymentStatus === 'paid';
   const hasDeposit = (payment?.paidAmount ?? 0) > 0;
-  const requiredDepositAmount = payment
-    ? Math.min(Math.ceil(payment.totalAmount * 0.3), payment.remainingAmount)
-    : 0;
-  const paymentAmount = payment
-    ? paymentAmountMode === 'deposit' && !hasDeposit
-      ? requiredDepositAmount
-      : payment.remainingAmount
-    : 0;
+  // Mỗi booking chỉ thanh toán một lần: luôn thu toàn bộ số dư còn lại.
+  const paymentAmount = payment?.remainingAmount ?? 0;
   const isHoldExpired = payment?.paymentStatus === 'unpaid' && !hasDeposit && holdRemainingMs <= 0;
   const holdPercent = Math.max(Math.min((holdRemainingMs / HOLD_DURATION_MS) * 100, 100), 0);
 
-  // Đặt cọc là thanh toán từ xa -> không cho chọn tiền mặt tại quầy
-  const isDepositMode = paymentAmountMode === 'deposit' && !hasDeposit;
-  const visibleMethods = isDepositMode
-    ? METHOD_OPTIONS.filter((option) => option.value !== 'cash')
-    : METHOD_OPTIONS;
-
-  useEffect(() => {
-    if (isDepositMode && paymentMethod === 'cash') {
-      setPaymentMethod('bank_transfer');
-    }
-  }, [isDepositMode, paymentMethod]);
+  const visibleMethods = METHOD_OPTIONS;
 
   // Chính sách hoàn tiền (khớp công thức backend: >7 ngày = 100%, 3–7 ngày = 50%, <3 ngày = 0%)
   const refundInfo = useMemo(() => {
@@ -255,7 +238,11 @@ const PaymentPage: React.FC = () => {
     setSubmitting(true);
     setRoomTakenError(false);
     try {
-      await processPayment(payment.id, { paymentMethod, amount: paymentAmount });
+      await processPayment(payment.id, {
+        paymentMethod,
+        amount: paymentAmount,
+        sandbox: paymentMethod === 'momo' || paymentMethod === 'vnpay',
+      });
 
       setQrModalOpen(false);
       message.success('Thanh toán thành công!');
@@ -542,24 +529,13 @@ const PaymentPage: React.FC = () => {
 
               {!isPaid ? (
                 <>
-                  {!hasDeposit && (
-                    <div className="amount-mode">
-                      <Radio.Group
-                        value={paymentAmountMode}
-                        onChange={(e) => setPaymentAmountMode(e.target.value)}
-                        className="amount-mode-group"
-                      >
-                        <Radio.Button value="deposit">
-                          Cọc 30%
-                          <small>{formatPrice(requiredDepositAmount)}</small>
-                        </Radio.Button>
-                        <Radio.Button value="full">
-                          Toàn bộ
-                          <small>{formatPrice(payment.remainingAmount)}</small>
-                        </Radio.Button>
-                      </Radio.Group>
-                    </div>
-                  )}
+                  <Alert
+                    type="info"
+                    showIcon
+                    message="Thanh toán một lần"
+                    description="Hệ thống thu toàn bộ số dư còn lại và không yêu cầu thanh toán lần hai."
+                    style={{ marginBottom: 16 }}
+                  />
 
                   <div className="method-list">
                     {visibleMethods.map((option) => (
@@ -584,13 +560,6 @@ const PaymentPage: React.FC = () => {
                     ))}
                   </div>
 
-                  {isDepositMode && (
-                    <p className="deposit-online-note">
-                      Đặt cọc giữ phòng được thanh toán từ xa qua QR/ví điện tử. Tiền mặt chỉ áp dụng
-                      khi thanh toán phần còn lại tại khách sạn.
-                    </p>
-                  )}
-
                   <Button
                     className="pay-button"
                     type="primary"
@@ -600,7 +569,11 @@ const PaymentPage: React.FC = () => {
                     disabled={isHoldExpired}
                     onClick={handlePay}
                   >
-                    {paymentMethod === 'cash' ? 'Xác nhận thanh toán' : 'Hiện mã QR thanh toán'} ·{' '}
+                    {paymentMethod === 'cash'
+                      ? 'Xác nhận thanh toán'
+                      : paymentMethod === 'momo' || paymentMethod === 'vnpay'
+                        ? 'Thanh toán qua Sandbox'
+                        : 'Hiện mã QR thanh toán'} ·{' '}
                     {formatPrice(paymentAmount)}
                   </Button>
 
@@ -659,7 +632,10 @@ const PaymentPage: React.FC = () => {
                 <img className="qr-brand-logo" src={vietqrLogo} alt="VietQR" />
               )}
               <div>
-                <strong>{methodTitle(paymentMethod)}</strong>
+                <strong>
+                  {methodTitle(paymentMethod)}
+                  {(paymentMethod === 'momo' || paymentMethod === 'vnpay') && ' Sandbox'}
+                </strong>
                 <span>
                   {paymentMethod === 'bank_transfer'
                     ? 'Quét bằng app ngân hàng bất kỳ hỗ trợ VietQR / Napas 247'
@@ -763,7 +739,11 @@ const PaymentPage: React.FC = () => {
               <li>Mở ứng dụng {paymentMethod === 'bank_transfer' ? 'ngân hàng' : methodTitle(paymentMethod)} trên điện thoại</li>
               <li>Chọn quét mã QR và quét mã bên cạnh</li>
               <li>Kiểm tra đúng số tiền, nội dung rồi xác nhận</li>
-              <li>Quay lại đây và bấm “Tôi đã thanh toán”</li>
+              <li>
+                {paymentMethod === 'momo' || paymentMethod === 'vnpay'
+                  ? 'Xác nhận giao dịch thử nghiệm trên cổng Sandbox'
+                  : 'Quay lại đây và bấm “Tôi đã thanh toán”'}
+              </li>
             </ol>
 
             <div className="qr-actions">
@@ -771,7 +751,9 @@ const PaymentPage: React.FC = () => {
                 Hủy
               </Button>
               <Button size="large" type="primary" loading={submitting} onClick={submitPayment}>
-                Tôi đã thanh toán
+                {paymentMethod === 'momo' || paymentMethod === 'vnpay'
+                  ? 'Xác nhận thanh toán Sandbox'
+                  : 'Tôi đã thanh toán'}
               </Button>
             </div>
           </div>

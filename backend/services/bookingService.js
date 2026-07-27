@@ -14,6 +14,14 @@ const {
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const HOLD_MINUTES = 15;
+const bookingStatusLabel = (status) => ({
+  pending: 'chờ xác nhận',
+  confirmed: 'đã xác nhận',
+  checked_in: 'đang lưu trú',
+  checked_out: 'đã trả phòng',
+  cancelled: 'đã hủy',
+  no_show: 'khách không đến'
+}[status] || status);
 
 const dateToUtc = (date) => new Date(`${date}T00:00:00.000Z`);
 
@@ -101,19 +109,25 @@ const ensureBookable = async (payload, connection, lock = false) => {
   const room = await bookingModel.getRoomWithType(payload.roomId, connection, lock);
 
   if (!customer) {
-    throw new HttpError(404, 'Customer not found');
+    throw new HttpError(404, 'Không tìm thấy khách hàng');
   }
 
   if (!room) {
-    throw new HttpError(404, 'Room not found');
+    throw new HttpError(404, 'Không tìm thấy phòng');
   }
 
   if (room.status === 'maintenance') {
-    throw new HttpError(409, 'Room is under maintenance');
+    throw new HttpError(409, 'Phòng đang được bảo trì');
   }
 
-  if (payload.adults + payload.children > room.capacity) {
-    throw new HttpError(400, `Guest count exceeds room capacity (${room.capacity})`);
+  const childrenPolicy = await getChildrenPolicy(connection);
+  const childAges = Array.isArray(payload.childrenAges) ? payload.childrenAges : [];
+  const adultsFromChildren = childAges.length === payload.children
+    ? childAges.filter((age) => Number(age) > childrenPolicy.childMaxAge).length
+    : payload.children;
+
+  if (payload.adults + adultsFromChildren > room.capacity) {
+    throw new HttpError(400, `Số khách vượt quá sức chứa phòng (${room.capacity} người)`);
   }
 
   const bookingConflicts = await bookingModel.getConflictingBookings(
@@ -132,7 +146,7 @@ const ensureBookable = async (payload, connection, lock = false) => {
   );
 
   if (bookingConflicts.length > 0 || availabilityConflicts.length > 0) {
-    throw new HttpError(409, 'Room is not available for the selected dates', {
+    throw new HttpError(409, 'Phòng không còn trống trong khoảng ngày đã chọn', {
       conflictingBookingIds: bookingConflicts.map((booking) => booking.id)
     });
   }
@@ -146,11 +160,11 @@ const ensureRoomAvailable = async (payload, connection, lock = false) => {
   const room = await bookingModel.getRoomWithType(payload.roomId, connection, lock);
 
   if (!room) {
-    throw new HttpError(404, 'Room not found');
+    throw new HttpError(404, 'Không tìm thấy phòng');
   }
 
   if (room.status === 'maintenance') {
-    throw new HttpError(409, 'Room is under maintenance');
+    throw new HttpError(409, 'Phòng đang được bảo trì');
   }
 
   const bookingConflicts = await bookingModel.getConflictingBookings(
@@ -186,7 +200,7 @@ const checkTypeQuote = async (payload) => {
     [payload.roomTypeId]
   );
   if (types.length === 0) {
-    throw new HttpError(404, 'Room type not found');
+    throw new HttpError(404, 'Không tìm thấy hạng phòng');
   }
   const roomType = types[0];
 
@@ -364,17 +378,39 @@ const createBooking = async (payload) => {
     await bookingModel.createBookingDetail(bookingId, payload, roomPrice, connection);
     await bookingModel.upsertAvailabilityRows(payload.roomId, bookingId, dates, connection);
 
-    // Lưu các dịch vụ khách yêu cầu khi đặt (chờ lễ tân xác nhận mới tính tiền)
+    let serviceAmount = 0;
+    // Dịch vụ khách chủ động chọn khi đặt được xác nhận và tính vào payment ngay.
     if (Array.isArray(payload.serviceRequests) && payload.serviceRequests.length > 0) {
       for (const request of payload.serviceRequests) {
+        const service = await bookingModel.getServiceById(request.serviceId, connection);
+        if (!service) {
+          throw new HttpError(404, `Không tìm thấy dịch vụ (${request.serviceId})`);
+        }
+        const serviceName = String(service.serviceName || '').toLowerCase();
+        if (
+          request.quantity > 1 &&
+          (serviceName.includes('extra bed') || serviceName.includes('giường'))
+        ) {
+          throw new HttpError(400, 'Mỗi phòng chỉ được kê tối đa 1 giường phụ');
+        }
+        await bookingModel.addBookingService(bookingId, service, request.quantity, connection);
+        serviceAmount += Number(service.price) * request.quantity;
         await connection.query(
-          `INSERT INTO booking_service_requests (bookingId, serviceId, quantity, status) VALUES (?, ?, ?, 'pending')`,
+          `INSERT INTO booking_service_requests (bookingId, serviceId, quantity, status) VALUES (?, ?, ?, 'confirmed')`,
           [bookingId, request.serviceId, request.quantity]
         );
       }
     }
+    await connection.query(
+      'UPDATE bookings SET totalAmount = ? WHERE id = ?',
+      [totalPrice + serviceAmount, bookingId]
+    );
 
-    const payment = await paymentService.createPaymentForBooking(bookingId, {}, connection);
+    const payment = await paymentService.createPaymentForBooking(
+      bookingId,
+      { serviceAmount },
+      connection
+    );
 
     await connection.commit();
 
@@ -393,15 +429,51 @@ const listBookings = (filters) => bookingModel.listBookings(filters);
 const getBookingById = async (bookingId) => {
   const booking = await bookingModel.getBookingById(bookingId);
   if (!booking) {
-    throw new HttpError(404, 'Booking not found');
+    throw new HttpError(404, 'Không tìm thấy đặt phòng');
   }
-  return booking;
+  const [services] = await db.query(
+    `SELECT bs.serviceId, bs.quantity, bs.totalPrice, s.serviceName, s.description, s.price AS unitPrice
+     FROM booking_services bs
+     JOIN services s ON s.id = bs.serviceId
+     WHERE bs.bookingId = ?
+     ORDER BY bs.id ASC`,
+    [bookingId]
+  );
+  const [guests] = await db.query(
+    `SELECT id, fullName, identityNumber, phone, note
+     FROM booking_guests
+     WHERE bookingId = ?
+     ORDER BY id ASC`,
+    [bookingId]
+  );
+  const [vouchers] = booking.voucher_id
+    ? await db.query(
+        `SELECT id, code, discountType, discountValue, maxDiscount
+         FROM vouchers WHERE id = ?`,
+        [booking.voucher_id]
+      )
+    : [[]];
+  const [refunds] = await db.query(
+    `SELECT id, amount, refundRate, refundMethod, status, note, createdAt, processedAt
+     FROM payment_refunds
+     WHERE bookingId = ?
+     ORDER BY id DESC
+     LIMIT 1`,
+    [bookingId]
+  );
+  return {
+    ...booking,
+    services,
+    guests,
+    voucher: vouchers[0] || null,
+    refund: refunds[0] || null,
+  };
 };
 
 const getRefundPreview = async (bookingId) => {
   const booking = await bookingModel.getBookingById(bookingId);
   if (!booking) {
-    throw new HttpError(404, 'Booking not found');
+    throw new HttpError(404, 'Không tìm thấy đặt phòng');
   }
 
   let payment = null;
@@ -460,7 +532,7 @@ const normalizeRefundRequest = (refundRequest) => {
   };
 };
 
-const cancelBooking = async (bookingId, refundRequest = null) => {
+const cancelBooking = async (bookingId, refundRequest = null, reasonValue = null) => {
   const connection = await db.getConnection();
 
   try {
@@ -468,11 +540,18 @@ const cancelBooking = async (bookingId, refundRequest = null) => {
 
     const booking = await bookingModel.getBookingById(bookingId, connection, true);
     if (!booking) {
-      throw new HttpError(404, 'Booking not found');
+      throw new HttpError(404, 'Không tìm thấy đặt phòng');
     }
 
     if (!['pending', 'confirmed'].includes(booking.status)) {
-      throw new HttpError(409, `Cannot cancel booking with status ${booking.status}`);
+      throw new HttpError(409, `Không thể hủy đặt phòng ở trạng thái ${bookingStatusLabel(booking.status)}`);
+    }
+    const cancellationReason = String(reasonValue || '').trim();
+    if (cancellationReason.length < 5) {
+      throw new HttpError(400, 'Vui lòng nhập lý do hủy phòng (ít nhất 5 ký tự)');
+    }
+    if (cancellationReason.length > 500) {
+      throw new HttpError(400, 'Lý do hủy phòng không được vượt quá 500 ký tự');
     }
 
     let payment = null;
@@ -485,6 +564,10 @@ const cancelBooking = async (bookingId, refundRequest = null) => {
     const refundPolicy = getRefundPolicy(booking.check_in, payment?.paidAmount || 0);
 
     await bookingModel.updateBookingStatus(bookingId, 'cancelled', connection);
+    await connection.query(
+      'UPDATE bookings SET cancellation_reason = ? WHERE id = ?',
+      [cancellationReason, bookingId]
+    );
 
     // Khách đã trả tiền và còn được hoàn -> luôn tạo yêu cầu hoàn tiền chờ admin duyệt.
     // Không có thông tin nhận tiền (VD: admin hủy hộ) -> mặc định nhận tại quầy.
@@ -553,7 +636,7 @@ const saveGuestIdentities = async (bookingId, payload) => {
 
     const booking = await bookingModel.getBookingById(bookingId, connection, true);
     if (!booking) {
-      throw new HttpError(404, 'Booking not found');
+      throw new HttpError(404, 'Không tìm thấy đặt phòng');
     }
 
     await bookingModel.replaceBookingGuests(bookingId, payload.guests, connection);
@@ -576,16 +659,16 @@ const addServiceCharge = async (bookingId, payload) => {
 
     const booking = await bookingModel.getBookingById(bookingId, connection, true);
     if (!booking) {
-      throw new HttpError(404, 'Booking not found');
+      throw new HttpError(404, 'Không tìm thấy đặt phòng');
     }
 
     if (!['confirmed', 'checked_in'].includes(booking.status)) {
-      throw new HttpError(409, `Cannot add service charge to booking with status ${booking.status}`);
+      throw new HttpError(409, `Không thể thêm phí dịch vụ khi đặt phòng ở trạng thái ${bookingStatusLabel(booking.status)}`);
     }
 
     const service = await bookingModel.getServiceById(payload.serviceId, connection);
     if (!service) {
-      throw new HttpError(404, 'Service not found');
+      throw new HttpError(404, 'Không tìm thấy dịch vụ');
     }
 
     await bookingModel.addBookingService(bookingId, service, payload.quantity, connection);
@@ -618,11 +701,11 @@ const addDamageCharge = async (bookingId, payload) => {
 
     const booking = await bookingModel.getBookingById(bookingId, connection, true);
     if (!booking) {
-      throw new HttpError(404, 'Booking not found');
+      throw new HttpError(404, 'Không tìm thấy đặt phòng');
     }
 
     if (!['checked_in'].includes(booking.status)) {
-      throw new HttpError(409, `Cannot add damage charge to booking with status ${booking.status}`);
+      throw new HttpError(409, `Không thể thêm phí hư hỏng khi đặt phòng ở trạng thái ${bookingStatusLabel(booking.status)}`);
     }
 
     const damage = await bookingModel.addDamageCharge(bookingId, booking.room_id, payload, connection);
@@ -646,16 +729,16 @@ const extendStay = async (bookingId, payload) => {
 
     const booking = await bookingModel.getBookingById(bookingId, connection, true);
     if (!booking) {
-      throw new HttpError(404, 'Booking not found');
+      throw new HttpError(404, 'Không tìm thấy đặt phòng');
     }
 
     if (!['confirmed', 'checked_in'].includes(booking.status)) {
-      throw new HttpError(409, `Cannot extend booking with status ${booking.status}`);
+      throw new HttpError(409, `Không thể gia hạn đặt phòng ở trạng thái ${bookingStatusLabel(booking.status)}`);
     }
 
     const currentCheckOut = dayString(booking.check_out);
     if (dateToUtc(payload.checkOut) <= dateToUtc(currentCheckOut)) {
-      throw new HttpError(400, 'new checkOut must be after current checkOut');
+      throw new HttpError(400, 'Ngày trả phòng mới phải sau ngày trả phòng hiện tại');
     }
 
     const conflicts = await bookingModel.getConflictingBookings(
@@ -712,20 +795,20 @@ const transferRoom = async (bookingId, payload) => {
 
     const booking = await bookingModel.getBookingById(bookingId, connection, true);
     if (!booking) {
-      throw new HttpError(404, 'Booking not found');
+      throw new HttpError(404, 'Không tìm thấy đặt phòng');
     }
 
     if (booking.status !== 'checked_in') {
-      throw new HttpError(409, `Cannot transfer room with status ${booking.status}`);
+      throw new HttpError(409, `Không thể chuyển phòng khi đặt phòng ở trạng thái ${bookingStatusLabel(booking.status)}`);
     }
 
     const toRoom = await bookingModel.getRoomWithType(payload.toRoomId, connection, true);
     if (!toRoom) {
-      throw new HttpError(404, 'Target room not found');
+      throw new HttpError(404, 'Không tìm thấy phòng muốn chuyển đến');
     }
 
     if (toRoom.status === 'maintenance') {
-      throw new HttpError(409, 'Target room is under maintenance');
+      throw new HttpError(409, 'Phòng muốn chuyển đến đang được bảo trì');
     }
 
     const conflicts = await bookingModel.getConflictingBookings(
@@ -817,11 +900,11 @@ const checkIn = async (bookingId, payload = {}) => {
 
     const booking = await bookingModel.getBookingById(bookingId, connection, true);
     if (!booking) {
-      throw new HttpError(404, 'Booking not found');
+      throw new HttpError(404, 'Không tìm thấy đặt phòng');
     }
 
     if (!['pending', 'confirmed'].includes(booking.status)) {
-      throw new HttpError(409, `Cannot check in booking with status ${booking.status}`);
+      throw new HttpError(409, `Không thể nhận phòng khi đặt phòng ở trạng thái ${bookingStatusLabel(booking.status)}`);
     }
 
     const payment = await paymentService.getPaymentByBookingId(bookingId);
@@ -883,20 +966,20 @@ const markNoShow = async (bookingId, { allowBeforeDeadline = false, connection: 
 
     const booking = await bookingModel.getBookingById(bookingId, connection, true);
     if (!booking) {
-      throw new HttpError(404, 'Booking not found');
+      throw new HttpError(404, 'Không tìm thấy đặt phòng');
     }
 
     if (booking.status === 'no_show') {
-      throw new HttpError(409, 'Booking is already marked as no-show');
+      throw new HttpError(409, 'Đặt phòng đã được đánh dấu khách không đến');
     }
 
     if (!['confirmed', 'pending'].includes(booking.status)) {
-      throw new HttpError(409, `Cannot mark no-show for booking with status ${booking.status}`);
+      throw new HttpError(409, `Không thể đánh dấu khách không đến khi đặt phòng ở trạng thái ${bookingStatusLabel(booking.status)}`);
     }
 
     const paymentRow = await paymentService.getPaymentByBookingId(bookingId);
     if (!paymentRow || Number(paymentRow.paidAmount || 0) <= 0) {
-      throw new HttpError(409, 'Chỉ áp dụng no-show cho booking đã thanh toán');
+      throw new HttpError(409, 'Chỉ có thể đánh dấu khách không đến đối với đặt phòng đã thanh toán');
     }
 
     if (!allowBeforeDeadline && !isPastNoShowDeadline(booking.check_in)) {
@@ -988,11 +1071,11 @@ const checkOut = async (bookingId) => {
 
     const booking = await bookingModel.getBookingById(bookingId, connection, true);
     if (!booking) {
-      throw new HttpError(404, 'Booking not found');
+      throw new HttpError(404, 'Không tìm thấy đặt phòng');
     }
 
     if (booking.status !== 'checked_in') {
-      throw new HttpError(409, `Cannot check out booking with status ${booking.status}`);
+      throw new HttpError(409, `Không thể trả phòng khi đặt phòng ở trạng thái ${bookingStatusLabel(booking.status)}`);
     }
 
     const payment = await paymentService.getPaymentByBookingId(bookingId);

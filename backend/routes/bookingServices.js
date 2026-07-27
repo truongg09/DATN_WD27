@@ -24,7 +24,7 @@ router.get('/', async (_req, res) => {
     res.json({ data: rows });
   } catch (error) {
     console.error('List booking services error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
   }
 });
 

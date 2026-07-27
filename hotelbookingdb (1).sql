@@ -79,11 +79,11 @@ INSERT INTO `amenities` (`id`, `name`, `icon`) VALUES
 (1, 'Wifi', 'wifi'),
 (2, 'TV', 'tv'),
 (3, 'Air Conditioner', 'ac'),
-(4, 'Mini Bar', 'bar'),
+(4, 'Đồ uống minibar', 'bar'),
 (5, 'Swimming Pool', 'pool'),
 (6, 'Gym', 'gym'),
 (7, 'Parking', 'parking'),
-(8, 'Breakfast', 'food'),
+(8, 'Buffet sáng', 'food'),
 (9, 'Bathtub', 'bath'),
 (10, 'Balcony', 'balcony');
 
@@ -580,7 +580,7 @@ INSERT INTO `room_items` (`id`, `roomId`, `itemName`, `quantity`, `status`) VALU
 (1, 1, 'TV', 1, 'normal'),
 (2, 1, 'Remote', 1, 'normal'),
 (3, 2, 'Hair Dryer', 1, 'normal'),
-(4, 3, 'Mini Bar', 1, 'normal'),
+(4, 3, 'Đồ uống minibar', 1, 'normal'),
 (5, 4, 'Kettle', 1, 'normal'),
 (6, 5, 'TV', 1, 'normal'),
 (7, 6, 'Wardrobe', 1, 'normal'),
@@ -702,16 +702,16 @@ CREATE TABLE `services` (
 --
 
 INSERT INTO `services` (`id`, `serviceName`, `price`, `description`) VALUES
-(1, 'Breakfast', 150000.00, 'Buffet'),
-(2, 'Laundry', 100000.00, 'Laundry Service'),
-(3, 'Spa', 300000.00, 'Spa Service'),
-(4, 'Airport Pickup', 500000.00, 'Airport Transfer'),
-(5, 'Room Service', 200000.00, 'Room Service'),
-(6, 'Dinner Buffet', 350000.00, 'Dinner'),
-(7, 'Massage', 400000.00, 'Massage'),
-(8, 'Bicycle Rental', 100000.00, 'Bike'),
-(9, 'Mini Bar', 120000.00, 'Mini Bar'),
-(10, 'Extra Bed', 250000.00, 'Extra Bed'),
+(1, 'Buffet sáng', 150000.00, 'Buffet sáng phục vụ từ 06:30 đến 10:00'),
+(2, 'Giặt ủi', 100000.00, 'Dịch vụ giặt và ủi quần áo'),
+(3, 'Spa thư giãn', 300000.00, 'Dịch vụ chăm sóc và thư giãn tại spa'),
+(4, 'Đưa đón sân bay', 500000.00, 'Xe đưa đón giữa khách sạn và sân bay'),
+(5, 'Phục vụ tại phòng', 200000.00, 'Phục vụ tại phòng'),
+(6, 'Buffet tối', 350000.00, 'Buffet tối phục vụ từ 18:00 đến 21:30'),
+(7, 'Massage thư giãn', 400000.00, 'Massage thư giãn'),
+(8, 'Thuê xe đạp', 100000.00, 'Xe đạp sử dụng trong ngày'),
+(9, 'Đồ uống minibar', 120000.00, 'Đồ uống minibar'),
+(10, 'Kê thêm giường', 250000.00, 'Kê thêm giường'),
 (13, 'sấy quần áo', 500000.00, 'Sấy nhanh trong 24H'),
 (14, 'giặt quần áo nhanh', 300000.00, NULL);
 

@@ -18,7 +18,7 @@ router.get('/', async (req, res) => {
     res.json({ data: employees });
   } catch (error) {
     console.error('Get employees error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
   }
 });
 
@@ -38,13 +38,13 @@ router.get('/:id', async (req, res) => {
     `, [id]);
     
     if (employees.length === 0) {
-      return res.status(404).json({ message: 'Employee not found' });
+      return res.status(404).json({ message: 'Không tìm thấy nhân viên' });
     }
     
     res.json({ data: employees[0] });
   } catch (error) {
     console.error('Get employee error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
   }
 });
 
@@ -60,7 +60,7 @@ router.post('/', async (req, res) => {
     );
     
     if (existingUsers.length > 0) {
-      return res.status(400).json({ message: 'Email already exists' });
+      return res.status(400).json({ message: 'Email đã tồn tại' });
     }
     
     // Hash password
@@ -91,12 +91,12 @@ router.post('/', async (req, res) => {
     `);
     
     res.status(201).json({
-      message: 'Employee created successfully',
+      message: 'Thêm nhân viên thành công',
       data: createdEmployee[0]
     });
   } catch (error) {
     console.error('Create employee error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
   }
 });
 
@@ -113,7 +113,7 @@ router.put('/:id', async (req, res) => {
     );
     
     if (empResult.length === 0) {
-      return res.status(404).json({ message: 'Employee not found' });
+      return res.status(404).json({ message: 'Không tìm thấy nhân viên' });
     }
     
     const accountId = empResult[0].accountId;
@@ -181,10 +181,10 @@ router.put('/:id', async (req, res) => {
       );
     }
     
-    res.json({ message: 'Employee updated successfully' });
+    res.json({ message: 'Cập nhật nhân viên thành công' });
   } catch (error) {
     console.error('Update employee error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
   }
 });
 
@@ -202,7 +202,7 @@ router.delete('/:id', async (req, res) => {
     );
     
     if (empResult.length === 0) {
-      return res.status(404).json({ message: 'Employee not found' });
+      return res.status(404).json({ message: 'Không tìm thấy nhân viên' });
     }
     
     const accountId = empResult[0].accountId;
@@ -213,11 +213,11 @@ router.delete('/:id', async (req, res) => {
     // Then delete the account
     await db.query('DELETE FROM accounts WHERE id = ?', [accountId]);
     
-    res.json({ message: 'Employee deleted successfully' });
+    res.json({ message: 'Xóa nhân viên thành công' });
   } catch (error) {
     console.error('Delete employee error details:', error);
     console.error('Error code:', error.code);
-    res.status(500).json({ message: 'Internal server error', error: error.message });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ', error: error.message });
   }
 });
 

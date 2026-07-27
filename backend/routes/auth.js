@@ -66,6 +66,7 @@ router.post('/register', async (req, res) => {
         id: accountId,
         email,
         phone,
+        fullName: email.split('@')[0],
         role: 'customer'
       }
     });
@@ -86,7 +87,13 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ message: 'Vui lòng nhập email và mật khẩu' });
     }
 
-    const [users] = await db.query('SELECT * FROM accounts WHERE email = ?', [email]);
+    const [users] = await db.query(
+      `SELECT a.*, COALESCE(NULLIF(c.fullName, ''), NULLIF(a.full_name, ''), a.email) AS fullName
+       FROM accounts a
+       LEFT JOIN customers c ON c.accountId = a.id
+       WHERE a.email = ?`,
+      [email]
+    );
 
     if (users.length === 0) {
       return res.status(401).json({ message: 'Email hoặc mật khẩu không đúng' });
@@ -102,7 +109,7 @@ router.post('/login', async (req, res) => {
     }
     
     if (!passwordMatch) {
-      return res.status(401).json({ message: "Invalid email or password" });
+      return res.status(401).json({ message: "Email hoặc mật khẩu không đúng" });
     }
     
     if (!passwordMatch) {
@@ -122,6 +129,7 @@ router.post('/login', async (req, res) => {
         id: user.id,
         email: user.email,
         phone: user.phone,
+        fullName: user.fullName,
         role: user.role
       }
     });

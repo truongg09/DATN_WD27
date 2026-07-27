@@ -33,7 +33,7 @@ export const getPaymentByBookingId = async (bookingId: number) => {
 
 export const processPayment = async (
   id: number,
-  data: { paymentMethod: PaymentMethod; amount?: number }
+  data: { paymentMethod: PaymentMethod; amount?: number; sandbox?: boolean }
 ) => {
   return api.post(`/payments/${id}/pay`, data) as Promise<
     ApiResponse<{

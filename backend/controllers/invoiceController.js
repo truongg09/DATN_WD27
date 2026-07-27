@@ -5,7 +5,7 @@ const sendError = (res, error) => {
   console.error('Invoice API error:', error);
   const statusCode = error.statusCode || 500;
   res.status(statusCode).json({
-    message: statusCode === 500 ? 'Internal server error' : error.message,
+    message: statusCode === 500 ? 'Lỗi máy chủ nội bộ' : error.message,
     ...(error.details ? { details: error.details } : {})
   });
 };

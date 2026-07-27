@@ -46,7 +46,7 @@ router.get('/payment', async (_req, res) => {
     res.json({ data: { ...DEFAULT_PAYMENT_SETTINGS, ...(saved || {}) } });
   } catch (error) {
     console.error('Get payment settings error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
   }
 });
 
@@ -86,7 +86,7 @@ router.put('/payment', requireAuth, async (req, res) => {
     res.json({ data: settings, message: 'Đã lưu cài đặt tài khoản nhận tiền' });
   } catch (error) {
     console.error('Update payment settings error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
   }
 });
 
@@ -105,7 +105,7 @@ router.get('/children-policy', async (_req, res) => {
     res.json({ data: { ...DEFAULT_CHILDREN_POLICY, ...(saved || {}) } });
   } catch (error) {
     console.error('Get children policy error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
   }
 });
 
@@ -135,7 +135,7 @@ router.put('/children-policy', requireAuth, async (req, res) => {
     res.json({ data: policy, message: 'Đã lưu chính sách phụ thu trẻ em' });
   } catch (error) {
     console.error('Update children policy error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
   }
 });
 

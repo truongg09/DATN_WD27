@@ -20,6 +20,7 @@ export interface AuthResponse {
     id: number;
     email: string;
     phone: string;
+    fullName?: string;
     role: string;
   };
 }

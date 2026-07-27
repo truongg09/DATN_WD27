@@ -125,6 +125,18 @@ const BookingDetail: React.FC = () => {
   if (!booking) return null;
 
   const status = String(booking.status);
+  const nights = Math.max(
+    dayjs(String(booking.check_out)).diff(dayjs(String(booking.check_in)), 'day'),
+    0
+  );
+  const bookingServices = Array.isArray(booking.services)
+    ? booking.services as Array<Record<string, unknown>>
+    : [];
+  const bookingGuests = Array.isArray(booking.guests)
+    ? booking.guests as Array<Record<string, unknown>>
+    : [];
+  const voucher = booking.voucher as Record<string, unknown> | null;
+  const refund = booking.refund as Record<string, unknown> | null;
 
   return (
     <div className="booking-detail-page">
@@ -138,26 +150,96 @@ const BookingDetail: React.FC = () => {
       <div className="detail-container">
         <Card title="Thông tin đặt phòng">
           <Descriptions column={{ xs: 1, sm: 2 }} bordered>
+            <Descriptions.Item label="Mã đặt phòng">
+              {String(booking.booking_code || `#${bookingId}`)}
+            </Descriptions.Item>
+            <Descriptions.Item label="Trạng thái">
+              <Tag color={bookingStatusMap[status]?.color}>
+                {bookingStatusMap[status]?.label || status}
+              </Tag>
+            </Descriptions.Item>
             <Descriptions.Item label="Khách hàng">{String(booking.customer_name)}</Descriptions.Item>
             <Descriptions.Item label="Email">{String(booking.customer_email)}</Descriptions.Item>
             <Descriptions.Item label="SĐT">{String(booking.customer_phone || '-')}</Descriptions.Item>
             <Descriptions.Item label="Phòng">
               {String(booking.room_number)} - {String(booking.room_type_name)}
             </Descriptions.Item>
+            <Descriptions.Item label="Tầng">{String(booking.room_floor ?? '-')}</Descriptions.Item>
+            <Descriptions.Item label="Diện tích">
+              {booking.room_area ? `${String(booking.room_area)} m²` : '-'}
+            </Descriptions.Item>
+            <Descriptions.Item label="Sức chứa">
+              {booking.room_capacity ? `${String(booking.room_capacity)} người` : '-'}
+            </Descriptions.Item>
+            <Descriptions.Item label="Ngày đặt">{formatDate(String(booking.created_at))}</Descriptions.Item>
             <Descriptions.Item label="Nhận phòng">{formatDate(String(booking.check_in))}</Descriptions.Item>
             <Descriptions.Item label="Trả phòng">{formatDate(String(booking.check_out))}</Descriptions.Item>
+            <Descriptions.Item label="Số đêm">{nights}</Descriptions.Item>
+            <Descriptions.Item label="Giá phòng/đêm">
+              {formatPrice(Number(booking.room_price || booking.price_per_night || 0))}
+            </Descriptions.Item>
             <Descriptions.Item label="Người lớn">{String(booking.adults || '-')}</Descriptions.Item>
             <Descriptions.Item label="Trẻ em">{String(booking.children || 0)}</Descriptions.Item>
             <Descriptions.Item label="Tổng tiền" span={2}>
-              <strong>{formatPrice(Number(booking.total_price))}</strong>
+              <strong>{formatPrice(payment?.totalAmount ?? Number(booking.booking_total_amount || booking.total_price))}</strong>
             </Descriptions.Item>
             {booking.notes ? (
               <Descriptions.Item label="Ghi chú" span={2}>
                 {String(booking.notes)}
               </Descriptions.Item>
             ) : null}
+            {booking.cancellation_reason ? (
+              <Descriptions.Item label="Lý do hủy phòng" span={2}>
+                <Tag color="red">{String(booking.cancellation_reason)}</Tag>
+              </Descriptions.Item>
+            ) : null}
+            {voucher ? (
+              <Descriptions.Item label="Voucher" span={2}>
+                <Tag color="purple">{String(voucher.code)}</Tag>{' '}
+                {String(voucher.discountType) === 'percentage'
+                  ? `Giảm ${String(voucher.discountValue)}%`
+                  : `Giảm ${formatPrice(Number(voucher.discountValue || 0))}`}
+              </Descriptions.Item>
+            ) : null}
           </Descriptions>
         </Card>
+
+        <Card title={`Dịch vụ đã chọn (${bookingServices.length})`}>
+          {bookingServices.length > 0 ? (
+            <Descriptions column={1} bordered>
+              {bookingServices.map((service) => (
+                <Descriptions.Item
+                  key={String(service.serviceId)}
+                  label={String(service.serviceName)}
+                >
+                  {String(service.quantity)} × {formatPrice(Number(service.unitPrice || 0))}
+                  {' = '}
+                  <strong>{formatPrice(Number(service.totalPrice || 0))}</strong>
+                  {service.description ? <div>{String(service.description)}</div> : null}
+                </Descriptions.Item>
+              ))}
+            </Descriptions>
+          ) : (
+            <p>Booking này không có dịch vụ bổ sung.</p>
+          )}
+        </Card>
+
+        {bookingGuests.length > 0 && (
+          <Card title={`Danh sách khách lưu trú (${bookingGuests.length})`}>
+            <Descriptions column={{ xs: 1, sm: 2 }} bordered>
+              {bookingGuests.map((guest, index) => (
+                <Descriptions.Item
+                  key={String(guest.id || index)}
+                  label={`Khách ${index + 1}`}
+                >
+                  <strong>{String(guest.fullName)}</strong>
+                  <div>Giấy tờ: {String(guest.identityNumber || '-')}</div>
+                  <div>SĐT: {String(guest.phone || '-')}</div>
+                </Descriptions.Item>
+              ))}
+            </Descriptions>
+          </Card>
+        )}
 
         {payment && (
           <Card
@@ -189,11 +271,48 @@ const BookingDetail: React.FC = () => {
               </Descriptions.Item>
               <Descriptions.Item label="Tổng">{formatPrice(payment.totalAmount)}</Descriptions.Item>
               <Descriptions.Item label="Đã trả">{formatPrice(payment.paidAmount)}</Descriptions.Item>
+              <Descriptions.Item label="Còn lại">{formatPrice(payment.remainingAmount)}</Descriptions.Item>
+              <Descriptions.Item label="Tiền phòng">{formatPrice(payment.roomAmount)}</Descriptions.Item>
+              <Descriptions.Item label="Dịch vụ">{formatPrice(payment.serviceAmount)}</Descriptions.Item>
+              <Descriptions.Item label="Phụ thu">{formatPrice(payment.surchargeAmount)}</Descriptions.Item>
+              {payment.paymentDate && (
+                <Descriptions.Item label="Ngày thanh toán">
+                  {dayjs(payment.paymentDate).format('DD/MM/YYYY HH:mm')}
+                </Descriptions.Item>
+              )}
               {payment.transactionCode && (
                 <Descriptions.Item label="Mã GD" span={2}>
                   {payment.transactionCode}
                 </Descriptions.Item>
               )}
+            </Descriptions>
+          </Card>
+        )}
+
+        {refund && (
+          <Card title="Thông tin hoàn tiền">
+            <Descriptions column={{ xs: 1, sm: 2 }} bordered>
+              <Descriptions.Item label="Số tiền">
+                <strong>{formatPrice(Number(refund.amount || 0))}</strong>
+              </Descriptions.Item>
+              <Descriptions.Item label="Tỷ lệ hoàn">
+                {Math.round(Number(refund.refundRate || 0) * 100)}%
+              </Descriptions.Item>
+              <Descriptions.Item label="Hình thức">
+                {refund.refundMethod === 'bank_transfer' ? 'Chuyển khoản ngân hàng' : 'Tiền mặt tại quầy'}
+              </Descriptions.Item>
+              <Descriptions.Item label="Trạng thái">
+                {refund.status === 'approved'
+                  ? 'Đã duyệt'
+                  : refund.status === 'rejected'
+                    ? 'Đã từ chối'
+                    : 'Đang chờ duyệt'}
+              </Descriptions.Item>
+              {refund.note ? (
+                <Descriptions.Item label="Ghi chú hoàn tiền" span={2}>
+                  {String(refund.note)}
+                </Descriptions.Item>
+              ) : null}
             </Descriptions>
           </Card>
         )}
@@ -262,7 +381,7 @@ const BookingDetail: React.FC = () => {
             title={
               <>
                 <StarOutlined style={{ color: '#faad14', marginRight: 8 }} />
-                Đánh giá kỳ nghỉ của bạn
+                Đánh giá phòng {String(booking.room_number)} – {String(booking.room_type_name)}
               </>
             }
           >
@@ -277,7 +396,9 @@ const BookingDetail: React.FC = () => {
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 520 }}>
                 <p style={{ margin: 0, color: '#6b7280' }}>
-                  Chuyến đi đã hoàn thành — chia sẻ trải nghiệm để giúp khách sau lựa chọn nhé!
+                  Đánh giá này dành cho phòng {String(booking.room_number)}, hạng{' '}
+                  {String(booking.room_type_name)} trong kỳ nghỉ từ {formatDate(String(booking.check_in))} đến{' '}
+                  {formatDate(String(booking.check_out))}.
                 </p>
                 <Rate value={reviewRating} onChange={setReviewRating} />
                 <Input.TextArea

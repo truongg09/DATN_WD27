@@ -1,7 +1,7 @@
 export interface Voucher {
     id: number;
     code: string;
-    discountType: "percent" | "fixed";
+    discountType: "percentage" | "fixed";
     discountValue: number;
     maxDiscount?: number;
     minBookingAmount?: number;

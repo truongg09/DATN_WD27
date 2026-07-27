@@ -156,7 +156,7 @@ const Booking: React.FC = () => {
   const { control, handleSubmit, setValue, watch, formState: { errors } } = useForm<BookingFormData>({
     defaultValues: {
       roomId: 0,
-      guestName: '',
+      guestName: user?.fullName || user?.email?.split('@')[0] || '',
       guestEmail: user?.email || '',
       guestPhone: user?.phone || '',
       adults: 2,
@@ -179,6 +179,7 @@ const Booking: React.FC = () => {
 
   useEffect(() => {
     if (user) {
+      setValue('guestName', user.fullName || user.email?.split('@')[0] || '');
       setValue('guestEmail', user.email || '');
       setValue('guestPhone', user.phone || '');
     }
@@ -402,6 +403,23 @@ const Booking: React.FC = () => {
     return selectedRoom.price * nights;
   };
 
+  const serviceAmount = serviceRequests.reduce((total, request) => {
+    const service = services.find((item) => item.id === request.serviceId);
+    return total + Number(service?.price || 0) * request.quantity;
+  }, 0);
+
+  const getServiceUsageRule = (service: Service) => {
+    const name = service.serviceName.toLocaleLowerCase('vi');
+    if (name.includes('breakfast') || name.includes('ăn sáng')) return 'Sử dụng 06:30–10:00 mỗi ngày lưu trú.';
+    if (name.includes('dinner') || name.includes('tối')) return 'Sử dụng 18:00–21:30; đăng ký trước 16:00.';
+    if (name.includes('spa') || name.includes('massage')) return 'Sử dụng 09:00–22:00; đặt lịch trước ít nhất 2 giờ.';
+    if (name.includes('airport') || name.includes('đưa đón')) return 'Cung cấp giờ bay trước ít nhất 24 giờ.';
+    if (name.includes('laundry') || name.includes('giặt') || name.includes('sấy')) return 'Nhận đồ trước 10:00, hoàn trả trong ngày hoặc theo mô tả.';
+    if (name.includes('extra bed') || name.includes('giường')) return 'Tối đa 1 giường phụ/phòng; đăng ký trước 18:00 ngày nhận phòng.';
+    if (name.includes('bicycle') || name.includes('xe đạp')) return 'Sử dụng 06:00–20:00, trả xe trong ngày.';
+    return 'Sử dụng trong thời gian lưu trú; vui lòng liên hệ lễ tân để hẹn giờ.';
+  };
+
   const formatPrice = (price: number) => {
     return new Intl.NumberFormat('vi-VN').format(price) + '₫';
   };
@@ -559,7 +577,9 @@ const Booking: React.FC = () => {
         ? { roomTypeId: selectedRoom.roomTypeId }
         : { roomId: selectedRoom.id };
 
-    if (data.adults + data.children > selectedRoom.capacity) {
+    const childMaxAge = dateAvailability?.childrenPolicy?.childMaxAge ?? 12;
+    const adultsFromChildren = childrenAges.filter((age) => age > childMaxAge).length;
+    if (data.adults + adultsFromChildren > selectedRoom.capacity) {
       message.error(`Số khách vượt quá sức chứa phòng (${selectedRoom.capacity} người)`);
       return;
     }
@@ -947,12 +967,12 @@ const Booking: React.FC = () => {
               </div>
 
               <div className="form-group">
-                <label>Yêu cầu dịch vụ thêm (tùy chọn)</label>
+                <label>Dịch vụ của phòng (tùy chọn)</label>
                 <Select
                   mode="multiple"
                   size="large"
                   style={{ width: '100%' }}
-                  placeholder="Chọn dịch vụ bạn muốn (ăn sáng, spa, đưa đón...)"
+                  placeholder="Chọn dịch vụ bạn muốn (giường phụ, ăn sáng, spa, đưa đón...)"
                   value={serviceRequests.map((s) => s.serviceId)}
                   onChange={handleServiceSelectChange}
                   optionFilterProp="label"
@@ -970,9 +990,23 @@ const Booking: React.FC = () => {
                         <div className="service-request-row" key={sel.serviceId}>
                           <span className="service-request-name">
                             {svc?.serviceName} <em>({formatMoney(svc?.price ?? 0)})</em>
+                            {svc && (
+                              <>
+                                <small>{svc.description || 'Dịch vụ bổ sung cho phòng.'}</small>
+                                <small className="service-usage-rule">{getServiceUsageRule(svc)}</small>
+                              </>
+                            )}
                           </span>
                           <InputNumber
                             min={1}
+                            max={
+                              svc && (
+                                svc.serviceName.toLocaleLowerCase('vi').includes('extra bed') ||
+                                svc.serviceName.toLocaleLowerCase('vi').includes('giường')
+                              )
+                                ? 1
+                                : 20
+                            }
                             value={sel.quantity}
                             onChange={(v) => updateServiceQuantity(sel.serviceId, v)}
                             addonBefore="SL"
@@ -981,7 +1015,7 @@ const Booking: React.FC = () => {
                       );
                     })}
                     <p className="service-request-note">
-                      * Đây là yêu cầu — lễ tân sẽ xác nhận và cộng vào hóa đơn. Chưa tính tiền ngay khi đặt.
+                      * Dịch vụ đã chọn được giữ cùng phòng và cộng ngay vào tổng thanh toán.
                     </p>
                   </div>
                 )}
@@ -1047,10 +1081,16 @@ const Booking: React.FC = () => {
                             <span>{formatPrice(dateAvailability?.childSurcharge?.amount ?? 0)}</span>
                           </div>
                         )}
+                        {serviceAmount > 0 && (
+                          <div className="summary-row">
+                            <span>Dịch vụ bổ sung</span>
+                            <span>{formatPrice(serviceAmount)}</span>
+                          </div>
+                        )}
                         <div className="summary-row total">
                           <span>Tổng cộng</span>
                           <span className="total-price">
-                            {formatPrice(dateAvailability?.totalAmount ?? calculateTotal())}
+                            {formatPrice((dateAvailability?.totalAmount ?? calculateTotal()) + serviceAmount)}
                           </span>
                         </div>
                       </>

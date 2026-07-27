@@ -55,17 +55,17 @@ app.use('/api/wallet', walletRoutes);
 
 // Test endpoint
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', message: 'Hotel Booking Backend is running!' });
+  res.json({ status: 'ok', message: 'Máy chủ đặt phòng khách sạn đang hoạt động!' });
 });
 
 // Test database connection
 app.get('/api/db-test', async (req, res) => {
   try {
     const [rows] = await db.query('SELECT 1 + 1 AS solution');
-    res.json({ status: 'ok', message: 'Database connected successfully!', data: rows[0] });
+    res.json({ status: 'ok', message: 'Kết nối cơ sở dữ liệu thành công!', data: rows[0] });
   } catch (error) {
     console.error('Database connection error:', error);
-    res.status(500).json({ status: 'error', message: 'Database connection failed', error: error.message });
+    res.status(500).json({ status: 'error', message: 'Kết nối cơ sở dữ liệu thất bại', error: error.message });
   }
 });
 
