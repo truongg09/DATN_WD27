@@ -4,17 +4,6 @@ const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
 
-/**
- * Ghi chú quan trọng về dữ liệu (đọc kỹ trước khi sửa):
- * - Bảng `bookings` có 2 cột trạng thái song song do migrate cũ->mới: `status` (cũ) và
- *   `bookingStatus` (mới). Nguồn sự thật (source of truth) PHẢI là COALESCE(bookingStatus, status).
- * - Tương tự có `created_at` (cũ) và `createdAt` (mới) -> luôn COALESCE(created_at, createdAt).
- * - `payments.paidAmount`  = số tiền THỰC TẾ đã thu (đúng cho báo cáo doanh thu tiền mặt / dòng tiền).
- * - `payments.roomAmount` / `serviceAmount` = số tiền GHI HÓA ĐƠN (đúng cho báo cáo doanh thu theo hạng mục),
- *   có thể lớn hơn paidAmount nếu khách mới đặt cọc / chưa thanh toán hết.
- * - Booking bị 'cancelled' hoặc 'no_show' KHÔNG được tính vào công suất phòng, doanh thu theo loại phòng.
- */
-
 function requireAdminOrStaff(req, res) {
   if (!['admin', 'staff'].includes(req.user?.role)) {
     res.status(403).json({ ok: false, message: 'Chỉ quản trị viên/nhân viên được xem báo cáo' });
@@ -42,6 +31,15 @@ const NON_COUNTING_STATUSES = ['cancelled', 'no_show'];
 /**
  * GET /api/reports/monthly?year=2026
  * Trả về báo cáo chi tiết 12 tháng trong năm, dùng CHỈ dữ liệu thật trong DB.
+ *
+ * LƯU Ý QUAN TRỌNG VỀ JOIN:
+ * `booking_details.bookingId` và `payments.bookingId` KHÔNG có ràng buộc UNIQUE
+ * trong schema (chỉ là index thường) -> về mặt lý thuyết 1 booking có thể có
+ * nhiều dòng booking_details (nhiều phòng/1 đơn) hoặc nhiều dòng payments
+ * (nhiều lần thanh toán). Nếu JOIN thẳng 2 bảng "1-nhiều" này cùng lúc với
+ * bookings, kết quả sẽ bị nhân bản (fan-out) -> SUM() bị thổi phồng sai.
+ * Vì vậy mọi query dưới đây đều gộp (GROUP BY bookingId) payments trước khi
+ * join, và không join payments + booking_details trong cùng 1 query.
  */
 router.get('/monthly', requireAuth, async (req, res) => {
   try {
@@ -58,18 +56,29 @@ router.get('/monthly', requireAuth, async (req, res) => {
     const totalRooms = Number(roomKpi?.total) || 0;
 
     // 1) Doanh thu + số đơn + công nợ theo từng tháng (1 query, group by tháng)
+    // payments được gộp theo bookingId trước (subquery `pay`) để tránh nhân bản
+    // dòng nếu sau này 1 booking có nhiều dòng payments (vd: nhiều lần thanh toán).
     const [monthlyRows] = await db.query(
       `
         SELECT
           MONTH(COALESCE(b.created_at, b.createdAt)) AS bucket,
           COUNT(DISTINCT b.id) AS bookingsCount,
           SUM(CASE WHEN COALESCE(b.bookingStatus, b.status) IN ('cancelled','no_show') THEN 1 ELSE 0 END) AS cancelledCount,
-          COALESCE(SUM(p.roomAmount), 0) AS roomRevenue,
-          COALESCE(SUM(p.serviceAmount), 0) AS serviceRevenue,
-          COALESCE(SUM(p.paidAmount), 0) AS paidAmount,
-          COALESCE(SUM(p.remainingAmount), 0) AS remainingAmount
+          COALESCE(SUM(pay.roomAmount), 0) AS roomRevenue,
+          COALESCE(SUM(pay.serviceAmount), 0) AS serviceRevenue,
+          COALESCE(SUM(pay.paidAmount), 0) AS paidAmount,
+          COALESCE(SUM(pay.remainingAmount), 0) AS remainingAmount
         FROM bookings b
-        LEFT JOIN payments p ON p.bookingId = b.id
+        LEFT JOIN (
+          SELECT
+            bookingId,
+            SUM(roomAmount) AS roomAmount,
+            SUM(serviceAmount) AS serviceAmount,
+            SUM(paidAmount) AS paidAmount,
+            SUM(remainingAmount) AS remainingAmount
+          FROM payments
+          GROUP BY bookingId
+        ) pay ON pay.bookingId = b.id
         WHERE COALESCE(b.created_at, b.createdAt) BETWEEN ? AND ?
         GROUP BY bucket
         ORDER BY bucket
@@ -94,6 +103,9 @@ router.get('/monthly', requireAuth, async (req, res) => {
 
     // 3) Công suất phòng theo từng tháng (occupancy) - tính riêng từng tháng vì
     // logic "đêm phòng đã bán" cần so khớp khoảng ngày check-in/check-out, không group by đơn giản được.
+    // Ở đây JOIN với booking_details KHÔNG bị coi là lỗi fan-out: mỗi dòng
+    // booking_details đại diện cho 1 phòng thực tế được đặt, nên 1 booking có
+    // N phòng phải tính N lần đêm-phòng - đây là hành vi ĐÚNG cho occupancy.
     const occupancyByMonth = await Promise.all(
       Array.from({ length: 12 }, (_, idx) => idx).map(async (monthIndex0) => {
         const { from, to, daysInMonth } = monthBounds(year, monthIndex0);
@@ -150,17 +162,30 @@ router.get('/monthly', requireAuth, async (req, res) => {
     });
 
     // 4) Doanh thu + số đơn theo LOẠI PHÒNG (cả năm)
+    // SỬA LỖI FAN-OUT: bản cũ join booking_details (1-nhiều) VÀ payments
+    // (1-nhiều) cùng lúc trong 1 query -> nếu 1 booking có nhiều phòng và/hoặc
+    // nhiều dòng payments, SUM(p.roomAmount) bị nhân bản (tính nhiều lần cho
+    // cùng 1 khoản tiền), khiến doanh thu theo loại phòng bị thổi phồng sai
+    // lệch, thậm chí tổng cộng các loại phòng có thể lớn hơn tổng doanh thu
+    // thật của cả năm.
+    // Cách sửa: không suy ra tiền theo loại phòng từ bảng payments (vốn là
+    // tổng tiền của CẢ booking) nữa, mà tính trực tiếp từ chính dòng
+    // booking_details (đã có sẵn roomPrice cho từng phòng) x số đêm ở của
+    // phòng đó. Nhờ vậy mỗi phòng chỉ đóng góp đúng doanh thu của chính nó,
+    // không phụ thuộc vào có bao nhiêu dòng payments đi kèm.
     const [byRoomTypeRows] = await db.query(
       `
         SELECT
           COALESCE(rt.typeName, 'Không rõ') AS roomType,
           COUNT(DISTINCT b.id) AS bookingsCount,
-          COALESCE(SUM(p.roomAmount), 0) AS revenue
+          COALESCE(SUM(
+            (bd.roomPrice + COALESCE(bd.occupancySurcharge, 0))
+            * GREATEST(1, DATEDIFF(bd.checkOutDate, bd.checkInDate))
+          ), 0) AS revenue
         FROM bookings b
-        LEFT JOIN booking_details bd ON bd.bookingId = b.id
-        LEFT JOIN rooms r ON r.id = COALESCE(bd.roomId, b.room_id)
+        JOIN booking_details bd ON bd.bookingId = b.id
+        LEFT JOIN rooms r ON r.id = bd.roomId
         LEFT JOIN room_types rt ON rt.id = r.roomTypeId
-        LEFT JOIN payments p ON p.bookingId = b.id
         WHERE COALESCE(b.created_at, b.createdAt) BETWEEN ? AND ?
           AND COALESCE(b.bookingStatus, b.status) NOT IN ('cancelled', 'no_show')
         GROUP BY roomType
@@ -170,6 +195,8 @@ router.get('/monthly', requireAuth, async (req, res) => {
     );
 
     // 5) Doanh thu + số giao dịch theo PHƯƠNG THỨC THANH TOÁN (cả năm)
+    // Query này chỉ đọc thẳng từ bảng payments, không join thêm bảng 1-nhiều
+    // nào khác nên không bị fan-out.
     const [byPaymentMethodRows] = await db.query(
       `
         SELECT
@@ -185,11 +212,17 @@ router.get('/monthly', requireAuth, async (req, res) => {
     );
 
     // 6) Tổng công nợ hiện tại (đơn chưa hủy, chưa thu hết tiền)
+    // Cũng gộp payments theo bookingId trước khi join để tránh nhân bản dòng
+    // (booking JOIN payments là 1-nhiều nếu sau này có nhiều dòng payments/booking).
     const [[outstandingRow]] = await db.query(
       `
-        SELECT COALESCE(SUM(p.remainingAmount), 0) AS totalOutstanding
-        FROM payments p
-        JOIN bookings b ON b.id = p.bookingId
+        SELECT COALESCE(SUM(pay.remainingAmount), 0) AS totalOutstanding
+        FROM bookings b
+        JOIN (
+          SELECT bookingId, SUM(remainingAmount) AS remainingAmount
+          FROM payments
+          GROUP BY bookingId
+        ) pay ON pay.bookingId = b.id
         WHERE COALESCE(b.bookingStatus, b.status) NOT IN ('cancelled', 'no_show')
           AND COALESCE(b.created_at, b.createdAt) BETWEEN ? AND ?
       `,
