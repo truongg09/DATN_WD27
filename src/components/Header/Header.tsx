@@ -1,10 +1,12 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
   faPhone, 
   faEnvelope,
-  faUser
+  faUser,
+  faBars,
+  faTimes
 } from '@fortawesome/free-solid-svg-icons';
 import { 
   faFacebook, 
@@ -17,11 +19,14 @@ import './header.css';
 const Header: React.FC = () => {
   const { user, isAuthenticated, logout } = useAuth();
   const navigate = useNavigate();
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const handleLogout = () => {
     logout();
     navigate('/');
   };
+
+  const closeMenu = () => setMenuOpen(false);
 
   return (
     <header className="header">
@@ -47,26 +52,34 @@ const Header: React.FC = () => {
             </Link>
           </div>
 
-          <nav className="nav-menu">
+          <button
+            className="hamburger-btn"
+            onClick={() => setMenuOpen(!menuOpen)}
+            aria-label="Toggle menu"
+          >
+            <FontAwesomeIcon icon={menuOpen ? faTimes : faBars} />
+          </button>
+
+          <nav className={`nav-menu${menuOpen ? ' open' : ''}`}>
             <ul>
-              <li><Link to="/">Trang chủ</Link></li>
-              <li><Link to="/rooms">Phòng</Link></li>
-              <li><Link to="/booking">Đặt phòng</Link></li>
-              <li><Link to="/contact">Liên hệ</Link></li>
+              <li><Link to="/" onClick={closeMenu}>Trang chủ</Link></li>
+              <li><Link to="/rooms" onClick={closeMenu}>Phòng</Link></li>
+              <li><Link to="/booking" onClick={closeMenu}>Đặt phòng</Link></li>
+              <li><Link to="/contact" onClick={closeMenu}>Liên hệ</Link></li>
               {isAuthenticated && user?.role === "admin" && (
-                <li><Link to="/admin">Admin</Link></li>
+                <li><Link to="/admin" onClick={closeMenu}>Admin</Link></li>
               )}
               {isAuthenticated && user?.role === 'employee' && (
-                <li><Link to="/employee">Nhân viên</Link></li>
+                <li><Link to="/employee" onClick={closeMenu}>Nhân viên</Link></li>
               )}
             </ul>
           </nav>
 
-          <div className="auth-buttons">
+          <div className={`auth-buttons${menuOpen ? ' open' : ''}`}>
             {isAuthenticated && user ? (
               <div className="user-info">
                 {user.role === 'customer' ? (
-                  <Link to="/profile" style={{ textDecoration: 'none' }}>
+                  <Link to="/profile" style={{ textDecoration: 'none' }} onClick={closeMenu}>
                     <span className="user-greeting is-link">
                       <FontAwesomeIcon icon={faUser} />
                       <span>{user.email}</span>
@@ -82,10 +95,10 @@ const Header: React.FC = () => {
               </div>
             ) : (
               <>
-                <Link to="/register">
+                <Link to="/register" onClick={closeMenu}>
                   <button className="btn-register">Đăng ký</button>
                 </Link>
-                <Link to="/login">
+                <Link to="/login" onClick={closeMenu}>
                   <button className="btn-login">Đăng nhập</button>
                 </Link>
               </>

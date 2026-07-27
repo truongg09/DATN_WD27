@@ -32,6 +32,7 @@ const settingsRoutes = require('./routes/settings');
 const refundRoutes = require('./routes/refunds');
 const walletRoutes = require('./routes/wallet');
 const ensureOperationalSchema = require('./ensure-operational-schema');
+const reportRoutes = require('./routes/reports');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/rooms', roomRoutes);
@@ -52,6 +53,7 @@ app.use('/api/vouchers', voucherRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/refunds', refundRoutes);
 app.use('/api/wallet', walletRoutes);
+app.use('/api/reports', reportRoutes);
 
 // Test endpoint
 app.get('/api/health', (req, res) => {

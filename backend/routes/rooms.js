@@ -25,6 +25,8 @@ const ROOM_SELECT = `
     r.floor,
     r.area,
     r.status,
+    r.maintenanceNote,
+    r.maintenanceExpectedCompletion,
     rt.typeName AS room_type_name,
     rt.typeName AS typeName,
     rt.defaultPrice AS price_per_night,
@@ -47,7 +49,7 @@ const parseRoomId = (id) => {
 router.get('/', async (req, res) => {
   try {
     console.log('=== GET ROOMS CALLED ===');
-    const [rooms] = await db.query(`${ROOM_SELECT} ORDER BY r.id ASC`);
+    const [rooms] = await db.query(`${ROOM_SELECT} WHERE r.isDeleted = 0 ORDER BY r.id ASC`);
     console.log('=== GET ROOMS SUCCESS ===');
     console.log('Found', rooms.length, 'rooms');
     res.json({ data: rooms });
@@ -67,7 +69,23 @@ router.get('/', async (req, res) => {
 router.get('/types', async (req, res) => {
   try {
     console.log('=== GET ROOM TYPES CALLED ===');
-    const [roomTypes] = await db.query('SELECT * FROM room_types ORDER BY id ASC');
+    const [roomTypes] = await db.query(`
+      SELECT 
+        rt.*, 
+        COUNT(DISTINCT r.id) AS roomCount, 
+        COUNT(DISTINCT CASE WHEN r.status = 'available' THEN r.id END) AS availableCount,
+        COUNT(DISTINCT CASE WHEN r.status = 'occupied' THEN r.id END) AS occupiedCount,
+        COUNT(DISTINCT CASE WHEN r.status = 'maintenance' THEN r.id END) AS maintenanceCount,
+        COUNT(DISTINCT CASE WHEN r.status = 'reserved' THEN r.id END) AS reservedCount,
+        GROUP_CONCAT(DISTINCT r.roomNumber ORDER BY r.roomNumber ASC SEPARATOR ', ') AS roomNumbers,
+        GROUP_CONCAT(DISTINCT rta.amenityId) AS amenityIds
+      FROM room_types rt 
+      LEFT JOIN rooms r ON r.roomTypeId = rt.id AND r.isDeleted = 0
+      LEFT JOIN room_type_amenities rta ON rta.roomTypeId = rt.id
+      WHERE rt.isDeleted = 0
+      GROUP BY rt.id 
+      ORDER BY rt.id ASC
+    `);
     console.log('=== GET ROOM TYPES SUCCESS ===');
     console.log('Found', roomTypes.length, 'room types');
     res.json({ data: roomTypes });
@@ -125,6 +143,74 @@ router.get('/types/:id', async (req, res) => {
   }
 });
 
+// Create new room type
+router.post('/types', async (req, res) => {
+  try {
+    const { typeName, capacity, defaultPrice, description, status, amenityIds } = req.body;
+    const [result] = await db.query(
+      'INSERT INTO room_types (typeName, capacity, defaultPrice, description, status) VALUES (?, ?, ?, ?, ?)',
+      [typeName, capacity, defaultPrice, description, status || 'active']
+    );
+
+    // Save amenities
+    if (Array.isArray(amenityIds) && amenityIds.length > 0) {
+      const values = amenityIds.map(amenityId => [result.insertId, amenityId]);
+      await db.query('INSERT INTO room_type_amenities (roomTypeId, amenityId) VALUES ?', [values]);
+    }
+
+    res.status(201).json({ data: { id: result.insertId }, message: 'Thêm hạng phòng thành công' });
+  } catch (error) {
+    console.error('Create room type error:', error);
+    res.status(500).json({ message: 'Internal server error', details: error.message });
+  }
+});
+
+// Update room type
+router.put('/types/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { typeName, capacity, defaultPrice, description, status, amenityIds } = req.body;
+    await db.query(
+      'UPDATE room_types SET typeName = ?, capacity = ?, defaultPrice = ?, description = ?, status = ? WHERE id = ?',
+      [typeName, capacity, defaultPrice, description, status, id]
+    );
+
+    // Update amenities
+    await db.query('DELETE FROM room_type_amenities WHERE roomTypeId = ?', [id]);
+    if (Array.isArray(amenityIds) && amenityIds.length > 0) {
+      const values = amenityIds.map(amenityId => [id, amenityId]);
+      await db.query('INSERT INTO room_type_amenities (roomTypeId, amenityId) VALUES ?', [values]);
+    }
+
+    res.json({ message: 'Cập nhật hạng phòng thành công' });
+  } catch (error) {
+    console.error('Update room type error:', error);
+    res.status(500).json({ message: 'Internal server error', details: error.message });
+  }
+});
+
+// Delete room type
+router.delete('/types/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Check if there are rooms belonging to this room type
+    const [rooms] = await db.query('SELECT id FROM rooms WHERE roomTypeId = ? AND isDeleted = 0', [id]);
+    if (rooms.length > 0) {
+      return res.status(400).json({ 
+        message: `Không thể xóa hạng phòng này vì đang có ${rooms.length} phòng hoạt động thuộc hạng này!` 
+      });
+    }
+
+    // Now soft delete the room type
+    await db.query('UPDATE room_types SET isDeleted = 1 WHERE id = ?', [id]);
+    res.json({ message: 'Xóa hạng phòng thành công' });
+  } catch (error) {
+    console.error('Delete room type error:', error);
+    res.status(500).json({ message: 'Lỗi khi xóa hạng phòng', details: error.message });
+  }
+});
+
 // Get room by id
 router.get('/:id', async (req, res) => {
   try {
@@ -138,7 +224,7 @@ router.get('/:id', async (req, res) => {
              (SELECT imageUrl FROM room_images WHERE roomTypeId = rt.id LIMIT 1) AS imageUrl
       FROM rooms r
       JOIN room_types rt ON r.roomTypeId = rt.id
-      WHERE r.id = ?
+      WHERE r.id = ? AND r.isDeleted = 0
     `, [id]);
     console.log('2. Room query result:', rooms);
 
@@ -194,20 +280,59 @@ router.get('/:id', async (req, res) => {
   }
 });
 
+// Create rooms in bulk
+router.post('/bulk', async (req, res) => {
+  try {
+    const { rooms } = req.body;
+    
+    if (!Array.isArray(rooms) || rooms.length === 0) {
+      return res.status(400).json({ message: 'Danh sách phòng không hợp lệ!' });
+    }
+
+    const roomNumbers = rooms.map(r => String(r.roomNumber).trim());
+    const [existing] = await db.query('SELECT roomNumber FROM rooms WHERE roomNumber IN (?) AND isDeleted = 0', [roomNumbers]);
+    
+    if (existing.length > 0) {
+      const existingNumbers = existing.map(e => e.roomNumber).join(', ');
+      return res.status(400).json({ 
+        message: `Các số phòng sau đã tồn tại trong hệ thống: ${existingNumbers}` 
+      });
+    }
+
+    const values = rooms.map(r => [
+      String(r.roomNumber).trim(),
+      r.roomTypeId,
+      r.floor,
+      r.area || 0,
+      r.status || 'available'
+    ]);
+
+    await db.query(
+      'INSERT INTO rooms (roomNumber, roomTypeId, floor, area, status) VALUES ?',
+      [values]
+    );
+
+    res.status(201).json({ message: `Đã tạo thành công ${rooms.length} phòng mới hàng loạt!` });
+  } catch (error) {
+    console.error('Bulk create rooms error:', error);
+    res.status(500).json({ message: 'Lỗi khi tạo phòng hàng loạt', details: error.message });
+  }
+});
+
 // Create new room
 router.post('/', async (req, res) => {
   try {
-    const { roomNumber, roomTypeId, floor, area, status } = req.body;
+    const { roomNumber, roomTypeId, floor, area, status, maintenanceNote, maintenanceExpectedCompletion } = req.body;
     
     // Check if room number already exists
-    const [existing] = await db.query('SELECT id FROM rooms WHERE roomNumber = ?', [roomNumber]);
+    const [existing] = await db.query('SELECT id FROM rooms WHERE roomNumber = ? AND isDeleted = 0', [roomNumber]);
     if (existing.length > 0) {
       return res.status(400).json({ message: 'Số phòng này đã tồn tại!' });
     }
 
     const [result] = await db.query(
-      'INSERT INTO rooms (roomNumber, roomTypeId, floor, area, status) VALUES (?, ?, ?, ?, ?)',
-      [roomNumber, roomTypeId, floor, area, status || 'available']
+      'INSERT INTO rooms (roomNumber, roomTypeId, floor, area, status, maintenanceNote, maintenanceExpectedCompletion) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [roomNumber, roomTypeId, floor, area, status || 'available', maintenanceNote || null, maintenanceExpectedCompletion || null]
     );
     res.status(201).json({ data: { id: result.insertId }, message: 'Tạo phòng mới thành công' });
   } catch (error) {
@@ -220,17 +345,17 @@ router.post('/', async (req, res) => {
 router.put('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { roomNumber, roomTypeId, floor, area, status } = req.body;
+    const { roomNumber, roomTypeId, floor, area, status, maintenanceNote, maintenanceExpectedCompletion } = req.body;
 
     // Check if room number already exists for another room
-    const [existing] = await db.query('SELECT id FROM rooms WHERE roomNumber = ? AND id != ?', [roomNumber, id]);
+    const [existing] = await db.query('SELECT id FROM rooms WHERE roomNumber = ? AND id != ? AND isDeleted = 0', [roomNumber, id]);
     if (existing.length > 0) {
       return res.status(400).json({ message: 'Số phòng này đã tồn tại!' });
     }
 
     await db.query(
-      'UPDATE rooms SET roomNumber = ?, roomTypeId = ?, floor = ?, area = ?, status = ? WHERE id = ?',
-      [roomNumber, roomTypeId, floor, area, status, id]
+      'UPDATE rooms SET roomNumber = ?, roomTypeId = ?, floor = ?, area = ?, status = ?, maintenanceNote = ?, maintenanceExpectedCompletion = ? WHERE id = ?',
+      [roomNumber, roomTypeId, floor, area, status, maintenanceNote !== undefined ? maintenanceNote : null, maintenanceExpectedCompletion !== undefined ? maintenanceExpectedCompletion : null, id]
     );
     res.json({ message: 'Cập nhật phòng thành công' });
   } catch (error) {
@@ -244,12 +369,30 @@ router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
 
-    // First delete all records from tables that reference this room (to avoid foreign key errors)
-    await db.query('DELETE FROM booking_details WHERE roomId = ?', [id]);
-    await db.query('DELETE FROM room_items WHERE roomId = ?', [id]);
+    // Check if the room exists and its status
+    const [rooms] = await db.query('SELECT status, roomNumber FROM rooms WHERE id = ? AND isDeleted = 0', [id]);
+    if (rooms.length === 0) {
+      return res.status(404).json({ message: 'Không tìm thấy phòng!' });
+    }
 
-    // Now delete the room
-    await db.query('DELETE FROM rooms WHERE id = ?', [id]);
+    if (rooms[0].status === 'occupied') {
+      return res.status(400).json({ message: 'Không thể xóa phòng đang có khách ở!' });
+    }
+
+    // Check if the room is associated with any active bookings (status is not 'cancelled' and not 'checked_out')
+    const [activeBookings] = await db.query(`
+      SELECT b.id, b.status 
+      FROM bookings b
+      JOIN booking_details bd ON bd.bookingId = b.id
+      WHERE bd.roomId = ? AND b.status NOT IN ('cancelled', 'checked_out')
+    `, [id]);
+
+    if (activeBookings.length > 0) {
+      return res.status(400).json({ message: 'Không thể xóa phòng đang có đơn đặt phòng (hoặc đã cọc) chưa hoàn thành!' });
+    }
+
+    // Perform soft delete
+    await db.query('UPDATE rooms SET isDeleted = 1 WHERE id = ?', [id]);
 
     res.json({ message: 'Xóa phòng thành công' });
   } catch (error) {

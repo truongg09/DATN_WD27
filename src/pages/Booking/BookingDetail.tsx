@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import React, { useEffect, useRef, useState } from 'react';
+import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, Descriptions, Tag, Button, Spin, message, Divider, Rate, Input } from 'antd';
 import { FileTextOutlined, CreditCardOutlined, StarOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
@@ -28,6 +28,7 @@ const bookingStatusMap: Record<string, { label: string; color: string }> = {
 
 const paymentStatusMap: Record<string, { label: string; color: string }> = {
   unpaid: { label: 'Chưa thanh toán', color: 'orange' },
+  deposit_paid: { label: 'Đã đặt cọc', color: 'blue' },
   paid: { label: 'Đã thanh toán', color: 'green' },
   refunded: { label: 'Đã hoàn tiền', color: 'red' },
 };
@@ -35,6 +36,7 @@ const paymentStatusMap: Record<string, { label: string; color: string }> = {
 const BookingDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const bookingId = Number(id);
   const isValidBookingId = Number.isInteger(bookingId) && bookingId > 0;
 
@@ -46,6 +48,7 @@ const BookingDetail: React.FC = () => {
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState('');
   const [submittingReview, setSubmittingReview] = useState(false);
+  const handledPaymentCallbackRef = useRef('');
 
   useEffect(() => {
     if (!isValidBookingId) {
@@ -95,6 +98,58 @@ const BookingDetail: React.FC = () => {
     fetchData();
     window.scrollTo(0, 0);
   }, [bookingId, isValidBookingId, navigate]);
+
+  useEffect(() => {
+    const gateway = searchParams.get('gateway');
+    const paymentResult = searchParams.get('payment');
+    const callbackStatus = searchParams.get('status');
+    if (!paymentResult || !payment) return;
+
+    const callbackKey = `${gateway || ''}:${paymentResult || ''}:${callbackStatus || ''}`;
+    if (handledPaymentCallbackRef.current === callbackKey) return;
+    handledPaymentCallbackRef.current = callbackKey;
+
+    const gatewayReportedSuccess = paymentResult === 'success';
+    const isGatewayReturn = gatewayReportedSuccess || gateway === 'momo';
+    const isSettled = payment?.paymentStatus === 'paid' || payment?.paymentStatus === 'deposit_paid';
+    const callbackMatchesPayment =
+      callbackStatus === 'paid'
+        ? payment?.paymentStatus === 'paid'
+        : callbackStatus === 'deposit_paid'
+          ? payment?.paymentStatus === 'deposit_paid'
+          : false;
+
+    // Never trust a gateway query parameter alone. The success notice is shown
+    // only after the backend has verified the callback and updated the payment.
+    if (isGatewayReturn && isSettled && callbackMatchesPayment) {
+      const isFullyPaid = payment?.paymentStatus === 'paid';
+      message.success({
+        content: isFullyPaid
+          ? 'Thanh toán thành công! Đơn đặt phòng đã được thanh toán đầy đủ.'
+          : `Đặt cọc thành công! Hệ thống đã ghi nhận khoản cọc. Số tiền còn lại: ${formatPrice(payment?.remainingAmount ?? 0)}.`,
+        duration: 6,
+      });
+      navigate(`/booking/${bookingId}`, { replace: true });
+      return;
+    }
+
+    if (gatewayReportedSuccess && callbackStatus && !callbackMatchesPayment) {
+      message.warning({
+        content: 'Giao dịch chưa được hệ thống ghi nhận đầy đủ. Vui lòng kiểm tra lại hoặc thử thanh toán lại.',
+        duration: 7,
+      });
+      navigate(`/booking/${bookingId}`, { replace: true });
+      return;
+    }
+
+    if (paymentResult === 'failed') {
+      message.error({
+        content: 'Thanh toán chưa thành công hoặc giao dịch đã bị hủy. Vui lòng thử lại.',
+        duration: 6,
+      });
+      navigate(`/booking/${bookingId}`, { replace: true });
+    }
+  }, [bookingId, navigate, payment?.paymentStatus, searchParams]);
 
   const handleSubmitReview = async () => {
     setSubmittingReview(true);
@@ -180,11 +235,11 @@ const BookingDetail: React.FC = () => {
             </Descriptions.Item>
             <Descriptions.Item label="Người lớn">{String(booking.adults || '-')}</Descriptions.Item>
             <Descriptions.Item label="Trẻ em">{String(booking.children || 0)}</Descriptions.Item>
-            <Descriptions.Item label="Tổng tiền" span={2}>
+            <Descriptions.Item label="Tổng tiền" span={{ xs: 1, sm: 2 }}>
               <strong>{formatPrice(payment?.totalAmount ?? Number(booking.booking_total_amount || booking.total_price))}</strong>
             </Descriptions.Item>
             {booking.notes ? (
-              <Descriptions.Item label="Ghi chú" span={2}>
+              <Descriptions.Item label="Ghi chú" span={{ xs: 1, sm: 2 }}>
                 {String(booking.notes)}
               </Descriptions.Item>
             ) : null}
@@ -245,7 +300,7 @@ const BookingDetail: React.FC = () => {
           <Card
             title="Thanh toán"
             extra={
-              payment.paymentStatus === 'unpaid' ? (
+              ['unpaid', 'deposit_paid'].includes(payment.paymentStatus) ? (
                 <Button
                   type="primary"
                   icon={<CreditCardOutlined />}
@@ -256,12 +311,17 @@ const BookingDetail: React.FC = () => {
               ) : null
             }
           >
-            <Descriptions column={{ xs: 1, sm: 2 }} bordered>
+            <Descriptions column={1} bordered>
               <Descriptions.Item label="Trạng thái">
                 <Tag color={paymentStatusMap[payment.paymentStatus]?.color}>
                   {paymentStatusMap[payment.paymentStatus]?.label}
                 </Tag>
               </Descriptions.Item>
+              {payment.verificationStatus === 'pending' && (
+                <Descriptions.Item label="Đối soát chuyển khoản">
+                  <Tag color="gold">Chờ khách sạn xác nhận</Tag>
+                </Descriptions.Item>
+              )}
               <Descriptions.Item label="Phương thức">
                 {payment.paymentMethod === 'bank_transfer'
                   ? 'Chuyển khoản QR'
@@ -281,7 +341,7 @@ const BookingDetail: React.FC = () => {
                 </Descriptions.Item>
               )}
               {payment.transactionCode && (
-                <Descriptions.Item label="Mã GD" span={2}>
+                <Descriptions.Item label="Mã GD">
                   {payment.transactionCode}
                 </Descriptions.Item>
               )}
