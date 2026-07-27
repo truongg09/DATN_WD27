@@ -57,7 +57,7 @@ router.get('/', async (req, res) => {
     console.error('Error code:', error.code);
     console.error('Stack:', error.stack);
     res.status(500).json({ 
-      message: 'Internal server error', 
+      message: 'Lỗi máy chủ nội bộ',
       details: error.message,
       code: error.code
     });
@@ -77,7 +77,7 @@ router.get('/types', async (req, res) => {
     console.error('Error code:', error.code);
     console.error('Stack:', error.stack);
     res.status(500).json({ 
-      message: 'Internal server error', 
+      message: 'Lỗi máy chủ nội bộ',
       details: error.message,
       code: error.code
     });
@@ -99,7 +99,7 @@ router.get('/types/search', async (req, res) => {
   } catch (error) {
     console.error('Search room types error:', error);
     res.status(error.statusCode || 500).json({
-      message: error.statusCode ? error.message : 'Internal server error'
+      message: error.statusCode ? error.message : 'Lỗi máy chủ nội bộ'
     });
   }
 });
@@ -120,7 +120,7 @@ router.get('/types/:id', async (req, res) => {
   } catch (error) {
     console.error('Get room type detail error:', error);
     res.status(error.statusCode || 500).json({
-      message: error.statusCode ? error.message : 'Internal server error'
+      message: error.statusCode ? error.message : 'Lỗi máy chủ nội bộ'
     });
   }
 });
@@ -143,7 +143,7 @@ router.get('/:id', async (req, res) => {
     console.log('2. Room query result:', rooms);
 
     if (rooms.length === 0) {
-      return res.status(404).json({ message: 'Room not found' });
+      return res.status(404).json({ message: 'Không tìm thấy phòng' });
     }
 
     console.log('3. Executing images query');
@@ -187,7 +187,7 @@ router.get('/:id', async (req, res) => {
     console.error('SQL:', error.sql);
     console.error('Stack:', error.stack);
     res.status(500).json({ 
-      message: 'Internal server error', 
+      message: 'Lỗi máy chủ nội bộ',
       details: error.message,
       code: error.code
     });
@@ -212,7 +212,7 @@ router.post('/', async (req, res) => {
     res.status(201).json({ data: { id: result.insertId }, message: 'Tạo phòng mới thành công' });
   } catch (error) {
     console.error('Create room error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
   }
 });
 
@@ -235,7 +235,7 @@ router.put('/:id', async (req, res) => {
     res.json({ message: 'Cập nhật phòng thành công' });
   } catch (error) {
     console.error('Update room error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
   }
 });
 

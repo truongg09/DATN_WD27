@@ -37,6 +37,7 @@ function VoucherManagement() {
   const [selectedVoucher, setSelectedVoucher] = useState<AdminVoucher | null>(null);
   const [submitLoading, setSubmitLoading] = useState(false);
   const [form] = Form.useForm<VoucherFormValues>();
+  const selectedDiscountType = Form.useWatch('discountType', form);
 
   const fetchVouchers = async () => {
     setLoading(true);
@@ -316,7 +317,13 @@ function VoucherManagement() {
                 label="Loại giảm"
                 rules={[{ required: true, message: 'Vui lòng chọn loại giảm' }]}
               >
-                <Select placeholder="Chọn loại giảm">
+                <Select
+                  placeholder="Chọn loại giảm"
+                  onChange={() => {
+                    form.setFieldsValue({ discountValue: undefined, maxDiscount: undefined });
+                    form.validateFields(['discountValue']);
+                  }}
+                >
                   <Select.Option value="percentage">Phần trăm (%)</Select.Option>
                   <Select.Option value="fixed">Cố định (đ)</Select.Option>
                 </Select>
@@ -326,9 +333,29 @@ function VoucherManagement() {
               <Form.Item
                 name="discountValue"
                 label="Giá trị giảm"
-                rules={[{ required: true, message: 'Vui lòng nhập giá trị giảm' }]}
+                rules={[
+                  { required: true, message: 'Vui lòng nhập giá trị giảm' },
+                  {
+                    validator(_, value) {
+                      if (value === undefined || value === null) return Promise.resolve();
+                      if (Number(value) <= 0) {
+                        return Promise.reject(new Error('Giá trị giảm phải lớn hơn 0'));
+                      }
+                      if (selectedDiscountType === 'percentage' && Number(value) > 100) {
+                        return Promise.reject(new Error('Phần trăm giảm giá không được vượt quá 100%'));
+                      }
+                      return Promise.resolve();
+                    },
+                  },
+                ]}
               >
-                <InputNumber min={0.01} style={{ width: '100%' }} placeholder="Nhập giá trị" />
+                <InputNumber
+                  min={0.01}
+                  max={selectedDiscountType === 'percentage' ? 100 : undefined}
+                  addonAfter={selectedDiscountType === 'percentage' ? '%' : 'đ'}
+                  style={{ width: '100%' }}
+                  placeholder={selectedDiscountType === 'percentage' ? 'Từ 0 đến 100' : 'Nhập số tiền'}
+                />
               </Form.Item>
             </Col>
           </Row>
@@ -409,7 +436,7 @@ function VoucherManagement() {
             <Descriptions.Item label="ID">{selectedVoucher.id}</Descriptions.Item>
             <Descriptions.Item label="Mã voucher">{selectedVoucher.code}</Descriptions.Item>
             <Descriptions.Item label="Loại giảm">
-              {selectedVoucher.discountType === 'percentage' ? 'Phần trăm (%)' : 'Cố 定 (đ)'}
+              {selectedVoucher.discountType === 'percentage' ? 'Phần trăm (%)' : 'Cố định (đ)'}
             </Descriptions.Item>
             <Descriptions.Item label="Giá trị giảm">
               {selectedVoucher.discountType === 'percentage' ? `${selectedVoucher.discountValue}%` : `${selectedVoucher.discountValue}đ`}

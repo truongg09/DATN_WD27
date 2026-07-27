@@ -99,6 +99,7 @@ const BookingHistory: React.FC = () => {
   const [refundBankBin, setRefundBankBin] = useState<string | undefined>(undefined);
   const [refundAccountNumber, setRefundAccountNumber] = useState('');
   const [refundAccountName, setRefundAccountName] = useState('');
+  const [cancellationReason, setCancellationReason] = useState('');
 
   useEffect(() => {
     const timer = window.setInterval(() => setNowTick((value) => value + 1), 1000);
@@ -193,6 +194,7 @@ const BookingHistory: React.FC = () => {
     setRefundBankBin(undefined);
     setRefundAccountNumber('');
     setRefundAccountName('');
+    setCancellationReason('');
 
     setCancelPreviewLoading(true);
     try {
@@ -208,6 +210,10 @@ const BookingHistory: React.FC = () => {
 
   const handleConfirmCancel = async () => {
     if (!cancelTarget) return;
+    if (cancellationReason.trim().length < 5) {
+      message.error('Vui lòng nhập lý do hủy phòng (ít nhất 5 ký tự)');
+      return;
+    }
 
     const refundable = cancelPreview?.refundableAmount ?? 0;
 
@@ -243,7 +249,7 @@ const BookingHistory: React.FC = () => {
 
     setCancellingId(cancelTarget.id);
     try {
-      await cancelBooking(cancelTarget.id, refundPayload);
+      await cancelBooking(cancelTarget.id, cancellationReason.trim(), refundPayload);
       if (refundable > 0) {
         message.success(
           `Đã hủy đặt phòng. Yêu cầu hoàn ${formatPrice(refundable)} đang chờ khách sạn duyệt.`
@@ -537,6 +543,18 @@ const BookingHistory: React.FC = () => {
           </div>
         ) : cancelPreview ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div>
+              <strong>Lý do hủy phòng <span style={{ color: '#ff4d4f' }}>*</span></strong>
+              <Input.TextArea
+                rows={3}
+                maxLength={500}
+                showCount
+                value={cancellationReason}
+                onChange={(event) => setCancellationReason(event.target.value)}
+                placeholder="Ví dụ: Thay đổi lịch trình, vấn đề sức khỏe..."
+                style={{ marginTop: 8 }}
+              />
+            </div>
             {cancelPreview.refundableAmount > 0 ? (
               <>
                 <Alert
@@ -615,7 +633,11 @@ const BookingHistory: React.FC = () => {
 
       <Modal
         open={!!reviewBooking}
-        title={reviewBooking ? `Đánh giá đặt phòng #${reviewBooking.id}` : ''}
+        title={
+          reviewBooking
+            ? `Đánh giá phòng ${reviewBooking.room_number || '-'} – ${reviewBooking.room_type_name || 'Chưa xác định'}`
+            : ''
+        }
         okText="Gửi đánh giá"
         cancelText="Đóng"
         confirmLoading={submittingReview}

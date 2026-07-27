@@ -744,12 +744,26 @@
 
 .service-request-name {
   font-weight: 600;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
 }
 
 .service-request-name em {
   color: #ab8965;
   font-style: normal;
   font-weight: 500;
+}
+
+.service-request-name small {
+  color: #666;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.service-request-name .service-usage-rule {
+  color: #8c6b48;
 }
 
 .service-request-note {

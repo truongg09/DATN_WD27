@@ -16,7 +16,7 @@ const sendError = (res, error) => {
   console.error('Booking API error:', error);
   const statusCode = error.statusCode || 500;
   res.status(statusCode).json({
-    message: statusCode === 500 ? 'Internal server error' : error.message,
+    message: statusCode === 500 ? 'Lỗi máy chủ nội bộ' : error.message,
     ...(error.details ? { details: error.details } : {})
   });
 };
@@ -47,12 +47,12 @@ const createBooking = async (req, res) => {
     const payload = normalizeBookingPayload(req.body, userFromToken);
 
     if (userFromToken && payload.userId !== userFromToken) {
-      throw new HttpError(403, 'Cannot create booking for another user');
+      throw new HttpError(403, 'Không thể đặt phòng thay cho tài khoản khác');
     }
 
     const booking = await bookingService.createBooking(payload);
     res.status(201).json({
-      message: 'Booking created successfully',
+      message: 'Đặt phòng thành công',
       data: booking
     });
   } catch (error) {
@@ -96,7 +96,7 @@ const getBookingById = async (req, res) => {
       req.user?.role === 'customer' &&
       Number(booking.user_id) !== Number(req.user.userId)
     ) {
-      throw new HttpError(403, 'Cannot view another customer booking');
+      throw new HttpError(403, 'Không thể xem đặt phòng của khách hàng khác');
     }
 
     res.json({ data: booking });
@@ -112,13 +112,17 @@ const cancelBooking = async (req, res) => {
     if (req.user?.role === 'customer') {
       const currentBooking = await bookingService.getBookingById(bookingId);
       if (Number(currentBooking.user_id) !== Number(req.user.userId)) {
-        throw new HttpError(403, 'Cannot cancel another customer booking');
+        throw new HttpError(403, 'Không thể hủy đặt phòng của khách hàng khác');
       }
     }
 
-    const booking = await bookingService.cancelBooking(bookingId, req.body?.refund || null);
+    const booking = await bookingService.cancelBooking(
+      bookingId,
+      req.body?.refund || null,
+      req.body?.reason
+    );
     res.json({
-      message: 'Booking cancelled successfully',
+      message: 'Hủy đặt phòng thành công',
       data: booking
     });
   } catch (error) {
@@ -133,7 +137,7 @@ const getRefundPreview = async (req, res) => {
     if (req.user?.role === 'customer') {
       const currentBooking = await bookingService.getBookingById(bookingId);
       if (Number(currentBooking.user_id) !== Number(req.user.userId)) {
-        throw new HttpError(403, 'Cannot view another customer booking');
+        throw new HttpError(403, 'Không thể xem đặt phòng của khách hàng khác');
       }
     }
 
@@ -150,7 +154,7 @@ const addServiceCharge = async (req, res) => {
     const payload = normalizeServiceChargePayload(req.body);
     const result = await bookingService.addServiceCharge(bookingId, payload);
     res.json({
-      message: 'Service charge added successfully',
+      message: 'Đã thêm phí dịch vụ thành công',
       data: result
     });
   } catch (error) {
@@ -164,7 +168,7 @@ const saveGuestIdentities = async (req, res) => {
     const payload = normalizeGuestIdentitiesPayload(req.body);
     const booking = await bookingService.saveGuestIdentities(bookingId, payload);
     res.json({
-      message: 'Guest identities saved successfully',
+      message: 'Đã lưu thông tin khách lưu trú',
       data: booking
     });
   } catch (error) {
@@ -178,7 +182,7 @@ const addDamageCharge = async (req, res) => {
     const payload = normalizeDamageChargePayload(req.body);
     const result = await bookingService.addDamageCharge(bookingId, payload);
     res.json({
-      message: 'Damage charge added successfully',
+      message: 'Đã thêm phí hư hỏng',
       data: result
     });
   } catch (error) {
@@ -192,7 +196,7 @@ const transferRoom = async (req, res) => {
     const payload = normalizeTransferRoomPayload(req.body);
     const result = await bookingService.transferRoom(bookingId, payload);
     res.json({
-      message: 'Room transferred successfully',
+      message: 'Chuyển phòng thành công',
       data: result
     });
   } catch (error) {
@@ -206,7 +210,7 @@ const extendStay = async (req, res) => {
     const payload = normalizeExtendStayPayload(req.body);
     const result = await bookingService.extendStay(bookingId, payload);
     res.json({
-      message: 'Booking extended successfully',
+      message: 'Gia hạn đặt phòng thành công',
       data: result
     });
   } catch (error) {
@@ -220,7 +224,7 @@ const checkIn = async (req, res) => {
     const payload = req.body?.guests ? normalizeGuestIdentitiesPayload(req.body) : {};
     const result = await bookingService.checkIn(bookingId, payload);
     res.json({
-      message: result.message || 'Booking checked in successfully',
+      message: result.message || 'Nhận phòng thành công',
       data: result
     });
   } catch (error) {
@@ -233,7 +237,7 @@ const markNoShow = async (req, res) => {
     const bookingId = normalizeIdParam(req.params.id);
     const result = await bookingService.markNoShow(bookingId);
     res.json({
-      message: 'Booking marked as no-show',
+      message: 'Đã đánh dấu khách không đến',
       data: result
     });
   } catch (error) {
@@ -246,7 +250,7 @@ const checkOut = async (req, res) => {
     const bookingId = normalizeIdParam(req.params.id);
     const booking = await bookingService.checkOut(bookingId);
     res.json({
-      message: 'Booking checked out successfully',
+      message: 'Trả phòng thành công',
       data: booking
     });
   } catch (error) {
@@ -318,7 +322,7 @@ const listServiceRequests = async (req, res) => {
     res.json({ data: enrichedRows });
   } catch (error) {
     console.error('Error listing service requests:', error);
-    res.status(500).json({ message: 'Error fetching service requests' });
+    res.status(500).json({ message: 'Không thể tải yêu cầu dịch vụ' });
   }
 };
 
@@ -334,7 +338,7 @@ const confirmServiceRequest = async (req, res) => {
     );
     
     if (!requests.length) {
-      return res.status(404).json({ message: 'Service request not found' });
+      return res.status(404).json({ message: 'Không tìm thấy yêu cầu dịch vụ' });
     }
     
     const request = requests[0];
@@ -361,7 +365,7 @@ const confirmServiceRequest = async (req, res) => {
     });
   } catch (error) {
     console.error('Error confirming service request:', error);
-    res.status(500).json({ message: 'Error confirming service request' });
+    res.status(500).json({ message: 'Không thể xác nhận yêu cầu dịch vụ' });
   }
 };
 
@@ -375,10 +379,10 @@ const rejectServiceRequest = async (req, res) => {
       ['rejected', requestId]
     );
     
-    res.json({ message: 'Service request rejected' });
+    res.json({ message: 'Đã từ chối yêu cầu dịch vụ' });
   } catch (error) {
     console.error('Error rejecting service request:', error);
-    res.status(500).json({ message: 'Error rejecting service request' });
+    res.status(500).json({ message: 'Không thể từ chối yêu cầu dịch vụ' });
   }
 };
 

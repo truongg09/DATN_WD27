@@ -60,11 +60,12 @@ export const getRefundPreview = async (id: number) => {
 
 export const cancelBooking = async (
   id: number,
+  reason: string,
   refund?: RefundRequestPayload
 ) => {
   return api.patch(
     `/bookings/${id}/cancel`,
-    refund ? { refund } : {}
+    { reason, ...(refund ? { refund } : {}) }
   );
 };
 

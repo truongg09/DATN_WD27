@@ -125,7 +125,7 @@ const searchRoomTypes = async ({ checkIn, checkOut, guests } = {}) => {
 const getRoomTypeDetail = async (roomTypeId, { checkIn, checkOut } = {}) => {
   const [types] = await db.query(`${TYPE_SELECT} WHERE rt.id = ? GROUP BY rt.id`, [roomTypeId]);
   if (types.length === 0) {
-    throw new HttpError(404, 'Room type not found');
+    throw new HttpError(404, 'Không tìm thấy hạng phòng');
   }
 
   const extras = await loadTypeExtras([roomTypeId]);
