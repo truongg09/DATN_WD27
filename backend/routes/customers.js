@@ -122,7 +122,7 @@ router.get('/', async (req, res) => {
     });
   } catch (error) {
     console.error('List customers error:', error);
-    res.status(500).json({ ok: false, error: 'Internal server error' });
+    res.status(500).json({ ok: false, error: 'Lỗi máy chủ nội bộ' });
   }
 });
 
@@ -169,7 +169,7 @@ router.get('/detail', async (req, res) => {
     });
   } catch (error) {
     console.error('Customer detail error:', error);
-    res.status(500).json({ ok: false, error: 'Internal server error' });
+    res.status(500).json({ ok: false, error: 'Lỗi máy chủ nội bộ' });
   }
 });
 
@@ -230,7 +230,7 @@ router.get('/bookings', async (req, res) => {
     });
   } catch (error) {
     console.error('Customer bookings error:', error);
-    res.status(500).json({ ok: false, error: 'Internal server error' });
+    res.status(500).json({ ok: false, error: 'Lỗi máy chủ nội bộ' });
   }
 });
 
@@ -267,7 +267,7 @@ router.get('/payments', async (req, res) => {
     res.json({ ok: true, data: rows });
   } catch (error) {
     console.error('Customer payments error:', error);
-    res.status(500).json({ ok: false, error: 'Internal server error' });
+    res.status(500).json({ ok: false, error: 'Lỗi máy chủ nội bộ' });
   }
 });
 
@@ -307,7 +307,7 @@ router.get('/reviews', async (req, res) => {
     res.json({ ok: true, data: rows });
   } catch (error) {
     console.error('Customer reviews error:', error);
-    res.status(500).json({ ok: false, error: 'Internal server error' });
+    res.status(500).json({ ok: false, error: 'Lỗi máy chủ nội bộ' });
   }
 });
 
@@ -372,7 +372,7 @@ router.post('/create', async (req, res) => {
     res.status(201).json({ ok: true, data: formatCustomerRow(rows[0]) });
   } catch (error) {
     console.error('Create customer error:', error);
-    res.status(500).json({ ok: false, error: 'Internal server error' });
+    res.status(500).json({ ok: false, error: 'Lỗi máy chủ nội bộ' });
   }
 });
 
@@ -462,7 +462,7 @@ router.post('/update', async (req, res) => {
     res.json({ ok: true, data: formatCustomerRow(rows[0]) });
   } catch (error) {
     console.error('Update customer error:', error);
-    res.status(500).json({ ok: false, error: 'Internal server error' });
+    res.status(500).json({ ok: false, error: 'Lỗi máy chủ nội bộ' });
   }
 });
 
@@ -491,7 +491,7 @@ router.post('/delete', async (req, res) => {
         error: 'Không thể xóa khách hàng đang có booking liên quan'
       });
     }
-    res.status(500).json({ ok: false, error: 'Internal server error' });
+    res.status(500).json({ ok: false, error: 'Lỗi máy chủ nội bộ' });
   }
 });
 
@@ -525,7 +525,7 @@ router.post('/lock', async (req, res) => {
     });
   } catch (error) {
     console.error('Lock customer error:', error);
-    res.status(500).json({ ok: false, error: 'Internal server error' });
+    res.status(500).json({ ok: false, error: 'Lỗi máy chủ nội bộ' });
   }
 });
 
@@ -572,7 +572,7 @@ router.get('/by-account/:accountId', async (req, res) => {
     res.json({ ok: true, data: formatCustomerRow(rows[0]) });
   } catch (error) {
     console.error('Get customer by account ID error:', error);
-    res.status(500).json({ ok: false, error: 'Internal server error' });
+    res.status(500).json({ ok: false, error: 'Lỗi máy chủ nội bộ' });
   }
 });
 

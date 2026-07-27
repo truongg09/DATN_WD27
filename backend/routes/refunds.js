@@ -53,7 +53,7 @@ router.get('/', requireAuth, requireStaff, async (req, res) => {
     res.json({ data: rows });
   } catch (error) {
     console.error('List refunds error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
   }
 });
 
@@ -71,7 +71,7 @@ router.get('/me', requireAuth, async (req, res) => {
     res.json({ data: rows });
   } catch (error) {
     console.error('List my refunds error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
   }
 });
 
@@ -133,7 +133,7 @@ router.patch('/:id/approve', requireAuth, requireStaff, async (req, res) => {
   } catch (error) {
     await connection.rollback();
     console.error('Approve refund error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
   } finally {
     connection.release();
   }
@@ -154,7 +154,7 @@ router.patch('/:id/reject', requireAuth, requireStaff, async (req, res) => {
     res.json({ message: 'Đã từ chối yêu cầu hoàn tiền' });
   } catch (error) {
     console.error('Reject refund error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
   }
 });
 

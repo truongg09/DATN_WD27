@@ -43,7 +43,7 @@ const generateTransactionCode = (method) => {
 const createPaymentForBooking = async (bookingId, options = {}, connection) => {
   const booking = await bookingModel.getBookingById(bookingId, connection, !!connection);
   if (!booking) {
-    throw new HttpError(404, 'Booking not found');
+    throw new HttpError(404, 'Không tìm thấy đặt phòng');
   }
 
   const existing = await paymentModel.getPaymentByBookingId(bookingId, connection);
@@ -91,7 +91,7 @@ const createPayment = async (payload) => {
 const recalculatePaymentForBooking = async (bookingId, connection) => {
   const booking = await bookingModel.getBookingById(bookingId, connection, !!connection);
   if (!booking) {
-    throw new HttpError(404, 'Booking not found');
+    throw new HttpError(404, 'Không tìm thấy đặt phòng');
   }
 
   const payment = await paymentModel.getPaymentByBookingId(bookingId, connection);
@@ -131,7 +131,7 @@ const listPayments = async (filters) => {
 const getPaymentById = async (paymentId) => {
   const payment = await paymentModel.getPaymentById(paymentId);
   if (!payment) {
-    throw new HttpError(404, 'Payment not found');
+    throw new HttpError(404, 'Không tìm thấy thanh toán');
   }
   return formatPayment(payment);
 };
@@ -139,7 +139,7 @@ const getPaymentById = async (paymentId) => {
 const getPaymentByBookingId = async (bookingId) => {
   const payment = await paymentModel.getPaymentByBookingId(bookingId);
   if (!payment) {
-    throw new HttpError(404, 'Payment not found for this booking');
+    throw new HttpError(404, 'Không tìm thấy thanh toán của đặt phòng này');
   }
   return formatPayment(payment);
 };
@@ -157,20 +157,27 @@ const processPayment = async (paymentId, payload) => {
 
     const payment = await paymentModel.getPaymentById(paymentId, connection, true);
     if (!payment) {
-      throw new HttpError(404, 'Payment not found');
+      throw new HttpError(404, 'Không tìm thấy thanh toán');
     }
 
     if (payment.paymentStatus === 'paid') {
-      throw new HttpError(409, 'Payment is already completed');
+      await connection.commit();
+      committed = true;
+      return {
+        payment: formatPayment(payment),
+        invoice: null,
+        redirectUrl: null,
+        idempotent: true
+      };
     }
 
     if (payment.paymentStatus === 'refunded') {
-      throw new HttpError(409, 'Cannot pay a refunded payment');
+      throw new HttpError(409, 'Không thể thanh toán giao dịch đã hoàn tiền');
     }
 
     const booking = await bookingModel.getBookingById(payment.bookingId, connection, true);
     if (!booking) {
-      throw new HttpError(404, 'Booking not found');
+      throw new HttpError(404, 'Không tìm thấy đặt phòng');
     }
 
     await bookingModel.getRoomWithType(booking.room_id, connection, true);
@@ -211,11 +218,11 @@ const processPayment = async (paymentId, payload) => {
 
     const payAmount = payload.amount ?? Number(payment.remainingAmount);
     if (payAmount <= 0) {
-      throw new HttpError(400, 'Payment amount must be greater than 0');
+      throw new HttpError(400, 'Số tiền thanh toán phải lớn hơn 0');
     }
 
     if (payAmount > Number(payment.remainingAmount)) {
-      throw new HttpError(400, 'Payment amount exceeds remaining balance');
+      throw new HttpError(400, 'Số tiền thanh toán vượt quá số dư còn lại');
     }
 
     // Đặt cọc (trả một phần khi chưa trả gì) là thanh toán từ xa -> không nhận tiền mặt
@@ -226,6 +233,12 @@ const processPayment = async (paymentId, payload) => {
         400,
         'Đặt cọc giữ phòng phải thanh toán từ xa (chuyển khoản QR/MoMo/VNPay). Tiền mặt chỉ áp dụng khi thanh toán tại khách sạn.'
       );
+    }
+    if (
+      ['momo', 'vnpay'].includes(payload.paymentMethod) &&
+      payload.sandbox !== true
+    ) {
+      throw new HttpError(400, 'Giao dịch thử nghiệm phải được thực hiện qua cổng Sandbox');
     }
 
     const newPaidAmount = Number(payment.paidAmount) + payAmount;
@@ -293,11 +306,11 @@ const refundPayment = async (paymentId) => {
 
     const payment = await paymentModel.getPaymentById(paymentId, connection, true);
     if (!payment) {
-      throw new HttpError(404, 'Payment not found');
+      throw new HttpError(404, 'Không tìm thấy thanh toán');
     }
 
     if (payment.paymentStatus !== 'paid') {
-      throw new HttpError(409, 'Only paid payments can be refunded');
+      throw new HttpError(409, 'Chỉ giao dịch đã thanh toán mới có thể hoàn tiền');
     }
 
     await paymentModel.updatePayment(

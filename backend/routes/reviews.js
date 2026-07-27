@@ -15,17 +15,24 @@ router.get('/', async (req, res) => {
         r.comment,
         r.createdAt,
         COALESCE(c.fullName, a.email) AS customerName,
-        bk.status AS bookingStatus
+        bk.status AS bookingStatus,
+        COALESCE(bd.roomId, bk.room_id) AS roomId,
+        rm.roomNumber AS roomNumber,
+        rt.id AS roomTypeId,
+        rt.typeName AS roomTypeName
       FROM reviews r
       LEFT JOIN customers c ON r.customerId = c.id
       LEFT JOIN accounts a ON c.accountId = a.id
       LEFT JOIN bookings bk ON r.bookingId = bk.id
+      LEFT JOIN booking_details bd ON bd.bookingId = bk.id
+      LEFT JOIN rooms rm ON rm.id = COALESCE(bd.roomId, bk.room_id)
+      LEFT JOIN room_types rt ON rt.id = rm.roomTypeId
       ORDER BY r.createdAt DESC
     `);
     res.json({ data: reviews });
   } catch (error) {
     console.error('Get reviews error:', error);
-    res.status(500).json({ message: 'Internal server error', error: error.message });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ', error: error.message });
   }
 });
 
@@ -43,7 +50,14 @@ router.post('/', async (req, res) => {
     }
 
     const [bookings] = await db.query(
-      'SELECT id, customerId, status FROM bookings WHERE id = ?',
+      `SELECT bk.id, bk.customerId, bk.status,
+              COALESCE(bd.roomId, bk.room_id) AS roomId,
+              rm.roomNumber, rt.id AS roomTypeId, rt.typeName AS roomTypeName
+       FROM bookings bk
+       LEFT JOIN booking_details bd ON bd.bookingId = bk.id
+       LEFT JOIN rooms rm ON rm.id = COALESCE(bd.roomId, bk.room_id)
+       LEFT JOIN room_types rt ON rt.id = rm.roomTypeId
+       WHERE bk.id = ?`,
       [bookingId]
     );
 
@@ -75,11 +89,18 @@ router.post('/', async (req, res) => {
 
     res.status(201).json({
       message: 'Tạo đánh giá thành công',
-      data: { id: result.insertId }
+      data: {
+        id: result.insertId,
+        bookingId: booking.id,
+        roomId: booking.roomId,
+        roomNumber: booking.roomNumber,
+        roomTypeId: booking.roomTypeId,
+        roomTypeName: booking.roomTypeName
+      }
     });
   } catch (error) {
     console.error('Create review error:', error);
-    res.status(500).json({ message: 'Internal server error', error: error.message });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ', error: error.message });
   }
 });
 
@@ -91,7 +112,7 @@ router.delete('/:id', async (req, res) => {
     res.json({ message: 'Xóa đánh giá thành công' });
   } catch (error) {
     console.error('Delete review error:', error);
-    res.status(500).json({ message: 'Internal server error', error: error.message });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ', error: error.message });
   }
 });
 

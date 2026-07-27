@@ -8,7 +8,7 @@ router.get('/', async (req, res) => {
     res.json({ data: amenities });
   } catch (error) {
     console.error('Get amenities error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
   }
 });
 

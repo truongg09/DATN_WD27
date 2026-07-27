@@ -50,7 +50,7 @@ router.get('/', async (_req, res) => {
     res.json({ data: reports });
   } catch (error) {
     console.error('List damage reports error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
   }
 });
 
@@ -68,7 +68,7 @@ router.get('/:id', async (req, res) => {
     res.json({ data: reports[0] });
   } catch (error) {
     console.error('Get damage report error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
   }
 });
 
@@ -90,7 +90,7 @@ router.post('/', async (req, res) => {
       .json({ data: { id: result.insertId }, message: 'Tạo báo hỏng thành công' });
   } catch (error) {
     console.error('Create damage report error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
   }
 });
 
@@ -118,7 +118,7 @@ router.put('/:id', async (req, res) => {
     res.json({ message: 'Cập nhật báo hỏng thành công' });
   } catch (error) {
     console.error('Update damage report error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
   }
 });
 
@@ -136,7 +136,7 @@ router.delete('/:id', async (req, res) => {
     res.json({ message: 'Xóa báo hỏng thành công' });
   } catch (error) {
     console.error('Delete damage report error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
   }
 });
 

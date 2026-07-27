@@ -23,14 +23,14 @@ module.exports = {
     const header = req.headers.authorization;
 
     if (!header?.startsWith('Bearer ')) {
-      return res.status(401).json({ message: 'Authentication required' });
+      return res.status(401).json({ message: 'Vui lòng đăng nhập để tiếp tục' });
     }
 
     try {
       req.user = jwt.verify(header.slice(7), JWT_SECRET);
       return next();
     } catch (_error) {
-      return res.status(401).json({ message: 'Invalid or expired token' });
+      return res.status(401).json({ message: 'Phiên đăng nhập không hợp lệ hoặc đã hết hạn' });
     }
   }
 };

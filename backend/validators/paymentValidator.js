@@ -11,7 +11,7 @@ const toAmount = (value, fieldName, defaultValue = 0) => {
 
   const number = Number(value);
   if (Number.isNaN(number) || number < 0) {
-    throw new HttpError(400, `${fieldName} must be a non-negative number`);
+    throw new HttpError(400, `${fieldName} phải là số không âm`);
   }
   return number;
 };
@@ -23,7 +23,7 @@ const normalizePaymentMethod = (value) => {
 
   const method = String(value).toLowerCase();
   if (!PAYMENT_METHODS.includes(method)) {
-    throw new HttpError(400, `paymentMethod must be one of: ${PAYMENT_METHODS.join(', ')}`);
+    throw new HttpError(400, `Phương thức thanh toán không hợp lệ. Giá trị cho phép: ${PAYMENT_METHODS.join(', ')}`);
   }
   return method;
 };
@@ -40,12 +40,13 @@ const normalizeCreatePaymentPayload = (body) => ({
 const normalizeProcessPaymentPayload = (body) => {
   const paymentMethod = normalizePaymentMethod(body.paymentMethod ?? body.payment_method);
   if (!paymentMethod) {
-    throw new HttpError(400, 'paymentMethod is required');
+    throw new HttpError(400, 'Vui lòng chọn phương thức thanh toán');
   }
 
   return {
     paymentMethod,
-    amount: body.amount !== undefined ? toAmount(body.amount, 'amount') : undefined
+    amount: body.amount !== undefined ? toAmount(body.amount, 'amount') : undefined,
+    sandbox: body.sandbox === true
   };
 };
 
@@ -59,7 +60,7 @@ const normalizePaymentFilters = (query) => {
   if (query.paymentStatus || query.payment_status || query.status) {
     const status = String(query.paymentStatus || query.payment_status || query.status).toLowerCase();
     if (!PAYMENT_STATUSES.includes(status)) {
-      throw new HttpError(400, `paymentStatus must be one of: ${PAYMENT_STATUSES.join(', ')}`);
+      throw new HttpError(400, `Trạng thái thanh toán không hợp lệ. Giá trị cho phép: ${PAYMENT_STATUSES.join(', ')}`);
     }
     filters.paymentStatus = status;
   }

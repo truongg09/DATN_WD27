@@ -4,12 +4,12 @@ const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 const toPositiveInt = (value, fieldName) => {
   if (value === undefined || value === null || value === '') {
-    throw new HttpError(400, `${fieldName} is required`);
+    throw new HttpError(400, `Thiếu trường bắt buộc: ${fieldName}`);
   }
 
   const number = Number(value);
   if (!Number.isInteger(number) || number <= 0) {
-    throw new HttpError(400, `${fieldName} must be a positive integer`);
+    throw new HttpError(400, `${fieldName} phải là số nguyên dương`);
   }
   return number;
 };
@@ -21,19 +21,19 @@ const toNonNegativeInt = (value, fieldName, defaultValue = 0) => {
 
   const number = Number(value);
   if (!Number.isInteger(number) || number < 0) {
-    throw new HttpError(400, `${fieldName} must be a non-negative integer`);
+    throw new HttpError(400, `${fieldName} phải là số nguyên không âm`);
   }
   return number;
 };
 
 const normalizeDate = (value, fieldName) => {
   if (typeof value !== 'string' || !DATE_PATTERN.test(value)) {
-    throw new HttpError(400, `${fieldName} must use YYYY-MM-DD format`);
+    throw new HttpError(400, `${fieldName} phải có định dạng YYYY-MM-DD`);
   }
 
   const date = new Date(`${value}T00:00:00.000Z`);
   if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) {
-    throw new HttpError(400, `${fieldName} is not a valid date`);
+    throw new HttpError(400, `${fieldName} không phải ngày hợp lệ`);
   }
 
   return value;
@@ -44,7 +44,7 @@ const assertDateRange = (checkIn, checkOut) => {
   const checkOutDate = new Date(`${checkOut}T00:00:00.000Z`);
 
   if (checkOutDate <= checkInDate) {
-    throw new HttpError(400, 'checkOut must be after checkIn');
+    throw new HttpError(400, 'Ngày trả phòng phải sau ngày nhận phòng');
   }
 };
 
@@ -53,7 +53,7 @@ const normalizeServiceRequestsPayload = (value) => {
     return [];
   }
   if (!Array.isArray(value)) {
-    throw new HttpError(400, 'serviceRequests must be an array');
+    throw new HttpError(400, 'Danh sách dịch vụ phải là một mảng');
   }
 
   return value
@@ -82,7 +82,7 @@ const normalizeBookingPayload = (body, userFromToken) => {
   // Khách đặt theo hạng phòng (roomTypeId) - hệ thống tự gán phòng trống;
   // roomId chỉ dùng khi lễ tân/admin chỉ định phòng cụ thể.
   if (!roomId && !roomTypeId) {
-    throw new HttpError(400, 'roomId is required');
+    throw new HttpError(400, 'Vui lòng chọn phòng hoặc hạng phòng');
   }
 
   const payload = {
@@ -103,11 +103,11 @@ const normalizeBookingPayload = (body, userFromToken) => {
   };
 
   if (!['pending', 'confirmed'].includes(payload.status)) {
-    throw new HttpError(400, 'status must be pending or confirmed');
+    throw new HttpError(400, 'Trạng thái phải là chờ xác nhận hoặc đã xác nhận');
   }
 
   if (payload.adults + payload.children <= 0) {
-    throw new HttpError(400, 'booking must have at least one guest');
+    throw new HttpError(400, 'Đặt phòng phải có ít nhất một khách');
   }
 
   assertDateRange(payload.checkIn, payload.checkOut);
@@ -121,7 +121,7 @@ const normalizeAvailabilityPayload = (body) => {
   const checkOut = body.checkOut ?? body.checkOutDate ?? body.check_out;
 
   if (!roomId && !roomTypeId) {
-    throw new HttpError(400, 'roomId is required');
+    throw new HttpError(400, 'Vui lòng chọn phòng hoặc hạng phòng');
   }
 
   const payload = {
@@ -142,7 +142,7 @@ const normalizeTypeAvailabilityPayload = (body) => {
   const rooms = Array.isArray(body.rooms) ? body.rooms : [];
 
   if (rooms.length === 0) {
-    throw new HttpError(400, 'rooms must be a non-empty array');
+    throw new HttpError(400, 'Danh sách phòng không được để trống');
   }
 
   const payload = {
@@ -170,7 +170,7 @@ const normalizeExtendStayPayload = (body) => ({
 const normalizeGuestIdentitiesPayload = (body) => {
   const guests = Array.isArray(body.guests) ? body.guests : [];
   if (guests.length === 0) {
-    throw new HttpError(400, 'guests must be a non-empty array');
+    throw new HttpError(400, 'Danh sách khách lưu trú không được để trống');
   }
 
   return {
@@ -179,10 +179,10 @@ const normalizeGuestIdentitiesPayload = (body) => {
       const identityNumber = String(guest.identityNumber ?? guest.cccd ?? guest.identity_number ?? '').trim();
 
       if (!fullName) {
-        throw new HttpError(400, `guests[${index}].fullName is required`);
+        throw new HttpError(400, `Vui lòng nhập họ tên khách thứ ${index + 1}`);
       }
       if (!identityNumber) {
-        throw new HttpError(400, `guests[${index}].identityNumber is required`);
+        throw new HttpError(400, `Vui lòng nhập giấy tờ tùy thân của khách thứ ${index + 1}`);
       }
 
       return {
@@ -198,12 +198,12 @@ const normalizeGuestIdentitiesPayload = (body) => {
 const normalizeDamageChargePayload = (body) => {
   const itemName = String(body.itemName ?? body.item_name ?? '').trim();
   if (!itemName) {
-    throw new HttpError(400, 'itemName is required');
+    throw new HttpError(400, 'Vui lòng nhập tên vật dụng');
   }
 
   const unitPrice = Number(body.unitPrice ?? body.unit_price);
   if (Number.isNaN(unitPrice) || unitPrice < 0) {
-    throw new HttpError(400, 'unitPrice must be a non-negative number');
+    throw new HttpError(400, 'Đơn giá phải là số không âm');
   }
 
   return {

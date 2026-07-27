@@ -185,11 +185,27 @@ function BookingManagement() {
       }
 
       if (operation === 'service') {
-        await api.post(`/bookings/${selectedBooking.id}/services`, {
+        const response = await api.post(`/bookings/${selectedBooking.id}/services`, {
           serviceId: values.serviceId,
           quantity: values.quantity,
         });
-        message.success('Đã thêm dịch vụ phát sinh');
+        const serviceTotal = Number(response.data?.service?.totalPrice || 0);
+        const remainingAmount = Number(response.data?.payment?.remainingAmount || 0);
+        Modal.info({
+          title: 'Đã thêm dịch vụ và cập nhật thanh toán',
+          content: (
+            <div>
+              <p>
+                Phí dịch vụ tăng thêm: <strong>{formatPrice(serviceTotal)}</strong>.
+              </p>
+              <p>
+                Khách hàng cần thanh toán thêm. Số tiền còn lại hiện tại:{' '}
+                <strong>{formatPrice(remainingAmount)}</strong>.
+              </p>
+            </div>
+          ),
+          okText: 'Đã hiểu',
+        });
       }
 
       if (operation === 'damage') {
@@ -257,10 +273,10 @@ function BookingManagement() {
   const handleCheckOut = async (id: number) => {
     try {
       await api.patch(`/bookings/${id}/check-out`);
-      message.success('Check-out thành công');
+      message.success('Trả phòng thành công');
       fetchBookings();
     } catch (error: any) {
-      message.error(error.response?.data?.message || 'Lỗi khi check-out');
+      message.error(error.response?.data?.message || 'Lỗi khi trả phòng');
     }
   };
 
@@ -283,7 +299,7 @@ function BookingManagement() {
           );
           fetchBookings();
         } catch (error: any) {
-          message.error(error.response?.data?.message || 'Không thể xử lý no-show');
+          message.error(error.response?.data?.message || 'Không thể xử lý trường hợp khách không đến');
         }
       },
     });
