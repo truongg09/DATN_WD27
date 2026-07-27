@@ -1,6 +1,7 @@
 const db = require('../config/db');
 const bookingModel = require('../models/bookingModel');
 const paymentService = require('./paymentService');
+const emailService = require('./emailService');
 const voucherService = require('./voucherService');
 const HttpError = require('../utils/httpError');
 const {
@@ -371,7 +372,15 @@ const createBooking = async (payload) => {
     const totalPrice = nightly.total + childSurcharge.amount;
 
     const bookingId = await bookingModel.createBooking(payload, totalPrice, connection);
-    await bookingModel.createBookingDetail(bookingId, payload, roomPrice, connection);
+    // Keep the guest surcharge on the booking detail so payments can always
+    // display accommodation, guest surcharge, and extra services separately.
+    await bookingModel.createBookingDetail(
+      bookingId,
+      payload,
+      roomPrice,
+      childSurcharge.amount,
+      connection
+    );
     await bookingModel.upsertAvailabilityRows(payload.roomId, bookingId, dates, connection);
 
     let serviceAmount = 0;
@@ -411,6 +420,7 @@ const createBooking = async (payload) => {
     await connection.commit();
 
     const booking = await bookingModel.getBookingById(bookingId);
+    void emailService.sendBookingConfirmation(booking);
     return { ...booking, payment };
   } catch (error) {
     await connection.rollback();
@@ -669,6 +679,16 @@ const addServiceCharge = async (bookingId, payload) => {
 
     await bookingModel.addBookingService(bookingId, service, payload.quantity, connection);
     const payment = await paymentService.recalculatePaymentForBooking(bookingId, connection);
+    const addedAmount = Number(service.price) * payload.quantity;
+
+    if (payment && Number(payment.remainingAmount) > 0) {
+      await bookingModel.createCustomerNotification(
+        booking.user_id,
+        'Thanh toán dịch vụ phát sinh',
+        `Dịch vụ ${service.serviceName} đã được thêm vào đặt phòng #${bookingId} với số tiền ${addedAmount.toLocaleString('vi-VN')} VNĐ. Số tiền còn phải thanh toán là ${Number(payment.remainingAmount).toLocaleString('vi-VN')} VNĐ.`,
+        connection
+      );
+    }
 
     await connection.commit();
     return {
@@ -677,7 +697,7 @@ const addServiceCharge = async (bookingId, payload) => {
         id: service.id,
         serviceName: service.serviceName,
         quantity: payload.quantity,
-        totalPrice: Number(service.price) * payload.quantity
+        totalPrice: addedAmount
       },
       payment
     };

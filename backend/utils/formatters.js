@@ -16,6 +16,11 @@ const formatPayment = (row) => {
     paymentStatus: row.paymentStatus,
     transactionCode: row.transactionCode || undefined,
     paymentDate: row.paymentDate || undefined,
+    verificationStatus: row.verification_status || undefined,
+    verificationAmount: row.verification_amount === undefined || row.verification_amount === null
+      ? undefined
+      : Number(row.verification_amount),
+    verificationSubmittedAt: row.verification_submitted_at || undefined,
     customerName: row.customer_name,
     roomNumber: row.room_number,
     bookingStatus: row.booking_status
@@ -25,7 +30,9 @@ const formatPayment = (row) => {
 const formatInvoice = (row) => {
   if (!row) return null;
 
-  const roomAmount = Number(row.subtotal ?? row.roomAmount ?? 0);
+  const roomAmount = Number(row.roomAmount ?? row.subtotal ?? 0);
+  const serviceAmount = Number(row.serviceAmount ?? 0);
+  const surchargeAmount = Number(row.surchargeAmount ?? 0);
   const discountAmount = Number(row.discountAmount ?? 0);
 
   return {
@@ -42,7 +49,8 @@ const formatInvoice = (row) => {
     checkIn: row.check_in,
     checkOut: row.check_out,
     roomAmount,
-    serviceAmount: 0,
+    serviceAmount,
+    surchargeAmount,
     discountAmount,
     totalAmount: Number(row.totalAmount ?? 0),
     status: row.status,

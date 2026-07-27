@@ -24,3 +24,28 @@
     height: 300px;
     object-fit: cover;
 }
+
+@media (max-width: 768px) {
+    .gallery {
+        padding: 50px 16px;
+    }
+
+    .gallery-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+    }
+
+    .gallery-item img {
+        height: 180px;
+    }
+}
+
+@media (max-width: 480px) {
+    .gallery-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .gallery-item img {
+        height: 200px;
+    }
+}

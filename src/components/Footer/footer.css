@@ -89,3 +89,30 @@
 .footer-bottom p {
     color: #aaa;
 }
+
+@media (max-width: 768px) {
+    .footer {
+        padding: 50px 16px 0;
+    }
+
+    .footer-grid {
+        grid-template-columns: 1fr;
+        gap: 30px;
+    }
+
+    .footer-col h3 {
+        font-size: 22px;
+    }
+
+    .footer-col h4 {
+        font-size: 18px;
+        margin-bottom: 16px;
+    }
+}
+
+@media (min-width: 769px) and (max-width: 992px) {
+    .footer-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: 30px;
+    }
+}
