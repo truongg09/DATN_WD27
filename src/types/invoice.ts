@@ -1,5 +1,13 @@
 export type InvoiceStatus = "draft" | "issued" | "cancelled";
 
+export interface InvoiceServiceItem {
+  serviceId: number;
+  serviceName: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+}
+
 export interface Invoice {
   id: number;
   invoiceNumber: string;
@@ -13,8 +21,10 @@ export interface Invoice {
   roomTypeName: string;
   checkIn: string;
   checkOut: string;
+  stayRoomAmount?: number;
   roomAmount: number;
   serviceAmount: number;
+  services?: InvoiceServiceItem[];
   surchargeAmount: number;
   discountAmount: number;
   totalAmount: number;

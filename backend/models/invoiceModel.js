@@ -12,7 +12,11 @@ const INVOICE_SELECT = `
     r.roomNumber AS room_number,
     rt.typeName AS room_type_name,
     DATE(bd.checkInDate) AS check_in,
-    DATE(bd.checkOutDate) AS check_out
+    DATE(bd.checkOutDate) AS check_out,
+    COALESCE(
+      bd.roomPrice * GREATEST(DATEDIFF(bd.checkOutDate, bd.checkInDate), 1),
+      0
+    ) AS stay_room_amount
   FROM invoices i
   JOIN bookings b ON b.id = i.bookingId
   LEFT JOIN customers c ON c.id = b.customerId
@@ -67,12 +71,31 @@ const getInvoiceByNumber = async (invoiceCode) => {
   return rows[0] || null;
 };
 
-const getInvoiceByBookingId = async (bookingId) => {
-  const [rows] = await db.query(
+const getInvoiceByBookingId = async (bookingId, connection) => {
+  const [rows] = await run(connection).query(
     `${INVOICE_SELECT} WHERE i.bookingId = ? ORDER BY i.invoiceDate DESC LIMIT 1`,
     [bookingId]
   );
   return rows[0] || null;
+};
+
+const listInvoiceServices = async (bookingId, connection) => {
+  const [rows] = await run(connection).query(
+    `
+      SELECT
+        bs.serviceId,
+        s.serviceName,
+        bs.quantity,
+        s.price AS unitPrice,
+        bs.totalPrice
+      FROM booking_services bs
+      JOIN services s ON s.id = bs.serviceId
+      WHERE bs.bookingId = ?
+      ORDER BY bs.id ASC
+    `,
+    [bookingId]
+  );
+  return rows;
 };
 
 const listInvoices = async ({ userId, bookingId, status } = {}) => {
@@ -122,6 +145,7 @@ module.exports = {
   getInvoiceById,
   getInvoiceByNumber,
   getInvoiceByBookingId,
+  listInvoiceServices,
   listInvoices,
   getNextInvoiceSequence
 };
