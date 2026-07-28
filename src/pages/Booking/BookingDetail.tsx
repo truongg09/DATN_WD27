@@ -187,11 +187,37 @@ const BookingDetail: React.FC = () => {
   const bookingServices = Array.isArray(booking.services)
     ? booking.services as Array<Record<string, unknown>>
     : [];
+  const bookingServiceAmount = bookingServices.reduce(
+    (sum, service) => sum + Number(service.totalPrice || 0),
+    0
+  );
   const bookingGuests = Array.isArray(booking.guests)
     ? booking.guests as Array<Record<string, unknown>>
     : [];
   const voucher = booking.voucher as Record<string, unknown> | null;
   const refund = booking.refund as Record<string, unknown> | null;
+  const invoiceServiceAmount = invoice
+    ? Number(invoice.serviceAmount || payment?.serviceAmount || bookingServiceAmount || 0)
+    : 0;
+  const invoiceServices = invoice?.services?.length
+    ? invoice.services
+    : bookingServices.map((service) => ({
+        serviceId: Number(service.serviceId || 0),
+        serviceName: String(service.serviceName || 'Dịch vụ'),
+        quantity: Number(service.quantity || 0),
+        unitPrice: Number(service.unitPrice || 0),
+        totalPrice: Number(service.totalPrice || 0),
+      }));
+  const stayRoomAmount = Number(booking.room_price || booking.price_per_night || 0) * nights;
+  const invoiceRoomAmount = invoice
+    ? Number(invoice.stayRoomAmount || stayRoomAmount || invoice.roomAmount || 0)
+    : 0;
+  const invoiceTotalAmount = invoice
+    ? invoiceRoomAmount +
+      invoiceServiceAmount +
+      Number(invoice.surchargeAmount || 0) -
+      Number(invoice.discountAmount || 0)
+    : 0;
 
   return (
     <div className="booking-detail-page">
@@ -414,14 +440,21 @@ const BookingDetail: React.FC = () => {
             <div className="invoice-body">
               <div className="invoice-row">
                 <span>Tiền phòng</span>
-                <span>{formatPrice(invoice.roomAmount)}</span>
+                <span>{formatPrice(invoiceRoomAmount)}</span>
               </div>
-              {invoice.serviceAmount > 0 && (
-                <div className="invoice-row">
-                  <span>Dịch vụ</span>
-                  <span>{formatPrice(invoice.serviceAmount)}</span>
+              <div className="invoice-row service-total">
+                <span>Tiền dịch vụ</span>
+                <strong>{formatPrice(invoiceServiceAmount)}</strong>
+              </div>
+              {invoiceServices.map((service, index) => (
+                <div className="invoice-service-row" key={`${service.serviceId}-${index}`}>
+                  <span>
+                    {service.serviceName}
+                    <small>{service.quantity} × {formatPrice(service.unitPrice)}</small>
+                  </span>
+                  <span>{formatPrice(service.totalPrice)}</span>
                 </div>
-              )}
+              ))}
               {invoice.discountAmount > 0 && (
                 <div className="invoice-row">
                   <span>Giảm giá</span>
@@ -430,7 +463,7 @@ const BookingDetail: React.FC = () => {
               )}
               <div className="invoice-row total">
                 <span>Tổng thanh toán</span>
-                <span>{formatPrice(invoice.totalAmount)}</span>
+                <span>{formatPrice(invoiceTotalAmount)}</span>
               </div>
             </div>
           </Card>

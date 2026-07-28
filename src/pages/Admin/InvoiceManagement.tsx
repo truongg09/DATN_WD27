@@ -100,7 +100,19 @@ function InvoiceDetail({ invoice }: { invoice: Invoice }) {
       <Descriptions.Item label="Email">{invoice.customerEmail || 'Chưa cập nhật'}</Descriptions.Item><Descriptions.Item label="Điện thoại">{invoice.customerPhone || 'Chưa cập nhật'}</Descriptions.Item>
       <Descriptions.Item label="Phòng">{invoice.roomNumber || 'Chưa xếp'} · {invoice.roomTypeName || 'Chưa cập nhật'}</Descriptions.Item><Descriptions.Item label="Thời gian lưu trú">{dayjs(invoice.checkIn).format('DD/MM/YYYY')} đến {dayjs(invoice.checkOut).format('DD/MM/YYYY')}</Descriptions.Item>
     </Descriptions>
-    <div className="invoice-amounts"><AmountRow label="Tiền phòng" value={invoice.roomAmount} /><AmountRow label="Dịch vụ" value={invoice.serviceAmount} /><AmountRow label="Phụ thu" value={invoice.surchargeAmount} /><AmountRow label="Giảm giá" value={-invoice.discountAmount} /><AmountRow label="Tổng thanh toán" value={invoice.totalAmount} total /></div>
+    <div className="invoice-amounts">
+      <AmountRow label="Tiền phòng" value={invoice.roomAmount} />
+      <AmountRow label="Tiền dịch vụ" value={invoice.serviceAmount} />
+      {invoice.services?.map((service) => (
+        <div className="invoice-service-item" key={service.serviceId}>
+          <span>{service.serviceName}<small>{service.quantity} × {formatCurrency(service.unitPrice)}</small></span>
+          <strong>{formatCurrency(service.totalPrice)}</strong>
+        </div>
+      ))}
+      <AmountRow label="Phụ thu" value={invoice.surchargeAmount} />
+      <AmountRow label="Giảm giá" value={-invoice.discountAmount} />
+      <AmountRow label="Tổng thanh toán" value={invoice.totalAmount} total />
+    </div>
     <p className="invoice-print-note">Cảm ơn quý khách đã sử dụng dịch vụ của HotelHub.</p>
   </div>;
 }
