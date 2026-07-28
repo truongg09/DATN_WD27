@@ -48,6 +48,7 @@ const formatInvoice = (row) => {
     roomTypeName: row.room_type_name,
     checkIn: row.check_in,
     checkOut: row.check_out,
+    stayRoomAmount: Number(row.stay_room_amount ?? 0),
     roomAmount,
     serviceAmount,
     surchargeAmount,
