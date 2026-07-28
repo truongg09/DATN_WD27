@@ -34,6 +34,7 @@ interface BookingRow {
   check_in: string;
   check_out: string;
   total_price: number | string;
+  payable_total?: number | string;
   status: string;
   created_at?: string;
 }
@@ -440,11 +441,26 @@ const BookingHistory: React.FC = () => {
       },
       {
         title: 'Tổng tiền',
-        dataIndex: 'total_price',
-        key: 'total_price',
+        key: 'payable_total',
         align: 'right',
         width: 150,
-        render: (price: number | string) => <strong className="history-price">{formatPrice(price)}</strong>,
+        render: (_, record) => {
+          const payment = payments[record.id];
+          const total =
+            payment?.totalAmount ??
+            Number(record.payable_total ?? record.total_price ?? 0);
+
+          return (
+            <div>
+              <strong className="history-price">{formatPrice(total)}</strong>
+              {Number(payment?.serviceAmount || 0) > 0 && (
+                <div className="history-price-note">
+                  Đã gồm {formatPrice(payment?.serviceAmount || 0)} dịch vụ
+                </div>
+              )}
+            </div>
+          );
+        },
       },
       {
         title: 'Trạng thái',

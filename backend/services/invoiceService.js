@@ -11,15 +11,45 @@ const buildInvoiceCode = async (connection) => {
   return `HD${year}${month}-${String(sequence).padStart(5, '0')}`;
 };
 
+const enrichInvoiceWithServices = async (row, connection) => {
+  const invoice = formatInvoice(row);
+  const serviceRows = await invoiceModel.listInvoiceServices(invoice.bookingId, connection);
+  const services = serviceRows.map((service) => ({
+    serviceId: Number(service.serviceId),
+    serviceName: service.serviceName,
+    quantity: Number(service.quantity ?? 0),
+    unitPrice: Number(service.unitPrice ?? 0),
+    totalPrice: Number(service.totalPrice ?? 0)
+  }));
+  const serviceAmount = services.reduce((sum, service) => sum + service.totalPrice, 0);
+  // Tính lại tiền phòng từ đơn giá lưu trú và số đêm. Dữ liệu hóa đơn cũ có
+  // trường hợp đã gộp tiền dịch vụ vào roomAmount nên không dùng số đó làm gốc.
+  const roomAmount =
+    Number(invoice.stayRoomAmount || 0) > 0
+      ? Number(invoice.stayRoomAmount)
+      : invoice.roomAmount;
+  const totalAmount =
+    roomAmount + serviceAmount + invoice.surchargeAmount - invoice.discountAmount;
+
+  return {
+    ...invoice,
+    services,
+    roomAmount,
+    serviceAmount,
+    subtotal: roomAmount + serviceAmount + invoice.surchargeAmount,
+    totalAmount
+  };
+};
+
 const issueInvoiceForPayment = async (paymentId, connection) => {
   const payment = await paymentModel.getPaymentById(paymentId, connection, !!connection);
   if (!payment) {
     throw new HttpError(404, 'Không tìm thấy thanh toán');
   }
 
-  const existing = await invoiceModel.getInvoiceByBookingId(payment.bookingId);
+  const existing = await invoiceModel.getInvoiceByBookingId(payment.bookingId, connection);
   if (existing) {
-    return formatInvoice(existing);
+    return enrichInvoiceWithServices(existing, connection);
   }
 
   const roomAmount = Number(payment.roomAmount ?? 0);
@@ -47,12 +77,12 @@ const issueInvoiceForPayment = async (paymentId, connection) => {
   );
 
   const invoice = await invoiceModel.getInvoiceById(invoiceId, connection);
-  return formatInvoice(invoice);
+  return enrichInvoiceWithServices(invoice, connection);
 };
 
 const listInvoices = async (filters) => {
   const rows = await invoiceModel.listInvoices(filters);
-  return rows.map(formatInvoice);
+  return Promise.all(rows.map((row) => enrichInvoiceWithServices(row)));
 };
 
 const getInvoiceById = async (invoiceId) => {
@@ -60,7 +90,7 @@ const getInvoiceById = async (invoiceId) => {
   if (!invoice) {
     throw new HttpError(404, 'Không tìm thấy hóa đơn');
   }
-  return formatInvoice(invoice);
+  return enrichInvoiceWithServices(invoice);
 };
 
 const getInvoiceByBookingId = async (bookingId) => {
@@ -68,7 +98,7 @@ const getInvoiceByBookingId = async (bookingId) => {
   if (!invoice) {
     throw new HttpError(404, 'Không tìm thấy hóa đơn của đặt phòng này');
   }
-  return formatInvoice(invoice);
+  return enrichInvoiceWithServices(invoice);
 };
 
 module.exports = {
