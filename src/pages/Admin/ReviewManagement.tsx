@@ -465,7 +465,7 @@ function ReviewManagement() {
         confirmLoading={submittingReply}
         okText={activeReview?.adminReply ? 'Cập nhật' : 'Gửi phản hồi'}
         cancelText="Hủy"
-        destroyOnClose
+        destroyOnHidden
         footer={[
           activeReview?.adminReply && (
             <Popconfirm

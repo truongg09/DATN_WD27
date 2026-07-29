@@ -375,7 +375,7 @@ const RoomTypeDetail: React.FC = () => {
             <ul className="widget-perks">
               <li><FontAwesomeIcon icon={faCheck} /> Xác nhận ngay lập tức</li>
               <li><FontAwesomeIcon icon={faCheck} /> Giữ phòng 15 phút để thanh toán</li>
-              <li><FontAwesomeIcon icon={faCheck} /> Hoàn 100% khi hủy trước 7 ngày</li>
+              <li><FontAwesomeIcon icon={faCheck} /> Hoàn 100% khi hủy dưới 3 ngày</li>
             </ul>
           </div>
         </div>

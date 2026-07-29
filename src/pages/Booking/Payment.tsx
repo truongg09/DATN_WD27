@@ -1,16 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
-import { Button, Spin, message, Tag, Alert, Modal, QRCode, Tooltip } from 'antd';
+import { Button, Spin, message, Tag, Alert, Modal, QRCode, Radio, Tooltip, Input } from 'antd';
 import {
   CheckCircleFilled,
   CopyOutlined,
-  DollarOutlined,
+  GiftOutlined,
   LockOutlined,
   SafetyCertificateOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { getBookingDetail } from '../../services/bookingService';
-import { createGatewayOrder, getPaymentByBookingId, processPayment, submitTransferConfirmation } from '../../services/paymentService';
+import { applyVoucher, createGatewayOrder, getPaymentByBookingId, processPayment, submitTransferConfirmation } from '../../services/paymentService';
 import { getPaymentSettings, type PaymentSettings } from '../../services/settingsService';
 import { buildVietQrPayload, findBankByBin, toTransferText } from '../../utils/vietqr';
 import type { Payment, PaymentMethod } from '../../types/payment';
@@ -84,14 +84,6 @@ const METHOD_OPTIONS: MethodOption[] = [
     badgeClass: 'badge-logo badge-vnpay-logo',
     badgeText: 'VNPay',
   },
-  {
-    value: 'cash',
-    title: 'Tiền mặt tại quầy',
-    description: 'Thanh toán trực tiếp khi đến khách sạn',
-    icon: <DollarOutlined />,
-    badgeClass: 'badge-cash',
-    badgeText: 'Cash',
-  },
 ];
 
 const methodTitle = (method: PaymentMethod) =>
@@ -109,9 +101,13 @@ const PaymentPage: React.FC = () => {
   const [payment, setPayment] = useState<Payment | null>(null);
   const [paymentSettings, setPaymentSettings] = useState<PaymentSettings | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('bank_transfer');
+  const [paymentAmountMode, setPaymentAmountMode] = useState<'deposit' | 'full'>('deposit');
   const [holdRemainingMs, setHoldRemainingMs] = useState(0);
   const [roomTakenError, setRoomTakenError] = useState(false);
   const [qrModalOpen, setQrModalOpen] = useState(false);
+  const [voucherCode, setVoucherCode] = useState('');
+  const [applyingVoucher, setApplyingVoucher] = useState(false);
+  const [appliedVoucherCode, setAppliedVoucherCode] = useState('');
 
   useEffect(() => {
     if (!isValidBookingId) {
@@ -129,6 +125,11 @@ const PaymentPage: React.FC = () => {
         ]);
         setBooking(bookingRes.data as Record<string, unknown>);
         setPayment(paymentRes.data);
+        const bookingVoucher = (bookingRes.data as { voucher?: { code?: string } }).voucher;
+        if (bookingVoucher?.code) {
+          setVoucherCode(bookingVoucher.code);
+          setAppliedVoucherCode(bookingVoucher.code);
+        }
       } catch {
         message.error('Không thể tải thông tin thanh toán');
         navigate('/booking/history');
@@ -167,21 +168,35 @@ const PaymentPage: React.FC = () => {
 
   const isPaid = payment?.paymentStatus === 'paid';
   const hasDeposit = (payment?.paidAmount ?? 0) > 0;
-  // Mỗi booking chỉ thanh toán một lần: luôn thu toàn bộ số dư còn lại.
-  const paymentAmount = payment?.remainingAmount ?? 0;
+  const requiredDepositAmount = payment
+    ? Math.min(Math.ceil(payment.totalAmount * 0.3), payment.remainingAmount)
+    : 0;
+  const paymentAmount = payment
+    ? paymentAmountMode === 'deposit' && !hasDeposit
+      ? requiredDepositAmount
+      : payment.remainingAmount
+    : 0;
   const isHoldExpired = payment?.paymentStatus === 'unpaid' && !hasDeposit && holdRemainingMs <= 0;
   const holdPercent = Math.max(Math.min((holdRemainingMs / HOLD_DURATION_MS) * 100, 100), 0);
 
+  // Tiền cọc giữ phòng phải được thanh toán từ xa.
+  const isDepositMode = paymentAmountMode === 'deposit' && !hasDeposit;
   const visibleMethods = METHOD_OPTIONS;
 
-  // Chính sách hoàn tiền (khớp công thức backend: >7 ngày = 100%, 3–7 ngày = 50%, <3 ngày = 0%)
+  // Chính sách hoàn tiền: <3 ngày = 100%, 3–7 ngày = 50%, >7 ngày = 0%.
   const refundInfo = useMemo(() => {
     if (!booking?.check_in) return null;
 
     const checkInDay = dayjs(String(booking.check_in)).startOf('day');
     const today = dayjs().startOf('day');
     const daysBeforeCheckIn = checkInDay.diff(today, 'day');
-    const rate = daysBeforeCheckIn > 7 ? 1 : daysBeforeCheckIn >= 3 ? 0.5 : 0;
+    const rate = daysBeforeCheckIn < 0
+      ? 0
+      : daysBeforeCheckIn < 3
+        ? 1
+        : daysBeforeCheckIn <= 7
+          ? 0.5
+          : 0;
     const paidAmount = payment?.paidAmount ?? 0;
 
     return {
@@ -190,10 +205,10 @@ const PaymentPage: React.FC = () => {
       paidAmount,
       refundableNow: Math.round(paidAmount * rate),
       // Mốc ngày cụ thể cho từng mức hoàn
-      fullRefundUntil: checkInDay.subtract(8, 'day'),   // hủy đến hết ngày này: hoàn 100%
+      fullRefundFrom: checkInDay.subtract(2, 'day'),
       halfRefundFrom: checkInDay.subtract(7, 'day'),    // từ ngày này...
       halfRefundUntil: checkInDay.subtract(3, 'day'),   // ...đến hết ngày này: hoàn 50%
-      noRefundFrom: checkInDay.subtract(2, 'day'),      // từ ngày này trở đi: không hoàn
+      noRefundUntil: checkInDay.subtract(8, 'day'),
       checkInDay,
     };
   }, [booking?.check_in, payment?.paidAmount]);
@@ -225,6 +240,32 @@ const PaymentPage: React.FC = () => {
       message.success(`Đã sao chép ${label}`);
     } catch {
       message.error('Không thể sao chép, vui lòng copy thủ công');
+    }
+  };
+
+  const handleApplyVoucher = async () => {
+    if (!payment) return;
+    const code = voucherCode.trim();
+    if (!code) {
+      message.warning('Vui lòng nhập mã voucher');
+      return;
+    }
+
+    setApplyingVoucher(true);
+    try {
+      const response = await applyVoucher(payment.id, code);
+      setPayment(response.data.payment);
+      setVoucherCode(response.data.voucher.code);
+      setAppliedVoucherCode(response.data.voucher.code);
+      message.success(
+        `Áp dụng voucher thành công, giảm ${formatPrice(response.data.voucher.discountAmount)}`
+      );
+    } catch (error) {
+      const apiMessage = (error as { response?: { data?: { message?: string } } })
+        .response?.data?.message;
+      message.error(apiMessage || 'Không thể áp dụng voucher');
+    } finally {
+      setApplyingVoucher(false);
     }
   };
 
@@ -278,11 +319,6 @@ const PaymentPage: React.FC = () => {
 
   const handlePay = async () => {
     if (!payment) return;
-
-    if (paymentMethod === 'cash') {
-      message.info('Vui lòng thanh toán tiền mặt tại quầy. Lễ tân sẽ xác nhận giao dịch cho bạn.');
-      return;
-    }
 
     if (paymentMethod === 'bank_transfer' && !paymentSettings) {
       message.error('Khách sạn chưa cấu hình tài khoản nhận tiền, vui lòng chọn phương thức khác');
@@ -438,9 +474,9 @@ const PaymentPage: React.FC = () => {
               <div className="policy-grid">
                 <div className="policy-item good">
                   <strong>100%</strong>
-                  <span>Hủy trước 7 ngày</span>
+                  <span>Hủy dưới 3 ngày</span>
                   {refundInfo && (
-                    <small>Đến hết {refundInfo.fullRefundUntil.format('DD/MM/YYYY')}</small>
+                    <small>Từ {refundInfo.fullRefundFrom.format('DD/MM/YYYY')}</small>
                   )}
                 </div>
                 <div className="policy-item mid">
@@ -454,9 +490,9 @@ const PaymentPage: React.FC = () => {
                 </div>
                 <div className="policy-item bad">
                   <strong>0%</strong>
-                  <span>Hủy dưới 3 ngày</span>
+                  <span>Hủy trên 7 ngày</span>
                   {refundInfo && (
-                    <small>Từ {refundInfo.noRefundFrom.format('DD/MM/YYYY')}</small>
+                    <small>Đến hết {refundInfo.noRefundUntil.format('DD/MM/YYYY')}</small>
                   )}
                 </div>
               </div>
@@ -493,8 +529,8 @@ const PaymentPage: React.FC = () => {
                   (tiền cọc hoặc toàn bộ), không tính trên giá phòng.
                 </li>
                 <li>
-                  <strong>Ví dụ:</strong> đã cọc 300.000₫ — hủy trước 7 ngày nhận lại 300.000₫; hủy trong
-                  khoảng 3–7 ngày nhận lại 150.000₫; hủy sát ngày (dưới 3 ngày) không được hoàn.
+                  <strong>Ví dụ:</strong> đã cọc 300.000₫ — hủy dưới 3 ngày nhận lại 300.000₫; hủy trong
+                  khoảng 3–7 ngày nhận lại 150.000₫; hủy trên 7 ngày không được hoàn.
                 </li>
                 <li>
                   <strong>Cách hủy:</strong> vào <em>Lịch sử đặt phòng</em> → bấm <em>Hủy</em> ở đơn tương ứng.
@@ -539,9 +575,41 @@ const PaymentPage: React.FC = () => {
                     <span>{formatPrice(payment.serviceAmount)}</span>
                   </div>
                 )}
+                {!isPaid && (
+                  <div className="voucher-box">
+                    <label htmlFor="voucher-code">
+                      <GiftOutlined />
+                      Mã giảm giá
+                    </label>
+                    <div className="voucher-apply">
+                      <Input
+                        id="voucher-code"
+                        value={voucherCode}
+                        placeholder="Nhập mã voucher"
+                        maxLength={50}
+                        disabled={Boolean(appliedVoucherCode)}
+                        onChange={(event) => setVoucherCode(event.target.value.toUpperCase())}
+                        onPressEnter={handleApplyVoucher}
+                      />
+                      <Button
+                        type="primary"
+                        loading={applyingVoucher}
+                        disabled={Boolean(appliedVoucherCode)}
+                        onClick={handleApplyVoucher}
+                      >
+                        {appliedVoucherCode ? 'Đã áp dụng' : 'Áp dụng'}
+                      </Button>
+                    </div>
+                    {appliedVoucherCode && (
+                      <small>
+                        <CheckCircleFilled /> Mã {appliedVoucherCode} đã được áp dụng
+                      </small>
+                    )}
+                  </div>
+                )}
                 {payment.discountAmount > 0 && (
                   <div className="summary-row discount">
-                    <span>Giảm giá</span>
+                    <span>Voucher</span>
                     <span>-{formatPrice(payment.discountAmount)}</span>
                   </div>
                 )}
@@ -565,13 +633,24 @@ const PaymentPage: React.FC = () => {
 
               {!isPaid ? (
                 <>
-                  <Alert
-                    type="info"
-                    showIcon
-                    message="Thanh toán một lần"
-                    description="Hệ thống thu toàn bộ số dư còn lại và không yêu cầu thanh toán lần hai."
-                    style={{ marginBottom: 16 }}
-                  />
+                  {!hasDeposit && (
+                    <div className="amount-mode">
+                      <Radio.Group
+                        value={paymentAmountMode}
+                        onChange={(event) => setPaymentAmountMode(event.target.value)}
+                        className="amount-mode-group"
+                      >
+                        <Radio.Button value="deposit">
+                          Cọc 30%
+                          <small>{formatPrice(requiredDepositAmount)}</small>
+                        </Radio.Button>
+                        <Radio.Button value="full">
+                          Thanh toán toàn bộ
+                          <small>{formatPrice(payment.remainingAmount)}</small>
+                        </Radio.Button>
+                      </Radio.Group>
+                    </div>
+                  )}
 
                   <div className="method-list">
                     {visibleMethods.map((option) => (
@@ -596,6 +675,13 @@ const PaymentPage: React.FC = () => {
                     ))}
                   </div>
 
+                  {isDepositMode && (
+                    <p className="deposit-online-note">
+                      Đặt cọc 30% để giữ phòng. Tiền cọc được thanh toán từ xa qua chuyển khoản,
+                      ZaloPay hoặc VNPay; tiền mặt chỉ áp dụng khi thanh toán phần còn lại.
+                    </p>
+                  )}
+
                   <Button
                     className="pay-button"
                     type="primary"
@@ -609,7 +695,7 @@ const PaymentPage: React.FC = () => {
                       ? `Xác nhận thanh toán bằng VNPay - ${formatPrice(paymentAmount)}`
                       : paymentMethod === 'zalopay'
                         ? `Xác nhận thanh toán bằng ZaloPay - ${formatPrice(paymentAmount)}`
-                        : <>{paymentMethod === 'cash' ? 'Xác nhận thanh toán' : 'Hiện mã QR thanh toán'} · {formatPrice(paymentAmount)}</>}
+                        : <>Hiện mã QR thanh toán · {formatPrice(paymentAmount)}</>}
                   </Button>
 
                   <div className="secure-note">

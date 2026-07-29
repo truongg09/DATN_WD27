@@ -318,12 +318,14 @@ const processPayment = async (paymentId, payload) => {
     const newPaidAmount = Number(payment.paidAmount) + payAmount;
     const newRemainingAmount = Number(payment.totalAmount) - newPaidAmount;
     const isFullyPaid = newRemainingAmount <= 0;
+    const isInitialDeposit = Number(payment.paidAmount) === 0 && !isFullyPaid;
     const paymentDate = new Date();
 
     await paymentModel.updatePayment(
       paymentId,
       {
         paymentMethod: payload.paymentMethod,
+        depositAmount: isInitialDeposit ? payAmount : Number(payment.depositAmount || 0),
         paidAmount: newPaidAmount,
         remainingAmount: Math.max(newRemainingAmount, 0),
         paymentStatus: isFullyPaid ? 'paid' : 'deposit_paid',
@@ -448,6 +450,7 @@ const confirmPayment = async (paymentId, payload) => {
     const newPaidAmount = Number(payment.paidAmount) + payAmount;
     const newRemainingAmount = Number(payment.totalAmount) - newPaidAmount;
     const isFullyPaid = newRemainingAmount <= 0;
+    const isInitialDeposit = Number(payment.paidAmount) === 0 && !isFullyPaid;
     const transactionCode =
       payload.gatewayOrderId
       || payload.transactionCode
@@ -458,6 +461,7 @@ const confirmPayment = async (paymentId, payload) => {
     await paymentModel.updatePayment(
       paymentId,
       {
+        depositAmount: isInitialDeposit ? payAmount : Number(payment.depositAmount || 0),
         paidAmount: newPaidAmount,
         remainingAmount: Math.max(newRemainingAmount, 0),
         paymentStatus: isFullyPaid ? 'paid' : 'deposit_paid',
@@ -609,6 +613,117 @@ const confirmTransferPayment = async (paymentId, confirmedBy) => {
   return result.payment;
 };
 
+const applyVoucher = async (paymentId, code, userId) => {
+  const normalizedCode = String(code || '').trim().toUpperCase();
+  if (!normalizedCode) throw new HttpError(400, 'Vui lòng nhập mã voucher');
+
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    const [paymentRows] = await connection.query(
+      'SELECT * FROM payments WHERE id = ? FOR UPDATE',
+      [paymentId]
+    );
+    const payment = paymentRows[0];
+    if (!payment) throw new HttpError(404, 'Không tìm thấy thanh toán');
+    if (!['unpaid', 'deposit_paid'].includes(payment.paymentStatus)) {
+      throw new HttpError(409, 'Không thể áp voucher cho giao dịch này');
+    }
+
+    const [bookingRows] = await connection.query(
+      'SELECT id, user_id, voucherId FROM bookings WHERE id = ? FOR UPDATE',
+      [payment.bookingId]
+    );
+    const booking = bookingRows[0];
+    if (!booking) throw new HttpError(404, 'Không tìm thấy đặt phòng');
+    if (Number(booking.user_id) !== Number(userId)) {
+      throw new HttpError(403, 'Bạn không có quyền áp voucher cho đặt phòng này');
+    }
+    if (booking.voucherId) throw new HttpError(409, 'Đặt phòng đã áp dụng voucher');
+
+    const [voucherRows] = await connection.query(
+      `SELECT * FROM vouchers
+       WHERE UPPER(code) = ? AND status = 'active'
+         AND startDate <= CURDATE() AND endDate >= CURDATE()
+       FOR UPDATE`,
+      [normalizedCode]
+    );
+    const voucher = voucherRows[0];
+    if (!voucher) throw new HttpError(404, 'Mã voucher không tồn tại hoặc đã hết hạn');
+    if (Number(voucher.quantity) <= 0) throw new HttpError(409, 'Voucher đã hết lượt sử dụng');
+
+    const [assignmentRows] = await connection.query(
+      'SELECT id, userId, isUsed FROM customer_vouchers WHERE voucherId = ? FOR UPDATE',
+      [voucher.id]
+    );
+    const customerVoucher = assignmentRows.find((row) => Number(row.userId) === Number(userId));
+    if (assignmentRows.length > 0 && !customerVoucher) {
+      throw new HttpError(403, 'Voucher này dành riêng cho khách hàng khác');
+    }
+    if (customerVoucher?.isUsed) throw new HttpError(409, 'Voucher đã được sử dụng');
+
+    const subtotal =
+      Number(payment.roomAmount) +
+      Number(payment.serviceAmount) +
+      Number(payment.surchargeAmount);
+    if (subtotal < Number(voucher.minBookingAmount || 0)) {
+      throw new HttpError(
+        400,
+        `Đơn hàng tối thiểu để dùng voucher là ${Number(voucher.minBookingAmount).toLocaleString('vi-VN')}đ`
+      );
+    }
+
+    let discountAmount = voucher.discountType === 'percentage'
+      ? Math.round(subtotal * Number(voucher.discountValue) / 100)
+      : Math.round(Number(voucher.discountValue));
+    if (Number(voucher.maxDiscount) > 0) {
+      discountAmount = Math.min(discountAmount, Number(voucher.maxDiscount));
+    }
+    discountAmount = Math.min(Math.max(discountAmount, 0), subtotal);
+
+    const totalAmount = subtotal - discountAmount;
+    const paidAmount = Number(payment.paidAmount || 0);
+    if (totalAmount < paidAmount) {
+      throw new HttpError(409, 'Giá trị voucher vượt quá số tiền còn phải thanh toán');
+    }
+    const remainingAmount = totalAmount - paidAmount;
+
+    await paymentModel.updatePayment(paymentId, {
+      discountAmount,
+      totalAmount,
+      remainingAmount
+    }, connection);
+    await connection.query('UPDATE bookings SET voucherId = ? WHERE id = ?', [
+      voucher.id,
+      booking.id
+    ]);
+    await connection.query('UPDATE vouchers SET quantity = quantity - 1 WHERE id = ?', [
+      voucher.id
+    ]);
+    if (customerVoucher) {
+      await connection.query('UPDATE customer_vouchers SET isUsed = 1 WHERE id = ?', [
+        customerVoucher.id
+      ]);
+    }
+
+    await connection.commit();
+    return {
+      payment: formatPayment(await paymentModel.getPaymentById(paymentId)),
+      voucher: {
+        id: voucher.id,
+        code: voucher.code,
+        discountAmount
+      }
+    };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
 module.exports = {
   createPaymentForBooking,
   createPayment,
@@ -620,6 +735,7 @@ module.exports = {
   listPayments,
   getPaymentById,
   getPaymentByBookingId,
+  applyVoucher,
   processPayment,
   confirmPayment,
   refundPayment
