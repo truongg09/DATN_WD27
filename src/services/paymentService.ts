@@ -46,7 +46,7 @@ export const processPayment = async (
 
 export const createGatewayOrder = async (
   id: number,
-  data: { paymentMethod: Extract<PaymentMethod, "momo" | "vnpay">; amount: number }
+  data: { paymentMethod: Extract<PaymentMethod, "zalopay" | "vnpay">; amount: number }
 ) => {
   return api.post(`/payments/${id}/gateway-order`, data) as Promise<
     ApiResponse<{ orderId: string; paymentUrl: string }>

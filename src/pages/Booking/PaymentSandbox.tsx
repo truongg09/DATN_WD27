@@ -117,10 +117,10 @@ const PaymentSandbox: React.FC = () => {
     return null;
   }
 
-  const isMomo = method.toLowerCase() === 'momo';
-  const themeClass = isMomo ? 'momo-theme' : 'vnpay-theme';
-  const qrData = isMomo
-    ? `momo://pay?txn=${txn}&amount=${amount}`
+  const isZalopay = method.toLowerCase() === 'zalopay';
+  const themeClass = isZalopay ? 'zalopay-theme' : 'vnpay-theme';
+  const qrData = isZalopay
+    ? `zalopay://pay?txn=${txn}&amount=${amount}`
     : `vnpay://payment?txn=${txn}&amount=${amount}`;
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrData)}`;
 
@@ -129,8 +129,8 @@ const PaymentSandbox: React.FC = () => {
       <div className="sandbox-wrapper">
         <div className="sandbox-header">
           <div className="gateway-logo">
-            {isMomo ? (
-              <span className="logo-text momo">momo</span>
+            {isZalopay ? (
+              <span className="logo-text zalopay">ZaloPay</span>
             ) : (
               <span className="logo-text vnpay">VNPAY<span className="qr-tag">QR</span></span>
             )}
@@ -175,7 +175,7 @@ const PaymentSandbox: React.FC = () => {
                   <div className="qr-scanner-line" />
                 </div>
                 <p className="qr-instruction">
-                  <QrcodeOutlined /> Quét mã để thanh toán bằng ứng dụng {isMomo ? 'MoMo' : 'Ngân hàng / Ví VNPAY'}
+                  <QrcodeOutlined /> Quét mã để thanh toán bằng ứng dụng {isZalopay ? 'ZaloPay' : 'Ngân hàng / Ví VNPAY'}
                 </p>
               </div>
 
@@ -213,7 +213,7 @@ const PaymentSandbox: React.FC = () => {
         </div>
 
         <div className="sandbox-footer">
-          <p>© 2026 HotelHub & {isMomo ? 'Ví điện tử MoMo' : 'Cổng thanh toán VNPAY'}. Tất cả quyền được bảo lưu.</p>
+          <p>© 2026 HotelHub & {isZalopay ? 'Ví điện tử ZaloPay' : 'Cổng thanh toán VNPAY'}. Tất cả quyền được bảo lưu.</p>
           <div className="sandbox-back-link">
             <Button type="link" icon={<ArrowLeftOutlined />} onClick={handleCancel}>
               Quay lại trang chọn phương thức

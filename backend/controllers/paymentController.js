@@ -158,51 +158,71 @@ const vnpayIpn = async (req, res) => {
   }
 };
 
-const momoIpn = async (req, res) => {
-  const { verifyMomo } = require('../services/paymentGatewayService');
+const zalopayCallback = async (req, res) => {
+  const { verifyZalopayCallback } = require('../services/paymentGatewayService');
   try {
-    if (!verifyMomo(req.body)) return res.status(400).json({ message: 'Invalid MoMo signature' });
-    if (Number(req.body.resultCode) === 0) {
-      await paymentService.settleGatewayPayment({ orderId: req.body.orderId, paymentMethod: 'momo', amount: Number(req.body.amount) });
+    if (!verifyZalopayCallback(req.body)) {
+      return res.json({ return_code: -1, return_message: 'Invalid ZaloPay MAC' });
     }
-    res.json({ resultCode: 0, message: 'Success' });
+    const callbackData = JSON.parse(req.body.data);
+    await paymentService.settleGatewayPayment({
+      orderId: callbackData.app_trans_id,
+      paymentMethod: 'zalopay',
+      amount: Number(callbackData.amount)
+    });
+    res.json({ return_code: 1, return_message: 'Success' });
   } catch (error) {
-    res.status(500).json({ resultCode: 99, message: error.message });
+    res.json({ return_code: 0, return_message: error.message });
   }
 };
 
-const momoReturn = async (req, res) => {
-  const { verifyMomo, FRONTEND_URL } = require('../services/paymentGatewayService');
-  const orderId = String(req.query.orderId || '');
-  const paymentId = Number(orderId.split('-')[1]);
+const zalopayReturn = async (req, res) => {
+  const { FRONTEND_URL, queryZalopayOrder } = require('../services/paymentGatewayService');
+  const orderId = String(req.query.apptransid || req.query.app_trans_id || '');
+  const paymentId = Number(orderId.split('_')[1]);
+  const gatewayReportedSuccess = String(req.query.status || '') === '1';
   let bookingId = '';
   let success = false;
   let paymentStatus = '';
 
   try {
     if (Number.isInteger(paymentId) && paymentId > 0) {
-      const payment = await paymentService.getPaymentById(paymentId);
+      let payment = await paymentService.getPaymentById(paymentId);
       bookingId = String(payment.bookingId);
-    }
-    if (verifyMomo(req.query) && Number(req.query.resultCode) === 0) {
-      const settledPayment = await paymentService.settleGatewayPayment({
-        orderId,
-        paymentMethod: 'momo',
-        amount: Number(req.query.amount)
-      });
-      const payment = await paymentService.getPaymentByBookingId(settledPayment.bookingId);
-      bookingId = String(payment.bookingId);
+
+      // A localhost callback cannot be reached by ZaloPay's servers. On the
+      // browser return, query the signed server API and settle this exact order
+      // before deciding which notice the customer should see.
+      if (
+        gatewayReportedSuccess
+        && payment.transactionCode === orderId
+        && !payment.paymentDate
+      ) {
+        const queryResult = await queryZalopayOrder(orderId);
+        if (Number(queryResult.return_code) === 1) {
+          await paymentService.settleGatewayPayment({
+            orderId,
+            paymentMethod: 'zalopay',
+            amount: Number(queryResult.amount)
+          });
+          payment = await paymentService.getPaymentById(paymentId);
+        }
+      }
+
       paymentStatus = payment.paymentStatus;
       success =
-        Number(payment.paidAmount) > 0
+        gatewayReportedSuccess
+        && payment.transactionCode === orderId
+        && Boolean(payment.paymentDate)
+        && Number(payment.paidAmount) > 0
         && ['deposit_paid', 'paid'].includes(payment.paymentStatus);
     }
   } catch (error) {
-    console.error('MoMo return error:', error);
+    console.error('ZaloPay return error:', error);
   }
 
   res.redirect(
-    `${FRONTEND_URL}/booking/${bookingId}?gateway=momo&payment=${success ? 'success' : 'failed'}${paymentStatus ? `&status=${encodeURIComponent(paymentStatus)}` : ''}`
+    `${FRONTEND_URL}/booking/${bookingId}?gateway=zalopay&payment=${success ? 'success' : 'failed'}${paymentStatus ? `&status=${encodeURIComponent(paymentStatus)}` : ''}`
   );
 };
 
@@ -241,8 +261,8 @@ module.exports = {
   createGatewayOrder,
   vnpayReturn,
   vnpayIpn,
-  momoReturn,
-  momoIpn,
+  zalopayReturn,
+  zalopayCallback,
   submitTransferConfirmation,
   confirmTransferPayment,
   refundPayment

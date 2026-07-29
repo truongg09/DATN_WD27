@@ -42,8 +42,8 @@
   letter-spacing: -0.5px;
 }
 
-.logo-text.momo {
-  color: #a50064;
+.logo-text.zalopay {
+  color: #0068ff;
   font-family: 'Outfit', sans-serif;
 }
 
@@ -236,24 +236,24 @@
 }
 
 /* Theme variations */
-/* MoMo */
-.sandbox-container.momo-theme {
-  background-color: #fff0f6;
+/* ZaloPay */
+.sandbox-container.zalopay-theme {
+  background-color: #eef6ff;
 }
 
-.sandbox-container.momo-theme .qr-scanner-line {
-  background: #a50064;
-  box-shadow: 0 0 8px #a50064;
+.sandbox-container.zalopay-theme .qr-scanner-line {
+  background: #0068ff;
+  box-shadow: 0 0 8px #0068ff;
 }
 
-.sandbox-container.momo-theme .btn-confirm {
-  background-color: #a50064;
-  border-color: #a50064;
+.sandbox-container.zalopay-theme .btn-confirm {
+  background-color: #0068ff;
+  border-color: #0068ff;
 }
 
-.sandbox-container.momo-theme .btn-confirm:hover {
-  background-color: #d82d8e !important;
-  border-color: #d82d8e !important;
+.sandbox-container.zalopay-theme .btn-confirm:hover {
+  background-color: #0052cc !important;
+  border-color: #0052cc !important;
 }
 
 /* VNPay */

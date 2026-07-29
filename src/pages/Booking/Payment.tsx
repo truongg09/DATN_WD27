@@ -14,7 +14,7 @@ import { createGatewayOrder, getPaymentByBookingId, processPayment, submitTransf
 import { getPaymentSettings, type PaymentSettings } from '../../services/settingsService';
 import { buildVietQrPayload, findBankByBin, toTransferText } from '../../utils/vietqr';
 import type { Payment, PaymentMethod } from '../../types/payment';
-import momoLogo from '../../assets/payment/momo.png';
+import zalopayLogo from '../../assets/payment/zalopay.svg';
 import vnpayLogo from '../../assets/payment/vnpay.svg';
 import vietqrLogo from '../../assets/payment/vietqr.svg';
 import './Payment.css';
@@ -69,12 +69,12 @@ const METHOD_OPTIONS: MethodOption[] = [
     recommended: true,
   },
   {
-    value: 'momo',
-    title: 'Ví MoMo',
-    description: 'Quét mã bằng ứng dụng MoMo',
-    icon: <img src={momoLogo} alt="MoMo" />,
-    badgeClass: 'badge-logo badge-momo-logo',
-    badgeText: 'MoMo',
+    value: 'zalopay',
+    title: 'Ví ZaloPay',
+    description: 'Thanh toán an toàn bằng ZaloPay',
+    icon: <img src={zalopayLogo} alt="ZaloPay" />,
+    badgeClass: 'badge-logo badge-zalopay-logo',
+    badgeText: 'ZaloPay',
   },
   {
     value: 'vnpay',
@@ -204,7 +204,7 @@ const PaymentPage: React.FC = () => {
   }, [paymentSettings?.transferPrefix, bookingId]);
 
   const qrValue = useMemo(() => {
-    // MoMo and VNPay must be initialized by the backend so their signed
+    // ZaloPay and VNPay must be initialized by the backend so their signed
     // gateway URLs never expose secrets or omit mandatory gateway fields.
     if (paymentMethod !== 'bank_transfer' || !paymentSettings) return '';
 
@@ -290,7 +290,7 @@ const PaymentPage: React.FC = () => {
     }
 
     // Các phương thức QR: hiện mã để khách quét, xác nhận xong mới ghi nhận thanh toán
-    if (paymentMethod === 'momo' || paymentMethod === 'vnpay') {
+    if (paymentMethod === 'zalopay' || paymentMethod === 'vnpay') {
       setSubmitting(true);
       try {
         const response = await createGatewayOrder(payment.id, { paymentMethod, amount: paymentAmount });
@@ -607,8 +607,8 @@ const PaymentPage: React.FC = () => {
                   >
                     {paymentMethod === 'vnpay'
                       ? `Xác nhận thanh toán bằng VNPay - ${formatPrice(paymentAmount)}`
-                      : paymentMethod === 'momo'
-                        ? `Xác nhận thanh toán bằng MoMo - ${formatPrice(paymentAmount)}`
+                      : paymentMethod === 'zalopay'
+                        ? `Xác nhận thanh toán bằng ZaloPay - ${formatPrice(paymentAmount)}`
                         : <>{paymentMethod === 'cash' ? 'Xác nhận thanh toán' : 'Hiện mã QR thanh toán'} · {formatPrice(paymentAmount)}</>}
                   </Button>
 
@@ -659,8 +659,8 @@ const PaymentPage: React.FC = () => {
         <div className="qr-pay">
           <div className="qr-pay-left">
             <div className="qr-pay-brand">
-              {paymentMethod === 'momo' ? (
-                <img className="qr-brand-logo" src={momoLogo} alt="MoMo" />
+              {paymentMethod === 'zalopay' ? (
+                <img className="qr-brand-logo" src={zalopayLogo} alt="ZaloPay" />
               ) : paymentMethod === 'vnpay' ? (
                 <img className="qr-brand-logo" src={vnpayLogo} alt="VNPay" />
               ) : (
