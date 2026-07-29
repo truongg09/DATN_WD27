@@ -289,7 +289,7 @@ const processPayment = async (paymentId, payload) => {
       );
     }
     if (
-      ['momo', 'vnpay'].includes(payload.paymentMethod) &&
+      ['zalopay', 'vnpay'].includes(payload.paymentMethod) &&
       payload.sandbox !== true
     ) {
       throw new HttpError(400, 'Giao dịch thử nghiệm phải được thực hiện qua cổng Sandbox');

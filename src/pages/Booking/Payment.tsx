@@ -669,7 +669,7 @@ const PaymentPage: React.FC = () => {
               <div>
                 <strong>
                   {methodTitle(paymentMethod)}
-                  {(paymentMethod === 'momo' || paymentMethod === 'vnpay') && ' Sandbox'}
+                  {(paymentMethod === 'zalopay' || paymentMethod === 'vnpay') && ' Sandbox'}
                 </strong>
                 <span>
                   {paymentMethod === 'bank_transfer'
