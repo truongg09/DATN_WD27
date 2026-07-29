@@ -698,7 +698,7 @@ const BookingHistory: React.FC = () => {
                 message="Hủy đặt phòng này sẽ không được hoàn tiền"
                 description={
                   Number(cancelPreview.refundRate) === 0 && cancelPreview.daysBeforeCheckIn >= 0
-                    ? `Còn ${cancelPreview.daysBeforeCheckIn} ngày trước nhận phòng (dưới 3 ngày) hoặc bạn chưa thanh toán khoản nào.`
+                    ? `Còn ${cancelPreview.daysBeforeCheckIn} ngày trước nhận phòng (trên 7 ngày) hoặc bạn chưa thanh toán khoản nào.`
                     : 'Bạn chưa thanh toán khoản nào cho đặt phòng này.'
                 }
               />

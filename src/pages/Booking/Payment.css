@@ -387,6 +387,51 @@
   color: #16a34a;
 }
 
+.voucher-box {
+  padding: 12px 0 14px;
+}
+
+.voucher-box label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 8px;
+  color: #1f2a44;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.voucher-box label .anticon {
+  color: #b08a62;
+}
+
+.voucher-apply {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.voucher-apply .ant-input {
+  height: 40px;
+  border-radius: 8px;
+}
+
+.voucher-apply .ant-btn {
+  height: 40px;
+  min-width: 92px;
+  border-radius: 8px;
+  background: #a9825a;
+  border-color: #a9825a;
+  box-shadow: none;
+}
+
+.voucher-box small {
+  display: block;
+  margin-top: 7px;
+  color: #16a34a;
+  font-size: 12px;
+}
+
 .summary-row.total {
   border-top: 1px solid #edf0f4;
   margin-top: 6px;
@@ -479,10 +524,6 @@
 
 .badge-vnpay {
   background: linear-gradient(135deg, #00437c, #0072bc);
-}
-
-.badge-cash {
-  background: linear-gradient(135deg, #388e3c, #66bb6a);
 }
 
 /* Badge dùng logo thương hiệu thật */

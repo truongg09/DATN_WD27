@@ -323,7 +323,13 @@ const getRefundPolicy = (checkIn, paidAmount = 0) => {
   today.setHours(0, 0, 0, 0);
   const checkInDate = dateToUtc(dayString(checkIn));
   const daysBeforeCheckIn = Math.ceil((checkInDate - today) / MS_PER_DAY);
-  const rate = daysBeforeCheckIn > 7 ? 1 : daysBeforeCheckIn >= 3 ? 0.5 : 0;
+  const rate = daysBeforeCheckIn < 0
+    ? 0
+    : daysBeforeCheckIn < 3
+      ? 1
+      : daysBeforeCheckIn <= 7
+        ? 0.5
+        : 0;
 
   return {
     daysBeforeCheckIn,

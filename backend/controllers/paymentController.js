@@ -250,6 +250,20 @@ const confirmTransferPayment = async (req, res) => {
   }
 };
 
+const applyVoucher = async (req, res) => {
+  try {
+    const paymentId = normalizeIdParam(req.params.id);
+    const result = await paymentService.applyVoucher(
+      paymentId,
+      req.body?.code,
+      req.user.userId
+    );
+    res.json({ message: 'Áp dụng voucher thành công', data: result });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
 module.exports = {
   createPayment,
   listPayments,
@@ -263,6 +277,7 @@ module.exports = {
   vnpayIpn,
   zalopayReturn,
   zalopayCallback,
+  applyVoucher,
   submitTransferConfirmation,
   confirmTransferPayment,
   refundPayment
