@@ -2,7 +2,8 @@ const crypto = require('crypto');
 const HttpError = require('../utils/httpError');
 
 const VNPAY_URL = process.env.VNPAY_URL || 'https://sandbox.vnpayment.vn/paymentv2/vpcpay.html';
-const MOMO_URL = process.env.MOMO_URL || 'https://test-payment.momo.vn/v2/gateway/api/create';
+const ZALOPAY_URL = process.env.ZALOPAY_URL || 'https://sb-openapi.zalopay.vn/v2/create';
+const ZALOPAY_QUERY_URL = process.env.ZALOPAY_QUERY_URL || 'https://sb-openapi.zalopay.vn/v2/query';
 const API_BASE_URL = (process.env.API_BASE_URL || 'http://localhost:3001').replace(/\/$/, '');
 const FRONTEND_URL = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
 
@@ -57,25 +58,95 @@ const verifyVnpay = (query) => {
     && crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(received));
 };
 
-const createMomoPayment = async ({ orderId, bookingId, amount, orderInfo }) => {
-  requireEnv(['MOMO_PARTNER_CODE', 'MOMO_ACCESS_KEY', 'MOMO_SECRET_KEY'], 'MoMo');
-  const requestId = `${orderId}-${Date.now()}`;
-  const redirectUrl = `${API_BASE_URL}/api/payments/gateway/momo/return`;
-  const ipnUrl = `${API_BASE_URL}/api/payments/gateway/momo/ipn`;
-  const requestType = 'payWithMethod';
-  const raw = `accessKey=${process.env.MOMO_ACCESS_KEY}&amount=${Math.round(amount)}&extraData=&ipnUrl=${ipnUrl}&orderId=${orderId}&orderInfo=${orderInfo}&partnerCode=${process.env.MOMO_PARTNER_CODE}&redirectUrl=${redirectUrl}&requestId=${requestId}&requestType=${requestType}`;
-  const body = { partnerCode: process.env.MOMO_PARTNER_CODE, partnerName: process.env.MOMO_PARTNER_NAME || 'Hotel Booking', storeId: process.env.MOMO_STORE_ID || 'HotelBooking', requestId, amount: String(Math.round(amount)), orderId, orderInfo, redirectUrl, ipnUrl, lang: 'vi', requestType, autoCapture: true, extraData: '', signature: hmac('sha256', process.env.MOMO_SECRET_KEY, raw) };
-  const response = await fetch(MOMO_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+const createZalopayPayment = async ({ orderId, bookingId, amount, orderInfo }) => {
+  requireEnv(['ZALOPAY_APP_ID', 'ZALOPAY_KEY1'], 'ZaloPay');
+  const appId = Number(process.env.ZALOPAY_APP_ID);
+  if (!Number.isInteger(appId) || appId <= 0) {
+    throw new HttpError(503, 'ZALOPAY_APP_ID phải là AppID Sandbox hợp lệ');
+  }
+  // App 554 is the public credential of ZaloPay's legacy v1 documentation and
+  // cannot open an order on the current v2 QC Gateway. Keep local development
+  // usable through the project's simulator. Real Merchant v2 credentials
+  // continue through the official API below.
+  if (appId === 554) {
+    return `${FRONTEND_URL}/booking/${bookingId}/payment/sandbox?method=zalopay&amount=${encodeURIComponent(Math.round(amount))}&txn=${encodeURIComponent(orderId)}`;
+  }
+  const appTime = Date.now();
+  const appUser = process.env.ZALOPAY_APP_USER || 'HotelBooking';
+  const embedData = JSON.stringify({
+    preferred_payment_method: ['zalopay_wallet'],
+    redirecturl: `${API_BASE_URL}/api/payments/gateway/zalopay/return`
+  });
+  const item = '[]';
+  const roundedAmount = Math.round(amount);
+  const macInput = [
+    appId,
+    orderId,
+    appUser,
+    roundedAmount,
+    appTime,
+    embedData,
+    item
+  ].join('|');
+  const body = {
+    app_id: appId,
+    app_user: appUser,
+    app_trans_id: orderId,
+    app_time: appTime,
+    amount: roundedAmount,
+    description: orderInfo,
+    callback_url: `${API_BASE_URL}/api/payments/gateway/zalopay/callback`,
+    item,
+    embed_data: embedData,
+    bank_code: '',
+    mac: hmac('sha256', process.env.ZALOPAY_KEY1, macInput)
+  };
+  const response = await fetch(ZALOPAY_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body)
+  });
   const data = await response.json();
-  if (!response.ok || data.resultCode !== 0 || !data.payUrl) throw new HttpError(502, data.message || 'Không thể tạo thanh toán MoMo Sandbox');
-  return data.payUrl;
+  if (!response.ok || Number(data.return_code) !== 1 || !data.order_url) {
+    throw new HttpError(502, data.return_message || 'Không thể tạo thanh toán ZaloPay Sandbox');
+  }
+  return data.order_url;
 };
 
-const verifyMomo = (payload) => {
-  requireEnv(['MOMO_ACCESS_KEY', 'MOMO_SECRET_KEY'], 'MoMo');
-  const raw = `accessKey=${process.env.MOMO_ACCESS_KEY}&amount=${payload.amount}&extraData=${payload.extraData || ''}&message=${payload.message}&orderId=${payload.orderId}&orderInfo=${payload.orderInfo}&orderType=${payload.orderType}&partnerCode=${payload.partnerCode}&payType=${payload.payType}&requestId=${payload.requestId}&responseTime=${payload.responseTime}&resultCode=${payload.resultCode}&transId=${payload.transId}`;
-  const expected = hmac('sha256', process.env.MOMO_SECRET_KEY, raw);
-  return payload.signature && expected.length === String(payload.signature).length && crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(String(payload.signature)));
+const verifyZalopayCallback = (payload) => {
+  requireEnv(['ZALOPAY_KEY2'], 'ZaloPay');
+  if (!payload?.data || !payload?.mac) return false;
+  const expected = hmac('sha256', process.env.ZALOPAY_KEY2, payload.data);
+  const received = String(payload.mac).trim().toLowerCase();
+  return expected.length === received.length
+    && crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(received));
 };
 
-module.exports = { createVnpayUrl, verifyVnpay, createMomoPayment, verifyMomo, FRONTEND_URL };
+const queryZalopayOrder = async (orderId) => {
+  requireEnv(['ZALOPAY_APP_ID', 'ZALOPAY_KEY1'], 'ZaloPay');
+  const appId = Number(process.env.ZALOPAY_APP_ID);
+  const macInput = `${appId}|${orderId}|${process.env.ZALOPAY_KEY1}`;
+  const response = await fetch(ZALOPAY_QUERY_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({
+      app_id: appId,
+      app_trans_id: orderId,
+      mac: hmac('sha256', process.env.ZALOPAY_KEY1, macInput)
+    })
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new HttpError(502, data.return_message || 'Không thể truy vấn trạng thái ZaloPay');
+  }
+  return data;
+};
+
+module.exports = {
+  createVnpayUrl,
+  verifyVnpay,
+  createZalopayPayment,
+  verifyZalopayCallback,
+  queryZalopayOrder,
+  FRONTEND_URL
+};

@@ -110,8 +110,9 @@ const BookingDetail: React.FC = () => {
     handledPaymentCallbackRef.current = callbackKey;
 
     const gatewayReportedSuccess = paymentResult === 'success';
-    const isGatewayReturn = gatewayReportedSuccess || gateway === 'momo';
+    const isGatewayReturn = gatewayReportedSuccess || gateway === 'zalopay';
     const isSettled = payment?.paymentStatus === 'paid' || payment?.paymentStatus === 'deposit_paid';
+    const isCurrentZalopayPaymentRecorded = gateway !== 'zalopay' || Boolean(payment?.paymentDate);
     const callbackMatchesPayment =
       callbackStatus === 'paid'
         ? payment?.paymentStatus === 'paid'
@@ -121,13 +122,22 @@ const BookingDetail: React.FC = () => {
 
     // Never trust a gateway query parameter alone. The success notice is shown
     // only after the backend has verified the callback and updated the payment.
-    if (isGatewayReturn && isSettled && callbackMatchesPayment) {
+    if (isGatewayReturn && isSettled && callbackMatchesPayment && isCurrentZalopayPaymentRecorded) {
       const isFullyPaid = payment?.paymentStatus === 'paid';
       message.success({
         content: isFullyPaid
           ? 'Thanh toán thành công! Đơn đặt phòng đã được thanh toán đầy đủ.'
           : `Đặt cọc thành công! Hệ thống đã ghi nhận khoản cọc. Số tiền còn lại: ${formatPrice(payment?.remainingAmount ?? 0)}.`,
         duration: 6,
+      });
+      navigate(`/booking/${bookingId}`, { replace: true });
+      return;
+    }
+
+    if (gateway === 'zalopay' && gatewayReportedSuccess && !isCurrentZalopayPaymentRecorded) {
+      message.warning({
+        content: 'Giao dịch ZaloPay chưa được hệ thống xác nhận. Số tiền đã thanh toán trước đó vẫn được giữ nguyên.',
+        duration: 7,
       });
       navigate(`/booking/${bookingId}`, { replace: true });
       return;

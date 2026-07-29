@@ -38,7 +38,7 @@ const buildPaymentAmounts = ({
 
 const generateTransactionCode = (method) => {
   const prefix =
-    method === 'momo' ? 'MOMO'
+    method === 'zalopay' ? 'ZALOPAY'
       : method === 'vnpay' ? 'VNPAY'
         : method === 'bank_transfer' ? 'BANK'
           : 'CASH';
@@ -48,8 +48,8 @@ const generateTransactionCode = (method) => {
 };
 
 const createGatewayOrder = async (paymentId, { paymentMethod, amount, ipAddress }) => {
-  if (!['momo', 'vnpay'].includes(paymentMethod)) {
-    throw new HttpError(400, 'Gateway payment method must be momo or vnpay');
+  if (!['zalopay', 'vnpay'].includes(paymentMethod)) {
+    throw new HttpError(400, 'Gateway payment method must be zalopay or vnpay');
   }
   const payment = await getPaymentById(paymentId);
   if (payment.paymentStatus === 'paid' || payment.paymentStatus === 'refunded') {
@@ -59,7 +59,9 @@ const createGatewayOrder = async (paymentId, { paymentMethod, amount, ipAddress 
   if (payableAmount <= 0 || payableAmount > Number(payment.remainingAmount)) {
     throw new HttpError(400, 'Invalid gateway payment amount');
   }
-  const orderId = `${paymentMethod.toUpperCase()}-${payment.id}-${Date.now()}`;
+  const orderId = paymentMethod === 'zalopay'
+    ? `${new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Ho_Chi_Minh' }).slice(2).replace(/-/g, '')}_${payment.id}_${Date.now()}`
+    : `${paymentMethod.toUpperCase()}-${payment.id}-${Date.now()}`;
   const orderInfo = `Thanh toan booking ${payment.bookingId}`;
   // paymentDate belongs to the previously completed installment. Clear it
   // when opening a new gateway order so its callback is processed exactly once.
@@ -71,7 +73,12 @@ const createGatewayOrder = async (paymentId, { paymentMethod, amount, ipAddress 
   const gateway = require('./paymentGatewayService');
   const paymentUrl = paymentMethod === 'vnpay'
     ? gateway.createVnpayUrl({ orderId, amount: payableAmount, orderInfo, ipAddress })
-    : await gateway.createMomoPayment({ orderId, bookingId: payment.bookingId, amount: payableAmount, orderInfo });
+    : await gateway.createZalopayPayment({
+      orderId,
+      bookingId: payment.bookingId,
+      amount: payableAmount,
+      orderInfo
+    });
   return { orderId, paymentUrl };
 };
 
@@ -278,7 +285,7 @@ const processPayment = async (paymentId, payload) => {
     if (isDepositPayment && payload.paymentMethod === 'cash') {
       throw new HttpError(
         400,
-        'Đặt cọc giữ phòng phải thanh toán từ xa (chuyển khoản QR/MoMo/VNPay). Tiền mặt chỉ áp dụng khi thanh toán tại khách sạn.'
+        'Đặt cọc giữ phòng phải thanh toán từ xa (chuyển khoản QR/ZaloPay/VNPay). Tiền mặt chỉ áp dụng khi thanh toán tại khách sạn.'
       );
     }
     if (
@@ -289,7 +296,7 @@ const processPayment = async (paymentId, payload) => {
     }
 
     const transactionCode = generateTransactionCode(payload.paymentMethod);
-    const isOnline = ['momo', 'vnpay'].includes(payload.paymentMethod);
+    const isOnline = ['zalopay', 'vnpay'].includes(payload.paymentMethod);
 
     if (isOnline) {
       // Compatibility for older frontend bundles that still call /pay:
@@ -381,7 +388,7 @@ const confirmPayment = async (paymentId, payload) => {
       throw new HttpError(404, 'Payment not found');
     }
 
-    // VNPay/MoMo may notify through both the browser return URL and IPN.
+    // VNPay/ZaloPay may notify through both the browser return URL and callback.
     // Match the callback to the currently-open order while holding the row
     // lock, then make duplicate callbacks idempotent.
     if (payload.gatewayOrderId) {
@@ -543,7 +550,7 @@ const settleGatewayPayment = async ({ orderId, paymentMethod, amount }) => {
   }
 
   // A verified gateway callback settles the existing order directly. Calling
-  // processPayment here would create another VNPay/MoMo order instead of
+  // processPayment here would create another VNPay/ZaloPay order instead of
   // recording the money that has already been received.
   const result = await confirmPayment(payment.id, {
     amount: paid,
