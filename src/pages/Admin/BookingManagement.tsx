@@ -253,7 +253,7 @@ function BookingManagement() {
   const handleCancel = async (id: number) => {
     Modal.confirm({
       title: 'Xác nhận hủy đặt phòng',
-      content: 'Chính sách hoàn cọc: trên 7 ngày hoàn 100%, từ 3-7 ngày hoàn 50%, dưới 3 ngày không hoàn.',
+      content: 'Chính sách hoàn cọc: dưới 3 ngày hoàn 100%, từ 3-7 ngày hoàn 50%, trên 7 ngày không hoàn.',
       okText: 'Hủy đặt phòng',
       cancelText: 'Đóng',
       okButtonProps: { danger: true },

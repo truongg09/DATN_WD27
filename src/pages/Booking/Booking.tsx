@@ -1132,7 +1132,7 @@ const Booking: React.FC = () => {
                   <div className="booking-policies">
                     <h4>Chính sách</h4>
                     <ul>
-                      <li><FontAwesomeIcon icon={faCheck} /> Hoàn 100% khi hủy trước 7 ngày, 50% trước 3–7 ngày</li>
+                      <li><FontAwesomeIcon icon={faCheck} /> Hoàn 100% khi hủy dưới 3 ngày, 50% khi hủy trước 3–7 ngày</li>
                       <li><FontAwesomeIcon icon={faCheck} /> Nhận phòng từ 14:00</li>
                       <li><FontAwesomeIcon icon={faCheck} /> Trả phòng trước 12:00</li>
                     </ul>

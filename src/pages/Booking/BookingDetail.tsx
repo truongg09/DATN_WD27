@@ -288,7 +288,7 @@ const BookingDetail: React.FC = () => {
               <Descriptions.Item label="Voucher" span={2}>
                 <Tag color="purple">{String(voucher.code)}</Tag>{' '}
                 {String(voucher.discountType) === 'percentage'
-                  ? `Giảm ${String(voucher.discountValue)}%`
+                  ? `Giảm ${Number(voucher.discountValue).toLocaleString('vi-VN', { maximumFractionDigits: 2 })}%`
                   : `Giảm ${formatPrice(Number(voucher.discountValue || 0))}`}
               </Descriptions.Item>
             ) : null}
@@ -420,7 +420,7 @@ const BookingDetail: React.FC = () => {
               <span>Hoàn tiền</span>
             </div>
             <div className="policy-row">
-              <span>{'> 7 ngày'}</span>
+              <span>{'< 3 ngày'}</span>
               <span>100%</span>
             </div>
             <div className="policy-row">
@@ -428,7 +428,7 @@ const BookingDetail: React.FC = () => {
               <span>50%</span>
             </div>
             <div className="policy-row">
-              <span>{'< 3 ngày'}</span>
+              <span>{'> 7 ngày'}</span>
               <span>0%</span>
             </div>
           </div>

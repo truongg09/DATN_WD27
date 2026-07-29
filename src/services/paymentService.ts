@@ -31,6 +31,15 @@ export const getPaymentByBookingId = async (bookingId: number) => {
   return api.get(`/payments/booking/${bookingId}`) as Promise<ApiResponse<Payment>>;
 };
 
+export const applyVoucher = async (id: number, code: string) => {
+  return api.post(`/payments/${id}/apply-voucher`, { code }) as Promise<
+    ApiResponse<{
+      payment: Payment;
+      voucher: { id: number; code: string; discountAmount: number };
+    }>
+  >;
+};
+
 export const processPayment = async (
   id: number,
   data: { paymentMethod: PaymentMethod; amount?: number; sandbox?: boolean }
