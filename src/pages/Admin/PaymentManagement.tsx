@@ -64,7 +64,7 @@ const verificationStatusMap: Record<string, { label: string; color: string }> = 
 
 const methodLabels: Record<string, string> = {
   cash: 'Tiền mặt',
-  momo: 'MoMo',
+  zalopay: 'ZaloPay',
   vnpay: 'VNPay',
   bank_transfer: 'Chuyển khoản QR',
 };
