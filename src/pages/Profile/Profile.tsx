@@ -581,7 +581,7 @@ function Profile() {
                               <Tag color="gold" style={{ fontSize: "14px", padding: "4px 8px", fontWeight: "bold" }}>{voucher.code}</Tag>
                               <div style={{ marginTop: "12px", fontWeight: 600, fontSize: "16px" }}>
                                 {voucher.discountType === "percentage" 
-                                  ? `Giảm ${voucher.discountValue}% giá phòng` 
+                                  ? `Giảm ${Number(voucher.discountValue).toLocaleString("vi-VN", { maximumFractionDigits: 2 })}% giá phòng` 
                                   : `Giảm trực tiếp ${new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND" }).format(voucher.discountValue)}`
                                 }
                               </div>

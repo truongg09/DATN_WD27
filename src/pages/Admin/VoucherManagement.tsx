@@ -4,6 +4,9 @@ import { PlusOutlined, ReloadOutlined, EditOutlined, DeleteOutlined, CalendarOut
 import dayjs, { Dayjs } from 'dayjs';
 import { getVouchers, createVoucher, updateVoucher, deleteVoucher } from '../../services/voucherService';
 
+const formatPercentage = (value: string | number) =>
+  `${Number(value).toLocaleString('vi-VN', { maximumFractionDigits: 2 })}%`;
+
 type AdminVoucher = {
   id: number;
   code: string;
@@ -146,7 +149,7 @@ function VoucherManagement() {
       dataIndex: 'discountValue',
       key: 'discountValue',
       render: (_: object, record: AdminVoucher) => 
-        record.discountType === 'percentage' ? `${record.discountValue}%` : `${record.discountValue}đ`,
+        record.discountType === 'percentage' ? formatPercentage(record.discountValue) : `${record.discountValue}đ`,
     },
     {
       title: 'Số lượng',
@@ -439,7 +442,7 @@ function VoucherManagement() {
               {selectedVoucher.discountType === 'percentage' ? 'Phần trăm (%)' : 'Cố định (đ)'}
             </Descriptions.Item>
             <Descriptions.Item label="Giá trị giảm">
-              {selectedVoucher.discountType === 'percentage' ? `${selectedVoucher.discountValue}%` : `${selectedVoucher.discountValue}đ`}
+              {selectedVoucher.discountType === 'percentage' ? formatPercentage(selectedVoucher.discountValue) : `${selectedVoucher.discountValue}đ`}
             </Descriptions.Item>
             <Descriptions.Item label="Giảm tối đa">
               {selectedVoucher.maxDiscount ? `${selectedVoucher.maxDiscount.toLocaleString('vi-VN')}đ` : 'Không giới hạn'}
