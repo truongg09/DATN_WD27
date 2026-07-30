@@ -2,6 +2,8 @@ const express = require('express');
 const db = require('../config/db');
 const roomTypeService = require('../services/roomTypeService');
 
+const { requireAuth, requireStaff } = require('../middleware/auth');
+
 const router = express.Router();
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -144,7 +146,7 @@ router.get('/types/:id', async (req, res) => {
 });
 
 // Create new room type
-router.post('/types', async (req, res) => {
+router.post('/types', requireAuth, requireStaff, async (req, res) => {
   try {
     const { typeName, capacity, defaultPrice, description, status, amenityIds } = req.body;
     const [result] = await db.query(
@@ -166,7 +168,7 @@ router.post('/types', async (req, res) => {
 });
 
 // Update room type
-router.put('/types/:id', async (req, res) => {
+router.put('/types/:id', requireAuth, requireStaff, async (req, res) => {
   try {
     const { id } = req.params;
     const { typeName, capacity, defaultPrice, description, status, amenityIds } = req.body;
@@ -190,7 +192,7 @@ router.put('/types/:id', async (req, res) => {
 });
 
 // Delete room type
-router.delete('/types/:id', async (req, res) => {
+router.delete('/types/:id', requireAuth, requireStaff, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -281,7 +283,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // Create rooms in bulk
-router.post('/bulk', async (req, res) => {
+router.post('/bulk', requireAuth, requireStaff, async (req, res) => {
   try {
     const { rooms } = req.body;
     
@@ -320,7 +322,7 @@ router.post('/bulk', async (req, res) => {
 });
 
 // Create new room
-router.post('/', async (req, res) => {
+router.post('/', requireAuth, requireStaff, async (req, res) => {
   try {
     const { roomNumber, roomTypeId, floor, area, status, maintenanceNote, maintenanceExpectedCompletion } = req.body;
     
@@ -342,7 +344,7 @@ router.post('/', async (req, res) => {
 });
 
 // Update room
-router.put('/:id', async (req, res) => {
+router.put('/:id', requireAuth, requireStaff, async (req, res) => {
   try {
     const { id } = req.params;
     const { roomNumber, roomTypeId, floor, area, status, maintenanceNote, maintenanceExpectedCompletion } = req.body;
@@ -365,7 +367,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // Delete room
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireAuth, requireStaff, async (req, res) => {
   try {
     const { id } = req.params;
 

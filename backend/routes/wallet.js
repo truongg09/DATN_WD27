@@ -1,11 +1,11 @@
 const express = require('express');
 const db = require('../config/db');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, isStaff } = require('../middleware/auth');
 
 const router = express.Router();
 
 const requireStaff = (req, res, next) => {
-  if (!['admin', 'staff'].includes(req.user?.role)) {
+  if (!isStaff(req.user)) {
     return res.status(403).json({ message: 'Chỉ quản trị viên được thao tác' });
   }
   return next();
@@ -43,6 +43,42 @@ const getBalance = async (customerId, connection = db) => {
   };
 };
 
+// Mức độ ảnh hưởng của một giao dịch lên số dư khả dụng.
+// Phải khớp đúng công thức trong getBalance: chỉ tiền hoàn đã duyệt mới cộng
+// vào ví, còn lệnh rút thì trừ ngay từ lúc chờ duyệt (để khách không rút quá
+// tay), lệnh bị từ chối thì không ảnh hưởng gì.
+const balanceDelta = (transaction) => {
+  const amount = Number(transaction.amount) || 0;
+  if (transaction.type === 'refund_credit') {
+    return transaction.status === 'approved' ? amount : 0;
+  }
+  if (transaction.type === 'withdrawal') {
+    return ['pending', 'approved'].includes(transaction.status) ? -amount : 0;
+  }
+  return 0;
+};
+
+// Dựng lại số dư trước và sau từng giao dịch bằng cách cộng dồn theo thứ tự
+// thời gian, để khách nhìn được ví đã tăng giảm ra sao qua mỗi lần rút.
+const withRunningBalance = (transactionsNewestFirst) => {
+  const oldestFirst = [...transactionsNewestFirst].reverse();
+  let running = 0;
+
+  const enriched = oldestFirst.map((transaction) => {
+    const delta = balanceDelta(transaction);
+    const balanceBefore = running;
+    running += delta;
+    return {
+      ...transaction,
+      balanceBefore,
+      balanceAfter: running,
+      balanceDelta: delta
+    };
+  });
+
+  return enriched.reverse();
+};
+
 // Ví của khách đang đăng nhập: số dư + lịch sử giao dịch
 router.get('/me', requireAuth, async (req, res) => {
   try {
@@ -53,11 +89,13 @@ router.get('/me', requireAuth, async (req, res) => {
 
     const balance = await getBalance(customerId);
     const [transactions] = await db.query(
-      `SELECT * FROM wallet_transactions WHERE customerId = ? ORDER BY createdAt DESC`,
+      `SELECT * FROM wallet_transactions
+       WHERE customerId = ?
+       ORDER BY createdAt DESC, id DESC`,
       [customerId]
     );
 
-    res.json({ data: { balance, transactions } });
+    res.json({ data: { balance, transactions: withRunningBalance(transactions) } });
   } catch (error) {
     console.error('Get wallet error:', error);
     res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });

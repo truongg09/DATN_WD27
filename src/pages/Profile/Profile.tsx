@@ -703,6 +703,36 @@ function Profile() {
                       )
                     },
                     {
+                      title: "Số dư trước",
+                      key: "balanceBefore",
+                      align: "right" as const,
+                      render: (_: unknown, record: WalletTransaction) => (
+                        <span style={{ color: "#666" }}>
+                          {new Intl.NumberFormat("vi-VN").format(Number(record.balanceBefore ?? 0))}₫
+                        </span>
+                      )
+                    },
+                    {
+                      title: "Số dư sau",
+                      key: "balanceAfter",
+                      align: "right" as const,
+                      render: (_: unknown, record: WalletTransaction) => {
+                        // Lệnh rút bị từ chối không làm đổi số dư, ghi rõ để khách
+                        // không tưởng tiền đã bị trừ.
+                        const unchanged = Number(record.balanceDelta ?? 0) === 0;
+                        return (
+                          <div>
+                            <strong>
+                              {new Intl.NumberFormat("vi-VN").format(Number(record.balanceAfter ?? 0))}₫
+                            </strong>
+                            {unchanged && (
+                              <div style={{ fontSize: 11, color: "#999" }}>không đổi</div>
+                            )}
+                          </div>
+                        );
+                      }
+                    },
+                    {
                       title: "Ngày",
                       dataIndex: "createdAt",
                       key: "createdAt",

@@ -90,16 +90,13 @@ function RoomManagement() {
     setBookingDetailVisible(true);
   };
 
-  const handleCalendarCheckIn = async (bookingId: number, customerName: string, customerPhone: string) => {
+  const handleCalendarCheckIn = async (bookingId: number, _customerName: string, _customerPhone: string) => {
     try {
-      await api.patch(`/bookings/${bookingId}/check-in`, {
-        guests: [{
-          fullName: customerName || 'Khách đặt phòng',
-          identityNumber: '000000000000',
-          phone: customerPhone || ''
-        }]
-      });
-      message.success('Check-in thành công');
+      // Check-in không kèm danh sách khách. Trước đây màn hình này gửi CCCD giả
+      // '000000000000' và ghi đè toàn bộ khách đã khai báo trước đó — hồ sơ lưu
+      // trú là dữ liệu pháp lý nên phải nhập CCCD thật ở trang Quản lý đặt phòng.
+      await api.patch(`/bookings/${bookingId}/check-in`);
+      message.success('Check-in thành công. Vui lòng khai báo CCCD khách lưu trú ở trang Quản lý đặt phòng.');
       fetchRooms();
       setBookingDetailVisible(false);
     } catch (error: any) {
@@ -451,7 +448,7 @@ function RoomManagement() {
     const hasActiveBookings = Array.isArray(bookings) && bookings.some(b => {
       if (!b) return false;
       const status = b.status || b.bookingStatus;
-      if (!status || status === 'cancelled' || status === 'checked_out') return false;
+      if (!status || ['cancelled', 'checked_out', 'no_show'].includes(status)) return false;
       const bRoomId = b.room_id || b.roomId;
       return bRoomId !== undefined && bRoomId !== null && Number(bRoomId) === id;
     });
@@ -848,7 +845,9 @@ function RoomManagement() {
                               
                                // Check for booking
                                const booking = bookings.find(b => {
-                                 if (b.status === 'cancelled') return false;
+                                 // Khách không đến (no-show) thì phòng thực tế đang trống,
+                                 // không được vẽ là "đã đặt" chặn lễ tân bán lại phòng.
+                                 if (b.status === 'cancelled' || b.status === 'no_show') return false;
                                  const bRoomId = b.room_id || b.roomId;
                                  if (Number(bRoomId) !== room.id) return false;
                                  

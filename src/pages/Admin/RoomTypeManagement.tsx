@@ -88,7 +88,10 @@ function RoomTypeManagement() {
         capacity: record.capacity,
         defaultPrice: typeof record.defaultPrice === 'number' ? record.defaultPrice : parseFloat(record.defaultPrice) || 0,
         description: record.description,
-        status: newStatus
+        status: newStatus,
+        // Backend xóa sạch tiện nghi rồi ghi lại theo amenityIds. Không gửi kèm
+        // danh sách hiện tại thì chỉ đổi trạng thái cũng làm mất hết tiện nghi.
+        amenityIds: record.amenityIds ? record.amenityIds.split(',').map(Number) : []
       };
       await api.put(`/rooms/types/${id}`, updatedValues);
       message.success(`Đã đổi trạng thái hạng phòng ${record.typeName} thành công`);

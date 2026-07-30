@@ -1,10 +1,12 @@
 const express = require('express');
 const bcrypt = require('bcrypt');
 const db = require('../config/db');
+const { requireAuth, requireStaff, requireAdmin } = require('../middleware/auth');
+
 const router = express.Router();
 
 // Get all employees
-router.get('/', async (req, res) => {
+router.get('/', requireAuth, requireStaff, async (req, res) => {
   try {
     const [employees] = await db.query(`
       SELECT 
@@ -23,7 +25,7 @@ router.get('/', async (req, res) => {
 });
 
 // Get employee by id
-router.get('/:id', async (req, res) => {
+router.get('/:id', requireAuth, requireStaff, async (req, res) => {
   try {
     const { id } = req.params;
     const [employees] = await db.query(`
@@ -49,7 +51,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // Create employee
-router.post('/', async (req, res) => {
+router.post('/', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { fullName, email, phone, password, position, salary, hireDate } = req.body;
     
@@ -63,37 +65,63 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ message: 'Email đã tồn tại' });
     }
     
+    if (!email || !password || !String(fullName || '').trim()) {
+      return res.status(400).json({ message: 'Vui lòng nhập họ tên, email và mật khẩu' });
+    }
+    if (String(password).length < 6) {
+      return res.status(400).json({ message: 'Mật khẩu phải có ít nhất 6 ký tự' });
+    }
+
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
-    
-    // First create the account
-    const [accountResult] = await db.query(`
-      INSERT INTO accounts (email, phone, password, role, status) 
-      VALUES ( ?, ?, ?, 'employee', 'active')
-    `, [email, phone, hashedPassword]);
-    
-    // Then create the employee record linked to the account
-    await db.query(`
-      INSERT INTO employees (accountId, fullName, phone, position, salary, hireDate) 
-      VALUES (?, ?, ?, ?, ?, ?)
-    `, [accountResult.insertId, fullName, phone, position, salary, hireDate]);
-    
-    // Get the created employee with all details
-    const [createdEmployee] = await db.query(`
-      SELECT 
-        e.*,
-        a.email,
-        a.status,
-        a.created_at
-      FROM employees e
-      JOIN accounts a ON e.accountId = a.id
-      WHERE e.id = LAST_INSERT_ID()
-    `);
-    
-    res.status(201).json({
-      message: 'Thêm nhân viên thành công',
-      data: createdEmployee[0]
-    });
+
+    // Tạo tài khoản và hồ sơ nhân viên trong cùng một transaction. Trước đây hai
+    // lệnh INSERT chạy rời nhau nên khi lệnh thứ hai lỗi (thiếu trường), tài
+    // khoản 'employee' đã tạo vẫn còn lại và đăng nhập được dù không có hồ sơ.
+    const connection = await db.getConnection();
+    try {
+      await connection.beginTransaction();
+
+      const [accountResult] = await connection.query(`
+        INSERT INTO accounts (email, phone, password, role, status)
+        VALUES ( ?, ?, ?, 'employee', 'active')
+      `, [email, phone || null, hashedPassword]);
+
+      const [employeeResult] = await connection.query(`
+        INSERT INTO employees (accountId, fullName, phone, position, salary, hireDate)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `, [
+        accountResult.insertId,
+        fullName || null,
+        phone || null,
+        position || null,
+        salary ?? null,
+        hireDate || null
+      ]);
+
+      const [createdEmployee] = await connection.query(`
+        SELECT
+          e.*,
+          a.email,
+          a.status,
+          a.created_at
+        FROM employees e
+        JOIN accounts a ON e.accountId = a.id
+        WHERE e.id = ?
+      `, [employeeResult.insertId]);
+
+      await connection.commit();
+
+      res.status(201).json({
+        message: 'Thêm nhân viên thành công',
+        data: createdEmployee[0]
+      });
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
   } catch (error) {
     console.error('Create employee error:', error);
     res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
@@ -101,7 +129,7 @@ router.post('/', async (req, res) => {
 });
 
 // Update employee
-router.put('/:id', async (req, res) => {
+router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const { fullName, email, phone, password, status, position, salary, hireDate } = req.body;
@@ -189,7 +217,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // Delete employee
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
   console.log('=== DELETE /employees/:id hit!');
   console.log('req.params:', req.params);
   try {
