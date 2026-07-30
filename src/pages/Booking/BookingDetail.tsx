@@ -1,12 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Card, Descriptions, Tag, Button, Spin, message, Divider, Rate, Input } from 'antd';
+import { Card, Descriptions, Tag, Button, Spin, message, Divider, Rate, Input, Space } from 'antd';
 import { FileTextOutlined, CreditCardOutlined, StarOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { getBookingDetail } from '../../services/bookingService';
 import { getPaymentByBookingId } from '../../services/paymentService';
 import { getInvoiceByBookingId } from '../../services/invoiceService';
-import { createReview, getReviews } from '../../services/reviewService';
+import { createReview, getReviews, updateReview } from '../../services/reviewService';
 import type { Payment } from '../../types/payment';
 import type { Invoice } from '../../types/invoice';
 import './BookingDetail.css';
@@ -44,11 +44,19 @@ const BookingDetail: React.FC = () => {
   const [booking, setBooking] = useState<Record<string, unknown> | null>(null);
   const [payment, setPayment] = useState<Payment | null>(null);
   const [invoice, setInvoice] = useState<Invoice | null>(null);
-  const [existingReview, setExistingReview] = useState<{ rating: number; comment?: string } | null>(null);
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState('');
   const [submittingReview, setSubmittingReview] = useState(false);
   const handledPaymentCallbackRef = useRef('');
+  const [isEditingReview, setIsEditingReview] = useState(false);
+  const [existingReview, setExistingReview] = useState<{
+    id: number;
+    rating: number;
+    comment?: string;
+    status?: string;
+    adminReply?: string | null;
+    hideReason?: string | null;
+  } | null>(null);
 
   useEffect(() => {
     if (!isValidBookingId) {
@@ -86,10 +94,32 @@ const BookingDetail: React.FC = () => {
       }
 
       try {
-        const reviewsRes = await getReviews();
-        const rows = ((reviewsRes as { data?: { bookingId: number; rating: number; comment?: string }[] }).data) || [];
+        const reviewsRes = await getReviews({ bookingIds: String(bookingId) });
+        const rows =
+          ((reviewsRes as {
+            data?: {
+              id: number;
+              bookingId: number;
+              rating: number;
+              comment?: string;
+              status?: string;
+              adminReply?: string | null;
+              hideReason?: string | null;
+            }[];
+          }).data) || [];
         const mine = rows.find((row) => Number(row.bookingId) === bookingId);
-        setExistingReview(mine ? { rating: mine.rating, comment: mine.comment } : null);
+        setExistingReview(
+          mine
+            ? {
+                id: mine.id,
+                rating: mine.rating,
+                comment: mine.comment,
+                status: mine.status,
+                adminReply: mine.adminReply,
+                hideReason: mine.hideReason,
+              }
+            : null,
+        );
       } catch {
         // Không chặn trang nếu tải đánh giá thất bại
       }
@@ -161,19 +191,42 @@ const BookingDetail: React.FC = () => {
     }
   }, [bookingId, navigate, payment?.paymentStatus, searchParams]);
 
+  const startEditReview = () => {
+    if (!existingReview) return;
+    setReviewRating(existingReview.rating);
+    setReviewComment(existingReview.comment || '');
+    setIsEditingReview(true);
+  };
+
   const handleSubmitReview = async () => {
     setSubmittingReview(true);
     try {
-      await createReview({
-        bookingId,
-        rating: reviewRating,
-        comment: reviewComment.trim(),
-      });
-      message.success('Cảm ơn bạn đã đánh giá!');
-      setExistingReview({ rating: reviewRating, comment: reviewComment.trim() });
+      if (isEditingReview && existingReview) {
+        await updateReview(existingReview.id, {
+          rating: reviewRating,
+          comment: reviewComment.trim(),
+        });
+        message.success('Đã cập nhật đánh giá!');
+        setExistingReview({ ...existingReview, rating: reviewRating, comment: reviewComment.trim() });
+        setIsEditingReview(false);
+      } else {
+        const res = await createReview({
+          bookingId,
+          rating: reviewRating,
+          comment: reviewComment.trim(),
+        });
+        message.success('Cảm ơn bạn đã đánh giá!');
+        const newId = (res as { data?: { data?: { id?: number } } })?.data?.data?.id ?? 0;
+        setExistingReview({
+          id: newId,
+          rating: reviewRating,
+          comment: reviewComment.trim(),
+          status: 'approved',
+        });
+      }
     } catch (error: unknown) {
       const err = error as { response?: { data?: { message?: string } } };
-      message.error(err.response?.data?.message || 'Không thể gửi đánh giá');
+      message.error(err.response?.data?.message || 'Không thể lưu đánh giá');
     } finally {
       setSubmittingReview(false);
     }
@@ -488,13 +541,30 @@ const BookingDetail: React.FC = () => {
               </>
             }
           >
-            {existingReview ? (
+            {existingReview && !isEditingReview ? (
               <div>
                 <Rate disabled value={existingReview.rating} />
                 {existingReview.comment && (
-                  <p style={{ marginTop: 10, color: '#4b5563' }}>“{existingReview.comment}”</p>
+                  <p style={{ marginTop: 10, color: '#4b5563' }}>"{existingReview.comment}"</p>
                 )}
                 <Tag color="green" style={{ marginTop: 8 }}>Bạn đã đánh giá chuyến đi này</Tag>
+
+                {existingReview.status === 'hidden' && (
+                  <Tag color="red" style={{ marginTop: 8, marginLeft: 8 }}>
+                    Đánh giá đang bị ẩn{existingReview.hideReason ? `: ${existingReview.hideReason}` : ''}
+                  </Tag>
+                )}
+
+                {existingReview.adminReply && (
+                  <div style={{ marginTop: 12, padding: 12, background: '#f5f5f5', borderRadius: 8 }}>
+                    <strong>Phản hồi của khách sạn:</strong>
+                    <p style={{ margin: '4px 0 0' }}>{existingReview.adminReply}</p>
+                  </div>
+                )}
+
+                <div style={{ marginTop: 12 }}>
+                  <Button onClick={startEditReview}>Sửa đánh giá</Button>
+                </div>
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 520 }}>
@@ -503,6 +573,15 @@ const BookingDetail: React.FC = () => {
                   {String(booking.room_type_name)} trong kỳ nghỉ từ {formatDate(String(booking.check_in))} đến{' '}
                   {formatDate(String(booking.check_out))}.
                 </p>
+
+                {/* Thêm mới: cảnh báo khi đang sửa 1 review đang bị ẩn */}
+                {isEditingReview && existingReview?.status === 'hidden' && (
+                  <Tag color="red" style={{ width: 'fit-content' }}>
+                    Đánh giá đang bị ẩn{existingReview.hideReason ? `: ${existingReview.hideReason}` : ''}.
+                    Vui lòng chỉnh sửa nội dung trước khi gửi lại.
+                  </Tag>
+                )}
+
                 <Rate value={reviewRating} onChange={setReviewRating} />
                 <Input.TextArea
                   rows={3}
@@ -512,14 +591,22 @@ const BookingDetail: React.FC = () => {
                   value={reviewComment}
                   onChange={(e) => setReviewComment(e.target.value)}
                 />
-                <Button
-                  type="primary"
-                  loading={submittingReview}
-                  style={{ alignSelf: 'flex-start' }}
-                  onClick={handleSubmitReview}
-                >
-                  Gửi đánh giá
-                </Button>
+                <Space>
+                  <Button
+                    type="primary"
+                    loading={submittingReview}
+                    disabled={
+                      isEditingReview &&
+                      existingReview?.status === 'hidden' &&
+                      reviewRating === existingReview.rating &&
+                      reviewComment.trim().toLowerCase() === (existingReview.comment || '').trim().toLowerCase()
+                    }
+                    onClick={handleSubmitReview}
+                  >
+                    {isEditingReview ? 'Cập nhật đánh giá' : 'Gửi đánh giá'}
+                  </Button>
+                  {isEditingReview && <Button onClick={() => setIsEditingReview(false)}>Hủy</Button>}
+                </Space>
               </div>
             )}
           </Card>

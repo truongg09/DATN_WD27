@@ -46,6 +46,7 @@ interface Review {
   images?: string[];
   adminReply?: string | null;
   repliedAt?: string | null;
+  hideReason?: string | null;
   createdAt: string;
   customerName: string;
   bookingStatus: string;
@@ -72,6 +73,13 @@ function ReviewManagement() {
   const [activeReview, setActiveReview] = useState<Review | null>(null);
   const [replyForm] = Form.useForm();
   const [submittingReply, setSubmittingReply] = useState(false);
+
+  // Modal hỏi lý do khi ẩn 1 đánh giá — lý do này sẽ được lưu lại và
+  // dùng để tạo thông báo gửi cho khách hàng ở phía backend.
+  const [hideModalOpen, setHideModalOpen] = useState(false);
+  const [hideTarget, setHideTarget] = useState<Review | null>(null);
+  const [hideForm] = Form.useForm();
+  const [submittingHide, setSubmittingHide] = useState(false);
 
   const fetchReviews = useCallback(async () => {
     setLoading(true);
@@ -120,19 +128,67 @@ function ReviewManagement() {
     }
   };
 
-  const handleToggleStatus = async (record: Review) => {
-    const nextStatus: ReviewStatus = record.status === 'hidden' ? 'approved' : 'hidden';
+  // Bỏ ẩn (approved) thì không cần lý do -> gọi thẳng API.
+  // Ẩn (hidden) thì mở modal hỏi lý do trước khi gọi API.
+  const handleToggleStatus = (record: Review) => {
+    if (record.status === 'hidden') {
+      restoreReview(record);
+    } else {
+      openHideModal(record);
+    }
+  };
+
+  const restoreReview = async (record: Review) => {
     try {
-      await api.patch(`/reviews/${record.id}/status`, { status: nextStatus });
-      message.success(
-        nextStatus === 'hidden' ? 'Đã ẩn đánh giá' : 'Đã hiển thị lại đánh giá',
-      );
+      await api.patch(`/reviews/${record.id}/status`, { status: 'approved' });
+      message.success('Đã hiển thị lại đánh giá và thông báo cho khách hàng');
       setReviews((prev) =>
-        prev.map((r) => (r.id === record.id ? { ...r, status: nextStatus } : r)),
+        prev.map((r) =>
+          r.id === record.id ? { ...r, status: 'approved', hideReason: null } : r,
+        ),
       );
     } catch (error) {
       console.error('Error updating status:', error);
       message.error('Lỗi khi cập nhật trạng thái');
+    }
+  };
+
+  const openHideModal = (record: Review) => {
+    setHideTarget(record);
+    hideForm.resetFields();
+    setHideModalOpen(true);
+  };
+
+  const closeHideModal = () => {
+    setHideModalOpen(false);
+    setHideTarget(null);
+    hideForm.resetFields();
+  };
+
+  const handleConfirmHide = async () => {
+    if (!hideTarget) return;
+    try {
+      const values = await hideForm.validateFields();
+      setSubmittingHide(true);
+      await api.patch(`/reviews/${hideTarget.id}/status`, {
+        status: 'hidden',
+        reason: values.reason?.trim() || undefined,
+      });
+      message.success('Đã ẩn đánh giá và thông báo cho khách hàng');
+      setReviews((prev) =>
+        prev.map((r) =>
+          r.id === hideTarget.id
+            ? { ...r, status: 'hidden', hideReason: values.reason?.trim() || null }
+            : r,
+        ),
+      );
+      closeHideModal();
+    } catch (error: any) {
+      if (error?.errorFields) return; // lỗi validate form, không cần toast
+      console.error('Error hiding review:', error);
+      message.error('Lỗi khi ẩn đánh giá');
+    } finally {
+      setSubmittingHide(false);
     }
   };
 
@@ -154,7 +210,7 @@ function ReviewManagement() {
       const values = await replyForm.validateFields();
       setSubmittingReply(true);
       await api.post(`/reviews/${activeReview.id}/reply`, { reply: values.reply });
-      message.success('Gửi phản hồi thành công');
+      message.success('Gửi phản hồi thành công, đã thông báo cho khách hàng');
       setReviews((prev) =>
         prev.map((r) =>
           r.id === activeReview.id
@@ -275,6 +331,15 @@ function ReviewManagement() {
                 Phản hồi của khách sạn:
               </Text>
               <div>{record.adminReply}</div>
+            </div>
+          )}
+
+          {record.status === 'hidden' && record.hideReason && (
+            <div className="review-hide-reason">
+              <Text type="danger" className="review-hide-reason-label">
+                Lý do ẩn:
+              </Text>{' '}
+              <Text type="secondary">{record.hideReason}</Text>
             </div>
           )}
         </div>
@@ -457,6 +522,7 @@ function ReviewManagement() {
         </div>
       </section>
 
+      {/* Modal phản hồi công khai */}
       <Modal
         title={`Phản hồi đánh giá của ${activeReview?.customerName ?? ''}`}
         open={replyModalOpen}
@@ -507,6 +573,42 @@ function ReviewManagement() {
             ]}
           >
             <TextArea rows={4} placeholder="Cảm ơn quý khách đã đánh giá..." />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* Modal hỏi lý do khi ẩn đánh giá — lý do này được gửi kèm lên backend
+          để lưu vào hideReason và tạo thông báo cho khách hàng. */}
+      <Modal
+        title={`Ẩn đánh giá của ${hideTarget?.customerName ?? ''}`}
+        open={hideModalOpen}
+        onCancel={closeHideModal}
+        onOk={handleConfirmHide}
+        confirmLoading={submittingHide}
+        okText="Ẩn đánh giá"
+        okButtonProps={{ danger: true }}
+        cancelText="Hủy"
+        destroyOnHidden
+      >
+        {hideTarget && (
+          <div className="reply-modal-review-preview">
+            <Rate disabled defaultValue={hideTarget.rating} style={{ fontSize: 14 }} />
+            <Paragraph type="secondary" className="reply-modal-comment">
+              {hideTarget.comment || 'Không có bình luận'}
+            </Paragraph>
+          </div>
+        )}
+        <Text type="secondary">
+          Khách hàng sẽ nhận được thông báo rằng đánh giá của họ đã bị ẩn. Nhập lý do (không bắt
+          buộc) để khách hàng hiểu rõ hơn.
+        </Text>
+        <Form form={hideForm} layout="vertical" style={{ marginTop: 12 }}>
+          <Form.Item
+            name="reason"
+            label="Lý do ẩn (sẽ gửi cho khách hàng)"
+            rules={[{ max: 500, message: 'Lý do tối đa 500 ký tự' }]}
+          >
+            <TextArea rows={3} placeholder="Ví dụ: Nội dung chứa từ ngữ không phù hợp..." />
           </Form.Item>
         </Form>
       </Modal>
