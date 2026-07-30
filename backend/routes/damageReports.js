@@ -1,6 +1,8 @@
 const express = require('express');
 const db = require('../config/db');
 
+const { requireAuth, requireStaff } = require('../middleware/auth');
+
 const router = express.Router();
 
 const parseId = (id) => {
@@ -44,7 +46,7 @@ const REPORT_SELECT = `
 `;
 
 // List all damage reports
-router.get('/', async (_req, res) => {
+router.get('/', requireAuth, requireStaff, async (_req, res) => {
   try {
     const [reports] = await db.query(`${REPORT_SELECT} ORDER BY dr.id DESC`);
     res.json({ data: reports });
@@ -55,7 +57,7 @@ router.get('/', async (_req, res) => {
 });
 
 // Get a single damage report
-router.get('/:id', async (req, res) => {
+router.get('/:id', requireAuth, requireStaff, async (req, res) => {
   const reportId = parseId(req.params.id);
   if (!reportId) {
     return res.status(400).json({ message: 'ID báo hỏng không hợp lệ' });
@@ -73,7 +75,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // Create a damage report
-router.post('/', async (req, res) => {
+router.post('/', requireAuth, requireStaff, async (req, res) => {
   const { description, roomItemId, bookingId, compensationFee, reportDate, error } =
     normalizePayload(req.body);
   if (error) {
@@ -95,7 +97,7 @@ router.post('/', async (req, res) => {
 });
 
 // Update a damage report
-router.put('/:id', async (req, res) => {
+router.put('/:id', requireAuth, requireStaff, async (req, res) => {
   const reportId = parseId(req.params.id);
   if (!reportId) {
     return res.status(400).json({ message: 'ID báo hỏng không hợp lệ' });
@@ -123,7 +125,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // Delete a damage report
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireAuth, requireStaff, async (req, res) => {
   const reportId = parseId(req.params.id);
   if (!reportId) {
     return res.status(400).json({ message: 'ID báo hỏng không hợp lệ' });

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Button, DatePicker, Descriptions, Form, Input, InputNumber, message, Modal, Select, Space, Tag, Tooltip } from 'antd';
+import { Button, DatePicker, Form, Input, InputNumber, message, Modal, Select, Space, Tag, Tooltip } from 'antd';
 import {
   CheckOutlined,
   CloseOutlined,
@@ -14,6 +14,8 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../../services/api';
+import BookingDetailModal from './BookingDetailModal';
+import CheckoutPaymentModal from './CheckoutPaymentModal';
 
 interface Booking {
   id: number;
@@ -47,7 +49,7 @@ interface RoomItem {
   status: string;
 }
 
-type Operation = 'guests' | 'service' | 'damage' | 'extend' | 'transfer' | null;
+type Operation = 'guests' | 'declareGuests' | 'service' | 'damage' | 'extend' | 'transfer' | null;
 
 const statusText: Record<string, string> = {
   pending: 'Chờ xác nhận',
@@ -92,6 +94,7 @@ function BookingManagement() {
   const [rooms, setRooms] = useState<RoomItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [viewModalVisible, setViewModalVisible] = useState(false);
+  const [checkoutBookingId, setCheckoutBookingId] = useState<number | null>(null);
   const [operation, setOperation] = useState<Operation>(null);
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [form] = Form.useForm();
@@ -140,7 +143,7 @@ function BookingManagement() {
     setOperation(type);
     setSelectedBooking(booking);
     form.resetFields();
-    if (type === 'guests') {
+    if (type === 'guests' || type === 'declareGuests') {
       form.setFieldsValue({
         guests: [
           {
@@ -173,6 +176,15 @@ function BookingManagement() {
     const values = await form.validateFields();
 
     try {
+      // Khách đã nhận phòng thì chỉ cập nhật danh sách người ở, không gọi lại
+      // check-in (API check-in từ chối mọi trạng thái ngoài chờ/đã xác nhận).
+      if (operation === 'declareGuests') {
+        await api.post(`/bookings/${selectedBooking.id}/guests`, {
+          guests: values.guests,
+        });
+        message.success('Đã lưu danh sách khách lưu trú');
+      }
+
       if (operation === 'guests') {
         const response = await api.patch(`/bookings/${selectedBooking.id}/check-in`, {
           guests: values.guests,
@@ -250,16 +262,42 @@ function BookingManagement() {
     }
   };
 
+  // Backend bắt buộc lý do hủy tối thiểu 5 ký tự. Trước đây modal không có ô
+  // nhập nên mọi lần hủy từ trang quản trị đều trả về lỗi 400.
   const handleCancel = async (id: number) => {
+    let reason = '';
+
     Modal.confirm({
       title: 'Xác nhận hủy đặt phòng',
-      content: 'Chính sách hoàn cọc: dưới 3 ngày hoàn 100%, từ 3-7 ngày hoàn 50%, trên 7 ngày không hoàn.',
+      width: 520,
+      content: (
+        <div>
+          <p style={{ marginTop: 0 }}>
+            Chính sách hoàn cọc: dưới 3 ngày hoàn 100%, từ 3-7 ngày hoàn 50%, trên 7 ngày không hoàn.
+          </p>
+          <Input.TextArea
+            rows={3}
+            maxLength={500}
+            showCount
+            placeholder="Nhập lý do hủy phòng (ít nhất 5 ký tự)"
+            onChange={(event) => {
+              reason = event.target.value;
+            }}
+          />
+        </div>
+      ),
       okText: 'Hủy đặt phòng',
       cancelText: 'Đóng',
       okButtonProps: { danger: true },
       onOk: async () => {
+        const trimmedReason = reason.trim();
+        if (trimmedReason.length < 5) {
+          message.error('Vui lòng nhập lý do hủy phòng (ít nhất 5 ký tự)');
+          return Promise.reject(new Error('missing-reason'));
+        }
+
         try {
-          const response = await api.patch(`/bookings/${id}/cancel`);
+          const response = await api.patch(`/bookings/${id}/cancel`, { reason: trimmedReason });
           const policy = response.data?.refundPolicy;
           message.success(
             policy
@@ -278,14 +316,11 @@ function BookingManagement() {
     openOperation('guests', booking);
   };
 
-  const handleCheckOut = async (id: number) => {
-    try {
-      await api.patch(`/bookings/${id}/check-out`);
-      message.success('Trả phòng thành công');
-      fetchBookings();
-    } catch (error: any) {
-      message.error(error.response?.data?.message || 'Lỗi khi trả phòng');
-    }
+  // Trả phòng luôn đi qua màn hình thu tiền: nếu khách còn nợ dịch vụ/phí hư
+  // hỏng thì lễ tân có sẵn mã QR để khách quét trả ngay tại quầy, thu đủ mới
+  // cho trả phòng. Trước đây bấm trả phòng khi còn nợ chỉ báo lỗi cụt.
+  const handleCheckOut = (id: number) => {
+    setCheckoutBookingId(id);
   };
 
   const handleNoShow = (booking: Booking) => {
@@ -314,7 +349,7 @@ function BookingManagement() {
   };
 
   const renderOperationForm = () => {
-    if (operation === 'guests') {
+    if (operation === 'guests' || operation === 'declareGuests') {
       return (
         <Form.List name="guests">
           {(fields, { add, remove }) => (
@@ -419,6 +454,7 @@ function BookingManagement() {
 
   const operationTitle: Record<Exclude<Operation, null>, string> = {
     guests: 'Xác minh CCCD và danh sách người ở',
+    declareGuests: 'Khai báo khách lưu trú',
     service: 'Thêm dịch vụ phát sinh',
     damage: 'Thêm phí hư hỏng/mất vật dụng',
     extend: 'Gia hạn thời gian ở',
@@ -522,7 +558,7 @@ function BookingManagement() {
                         )}
                         {booking.status === 'checked_in' && (
                           <Tooltip title="Khai báo khách ở cùng">
-                            <Button type="primary" icon={<UserAddOutlined />} size="small" onClick={() => openOperation('guests', booking)}></Button>
+                            <Button type="primary" icon={<UserAddOutlined />} size="small" onClick={() => openOperation('declareGuests', booking)}></Button>
                           </Tooltip>
                         )}
                       </Space>
@@ -535,25 +571,18 @@ function BookingManagement() {
         </div>
       </div>
 
-      <Modal title="Chi tiết đặt phòng" open={viewModalVisible} onCancel={() => setViewModalVisible(false)} footer={<Button onClick={() => setViewModalVisible(false)}>Đóng</Button>}>
-        {selectedBooking && (
-          <Descriptions bordered column={1}>
-            <Descriptions.Item label="Mã đặt phòng">#{selectedBooking.id}</Descriptions.Item>
-            <Descriptions.Item label="Khách hàng">{selectedBooking.customer_name || 'N/A'}</Descriptions.Item>
-            <Descriptions.Item label="Email">{selectedBooking.customer_email || 'N/A'}</Descriptions.Item>
-            <Descriptions.Item label="Số điện thoại">{selectedBooking.customer_phone || 'N/A'}</Descriptions.Item>
-            <Descriptions.Item label="Phòng">{selectedBooking.room_number ? `${selectedBooking.room_number} - ${selectedBooking.room_type_name || 'N/A'}` : 'N/A'}</Descriptions.Item>
-            <Descriptions.Item label="Ngày nhận">{formatDate(selectedBooking.check_in)}</Descriptions.Item>
-            <Descriptions.Item label="Ngày trả">{formatDate(selectedBooking.check_out)}</Descriptions.Item>
-            <Descriptions.Item label="Số khách">{selectedBooking.adults ?? 0} người lớn, {selectedBooking.children ?? 0} trẻ em</Descriptions.Item>
-            <Descriptions.Item label="Tổng tiền">
-              {formatPrice(selectedBooking.payable_total ?? selectedBooking.total_price)}
-            </Descriptions.Item>
-            <Descriptions.Item label="Trạng thái"><Tag color={statusColor[selectedBooking.status] || 'default'}>{statusText[selectedBooking.status] || selectedBooking.status}</Tag></Descriptions.Item>
-            {selectedBooking.notes && <Descriptions.Item label="Ghi chú">{selectedBooking.notes}</Descriptions.Item>}
-          </Descriptions>
-        )}
-      </Modal>
+      <BookingDetailModal
+        bookingId={viewModalVisible ? selectedBooking?.id ?? null : null}
+        open={viewModalVisible}
+        onClose={() => setViewModalVisible(false)}
+      />
+
+      <CheckoutPaymentModal
+        bookingId={checkoutBookingId}
+        open={checkoutBookingId !== null}
+        onClose={() => setCheckoutBookingId(null)}
+        onCheckedOut={fetchBookings}
+      />
 
       <Modal
         title={operation ? operationTitle[operation] : ''}
@@ -562,7 +591,7 @@ function BookingManagement() {
         onOk={submitOperation}
         okText="Lưu"
         cancelText="Đóng"
-        width={operation === 'guests' ? 900 : 560}
+        width={operation === 'guests' || operation === 'declareGuests' ? 900 : 560}
       >
         <Form form={form} layout="vertical">
           {renderOperationForm()}

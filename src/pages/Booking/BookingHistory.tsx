@@ -44,18 +44,12 @@ interface ReviewRow {
   bookingId: number;
   rating: number;
   comment: string;
-  status?: string;
-  adminReply?: string | null;
-  hideReason?: string | null;
 }
 
 interface ReviewInfo {
   id: number;
   rating: number;
   comment: string;
-  status?: string;
-  adminReply?: string | null;
-  hideReason?: string | null;
 }
 
 type PaymentByBooking = Record<number, Payment | null>;
@@ -164,7 +158,7 @@ const BookingHistory: React.FC = () => {
             Object.fromEntries(
               reviewRows.map((r) => [
                 r.bookingId,
-                { id: r.id, rating: r.rating, comment: r.comment, status: r.status, adminReply: r.adminReply, hideReason: r.hideReason },
+                { id: r.id, rating: r.rating, comment: r.comment },
               ])
             )
           );
@@ -330,7 +324,6 @@ const BookingHistory: React.FC = () => {
         setReviewsByBooking((prev) => ({
           ...prev,
           [reviewBooking.id]: {
-            ...prev[reviewBooking.id],
             id: editingReviewId,
             rating: reviewRating,
             comment: reviewComment.trim(),
@@ -724,15 +717,6 @@ const BookingHistory: React.FC = () => {
         okText={editingReviewId ? 'Cập nhật đánh giá' : 'Gửi đánh giá'}
         cancelText="Đóng"
         confirmLoading={submittingReview}
-        okButtonProps={{
-          disabled:
-            !!editingReviewId &&
-            reviewBooking !== null &&
-            reviewsByBooking[reviewBooking.id]?.status === 'hidden' &&
-            reviewRating === reviewsByBooking[reviewBooking.id]?.rating &&
-            reviewComment.trim().toLowerCase() ===
-              (reviewsByBooking[reviewBooking.id]?.comment || '').trim().toLowerCase(),
-        }}
         onOk={handleSubmitReview}
         onCancel={() => !submittingReview && setReviewBooking(null)}
         destroyOnHidden
@@ -740,28 +724,6 @@ const BookingHistory: React.FC = () => {
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div>
-            {editingReviewId && reviewBooking && (
-              <>
-                {reviewsByBooking[reviewBooking.id]?.status === 'hidden' && (
-                  <Alert
-                    type="warning"
-                    showIcon
-                    message={`Đánh giá đang bị ẩn${
-                      reviewsByBooking[reviewBooking.id]?.hideReason
-                        ? ': ' + reviewsByBooking[reviewBooking.id]?.hideReason
-                        : ''
-                    }. Vui lòng chỉnh sửa nội dung trước khi gửi lại.`}
-                    style={{ marginBottom: 12 }}
-                  />
-                )}
-                {reviewsByBooking[reviewBooking.id]?.adminReply && (
-                  <div style={{ padding: 12, background: '#f5f5f5', borderRadius: 8, marginBottom: 12 }}>
-                    <strong>Phản hồi của khách sạn:</strong>
-                    <p style={{ margin: '4px 0 0' }}>{reviewsByBooking[reviewBooking.id]?.adminReply}</p>
-                  </div>
-                )}
-              </>
-            )}
             <p style={{ marginBottom: 4 }}>Chất lượng kỳ nghỉ của bạn:</p>
             <Rate value={reviewRating} onChange={setReviewRating} />
           </div>

@@ -1,23 +1,29 @@
 const express = require('express');
 const bookingController = require('../controllers/bookingController');
-const { optionalAuth, requireAuth } = require('../middleware/auth');
+const { requireAuth, requireStaff } = require('../middleware/auth');
 
 const router = express.Router();
 
 router.post('/check-availability', bookingController.checkAvailability);
 router.post('/check-type-availability', bookingController.checkTypeAvailability);
-router.post('/', optionalAuth, bookingController.createBooking);
+router.post('/', requireAuth, bookingController.createBooking);
 router.get('/me', requireAuth, bookingController.listMyBookings);
-router.get('/', bookingController.listBookings);
-router.get('/:id', optionalAuth, bookingController.getBookingById);
-router.get('/:id/refund-preview', optionalAuth, bookingController.getRefundPreview);
-router.patch('/:id/cancel', optionalAuth, bookingController.cancelBooking);
-router.post('/:id/guests', bookingController.saveGuestIdentities);
-router.post('/:id/services', bookingController.addServiceCharge);
-router.post('/:id/damages', bookingController.addDamageCharge);
-router.patch('/:id/extend', bookingController.extendStay);
-router.patch('/:id/transfer-room', bookingController.transferRoom);
-router.patch('/:id/check-in', bookingController.checkIn);
-router.patch('/:id/check-out', bookingController.checkOut);
+// Khách đăng nhập chỉ nhận được đặt phòng của chính mình (controller tự ép lọc
+// theo userId trong token); nhân viên mới xem được toàn bộ danh sách.
+router.get('/', requireAuth, bookingController.listBookings);
+router.get('/:id', requireAuth, bookingController.getBookingById);
+router.get('/:id/history', requireAuth, bookingController.getBookingHistory);
+router.get('/:id/payment-summary', requireAuth, bookingController.getPaymentSummary);
+router.post('/:id/payment-request', requireAuth, requireStaff, bookingController.requestOutstandingPayment);
+router.get('/:id/refund-preview', requireAuth, bookingController.getRefundPreview);
+router.patch('/:id/cancel', requireAuth, bookingController.cancelBooking);
+router.post('/:id/guests', requireAuth, requireStaff, bookingController.saveGuestIdentities);
+router.post('/:id/services', requireAuth, requireStaff, bookingController.addServiceCharge);
+router.post('/:id/damages', requireAuth, requireStaff, bookingController.addDamageCharge);
+router.patch('/:id/extend', requireAuth, requireStaff, bookingController.extendStay);
+router.patch('/:id/transfer-room', requireAuth, requireStaff, bookingController.transferRoom);
+router.patch('/:id/check-in', requireAuth, requireStaff, bookingController.checkIn);
+router.patch('/:id/check-out', requireAuth, requireStaff, bookingController.checkOut);
+router.patch('/:id/no-show', requireAuth, requireStaff, bookingController.markNoShow);
 
 module.exports = router;

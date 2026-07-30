@@ -1,7 +1,5 @@
 import api from './api';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
-
 type ListParams = {
   page: number;
   limit: number;
@@ -9,91 +7,61 @@ type ListParams = {
   status?: string;
 };
 
-export const fetchCustomers = async (params: ListParams) => {
-  const url = new URL(`${API_BASE}/customers`);
-  url.searchParams.set('page', String(params.page));
-  url.searchParams.set('limit', String(params.limit));
-  if (params.search) url.searchParams.set('search', params.search);
-  url.searchParams.set('status', params.status || 'all');
+// Mọi lời gọi đều đi qua instance axios chung để interceptor tự gắn
+// Authorization: Bearer <token>. Trước đây các hàm này dùng fetch() thô nên
+// không kèm token và sẽ hỏng ngay khi backend bật xác thực.
+/* eslint-disable @typescript-eslint/no-explicit-any */
+type ApiResult = { ok?: boolean; error?: string; [key: string]: any };
 
-  const res = await fetch(url.toString());
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
+const unwrap = async (promise: Promise<unknown>): Promise<any> => {
+  try {
+    const json = (await promise) as ApiResult;
+    if (json && json.ok === false) {
+      throw new Error(json.error || 'Thao tác không thành công');
+    }
+    return json;
+  } catch (error) {
+    const response = (error as { response?: { data?: { error?: string; message?: string } } }).response;
+    const messageFromServer = response?.data?.error || response?.data?.message;
+    throw new Error(messageFromServer || (error as Error).message, { cause: error });
+  }
 };
 
-export const fetchCustomerDetail = async (id: number) => {
-  const res = await fetch(`${API_BASE}/customers/detail?id=${id}`);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
-};
-
-export const fetchCustomerBookings = async (
-  id: number,
-  page: number,
-  limit: number
-) => {
-  const res = await fetch(
-    `${API_BASE}/customers/bookings?id=${id}&page=${page}&limit=${limit}`
+export const fetchCustomers = async (params: ListParams) =>
+  unwrap(
+    api.get('/customers', {
+      params: {
+        page: params.page,
+        limit: params.limit,
+        ...(params.search ? { search: params.search } : {}),
+        status: params.status || 'all'
+      }
+    })
   );
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
-};
 
-export const fetchCustomerPayments = async (id: number) => {
-  const res = await fetch(`${API_BASE}/customers/payments?id=${id}`);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
-};
+export const fetchCustomerDetail = async (id: number) =>
+  unwrap(api.get('/customers/detail', { params: { id } }));
 
-export const fetchCustomerReviews = async (id: number) => {
-  const res = await fetch(`${API_BASE}/customers/reviews?id=${id}`);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
-};
+export const fetchCustomerBookings = async (id: number, page: number, limit: number) =>
+  unwrap(api.get('/customers/bookings', { params: { id, page, limit } }));
 
-export const createCustomer = async (body: Record<string, unknown>) => {
-  const res = await fetch(`${API_BASE}/customers/create`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-  const json = await res.json();
-  if (!res.ok || !json.ok) throw new Error(json.error || `HTTP ${res.status}`);
-  return json;
-};
+export const fetchCustomerPayments = async (id: number) =>
+  unwrap(api.get('/customers/payments', { params: { id } }));
 
-export const updateCustomer = async (body: Record<string, unknown>) => {
-  const res = await fetch(`${API_BASE}/customers/update`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-  const json = await res.json();
-  if (!res.ok || !json.ok) throw new Error(json.error || `HTTP ${res.status}`);
-  return json;
-};
+export const fetchCustomerReviews = async (id: number) =>
+  unwrap(api.get('/customers/reviews', { params: { id } }));
 
-export const deleteCustomer = async (id: number) => {
-  const res = await fetch(`${API_BASE}/customers/delete`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id })
-  });
-  const json = await res.json();
-  if (!res.ok || !json.ok) throw new Error(json.error || `HTTP ${res.status}`);
-  return json;
-};
+export const createCustomer = async (body: Record<string, unknown>) =>
+  unwrap(api.post('/customers/create', body));
 
-export const lockCustomer = async (id: number, reason: string) => {
-  const res = await fetch(`${API_BASE}/customers/lock?id=${id}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ reason })
-  });
-  const json = await res.json();
-  if (!res.ok || !json.ok) throw new Error(json.error || `HTTP ${res.status}`);
-  return json;
-};
+export const updateCustomer = async (body: Record<string, unknown>) =>
+  unwrap(api.post('/customers/update', body));
+
+export const deleteCustomer = async (id: number) =>
+  unwrap(api.post('/customers/delete', { id }));
+
+export const lockCustomer = async (id: number, reason: string) =>
+  unwrap(api.post('/customers/lock', { reason }, { params: { id } }));
 
 export const getCustomers = async () => api.get('/customers');
 

@@ -74,7 +74,10 @@ const normalizeConfirmPaymentPayload = (body) => {
   }
   return {
     amount: toAmount(body.amount, 'amount'),
-    transactionCode: body.transactionCode || body.transaction_code || undefined
+    transactionCode: body.transactionCode || body.transaction_code || undefined,
+    // Mã đơn hàng do cổng thanh toán trả về. Là bằng chứng duy nhất cho phép
+    // một lời gọi từ phía khách được ghi nhận là đã thanh toán.
+    gatewayOrderId: body.gatewayOrderId || body.gateway_order_id || undefined
   };
 };
 

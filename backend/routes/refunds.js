@@ -1,8 +1,32 @@
 const express = require('express');
 const db = require('../config/db');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, isStaff } = require('../middleware/auth');
+const bookingModel = require('../models/bookingModel');
 
 const router = express.Router();
+
+// Ghi dấu vết duyệt/từ chối hoàn tiền vào lịch sử đặt phòng.
+const logRefundHistory = async (connection, bookingId, action, description, amount, user) => {
+  try {
+    const actorName = user?.userId
+      ? await bookingModel.getActorDisplayName(user.userId, connection)
+      : null;
+    await bookingModel.addBookingHistory(
+      bookingId,
+      {
+        action,
+        description,
+        amount,
+        actorId: user?.userId || null,
+        actorName: actorName || user?.email || null,
+        actorRole: user?.role || 'system'
+      },
+      connection
+    );
+  } catch (error) {
+    console.error('Ghi lịch sử hoàn tiền thất bại:', error.message);
+  }
+};
 
 const REFUND_SELECT = `
   SELECT
@@ -21,8 +45,8 @@ const REFUND_SELECT = `
 `;
 
 const requireStaff = (req, res, next) => {
-  if (!['admin', 'staff'].includes(req.user?.role)) {
-    return res.status(403).json({ message: 'Chỉ quản trị viên được thao tác hoàn tiền' });
+  if (!isStaff(req.user)) {
+    return res.status(403).json({ message: 'Chỉ nhân viên hoặc quản trị viên được thao tác hoàn tiền' });
   }
   return next();
 };
@@ -101,10 +125,29 @@ router.patch('/:id/approve', requireAuth, requireStaff, async (req, res) => {
       [req.body?.note || null, refund.id]
     );
 
-    await connection.query(
-      `UPDATE payments SET paymentStatus = 'refunded' WHERE id = ?`,
+    // Trừ đúng số tiền đã hoàn khỏi khoản đã thu. Trước đây mọi yêu cầu (kể cả
+    // hoàn một phần khi check-out sớm) đều đánh dấu payment là 'refunded' mà
+    // vẫn giữ nguyên paidAmount, làm doanh thu bị trừ quá tay và khóa payment.
+    const [paymentRows] = await connection.query(
+      'SELECT id, paidAmount, totalAmount FROM payments WHERE id = ? FOR UPDATE',
       [refund.paymentId]
     );
+    const payment = paymentRows[0];
+    if (payment) {
+      const refundAmount = Number(refund.amount || 0);
+      const newPaidAmount = Math.max(Number(payment.paidAmount || 0) - refundAmount, 0);
+      const newRemainingAmount = Math.max(Number(payment.totalAmount || 0) - newPaidAmount, 0);
+      const newStatus = newPaidAmount <= 0
+        ? 'refunded'
+        : newRemainingAmount <= 0
+          ? 'paid'
+          : 'deposit_paid';
+
+      await connection.query(
+        'UPDATE payments SET paidAmount = ?, remainingAmount = ?, paymentStatus = ? WHERE id = ?',
+        [newPaidAmount, newRemainingAmount, newStatus, payment.id]
+      );
+    }
 
     // Cộng tiền hoàn vào ví của khách
     const [[bookingRow]] = await connection.query(
@@ -128,6 +171,15 @@ router.patch('/:id/approve', requireAuth, requireStaff, async (req, res) => {
       );
     }
 
+    await logRefundHistory(
+      connection,
+      refund.bookingId,
+      'refund_approved',
+      `Duyệt hoàn tiền ${Number(refund.amount || 0).toLocaleString('vi-VN')}₫ vào ví khách${req.body?.note ? `. Ghi chú: ${req.body.note}` : ''}`,
+      Number(refund.amount || 0),
+      req.user
+    );
+
     await connection.commit();
     res.json({ message: 'Đã duyệt hoàn tiền, tiền đã cộng vào ví của khách', data: { id: refund.id, status: 'approved' } });
   } catch (error) {
@@ -142,13 +194,29 @@ router.patch('/:id/approve', requireAuth, requireStaff, async (req, res) => {
 // Từ chối hoàn tiền (kèm lý do)
 router.patch('/:id/reject', requireAuth, requireStaff, async (req, res) => {
   try {
+    const refundId = Number(req.params.id);
     const [result] = await db.query(
       `UPDATE payment_refunds SET status = 'rejected', note = ?, processedAt = NOW() WHERE id = ? AND status = 'pending'`,
-      [req.body?.note || null, Number(req.params.id)]
+      [req.body?.note || null, refundId]
     );
 
     if (result.affectedRows === 0) {
       return res.status(409).json({ message: 'Yêu cầu không tồn tại hoặc đã được xử lý' });
+    }
+
+    const [[refund]] = await db.query(
+      'SELECT bookingId, amount FROM payment_refunds WHERE id = ?',
+      [refundId]
+    );
+    if (refund) {
+      await logRefundHistory(
+        null,
+        refund.bookingId,
+        'refund_rejected',
+        `Từ chối yêu cầu hoàn tiền ${Number(refund.amount || 0).toLocaleString('vi-VN')}₫${req.body?.note ? `. Lý do: ${req.body.note}` : ''}`,
+        Number(refund.amount || 0),
+        req.user
+      );
     }
 
     res.json({ message: 'Đã từ chối yêu cầu hoàn tiền' });

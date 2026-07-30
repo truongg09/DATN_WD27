@@ -64,7 +64,7 @@ const processPayment = async (req, res) => {
   try {
     const paymentId = normalizeIdParam(req.params.id);
     const payload = normalizeProcessPaymentPayload(req.body);
-    const result = await paymentService.processPayment(paymentId, payload);
+    const result = await paymentService.processPayment(paymentId, payload, req.user || null);
     res.json({
       message: 'Xử lý thanh toán thành công',
       data: result
@@ -77,7 +77,7 @@ const processPayment = async (req, res) => {
 const refundPayment = async (req, res) => {
   try {
     const paymentId = normalizeIdParam(req.params.id);
-    const payment = await paymentService.refundPayment(paymentId);
+    const payment = await paymentService.refundPayment(paymentId, req.user || null);
     res.json({
       message: 'Hoàn tiền thành công',
       data: payment
@@ -91,7 +91,18 @@ const confirmPayment = async (req, res) => {
   try {
     const paymentId = normalizeIdParam(req.params.id);
     const payload = normalizeConfirmPaymentPayload(req.body);
-    const result = await paymentService.confirmPayment(paymentId, payload);
+
+    // Khách chỉ được xác nhận khi có mã đơn hàng do cổng thanh toán trả về.
+    // Không có ràng buộc này, chính chủ booking gọi thẳng endpoint là hệ thống
+    // ghi nhận "đã trả đủ" mà không hề có tiền vào.
+    if (!['admin', 'employee', 'staff'].includes(req.user?.role) && !payload.gatewayOrderId) {
+      throw new HttpError(
+        403,
+        'Thanh toán phải được xác nhận qua cổng thanh toán hoặc bởi nhân viên khách sạn'
+      );
+    }
+
+    const result = await paymentService.confirmPayment(paymentId, payload, req.user || null);
     res.json({
       message: 'Payment confirmed successfully',
       data: result
@@ -230,7 +241,7 @@ const submitTransferConfirmation = async (req, res) => {
   try {
     const paymentId = normalizeIdParam(req.params.id);
     const payload = normalizeProcessPaymentPayload(req.body);
-    const payment = await paymentService.submitTransferConfirmation(paymentId, payload);
+    const payment = await paymentService.submitTransferConfirmation(paymentId, payload, req.user || null);
     res.status(202).json({ message: 'Payment verification requested', data: payment });
   } catch (error) {
     sendError(res, error);
@@ -243,7 +254,7 @@ const confirmTransferPayment = async (req, res) => {
       throw new HttpError(403, 'Only admin or receptionist can confirm payment');
     }
     const paymentId = normalizeIdParam(req.params.id);
-    const payment = await paymentService.confirmTransferPayment(paymentId, req.user.userId);
+    const payment = await paymentService.confirmTransferPayment(paymentId, req.user.userId, req.user);
     res.json({ message: 'Payment confirmed', data: payment });
   } catch (error) {
     sendError(res, error);

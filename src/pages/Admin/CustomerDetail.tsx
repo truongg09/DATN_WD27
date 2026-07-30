@@ -86,10 +86,14 @@ function bookingStatusMeta(status: string): {
   switch (status) {
     case "confirmed":
       return { label: "Đã xác nhận", tone: "success" };
+    case "checked_in":
     case "checkin":
       return { label: "Đang lưu trú", tone: "info" };
+    case "checked_out":
     case "checkout":
       return { label: "Đã trả phòng", tone: "info" };
+    case "no_show":
+      return { label: "Khách không đến", tone: "danger" };
     case "pending":
       return { label: "Chờ xác nhận", tone: "warning" };
     case "cancelled":
