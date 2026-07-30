@@ -1,6 +1,6 @@
 const express = require('express');
 const db = require('../config/db');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, requireStaff } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -26,11 +26,8 @@ const BOOKING_EFFECTIVE_STATUS_EXPR = `
 const INACTIVE_BOOKING_STATUSES = ['cancelled', 'no_show'];
 
 // Đếm các yêu cầu từ khách đang chờ xử lý - dùng cho badge đỏ trên menu admin
-router.get('/pending-counts', requireAuth, async (req, res) => {
+router.get('/pending-counts', requireAuth, requireStaff, async (req, res) => {
   try {
-    if (!['admin', 'staff'].includes(req.user?.role)) {
-      return res.status(403).json({ message: 'Chỉ quản trị viên được xem' });
-    }
 
     // Dùng COALESCE(bookingStatus, status) thay vì chỉ `status` để không bỏ sót
     // các booking mà cột status cũ chưa được cập nhật.
@@ -46,15 +43,36 @@ router.get('/pending-counts', requireAuth, async (req, res) => {
     const [[withdrawals]] = await db.query(
       "SELECT COUNT(*) AS c FROM wallet_transactions WHERE type = 'withdrawal' AND status = 'pending'"
     );
+    // Khách khai đã chuyển khoản và đang chờ lễ tân đối soát. Đây là việc cần xử
+    // lý gấp nhất (khách không check-in được cho tới khi xác nhận) nhưng trước
+    // đây không được đếm nên badge không bao giờ báo.
+    const [[transferConfirmations]] = await db.query(
+      "SELECT COUNT(*) AS c FROM payment_confirmation_requests WHERE status = 'pending'"
+    );
+    // Khách đang lưu trú còn nợ tiền dịch vụ/hư hỏng phát sinh.
+    const [[unpaidStays]] = await db.query(
+      `SELECT COUNT(DISTINCT b.id) AS c
+       FROM bookings b
+       JOIN payments p ON p.bookingId = b.id
+       WHERE COALESCE(b.bookingStatus, b.status) = 'checked_in'
+         AND COALESCE(p.remainingAmount, 0) > 0`
+    );
 
     const data = {
       pendingBookings: Number(bookings.c) || 0,
       pendingServiceRequests: Number(serviceRequests.c) || 0,
       pendingRefunds: Number(refunds.c) || 0,
-      pendingWithdrawals: Number(withdrawals.c) || 0
+      pendingWithdrawals: Number(withdrawals.c) || 0,
+      pendingTransferConfirmations: Number(transferConfirmations.c) || 0,
+      unpaidStays: Number(unpaidStays.c) || 0
     };
     data.total =
-      data.pendingBookings + data.pendingServiceRequests + data.pendingRefunds + data.pendingWithdrawals;
+      data.pendingBookings +
+      data.pendingServiceRequests +
+      data.pendingRefunds +
+      data.pendingWithdrawals +
+      data.pendingTransferConfirmations +
+      data.unpaidStays;
 
     res.json({ data });
   } catch (error) {
@@ -64,11 +82,8 @@ router.get('/pending-counts', requireAuth, async (req, res) => {
 });
 
 // Việc cần làm hôm nay: booking chờ xác nhận, khách check-in/check-out hôm nay, phòng đang trống
-router.get('/today', requireAuth, async (req, res) => {
+router.get('/today', requireAuth, requireStaff, async (req, res) => {
   try {
-    if (!['admin', 'staff'].includes(req.user?.role)) {
-      return res.status(403).json({ message: 'Chỉ quản trị viên được xem' });
-    }
 
     // Giới hạn số dòng trả về để tránh load cả nghìn booking pending cùng lúc.
     // Có thể truyền ?limit=... nếu FE cần xem nhiều hơn, tối đa 200.
@@ -304,7 +319,7 @@ function mapSeriesRows(rows, mode, categories) {
   return data;
 }
 
-router.get('/', async (req, res) => {
+router.get('/', requireAuth, requireStaff, async (req, res) => {
   try {
     const mode = ['year', 'custom'].includes(req.query.mode) ? req.query.mode : 'month';
     const { from, to, fromDate, toDate, fallback } = getDateRange(mode, req.query.from, req.query.to);
@@ -430,7 +445,9 @@ router.get('/', async (req, res) => {
           GREATEST(
             0,
             DATEDIFF(
-              LEAST(COALESCE(bd.checkOutDate, b.check_out), DATE(?)),
+              -- Biên phải là ?to + 1 ngày: khách ở đến hết ngày cuối kỳ vẫn tính
+              -- 1 đêm. Dùng thẳng ?to làm hụt đúng 1 đêm mỗi booking vắt qua kỳ.
+              LEAST(COALESCE(bd.checkOutDate, b.check_out), DATE_ADD(DATE(?), INTERVAL 1 DAY)),
               GREATEST(COALESCE(bd.checkInDate, b.check_in), DATE(?))
             )
           )
@@ -439,8 +456,13 @@ router.get('/', async (req, res) => {
         LEFT JOIN booking_details bd ON bd.bookingId = b.id
         LEFT JOIN rooms r ON r.id = COALESCE(bd.roomId, b.room_id)
         WHERE ${BOOKING_EFFECTIVE_STATUS_EXPR} NOT IN ('cancelled', 'no_show')
+          -- Đơn giữ chỗ chưa trả đồng nào chưa thực sự chiếm phòng.
+          AND NOT (
+            ${BOOKING_EFFECTIVE_STATUS_EXPR} = 'pending'
+            AND COALESCE((SELECT SUM(p.paidAmount) FROM payments p WHERE p.bookingId = b.id), 0) <= 0
+          )
           AND COALESCE(bd.checkInDate, b.check_in) <= DATE(?)
-          AND COALESCE(bd.checkOutDate, b.check_out) >= DATE(?)
+          AND COALESCE(bd.checkOutDate, b.check_out) > DATE(?)
           ${roomTypeId ? 'AND r.roomTypeId = ?' : ''}
       `,
       roomTypeId ? [to, from, to, from, roomTypeId] : [to, from, to, from]

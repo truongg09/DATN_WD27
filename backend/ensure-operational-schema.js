@@ -1,6 +1,30 @@
+const bcrypt = require('bcrypt');
 const db = require('./config/db');
 
+// Các bản database mẫu lưu mật khẩu dạng chữ thường ('123456'). Từ khi đăng
+// nhập chỉ chấp nhận bcrypt, những tài khoản đó phải được băm lại để vẫn đăng
+// nhập được bằng đúng mật khẩu cũ mà không còn lộ mật khẩu trong database.
+const hashLegacyPlaintextPasswords = async () => {
+  const [rows] = await db.query(
+    `SELECT id, password FROM accounts
+     WHERE password IS NOT NULL AND password <> '' AND password NOT LIKE '$2%'`
+  );
+
+  for (const row of rows) {
+    const hashed = await bcrypt.hash(row.password, 10);
+    await db.query('UPDATE accounts SET password = ? WHERE id = ?', [hashed, row.id]);
+  }
+
+  if (rows.length > 0) {
+    console.warn(
+      `Đã băm lại ${rows.length} mật khẩu đang lưu dạng chữ thường. ` +
+        'Hãy đổi mật khẩu mặc định của tài khoản quản trị.'
+    );
+  }
+};
+
 const ensureOperationalSchema = async () => {
+  await hashLegacyPlaintextPasswords();
   const [bookingColumns] = await db.query('DESCRIBE bookings');
   if (!bookingColumns.some((column) => column.Field === 'cancellation_reason')) {
     await db.query('ALTER TABLE bookings ADD COLUMN cancellation_reason TEXT NULL AFTER notes');
@@ -64,6 +88,15 @@ const ensureOperationalSchema = async () => {
     await db.query(
       'ALTER TABLE rooms ADD COLUMN isDeleted TINYINT(1) NOT NULL DEFAULT 0'
     );
+  }
+
+  // Danh sách phòng truy vấn các cột bảo trì. Bản database dump không có chúng
+  // nên GET /api/rooms trả 500 và toàn bộ trang quản lý phòng không tải được.
+  if (!roomColumns.some((column) => column.Field === 'maintenanceNote')) {
+    await db.query('ALTER TABLE rooms ADD COLUMN maintenanceNote VARCHAR(255) DEFAULT NULL');
+  }
+  if (!roomColumns.some((column) => column.Field === 'maintenanceExpectedCompletion')) {
+    await db.query('ALTER TABLE rooms ADD COLUMN maintenanceExpectedCompletion DATE DEFAULT NULL');
   }
 
   const [roomTypeColumns] = await db.query('DESCRIBE room_types');
@@ -275,6 +308,75 @@ const ensureOperationalSchema = async () => {
       FOREIGN KEY (paymentId) REFERENCES payments(id) ON DELETE SET NULL
     )
   `);
+
+  // Chức năng đánh giá dùng các cột kiểm duyệt và phản hồi, nhưng bản database
+  // dump chỉ có id/bookingId/customerId/rating/comment/createdAt nên mọi API
+  // đánh giá đều trả 500.
+  const [reviewTables] = await db.query('SHOW TABLES LIKE "reviews"');
+  if (reviewTables.length > 0) {
+    const [reviewColumns] = await db.query('DESCRIBE reviews');
+    const hasReviewColumn = (name) => reviewColumns.some((column) => column.Field === name);
+
+    if (!hasReviewColumn('status')) {
+      await db.query(
+        "ALTER TABLE reviews ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'approved'"
+      );
+    }
+    if (!hasReviewColumn('images')) {
+      await db.query('ALTER TABLE reviews ADD COLUMN images TEXT NULL');
+    }
+    if (!hasReviewColumn('adminReply')) {
+      await db.query('ALTER TABLE reviews ADD COLUMN adminReply TEXT NULL');
+    }
+    if (!hasReviewColumn('repliedAt')) {
+      await db.query('ALTER TABLE reviews ADD COLUMN repliedAt DATETIME NULL');
+    }
+  }
+
+  // Giá từng đêm được CHỐT tại thời điểm đặt. Nếu không lưu lại, các thao tác
+  // sau này (chuyển phòng) sẽ tra lại room_prices hiện hành và tính lại cả
+  // những đêm khách đã ở theo bảng giá mới.
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS booking_nightly_prices (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      bookingId INT NOT NULL,
+      stayDate DATE NOT NULL,
+      price DECIMAL(15,2) NOT NULL DEFAULT 0,
+      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_booking_night (bookingId, stayDate),
+      FOREIGN KEY (bookingId) REFERENCES bookings(id) ON DELETE CASCADE
+    )
+  `);
+
+  // Dấu vết lịch sử thao tác trên từng đặt phòng: ai làm gì, lúc nào.
+  // Mọi hành động (đặt, gia hạn, chuyển phòng, thêm dịch vụ, check-in/out,
+  // thanh toán, hoàn tiền...) đều được ghi lại kèm người thực hiện và thời điểm.
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS booking_history (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      bookingId INT NOT NULL,
+      action VARCHAR(50) NOT NULL,
+      description TEXT NULL,
+      oldValue TEXT NULL,
+      newValue TEXT NULL,
+      amount DECIMAL(15,2) NULL,
+      performedBy INT NULL,
+      performedByName VARCHAR(255) NULL,
+      performedByRole VARCHAR(30) NULL,
+      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_booking_history_booking (bookingId),
+      FOREIGN KEY (bookingId) REFERENCES bookings(id) ON DELETE CASCADE
+    )
+  `);
+
+  // Dịch vụ phát sinh cần biết được thêm vào lúc nào để hiển thị trong
+  // bảng chi tiết. Database dump cũ chưa có cột createdAt.
+  const [bookingServiceColumns] = await db.query('DESCRIBE booking_services');
+  if (!bookingServiceColumns.some((column) => column.Field === 'createdAt')) {
+    await db.query(
+      'ALTER TABLE booking_services ADD COLUMN createdAt DATETIME NULL DEFAULT CURRENT_TIMESTAMP'
+    );
+  }
 
   // Normalize legacy partial payments. Previously they were saved as "unpaid"
   // even when a customer had already paid a deposit.

@@ -1,8 +1,37 @@
 const express = require('express');
 const bcrypt = require('bcrypt');
 const db = require('../config/db');
+const { requireAuth, requireStaff, requireAdmin, isStaff } = require('../middleware/auth');
 
 const router = express.Router();
+
+// Khách chỉ được xem dữ liệu của chính mình; nhân viên xem được tất cả.
+// Trước đây toàn bộ router này không có xác thực nên ai cũng tải được danh sách
+// khách hàng kèm CCCD/số điện thoại, hoặc sửa/xóa/khóa tài khoản bất kỳ.
+const requireSelfOrStaff = async (req, res, next) => {
+  if (isStaff(req.user)) {
+    return next();
+  }
+
+  const customerId = parseInt(req.query.id ?? req.body?.id, 10);
+  if (!customerId) {
+    return res.status(400).json({ ok: false, error: 'Thiếu mã khách hàng' });
+  }
+
+  try {
+    const [rows] = await db.query('SELECT accountId FROM customers WHERE id = ?', [customerId]);
+    if (rows.length === 0) {
+      return res.status(404).json({ ok: false, error: 'Không tìm thấy khách hàng' });
+    }
+    if (Number(rows[0].accountId) !== Number(req.user?.userId)) {
+      return res.status(403).json({ ok: false, error: 'Không thể xem dữ liệu của khách hàng khác' });
+    }
+    return next();
+  } catch (error) {
+    console.error('Customer authorization error:', error);
+    return res.status(500).json({ ok: false, error: 'Lỗi máy chủ nội bộ' });
+  }
+};
 
 function mapAccountStatus(status) {
   return status === 'active' ? 'active' : 'locked';
@@ -64,7 +93,7 @@ async function getCustomerContext(customerId) {
 }
 
 // GET /api/customers?page=0&limit=10&search=&status=all
-router.get('/', async (req, res) => {
+router.get('/', requireAuth, requireStaff, async (req, res) => {
   try {
     const page = Math.max(parseInt(req.query.page, 10) || 0, 0);
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 100);
@@ -127,7 +156,7 @@ router.get('/', async (req, res) => {
 });
 
 // GET /api/customers-detail?id=
-router.get('/detail', async (req, res) => {
+router.get('/detail', requireAuth, requireSelfOrStaff, async (req, res) => {
   try {
     const customerId = parseInt(req.query.id, 10);
     if (!customerId) {
@@ -174,7 +203,7 @@ router.get('/detail', async (req, res) => {
 });
 
 // GET /api/customers-bookings?id=&page=0&limit=10
-router.get('/bookings', async (req, res) => {
+router.get('/bookings', requireAuth, requireSelfOrStaff, async (req, res) => {
   try {
     const customerId = parseInt(req.query.id, 10);
     const page = Math.max(parseInt(req.query.page, 10) || 0, 0);
@@ -235,7 +264,7 @@ router.get('/bookings', async (req, res) => {
 });
 
 // GET /api/customers-payments?id=
-router.get('/payments', async (req, res) => {
+router.get('/payments', requireAuth, requireSelfOrStaff, async (req, res) => {
   try {
     const customerId = parseInt(req.query.id, 10);
     if (!customerId) {
@@ -272,7 +301,7 @@ router.get('/payments', async (req, res) => {
 });
 
 // GET /api/customers-reviews?id=
-router.get('/reviews', async (req, res) => {
+router.get('/reviews', requireAuth, requireSelfOrStaff, async (req, res) => {
   try {
     const customerId = parseInt(req.query.id, 10);
     if (!customerId) {
@@ -312,7 +341,7 @@ router.get('/reviews', async (req, res) => {
 });
 
 // POST /api/customers-create
-router.post('/create', async (req, res) => {
+router.post('/create', requireAuth, requireStaff, async (req, res) => {
   try {
     const {
       email,
@@ -377,7 +406,7 @@ router.post('/create', async (req, res) => {
 });
 
 // POST /api/customers-update
-router.post('/update', async (req, res) => {
+router.post('/update', requireAuth, requireStaff, async (req, res) => {
   try {
     const {
       id,
@@ -467,7 +496,7 @@ router.post('/update', async (req, res) => {
 });
 
 // POST /api/customers-delete
-router.post('/delete', async (req, res) => {
+router.post('/delete', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { id } = req.body;
     if (!id) {
@@ -496,7 +525,7 @@ router.post('/delete', async (req, res) => {
 });
 
 // POST /api/customers-lock?id=
-router.post('/lock', async (req, res) => {
+router.post('/lock', requireAuth, requireAdmin, async (req, res) => {
   try {
     const customerId = parseInt(req.query.id, 10);
     if (!customerId) {
@@ -530,11 +559,15 @@ router.post('/lock', async (req, res) => {
 });
 
 // GET /api/customers/by-account/:accountId
-router.get('/by-account/:accountId', async (req, res) => {
+router.get('/by-account/:accountId', requireAuth, async (req, res) => {
   try {
     const accountId = parseInt(req.params.accountId, 10);
     if (!accountId) {
       return res.status(400).json({ ok: false, error: 'Invalid account ID' });
+    }
+
+    if (!isStaff(req.user) && Number(accountId) !== Number(req.user?.userId)) {
+      return res.status(403).json({ ok: false, error: 'Không thể xem hồ sơ của tài khoản khác' });
     }
 
     const [rows] = await db.query(

@@ -1,16 +1,30 @@
 const express = require('express');
 const db = require('../config/db');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, isStaff } = require('../middleware/auth');
 
 const router = express.Router();
 
 function requireAdminOrStaff(req, res) {
-  if (!['admin', 'staff'].includes(req.user?.role)) {
+  if (!isStaff(req.user)) {
     res.status(403).json({ ok: false, message: 'Chỉ quản trị viên/nhân viên được xem báo cáo' });
     return false;
   }
   return true;
 }
+
+// Đơn đã hủy hoặc khách không đến: không tính vào doanh thu và công nợ.
+// Hai cột trạng thái legacy có thể lệch nhau nên chỉ cần một cột báo hủy là đủ.
+const CANCELLED_EXPR = `(
+  COALESCE(b.bookingStatus, b.status) IN ('cancelled','no_show')
+  OR b.status IN ('cancelled','no_show')
+)`;
+
+// Đơn giữ chỗ chưa thanh toán đồng nào thì chưa thực sự chiếm phòng, không được
+// tính vào công suất (nếu không tỷ lệ lấp đầy bị phồng lên bởi các hold 15 phút).
+const UNPAID_HOLD_EXPR = `(
+  COALESCE(b.bookingStatus, b.status) = 'pending'
+  AND COALESCE((SELECT SUM(p.paidAmount) FROM payments p WHERE p.bookingId = b.id), 0) <= 0
+)`;
 
 function pad(n) {
   return String(n).padStart(2, '0');
@@ -63,11 +77,16 @@ router.get('/monthly', requireAuth, async (req, res) => {
         SELECT
           MONTH(COALESCE(b.created_at, b.createdAt)) AS bucket,
           COUNT(DISTINCT b.id) AS bookingsCount,
-          SUM(CASE WHEN COALESCE(b.bookingStatus, b.status) IN ('cancelled','no_show') THEN 1 ELSE 0 END) AS cancelledCount,
-          COALESCE(SUM(pay.roomAmount), 0) AS roomRevenue,
-          COALESCE(SUM(pay.serviceAmount), 0) AS serviceRevenue,
+          SUM(CASE WHEN ${CANCELLED_EXPR} THEN 1 ELSE 0 END) AS cancelledCount,
+          -- Doanh thu ghi nhận (billed) chỉ tính đơn còn hiệu lực. Đơn đã hủy /
+          -- khách không đến không tạo ra doanh thu, kể cả khi đã phát sinh hóa đơn.
+          COALESCE(SUM(CASE WHEN ${CANCELLED_EXPR} THEN 0 ELSE pay.roomAmount END), 0) AS roomRevenue,
+          COALESCE(SUM(CASE WHEN ${CANCELLED_EXPR} THEN 0 ELSE pay.serviceAmount END), 0) AS serviceRevenue,
+          -- Tiền thực thu giữ nguyên mọi đơn: đây là tiền đã vào két. Khoản đã
+          -- hoàn cho khách đã được trừ khỏi payments.paidAmount lúc duyệt hoàn.
           COALESCE(SUM(pay.paidAmount), 0) AS paidAmount,
-          COALESCE(SUM(pay.remainingAmount), 0) AS remainingAmount
+          -- Công nợ chỉ tính đơn còn hiệu lực: khách hủy phòng thì không còn nợ.
+          COALESCE(SUM(CASE WHEN ${CANCELLED_EXPR} THEN 0 ELSE pay.remainingAmount END), 0) AS remainingAmount
         FROM bookings b
         LEFT JOIN (
           SELECT
@@ -118,16 +137,20 @@ router.get('/monthly', requireAuth, async (req, res) => {
               GREATEST(
                 0,
                 DATEDIFF(
-                  LEAST(COALESCE(bd.checkOutDate, b.check_out), DATE(?)),
+                  -- Đêm cuối kỳ: khách ở đến hết ngày ?to vẫn tính là 1 đêm, nên
+                  -- biên phải là ?to + 1 ngày. Dùng thẳng ?to sẽ hụt đúng 1 đêm
+                  -- với mọi booking vắt qua cuối kỳ.
+                  LEAST(COALESCE(bd.checkOutDate, b.check_out), DATE_ADD(DATE(?), INTERVAL 1 DAY)),
                   GREATEST(COALESCE(bd.checkInDate, b.check_in), DATE(?))
                 )
               )
             ), 0) AS bookedNights
             FROM bookings b
             LEFT JOIN booking_details bd ON bd.bookingId = b.id
-            WHERE COALESCE(b.bookingStatus, b.status) NOT IN ('cancelled', 'no_show')
+            WHERE NOT ${CANCELLED_EXPR}
+              AND NOT ${UNPAID_HOLD_EXPR}
               AND COALESCE(bd.checkInDate, b.check_in) <= DATE(?)
-              AND COALESCE(bd.checkOutDate, b.check_out) >= DATE(?)
+              AND COALESCE(bd.checkOutDate, b.check_out) > DATE(?)
           `,
           [toStr, fromStr, toStr, fromStr]
         );

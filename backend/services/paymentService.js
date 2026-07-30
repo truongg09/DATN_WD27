@@ -36,6 +36,43 @@ const buildPaymentAmounts = ({
   };
 };
 
+const paymentMethodLabel = (method) => ({
+  cash: 'tiền mặt',
+  bank_transfer: 'chuyển khoản',
+  vnpay: 'VNPay',
+  zalopay: 'ZaloPay',
+  credit_card: 'thẻ tín dụng'
+}[method] || method || 'khác');
+
+const money = (amount) => `${Number(amount || 0).toLocaleString('vi-VN')}₫`;
+
+// Ghi dấu vết thanh toán vào lịch sử đặt phòng (booking_history).
+// Không ném lỗi: sự cố ghi log không được làm hỏng giao dịch tiền đã nhận.
+const logBookingHistory = async (bookingId, action, description, extra, actor, connection) => {
+  try {
+    let actorName = null;
+    if (actor?.userId) {
+      actorName = await bookingModel.getActorDisplayName(actor.userId, connection);
+    }
+    await bookingModel.addBookingHistory(
+      bookingId,
+      {
+        action,
+        description,
+        oldValue: extra?.oldValue,
+        newValue: extra?.newValue,
+        amount: extra?.amount,
+        actorId: actor?.userId || null,
+        actorName: actorName || actor?.email || null,
+        actorRole: actor?.role || 'system'
+      },
+      connection
+    );
+  } catch (error) {
+    console.error('Ghi lịch sử thanh toán thất bại:', error.message);
+  }
+};
+
 const generateTransactionCode = (method) => {
   const prefix =
     method === 'zalopay' ? 'ZALOPAY'
@@ -117,11 +154,13 @@ const createPaymentForBooking = async (bookingId, options = {}, connection) => {
 
 const createPayment = async (payload) => {
   const connection = await db.getConnection();
+  let committed = false;
 
   try {
     await connection.beginTransaction();
     const payment = await createPaymentForBooking(payload.bookingId, payload, connection);
     await connection.commit();
+    committed = true;
     return payment;
   } catch (error) {
     if (!committed) {
@@ -200,7 +239,7 @@ const getPaymentByBookingId = async (bookingId) => {
 
 const ROOM_TAKEN_MESSAGE = 'Phòng vừa được đặt bởi khách khác, vui lòng đặt phòng khác!';
 
-const processPayment = async (paymentId, payload) => {
+const processPayment = async (paymentId, payload, actor = null) => {
   const connection = await db.getConnection();
   let committed = false;
 
@@ -335,12 +374,37 @@ const processPayment = async (paymentId, payload) => {
       connection
     );
 
-    await bookingModel.updateBookingStatus(booking.id, 'confirmed', connection);
+    // Chỉ xác nhận đơn đang chờ. Khách đang lưu trú trả thêm tiền dịch vụ/hư
+    // hỏng mà bị đưa ngược về 'confirmed' thì không check-out được nữa.
+    if (['pending', 'confirmed'].includes(booking.status)) {
+      await bookingModel.updateBookingStatus(booking.id, 'confirmed', connection);
+    }
     await bookingModel.cancelCompetingUnpaidBookings(
       booking.room_id,
       booking.check_in,
       booking.check_out,
       booking.id,
+      connection
+    );
+
+    await logBookingHistory(
+      booking.id,
+      'payment',
+      `Nhận thanh toán ${paymentMethodLabel(payload.paymentMethod)} ${money(payAmount)}${
+        isFullyPaid
+          ? ' — đã thanh toán đủ'
+          : ` — đã trả ${money(newPaidAmount)}, còn lại ${money(Math.max(newRemainingAmount, 0))}`
+      }`,
+      {
+        newValue: {
+          paymentMethod: payload.paymentMethod,
+          paidAmount: newPaidAmount,
+          remainingAmount: Math.max(newRemainingAmount, 0),
+          paymentStatus: isFullyPaid ? 'paid' : 'deposit_paid'
+        },
+        amount: payAmount
+      },
+      actor,
       connection
     );
 
@@ -376,7 +440,7 @@ const processPayment = async (paymentId, payload) => {
   }
 };
 
-const confirmPayment = async (paymentId, payload) => {
+const confirmPayment = async (paymentId, payload, actor = null) => {
   const connection = await db.getConnection();
   let committed = false;
 
@@ -476,6 +540,27 @@ const confirmPayment = async (paymentId, payload) => {
       await bookingModel.updateBookingStatus(booking.id, 'confirmed', connection);
     }
 
+    await logBookingHistory(
+      booking.id,
+      'payment',
+      `Xác nhận thanh toán ${paymentMethodLabel(payload.paymentMethod || payment.paymentMethod)} ${money(payAmount)}${
+        isFullyPaid
+          ? ' — đã thanh toán đủ'
+          : ` — đã trả ${money(newPaidAmount)}, còn lại ${money(Math.max(newRemainingAmount, 0))}`
+      }${transactionCode ? ` (mã GD: ${transactionCode})` : ''}`,
+      {
+        newValue: {
+          paidAmount: newPaidAmount,
+          remainingAmount: Math.max(newRemainingAmount, 0),
+          paymentStatus: isFullyPaid ? 'paid' : 'deposit_paid',
+          transactionCode
+        },
+        amount: payAmount
+      },
+      actor,
+      connection
+    );
+
     await connection.commit();
     committed = true;
 
@@ -504,7 +589,7 @@ const confirmPayment = async (paymentId, payload) => {
   }
 };
 
-const refundPayment = async (paymentId) => {
+const refundPayment = async (paymentId, actor = null) => {
   const connection = await db.getConnection();
 
   try {
@@ -528,6 +613,19 @@ const refundPayment = async (paymentId) => {
         paymentDate: null,
         transactionCode: null
       },
+      connection
+    );
+
+    await logBookingHistory(
+      payment.bookingId,
+      'refund',
+      `Hoàn tiền giao dịch #${payment.id}: ${money(payment.paidAmount)}`,
+      {
+        oldValue: { paymentStatus: payment.paymentStatus, paidAmount: Number(payment.paidAmount) },
+        newValue: { paymentStatus: 'refunded' },
+        amount: Number(payment.paidAmount)
+      },
+      actor,
       connection
     );
 
@@ -565,7 +663,7 @@ const settleGatewayPayment = async ({ orderId, paymentMethod, amount }) => {
   return result.payment;
 };
 
-const submitTransferConfirmation = async (paymentId, payload) => {
+const submitTransferConfirmation = async (paymentId, payload, actor = null) => {
   const connection = await db.getConnection();
   try {
     await connection.beginTransaction();
@@ -588,6 +686,18 @@ const submitTransferConfirmation = async (paymentId, payload) => {
       paymentMethod: payload.paymentMethod,
       note: payload.note
     }, connection);
+
+    // Ghi dấu vết: khách đã khai báo chuyển khoản, đang chờ lễ tân đối soát.
+    // Đây mới là YÊU CẦU, tiền chưa được ghi nhận vào payment.
+    await logBookingHistory(
+      payment.bookingId,
+      'transfer_confirmation',
+      `Khách báo đã chuyển khoản ${money(amount)}, chờ khách sạn đối soát`,
+      { amount },
+      actor,
+      connection
+    );
+
     await connection.commit();
     return formatPayment(await paymentModel.getPaymentById(paymentId));
   } catch (error) {
@@ -598,7 +708,7 @@ const submitTransferConfirmation = async (paymentId, payload) => {
   }
 };
 
-const confirmTransferPayment = async (paymentId, confirmedBy) => {
+const confirmTransferPayment = async (paymentId, confirmedBy, actor = null) => {
   const request = await paymentModel.getConfirmationRequest(paymentId);
   if (!request) throw new HttpError(404, 'Payment verification request not found');
   if (request.status !== 'pending') throw new HttpError(409, 'Payment verification request is no longer pending');
@@ -608,7 +718,7 @@ const confirmTransferPayment = async (paymentId, confirmedBy) => {
   const result = await processPayment(paymentId, {
     paymentMethod: 'bank_transfer',
     amount: Number(request.amount)
-  });
+  }, actor || (confirmedBy ? { userId: confirmedBy, role: 'employee' } : null));
   await paymentModel.confirmConfirmationRequest(paymentId, confirmedBy);
   return result.payment;
 };
@@ -689,10 +799,20 @@ const applyVoucher = async (paymentId, code, userId) => {
     }
     const remainingAmount = totalAmount - paidAmount;
 
+    // Voucher có thể phủ hết số tiền còn lại. Nếu không cập nhật paymentStatus,
+    // booking vẫn bị coi là chưa thanh toán: hết 15 phút giữ chỗ sẽ bị tự hủy
+    // và check-in/check-out đều bị chặn.
+    const newPaymentStatus = remainingAmount <= 0
+      ? 'paid'
+      : paidAmount > 0
+        ? 'deposit_paid'
+        : 'unpaid';
+
     await paymentModel.updatePayment(paymentId, {
       discountAmount,
       totalAmount,
-      remainingAmount
+      remainingAmount,
+      paymentStatus: newPaymentStatus
     }, connection);
     await connection.query('UPDATE bookings SET voucherId = ? WHERE id = ?', [
       voucher.id,
@@ -706,6 +826,18 @@ const applyVoucher = async (paymentId, code, userId) => {
         customerVoucher.id
       ]);
     }
+
+    await logBookingHistory(
+      booking.id,
+      'voucher_applied',
+      `Áp dụng voucher ${voucher.code}: giảm ${money(discountAmount)}, tổng còn ${money(totalAmount)}`,
+      {
+        newValue: { voucherCode: voucher.code, discountAmount, totalAmount },
+        amount: discountAmount
+      },
+      { userId, role: 'customer' },
+      connection
+    );
 
     await connection.commit();
     return {
