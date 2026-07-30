@@ -141,6 +141,9 @@ function getAuthHeaders(): { headers: Record<string, string>; hasToken: boolean 
 // kèm theo query để trang login có thể hiển thị thông báo phù hợp.
 function handleUnauthorized() {
   localStorage.removeItem("token");
+  // AdminRoute xét quyền dựa trên localStorage 'user'. Chỉ xoá token sẽ để lại
+  // phiên chết vẫn vào được /admin rồi lỗi vòng lặp.
+  localStorage.removeItem("user");
   const alreadyOnLogin = window.location.pathname.includes("/login");
   if (!alreadyOnLogin) {
     window.location.href = "/login?reason=session_expired";

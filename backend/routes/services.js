@@ -1,6 +1,8 @@
 const express = require('express');
 const db = require('../config/db');
 
+const { requireAuth, requireStaff } = require('../middleware/auth');
+
 const router = express.Router();
 
 const parseServiceId = (id) => {
@@ -64,7 +66,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // Create a service
-router.post('/', async (req, res) => {
+router.post('/', requireAuth, requireStaff, async (req, res) => {
   const { name, numericPrice, description, error } = normalizePayload(req.body);
   if (error) {
     return res.status(400).json({ message: error });
@@ -89,7 +91,7 @@ router.post('/', async (req, res) => {
 });
 
 // Update a service
-router.put('/:id', async (req, res) => {
+router.put('/:id', requireAuth, requireStaff, async (req, res) => {
   const serviceId = parseServiceId(req.params.id);
   if (!serviceId) {
     return res.status(400).json({ message: 'ID dịch vụ không hợp lệ' });
@@ -123,7 +125,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // Delete a service
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireAuth, requireStaff, async (req, res) => {
   const serviceId = parseServiceId(req.params.id);
   if (!serviceId) {
     return res.status(400).json({ message: 'ID dịch vụ không hợp lệ' });

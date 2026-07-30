@@ -1,5 +1,6 @@
 const bookingService = require('../services/bookingService');
 const HttpError = require('../utils/httpError');
+const { isStaff } = require('../middleware/auth');
 const {
   normalizeAvailabilityPayload,
   normalizeBookingPayload,
@@ -11,6 +12,18 @@ const {
   normalizeTypeAvailabilityPayload,
   normalizeIdParam
 } = require('../validators/bookingValidator');
+
+// Mặc định từ chối: chỉ nhân viên hoặc đúng chủ đặt phòng mới được xem/thao tác.
+// Trước đây chỉ kiểm tra khi role === 'customer', nên request không kèm token
+// (req.user undefined) bỏ qua sạch kiểm tra quyền.
+const ensureBookingAccess = (user, booking, action = 'xem') => {
+  if (isStaff(user)) {
+    return;
+  }
+  if (!user?.userId || Number(booking.user_id) !== Number(user.userId)) {
+    throw new HttpError(403, `Không thể ${action} đặt phòng của khách hàng khác`);
+  }
+};
 
 const sendError = (res, error) => {
   console.error('Booking API error:', error);
@@ -44,15 +57,15 @@ const checkTypeAvailability = async (req, res) => {
 const createBooking = async (req, res) => {
   try {
     const userFromToken = req.user?.userId;
-    // A customer must never be able to choose another account by changing the
-    // userId sent from the browser. The JWT is the source of truth. This also
-    // avoids false 403 responses caused by stale localStorage user data.
+    // Khách không bao giờ được chọn tài khoản khác bằng cách sửa userId gửi từ
+    // trình duyệt: JWT là nguồn sự thật. Chỉ nhân viên (đặt hộ tại quầy) mới
+    // được truyền userId khác với token của mình.
     const payload = normalizeBookingPayload(
-      req.user?.role === 'customer' ? { ...req.body, userId: userFromToken } : req.body,
+      isStaff(req.user) ? req.body : { ...req.body, userId: userFromToken },
       userFromToken
     );
 
-    const booking = await bookingService.createBooking(payload);
+    const booking = await bookingService.createBooking(payload, req.user || null);
     res.status(201).json({
       message: 'Đặt phòng thành công',
       data: booking
@@ -67,6 +80,9 @@ const listBookings = async (req, res) => {
     const filters = {};
     if (req.query.userId || req.query.customerId) {
       filters.userId = normalizeIdParam(req.query.userId || req.query.customerId, 'userId');
+    }
+    if (!isStaff(req.user)) {
+      filters.userId = normalizeIdParam(req.user?.userId, 'userId');
     }
     if (req.query.status) {
       filters.status = req.query.status;
@@ -93,13 +109,7 @@ const getBookingById = async (req, res) => {
   try {
     const bookingId = normalizeIdParam(req.params.id);
     const booking = await bookingService.getBookingById(bookingId);
-
-    if (
-      req.user?.role === 'customer' &&
-      Number(booking.user_id) !== Number(req.user.userId)
-    ) {
-      throw new HttpError(403, 'Không thể xem đặt phòng của khách hàng khác');
-    }
+    ensureBookingAccess(req.user, booking);
 
     res.json({ data: booking });
   } catch (error) {
@@ -111,17 +121,14 @@ const cancelBooking = async (req, res) => {
   try {
     const bookingId = normalizeIdParam(req.params.id);
 
-    if (req.user?.role === 'customer') {
-      const currentBooking = await bookingService.getBookingById(bookingId);
-      if (Number(currentBooking.user_id) !== Number(req.user.userId)) {
-        throw new HttpError(403, 'Không thể hủy đặt phòng của khách hàng khác');
-      }
-    }
+    const currentBooking = await bookingService.getBookingById(bookingId);
+    ensureBookingAccess(req.user, currentBooking, 'hủy');
 
     const booking = await bookingService.cancelBooking(
       bookingId,
       req.body?.refund || null,
-      req.body?.reason
+      req.body?.reason,
+      req.user || null
     );
     res.json({
       message: 'Hủy đặt phòng thành công',
@@ -132,16 +139,57 @@ const cancelBooking = async (req, res) => {
   }
 };
 
+// Lịch sử thao tác của một đặt phòng (ai làm gì, lúc nào)
+const getBookingHistory = async (req, res) => {
+  try {
+    const bookingId = normalizeIdParam(req.params.id);
+
+    const currentBooking = await bookingService.getBookingById(bookingId);
+    ensureBookingAccess(req.user, currentBooking);
+
+    const history = await bookingService.getBookingHistory(bookingId);
+    res.json({ data: history });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
+// Bảng kê tiền còn thiếu + thông tin dựng QR. Khách xem được đơn của mình để
+// tự thanh toán trong app; nhân viên xem được mọi đơn để thu tiền tại quầy.
+const getPaymentSummary = async (req, res) => {
+  try {
+    const bookingId = normalizeIdParam(req.params.id);
+
+    const currentBooking = await bookingService.getBookingById(bookingId);
+    ensureBookingAccess(req.user, currentBooking);
+
+    const summary = await bookingService.getPaymentSummary(bookingId);
+    res.json({ data: summary });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
+// Lễ tân gửi yêu cầu thanh toán cho khách (thông báo trong app + ghi lịch sử).
+const requestOutstandingPayment = async (req, res) => {
+  try {
+    const bookingId = normalizeIdParam(req.params.id);
+    const summary = await bookingService.requestOutstandingPayment(bookingId, req.user || null);
+    res.json({
+      message: 'Đã gửi yêu cầu thanh toán tới khách',
+      data: summary
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
 const getRefundPreview = async (req, res) => {
   try {
     const bookingId = normalizeIdParam(req.params.id);
 
-    if (req.user?.role === 'customer') {
-      const currentBooking = await bookingService.getBookingById(bookingId);
-      if (Number(currentBooking.user_id) !== Number(req.user.userId)) {
-        throw new HttpError(403, 'Không thể xem đặt phòng của khách hàng khác');
-      }
-    }
+    const currentBooking = await bookingService.getBookingById(bookingId);
+    ensureBookingAccess(req.user, currentBooking);
 
     const preview = await bookingService.getRefundPreview(bookingId);
     res.json({ data: preview });
@@ -154,7 +202,7 @@ const addServiceCharge = async (req, res) => {
   try {
     const bookingId = normalizeIdParam(req.params.id);
     const payload = normalizeServiceChargePayload(req.body);
-    const result = await bookingService.addServiceCharge(bookingId, payload);
+    const result = await bookingService.addServiceCharge(bookingId, payload, req.user || null);
     res.json({
       message: 'Đã thêm phí dịch vụ thành công',
       data: result
@@ -168,7 +216,7 @@ const saveGuestIdentities = async (req, res) => {
   try {
     const bookingId = normalizeIdParam(req.params.id);
     const payload = normalizeGuestIdentitiesPayload(req.body);
-    const booking = await bookingService.saveGuestIdentities(bookingId, payload);
+    const booking = await bookingService.saveGuestIdentities(bookingId, payload, req.user || null);
     res.json({
       message: 'Đã lưu thông tin khách lưu trú',
       data: booking
@@ -182,7 +230,7 @@ const addDamageCharge = async (req, res) => {
   try {
     const bookingId = normalizeIdParam(req.params.id);
     const payload = normalizeDamageChargePayload(req.body);
-    const result = await bookingService.addDamageCharge(bookingId, payload);
+    const result = await bookingService.addDamageCharge(bookingId, payload, req.user || null);
     res.json({
       message: 'Đã thêm phí hư hỏng',
       data: result
@@ -196,7 +244,7 @@ const transferRoom = async (req, res) => {
   try {
     const bookingId = normalizeIdParam(req.params.id);
     const payload = normalizeTransferRoomPayload(req.body);
-    const result = await bookingService.transferRoom(bookingId, payload);
+    const result = await bookingService.transferRoom(bookingId, payload, req.user || null);
     res.json({
       message: 'Chuyển phòng thành công',
       data: result
@@ -210,7 +258,7 @@ const extendStay = async (req, res) => {
   try {
     const bookingId = normalizeIdParam(req.params.id);
     const payload = normalizeExtendStayPayload(req.body);
-    const result = await bookingService.extendStay(bookingId, payload);
+    const result = await bookingService.extendStay(bookingId, payload, req.user || null);
     res.json({
       message: 'Gia hạn đặt phòng thành công',
       data: result
@@ -224,7 +272,7 @@ const checkIn = async (req, res) => {
   try {
     const bookingId = normalizeIdParam(req.params.id);
     const payload = req.body?.guests ? normalizeGuestIdentitiesPayload(req.body) : {};
-    const result = await bookingService.checkIn(bookingId, payload);
+    const result = await bookingService.checkIn(bookingId, payload, req.user || null);
     res.json({
       message: result.message || 'Nhận phòng thành công',
       data: result
@@ -237,7 +285,7 @@ const checkIn = async (req, res) => {
 const markNoShow = async (req, res) => {
   try {
     const bookingId = normalizeIdParam(req.params.id);
-    const result = await bookingService.markNoShow(bookingId);
+    const result = await bookingService.markNoShow(bookingId, { actor: req.user || null });
     res.json({
       message: 'Đã đánh dấu khách không đến',
       data: result
@@ -250,7 +298,7 @@ const markNoShow = async (req, res) => {
 const checkOut = async (req, res) => {
   try {
     const bookingId = normalizeIdParam(req.params.id);
-    const booking = await bookingService.checkOut(bookingId);
+    const booking = await bookingService.checkOut(bookingId, req.user || null);
     res.json({
       message: 'Trả phòng thành công',
       data: booking
@@ -353,7 +401,7 @@ const confirmServiceRequest = async (req, res) => {
     const result = await bookingService.addServiceCharge(request.bookingId, {
       serviceId: request.serviceId,
       quantity: request.quantity
-    });
+    }, req.user || null);
 
     // Update request status
     await db.query(
@@ -394,6 +442,9 @@ module.exports = {
   listBookings,
   listMyBookings,
   getBookingById,
+  getBookingHistory,
+  getPaymentSummary,
+  requestOutstandingPayment,
   getRefundPreview,
   cancelBooking,
   addServiceCharge,

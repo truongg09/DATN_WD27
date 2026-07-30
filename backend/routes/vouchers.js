@@ -1,6 +1,8 @@
 const express = require('express');
 const db = require('../config/db');
 
+const { requireAuth, requireStaff, requireAdmin } = require('../middleware/auth');
+
 const router = express.Router();
 
 const normalizeVoucherPayload = (body) => {
@@ -14,6 +16,11 @@ const normalizeVoucherPayload = (body) => {
   if (!Number.isFinite(discountValue) || discountValue <= 0) return { error: 'Giá trị giảm giá phải lớn hơn 0' };
   if (discountType === 'percentage' && discountValue > 100) return { error: 'Giảm giá phần trăm phải từ 0 đến 100%' };
   if (!Number.isFinite(maxDiscount) || maxDiscount < 0) return { error: 'Mức giảm tối đa không hợp lệ' };
+  // Voucher phần trăm không có trần sẽ giảm theo tổng đơn, đơn càng lớn mất
+  // càng nhiều tiền. Bắt buộc đặt trần để giới hạn thiệt hại.
+  if (discountType === 'percentage' && maxDiscount <= 0) {
+    return { error: 'Voucher giảm theo phần trăm phải có mức giảm tối đa lớn hơn 0' };
+  }
   if (!Number.isFinite(minBookingAmount) || minBookingAmount < 0) return { error: 'Giá trị đơn tối thiểu không hợp lệ' };
   if (!Number.isInteger(quantity) || quantity < 1) return { error: 'Số lượng voucher phải là số nguyên dương' };
   if (body.endDate < body.startDate) return { error: 'Ngày kết thúc phải sau ngày bắt đầu' };
@@ -55,7 +62,7 @@ router.get('/', async (_req, res) => {
   }
 });
 
-router.post('/', async (req, res) => {
+router.post('/', requireAuth, requireAdmin, async (req, res) => {
   try {
     const normalized = normalizeVoucherPayload(req.body);
     if (normalized.error) return res.status(400).json({ message: normalized.error });
@@ -81,7 +88,7 @@ router.post('/', async (req, res) => {
   }
 });
 
-router.put('/:id', async (req, res) => {
+router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
     const voucherId = Number(req.params.id);
     const normalized = normalizeVoucherPayload(req.body);
@@ -109,7 +116,7 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
     const voucherId = Number(req.params.id);
     if (!voucherId) {

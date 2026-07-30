@@ -1,6 +1,8 @@
 const express = require('express');
 const db = require('../config/db');
 
+const { requireAuth, requireStaff } = require('../middleware/auth');
+
 const router = express.Router();
 
 const VALID_STATUS = ['normal', 'damaged', 'lost', 'maintenance'];
@@ -39,7 +41,7 @@ const ITEM_SELECT = `
 `;
 
 // List all room items
-router.get('/', async (_req, res) => {
+router.get('/', requireAuth, requireStaff, async (_req, res) => {
   try {
     const [items] = await db.query(`${ITEM_SELECT} ORDER BY ri.id ASC`);
     res.json({ data: items });
@@ -50,7 +52,7 @@ router.get('/', async (_req, res) => {
 });
 
 // Get a single room item
-router.get('/:id', async (req, res) => {
+router.get('/:id', requireAuth, requireStaff, async (req, res) => {
   const itemId = parseId(req.params.id);
   if (!itemId) {
     return res.status(400).json({ message: 'ID vật dụng không hợp lệ' });
@@ -68,7 +70,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // Create a room item
-router.post('/', async (req, res) => {
+router.post('/', requireAuth, requireStaff, async (req, res) => {
   const { itemName, roomId, quantity, status, error } = normalizePayload(req.body);
   if (error) {
     return res.status(400).json({ message: error });
@@ -88,7 +90,7 @@ router.post('/', async (req, res) => {
 });
 
 // Update a room item
-router.put('/:id', async (req, res) => {
+router.put('/:id', requireAuth, requireStaff, async (req, res) => {
   const itemId = parseId(req.params.id);
   if (!itemId) {
     return res.status(400).json({ message: 'ID vật dụng không hợp lệ' });
@@ -113,7 +115,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // Delete a room item
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireAuth, requireStaff, async (req, res) => {
   const itemId = parseId(req.params.id);
   if (!itemId) {
     return res.status(400).json({ message: 'ID vật dụng không hợp lệ' });
