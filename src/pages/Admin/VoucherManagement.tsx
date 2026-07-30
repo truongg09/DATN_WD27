@@ -216,8 +216,11 @@ function VoucherManagement() {
   ];
 
   const totalVouchers = vouchers.length;
-  const activeVouchers = vouchers.filter(v => v.status === 'active' && dayjs(v.endDate).isAfter(dayjs(), 'day')).length;
-  const expiredVouchers = vouchers.filter(v => dayjs(v.endDate).isBefore(dayjs(), 'day')).length;
+  // Dùng chung một mốc so sánh để voucher kết thúc đúng hôm nay vẫn được tính là
+  // đang hoạt động, khớp với cột Trạng thái trong bảng bên dưới.
+  const isExpired = (endDate: string) => dayjs(endDate).isBefore(dayjs(), 'day');
+  const activeVouchers = vouchers.filter(v => v.status === 'active' && !isExpired(v.endDate)).length;
+  const expiredVouchers = vouchers.filter(v => isExpired(v.endDate)).length;
 
   return (
     <div style={{ padding: 24, background: '#f8f6f2', minHeight: '100vh' }}>
@@ -366,10 +369,31 @@ function VoucherManagement() {
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item
-                name="maxDiscount"
-                label="Giảm tối đa (đ)"
+                noStyle
+                shouldUpdate={(prev, curr) => prev.discountType !== curr.discountType}
               >
-                <InputNumber min={0} style={{ width: '100%' }} placeholder="0 = không giới hạn" />
+                {({ getFieldValue }) => {
+                  const isPercentage = getFieldValue('discountType') === 'percentage';
+                  return (
+                    <Form.Item
+                      name="maxDiscount"
+                      label="Giảm tối đa (đ)"
+                      // Voucher phần trăm bắt buộc có trần, nếu không đơn càng lớn
+                      // khách sạn càng mất nhiều tiền.
+                      rules={
+                        isPercentage
+                          ? [{ required: true, message: 'Voucher phần trăm phải có mức giảm tối đa' }]
+                          : []
+                      }
+                    >
+                      <InputNumber
+                        min={isPercentage ? 1 : 0}
+                        style={{ width: '100%' }}
+                        placeholder={isPercentage ? 'Bắt buộc với voucher phần trăm' : '0 = không giới hạn'}
+                      />
+                    </Form.Item>
+                  );
+                }}
               </Form.Item>
             </Col>
             <Col span={12}>

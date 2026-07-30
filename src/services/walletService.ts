@@ -22,6 +22,11 @@ export interface WalletTransaction {
   note?: string | null;
   createdAt: string;
   processedAt?: string | null;
+  // Số dư ví ngay trước và ngay sau giao dịch này (backend dựng lại bằng cách
+  // cộng dồn lịch sử theo thứ tự thời gian).
+  balanceBefore?: number;
+  balanceAfter?: number;
+  balanceDelta?: number;
   customer_name?: string;
   customer_email?: string;
   customer_phone?: string;

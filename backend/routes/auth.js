@@ -2,9 +2,9 @@ const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const db = require('../config/db');
+const { JWT_SECRET, JWT_EXPIRES_IN } = require('../config/jwt');
 
 const router = express.Router();
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this-in-production';
 
 router.post('/register', async (req, res) => {
   try {
@@ -56,7 +56,7 @@ router.post('/register', async (req, res) => {
     const token = jwt.sign(
       { userId: accountId, email, role: 'customer' },
       JWT_SECRET,
-      { expiresIn: '7d' }
+      { expiresIn: JWT_EXPIRES_IN }
     );
 
     return res.status(201).json({
@@ -100,26 +100,25 @@ router.post('/login', async (req, res) => {
     }
 
     const user = users[0];
-    let passwordMatch = false;
+    // Chỉ chấp nhận mật khẩu đã băm bằng bcrypt. Nhánh so sánh chuỗi thuần
+    // trước đây cho phép đăng nhập bằng mật khẩu lưu thô trong database mẫu.
+    const passwordMatch = await bcrypt.compare(password, user.password || '');
 
-    if (user.password.startsWith("$2b$")) {
-      passwordMatch = await bcrypt.compare(password, user.password);
-    } else {
-      passwordMatch = password === user.password;
-    }
-    
-    if (!passwordMatch) {
-      return res.status(401).json({ message: "Email hoặc mật khẩu không đúng" });
-    }
-    
     if (!passwordMatch) {
       return res.status(401).json({ message: 'Email hoặc mật khẩu không đúng' });
+    }
+
+    // Khóa tài khoản trên trang quản trị phải chặn được đăng nhập.
+    if (user.status && user.status !== 'active') {
+      return res.status(403).json({
+        message: 'Tài khoản đã bị khóa. Vui lòng liên hệ khách sạn để được hỗ trợ.'
+      });
     }
 
     const token = jwt.sign(
       { userId: user.id, email: user.email, role: user.role },
       JWT_SECRET,
-      { expiresIn: '7d' }
+      { expiresIn: JWT_EXPIRES_IN }
     );
 
     return res.json({
@@ -159,16 +158,14 @@ router.post('/change-password', requireAuth, async (req, res) => {
     }
 
     const user = users[0];
-    let passwordMatch = false;
-
-    if (user.password.startsWith('$2b$')) {
-      passwordMatch = await bcrypt.compare(oldPassword, user.password);
-    } else {
-      passwordMatch = oldPassword === user.password;
-    }
+    const passwordMatch = await bcrypt.compare(oldPassword, user.password || '');
 
     if (!passwordMatch) {
       return res.status(400).json({ message: 'Mật khẩu cũ không chính xác!' });
+    }
+
+    if (String(newPassword).length < 6) {
+      return res.status(400).json({ message: 'Mật khẩu mới phải có ít nhất 6 ký tự!' });
     }
 
     const hashedPassword = await bcrypt.hash(newPassword, 10);

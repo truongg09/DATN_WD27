@@ -110,6 +110,12 @@ const normalizeBookingPayload = (body, userFromToken) => {
     throw new HttpError(400, 'Đặt phòng phải có ít nhất một khách');
   }
 
+  // Phụ thu trẻ em tính theo tuổi từng bé. Nếu không bắt buộc khai đủ tuổi,
+  // khách chỉ cần gửi childrenAges rỗng là né được toàn bộ phụ thu.
+  if (payload.children > 0 && payload.childrenAges.length !== payload.children) {
+    throw new HttpError(400, 'Vui lòng khai báo tuổi của từng trẻ em đi cùng');
+  }
+
   assertDateRange(payload.checkIn, payload.checkOut);
   return payload;
 };
@@ -214,12 +220,20 @@ const normalizeDamageChargePayload = (body) => {
   };
 };
 
-const normalizeTransferRoomPayload = (body) => ({
-  toRoomId: toPositiveInt(body.toRoomId ?? body.to_room_id, 'toRoomId'),
-  fromDate: normalizeDate(body.fromDate ?? body.from_date, 'fromDate'),
-  toDate: normalizeDate(body.toDate ?? body.to_date, 'toDate'),
-  reason: body.reason ? String(body.reason).trim() : null
-});
+const normalizeTransferRoomPayload = (body) => {
+  const payload = {
+    toRoomId: toPositiveInt(body.toRoomId ?? body.to_room_id, 'toRoomId'),
+    fromDate: normalizeDate(body.fromDate ?? body.from_date, 'fromDate'),
+    toDate: normalizeDate(body.toDate ?? body.to_date, 'toDate'),
+    reason: body.reason ? String(body.reason).trim() : null
+  };
+
+  if (payload.fromDate >= payload.toDate) {
+    throw new HttpError(400, 'Ngày bắt đầu chuyển phòng phải trước ngày kết thúc');
+  }
+
+  return payload;
+};
 
 const normalizeIdParam = (id, fieldName = 'id') => toPositiveInt(id, fieldName);
 
