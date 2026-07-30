@@ -466,11 +466,24 @@ const sumDamageCharges = async (bookingId, connection) => {
   return Number(row?.total || 0);
 };
 
-const updateBookingStay = async (bookingId, checkOut, totalPrice, connection) => {
+const updateBookingStay = async (bookingId, checkOut, totalPrice, connection, occupancySurcharge = null) => {
+  // Cột legacy totalAmount phải bao gồm cả tiền dịch vụ (lúc tạo booking nó được
+  // ghi bằng total_price + serviceAmount). Ghi đè bằng riêng tiền phòng sẽ làm
+  // cột này thiếu tiền dịch vụ và lệch với payments.totalAmount.
+  const serviceAmount = await sumBookingServices(bookingId, connection);
+
   await run(connection).query(
     'UPDATE bookings SET check_out = ?, total_price = ?, totalAmount = ? WHERE id = ?',
-    [checkOut, totalPrice, totalPrice, bookingId]
+    [checkOut, totalPrice, Number(totalPrice) + serviceAmount, bookingId]
   );
+
+  if (occupancySurcharge != null) {
+    await run(connection).query(
+      'UPDATE booking_details SET checkOutDate = ?, occupancySurcharge = ? WHERE bookingId = ?',
+      [checkOut, occupancySurcharge, bookingId]
+    );
+    return;
+  }
 
   await run(connection).query(
     'UPDATE booking_details SET checkOutDate = ? WHERE bookingId = ?',
@@ -570,6 +583,93 @@ const updateRoomStatus = async (roomId, status, connection) => {
   );
 };
 
+// Lưu giá đã chốt của từng đêm. Gọi lúc đặt phòng và khi gia hạn thêm đêm.
+const saveNightlyPrices = async (bookingId, prices, connection) => {
+  if (!Array.isArray(prices) || prices.length === 0) return;
+
+  const values = prices.map((item) => [bookingId, item.date, item.price]);
+  await run(connection).query(
+    `INSERT INTO booking_nightly_prices (bookingId, stayDate, price)
+     VALUES ?
+     ON DUPLICATE KEY UPDATE price = VALUES(price)`,
+    [values]
+  );
+};
+
+// Giá đã chốt của các đêm trong khoảng [from, to). Trả mảng rỗng với những
+// booking tạo trước khi có bảng này để nơi gọi tự tính lại như cũ.
+const listNightlyPrices = async (bookingId, from, to, connection) => {
+  const [rows] = await run(connection).query(
+    `SELECT stayDate, price
+     FROM booking_nightly_prices
+     WHERE bookingId = ? AND stayDate >= ? AND stayDate < ?
+     ORDER BY stayDate ASC`,
+    [bookingId, from, to]
+  );
+  return rows;
+};
+
+// Ghi một dòng dấu vết vào lịch sử thao tác của đặt phòng.
+// entry: { action, description, oldValue, newValue, amount, actorId, actorName, actorRole }
+const addBookingHistory = async (bookingId, entry, connection) => {
+  const [result] = await run(connection).query(
+    `
+      INSERT INTO booking_history
+        (bookingId, action, description, oldValue, newValue, amount, performedBy, performedByName, performedByRole)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+    [
+      bookingId,
+      entry.action,
+      entry.description || null,
+      entry.oldValue != null ? JSON.stringify(entry.oldValue) : null,
+      entry.newValue != null ? JSON.stringify(entry.newValue) : null,
+      entry.amount != null ? entry.amount : null,
+      entry.actorId || null,
+      entry.actorName || null,
+      entry.actorRole || 'system'
+    ]
+  );
+  return result.insertId;
+};
+
+const listBookingHistory = async (bookingId, connection) => {
+  const [rows] = await run(connection).query(
+    `
+      SELECT id, bookingId, action, description, oldValue, newValue, amount,
+             performedBy, performedByName, performedByRole, createdAt
+      FROM booking_history
+      WHERE bookingId = ?
+      ORDER BY createdAt DESC, id DESC
+    `,
+    [bookingId]
+  );
+  return rows.map((row) => {
+    let oldValue = null;
+    let newValue = null;
+    try { oldValue = row.oldValue ? JSON.parse(row.oldValue) : null; } catch { oldValue = row.oldValue; }
+    try { newValue = row.newValue ? JSON.parse(row.newValue) : null; } catch { newValue = row.newValue; }
+    return { ...row, oldValue, newValue };
+  });
+};
+
+// Lấy tên hiển thị của người thực hiện thao tác từ tài khoản.
+const getActorDisplayName = async (accountId, connection) => {
+  if (!accountId) return null;
+  const [rows] = await run(connection).query(
+    `
+      SELECT COALESCE(NULLIF(e.fullName, ''), NULLIF(c.fullName, ''), NULLIF(a.full_name, ''), a.email) AS name
+      FROM accounts a
+      LEFT JOIN customers c ON c.accountId = a.id
+      LEFT JOIN employees e ON e.accountId = a.id
+      WHERE a.id = ?
+      LIMIT 1
+    `,
+    [accountId]
+  );
+  return rows[0]?.name || null;
+};
+
 const listEligibleNoShowBookings = async (connection) => {
   const [rows] = await run(connection).query(
     `
@@ -616,6 +716,11 @@ module.exports = {
   sumDamageCharges,
   updateBookingStay,
   transferBookingRoom,
+  saveNightlyPrices,
+  listNightlyPrices,
+  addBookingHistory,
+  listBookingHistory,
+  getActorDisplayName,
   getBookingById,
   listBookings,
   updateBookingStatus,

@@ -26,6 +26,58 @@ const bookingStatusLabel = (status) => ({
 
 const dateToUtc = (date) => new Date(`${date}T00:00:00.000Z`);
 
+const actorRoleLabel = (role) => ({
+  admin: 'Quản trị viên',
+  employee: 'Nhân viên',
+  staff: 'Nhân viên',
+  customer: 'Khách hàng',
+  system: 'Hệ thống'
+}[role] || role || 'Hệ thống');
+
+// Chuẩn hóa người thực hiện thao tác từ req.user (JWT: { userId, email, role })
+// thành { actorId, actorName, actorRole } để ghi vào booking_history.
+const resolveActor = async (actor, connection) => {
+  if (!actor || !actor.userId) {
+    return { actorId: null, actorName: null, actorRole: 'system' };
+  }
+  let name = null;
+  try {
+    name = await bookingModel.getActorDisplayName(actor.userId, connection);
+  } catch {
+    name = null;
+  }
+  return {
+    actorId: actor.userId,
+    actorName: name || actor.email || null,
+    actorRole: actor.role || 'system'
+  };
+};
+
+const displayDate = (date) => {
+  const [year, month, day] = dayString(date).split('-');
+  return `${day}/${month}/${year}`;
+};
+
+const displayMoney = (amount) => `${Number(amount || 0).toLocaleString('vi-VN')}₫`;
+
+// Ghi dấu vết lịch sử cho đặt phòng. Gọi bên trong transaction của thao tác
+// để lịch sử luôn nhất quán với dữ liệu (rollback thì log cũng rollback).
+const logHistory = async (bookingId, action, description, extra, actor, connection) => {
+  const resolved = await resolveActor(actor, connection);
+  await bookingModel.addBookingHistory(
+    bookingId,
+    {
+      action,
+      description,
+      oldValue: extra?.oldValue,
+      newValue: extra?.newValue,
+      amount: extra?.amount,
+      ...resolved
+    },
+    connection
+  );
+};
+
 const getNightCount = (checkIn, checkOut) => {
   return Math.round((dateToUtc(checkOut) - dateToUtc(checkIn)) / MS_PER_DAY);
 };
@@ -73,6 +125,29 @@ const DEFAULT_CHILDREN_POLICY = {
   freeMaxAge: 5, // 0-5 tuổi miễn phí
   childMaxAge: 11, // 6-11 tuổi tính phụ thu; >= 12 tính như người lớn
   surchargePerNight: 200000
+};
+
+// Tài khoản nhận tiền của khách sạn (admin cấu hình ở trang Cài đặt thanh toán).
+// Giữ đúng key và giá trị mặc định như routes/settings.js để hai nơi không lệch.
+const DEFAULT_PAYMENT_ACCOUNT = {
+  bankBin: '970422',
+  bankCode: 'MB',
+  bankName: 'MB Bank (Ngân hàng Quân đội)',
+  accountNumber: '0000000000',
+  accountName: 'KHACH SAN HOTELHUB',
+  transferPrefix: 'HB'
+};
+
+const getPaymentAccountSettings = async (connection) => {
+  try {
+    const [rows] = await (connection || db).query(
+      "SELECT settingValue FROM app_settings WHERE settingKey = 'payment_account'"
+    );
+    if (rows.length === 0) return { ...DEFAULT_PAYMENT_ACCOUNT };
+    return { ...DEFAULT_PAYMENT_ACCOUNT, ...JSON.parse(rows[0].settingValue) };
+  } catch {
+    return { ...DEFAULT_PAYMENT_ACCOUNT };
+  }
 };
 
 const getChildrenPolicy = async (connection) => {
@@ -323,10 +398,13 @@ const checkTypeAvailability = async (payload) => {
 const expireUnpaidBookingHolds = () => bookingModel.expireUnpaidBookingHolds();
 
 const getRefundPolicy = (checkIn, paidAmount = 0) => {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  // Cả hai mốc phải cùng một hệ quy chiếu. Trước đây `today` là nửa đêm giờ địa
+  // phương còn `checkInDate` là nửa đêm UTC, nên trên máy chủ VN (UTC+7) số ngày
+  // luôn lệch: hủy 2 ngày trước khi nhận phòng bị tính thành 3 (hoàn 50% thay vì
+  // 100%), còn hủy sau ngày nhận phòng lại ra 0 ngày và được hoàn 100%.
+  const today = dateToUtc(dayString(new Date()));
   const checkInDate = dateToUtc(dayString(checkIn));
-  const daysBeforeCheckIn = Math.ceil((checkInDate - today) / MS_PER_DAY);
+  const daysBeforeCheckIn = Math.round((checkInDate - today) / MS_PER_DAY);
   const rate = daysBeforeCheckIn < 0
     ? 0
     : daysBeforeCheckIn < 3
@@ -342,7 +420,7 @@ const getRefundPolicy = (checkIn, paidAmount = 0) => {
   };
 };
 
-const createBooking = async (payload) => {
+const createBooking = async (payload, actor) => {
   const connection = await db.getConnection();
 
   try {
@@ -392,6 +470,8 @@ const createBooking = async (payload) => {
       connection
     );
     await bookingModel.upsertAvailabilityRows(payload.roomId, bookingId, dates, connection);
+    // Chốt giá từng đêm để thao tác về sau không tính lại theo bảng giá mới.
+    await bookingModel.saveNightlyPrices(bookingId, nightly.prices, connection);
 
     let serviceAmount = 0;
     // Dịch vụ khách chủ động chọn khi đặt được xác nhận và tính vào payment ngay.
@@ -427,6 +507,23 @@ const createBooking = async (payload) => {
       connection
     );
 
+    await logHistory(
+      bookingId,
+      'created',
+      `Tạo đặt phòng ${room.roomNumber ? `phòng ${room.roomNumber}` : ''} từ ${displayDate(payload.checkIn)} đến ${displayDate(payload.checkOut)} (${nightly.nights} đêm), tổng tiền ${displayMoney(totalPrice + serviceAmount)}`,
+      {
+        newValue: {
+          roomId: payload.roomId,
+          checkIn: dayString(payload.checkIn),
+          checkOut: dayString(payload.checkOut),
+          totalPrice: totalPrice + serviceAmount
+        },
+        amount: totalPrice + serviceAmount
+      },
+      actor || { userId: payload.userId, role: 'customer' },
+      connection
+    );
+
     await connection.commit();
 
     const booking = await bookingModel.getBookingById(bookingId);
@@ -448,7 +545,8 @@ const getBookingById = async (bookingId) => {
     throw new HttpError(404, 'Không tìm thấy đặt phòng');
   }
   const [services] = await db.query(
-    `SELECT bs.serviceId, bs.quantity, bs.totalPrice, s.serviceName, s.description, s.price AS unitPrice
+    `SELECT bs.id, bs.serviceId, bs.quantity, bs.totalPrice, bs.createdAt,
+            s.serviceName, s.description, s.price AS unitPrice
      FROM booking_services bs
      JOIN services s ON s.id = bs.serviceId
      WHERE bs.bookingId = ?
@@ -473,17 +571,149 @@ const getBookingById = async (bookingId) => {
     `SELECT id, amount, refundRate, refundMethod, status, note, createdAt, processedAt
      FROM payment_refunds
      WHERE bookingId = ?
-     ORDER BY id DESC
-     LIMIT 1`,
+     ORDER BY id DESC`,
     [bookingId]
   );
+  const [damages] = await db.query(
+    `SELECT id, itemName, quantity, unitPrice, totalPrice, note, createdAt
+     FROM booking_damage_charges
+     WHERE bookingId = ?
+     ORDER BY id ASC`,
+    [bookingId]
+  );
+  const [transfers] = await db.query(
+    `SELECT t.id, t.fromRoomId, t.toRoomId, t.fromDate, t.toDate, t.pricePerNight, t.reason, t.createdAt,
+            fr.roomNumber AS fromRoomNumber, tr.roomNumber AS toRoomNumber
+     FROM booking_room_transfers t
+     LEFT JOIN rooms fr ON fr.id = t.fromRoomId
+     LEFT JOIN rooms tr ON tr.id = t.toRoomId
+     WHERE t.bookingId = ?
+     ORDER BY t.id ASC`,
+    [bookingId]
+  );
+  const [payments] = await db.query(
+    `SELECT id, roomAmount, serviceAmount, surchargeAmount, discountAmount, depositAmount,
+            paidAmount, remainingAmount, totalAmount, paymentMethod, paymentStatus,
+            transactionCode, paymentDate
+     FROM payments
+     WHERE bookingId = ?
+     ORDER BY id DESC`,
+    [bookingId]
+  );
+  const history = await bookingModel.listBookingHistory(bookingId);
   return {
     ...booking,
     services,
     guests,
     voucher: vouchers[0] || null,
     refund: refunds[0] || null,
+    refunds,
+    damages,
+    transfers,
+    payments,
+    payment: payments[0] || null,
+    history,
   };
+};
+
+const getBookingHistory = async (bookingId) => {
+  const booking = await bookingModel.getBookingById(bookingId);
+  if (!booking) {
+    throw new HttpError(404, 'Không tìm thấy đặt phòng');
+  }
+  return bookingModel.listBookingHistory(bookingId);
+};
+
+// Bảng kê số tiền khách còn phải trả khi trả phòng, kèm thông tin dựng mã QR.
+// Dùng cho màn hình thu tiền của lễ tân và cho trang thanh toán của khách.
+const getPaymentSummary = async (bookingId) => {
+  const booking = await bookingModel.getBookingById(bookingId);
+  if (!booking) {
+    throw new HttpError(404, 'Không tìm thấy đặt phòng');
+  }
+
+  let payment = null;
+  try {
+    payment = await paymentService.getPaymentByBookingId(bookingId);
+  } catch {
+    payment = null;
+  }
+
+  const [services] = await db.query(
+    `SELECT bs.quantity, bs.totalPrice, bs.createdAt, s.serviceName
+     FROM booking_services bs
+     JOIN services s ON s.id = bs.serviceId
+     WHERE bs.bookingId = ?
+     ORDER BY bs.id ASC`,
+    [bookingId]
+  );
+  const [damages] = await db.query(
+    `SELECT itemName, quantity, totalPrice, note, createdAt
+     FROM booking_damage_charges
+     WHERE bookingId = ?
+     ORDER BY id ASC`,
+    [bookingId]
+  );
+
+  const paymentSettings = await getPaymentAccountSettings();
+  const remainingAmount = Math.max(Number(payment?.remainingAmount || 0), 0);
+
+  return {
+    bookingId,
+    bookingStatus: booking.status,
+    customerName: booking.customer_name,
+    roomNumber: booking.room_number,
+    paymentId: payment?.id || null,
+    totalAmount: Number(payment?.totalAmount || 0),
+    paidAmount: Number(payment?.paidAmount || 0),
+    remainingAmount,
+    // Phần phát sinh trong lúc lưu trú - đây mới là thứ khách thường phải trả
+    // thêm lúc trả phòng, tách riêng để lễ tân giải thích cho khách.
+    serviceAmount: services.reduce((sum, item) => sum + Number(item.totalPrice || 0), 0),
+    damageAmount: damages.reduce((sum, item) => sum + Number(item.totalPrice || 0), 0),
+    services,
+    damages,
+    canCheckOut: remainingAmount <= 0,
+    // Nội dung chuyển khoản phải chứa mã đặt phòng để đối soát sao kê.
+    transferContent: `${paymentSettings.transferPrefix || 'HB'}${bookingId}`,
+    bankAccount: {
+      bankBin: paymentSettings.bankBin,
+      bankName: paymentSettings.bankName,
+      bankCode: paymentSettings.bankCode,
+      accountNumber: paymentSettings.accountNumber,
+      accountName: paymentSettings.accountName
+    }
+  };
+};
+
+// Lễ tân bấm "gửi yêu cầu thanh toán": báo cho khách qua thông báo trong app và
+// ghi dấu vết. Không tự động ghi nhận tiền - tiền chỉ vào khi có người xác nhận.
+const requestOutstandingPayment = async (bookingId, actor = null) => {
+  const summary = await getPaymentSummary(bookingId);
+
+  if (summary.remainingAmount <= 0) {
+    throw new HttpError(409, 'Đặt phòng này đã thanh toán đủ, không còn khoản nào cần thu');
+  }
+
+  const booking = await bookingModel.getBookingById(bookingId);
+  await bookingModel.createCustomerNotification(
+    booking.user_id,
+    'Cần thanh toán chi phí phát sinh',
+    `Đặt phòng #${bookingId} (phòng ${summary.roomNumber || ''}) còn ${displayMoney(summary.remainingAmount)} chưa thanh toán` +
+      `${summary.serviceAmount > 0 ? `, gồm dịch vụ phát sinh ${displayMoney(summary.serviceAmount)}` : ''}` +
+      `${summary.damageAmount > 0 ? `, phí hư hỏng ${displayMoney(summary.damageAmount)}` : ''}` +
+      `. Bạn có thể quét mã QR tại quầy hoặc thanh toán trong ứng dụng trước khi trả phòng.`
+  );
+
+  await logHistory(
+    bookingId,
+    'payment_requested',
+    `Yêu cầu khách thanh toán ${displayMoney(summary.remainingAmount)} chi phí còn thiếu (đã xuất mã QR và gửi thông báo cho khách)`,
+    { amount: summary.remainingAmount },
+    actor
+  );
+
+  return summary;
 };
 
 const getRefundPreview = async (bookingId) => {
@@ -548,7 +778,7 @@ const normalizeRefundRequest = (refundRequest) => {
   };
 };
 
-const cancelBooking = async (bookingId, refundRequest = null, reasonValue = null) => {
+const cancelBooking = async (bookingId, refundRequest = null, reasonValue = null, actor = null) => {
   const connection = await db.getConnection();
 
   try {
@@ -630,6 +860,19 @@ const cancelBooking = async (bookingId, refundRequest = null, reasonValue = null
       };
     }
 
+    await logHistory(
+      bookingId,
+      'cancelled',
+      `Hủy đặt phòng. Lý do: ${cancellationReason}${refund ? `. Tạo yêu cầu hoàn ${displayMoney(refund.amount)} (${Math.round(refundPolicy.refundRate * 100)}%) chờ duyệt` : ''}`,
+      {
+        oldValue: { status: booking.status },
+        newValue: { status: 'cancelled', reason: cancellationReason },
+        amount: refund ? refund.amount : null
+      },
+      actor,
+      connection
+    );
+
     await connection.commit();
     return {
       ...(await bookingModel.getBookingById(bookingId)),
@@ -644,7 +887,7 @@ const cancelBooking = async (bookingId, refundRequest = null, reasonValue = null
   }
 };
 
-const saveGuestIdentities = async (bookingId, payload) => {
+const saveGuestIdentities = async (bookingId, payload, actor = null) => {
   const connection = await db.getConnection();
 
   try {
@@ -657,6 +900,15 @@ const saveGuestIdentities = async (bookingId, payload) => {
 
     await bookingModel.replaceBookingGuests(bookingId, payload.guests, connection);
 
+    await logHistory(
+      bookingId,
+      'guests_updated',
+      `Cập nhật danh sách khách lưu trú (${payload.guests.length} người): ${payload.guests.map((guest) => guest.fullName).join(', ')}`,
+      { newValue: { guests: payload.guests.map((guest) => guest.fullName) } },
+      actor,
+      connection
+    );
+
     await connection.commit();
     return bookingModel.getBookingById(bookingId);
   } catch (error) {
@@ -667,7 +919,7 @@ const saveGuestIdentities = async (bookingId, payload) => {
   }
 };
 
-const addServiceCharge = async (bookingId, payload) => {
+const addServiceCharge = async (bookingId, payload, actor = null) => {
   const connection = await db.getConnection();
 
   try {
@@ -690,6 +942,23 @@ const addServiceCharge = async (bookingId, payload) => {
     await bookingModel.addBookingService(bookingId, service, payload.quantity, connection);
     const payment = await paymentService.recalculatePaymentForBooking(bookingId, connection);
     const addedAmount = Number(service.price) * payload.quantity;
+
+    await logHistory(
+      bookingId,
+      'service_added',
+      `Thêm dịch vụ phát sinh: ${service.serviceName} x${payload.quantity} = ${displayMoney(addedAmount)}`,
+      {
+        newValue: {
+          serviceId: service.id,
+          serviceName: service.serviceName,
+          quantity: payload.quantity,
+          unitPrice: Number(service.price)
+        },
+        amount: addedAmount
+      },
+      actor,
+      connection
+    );
 
     if (payment && Number(payment.remainingAmount) > 0) {
       await bookingModel.createCustomerNotification(
@@ -719,7 +988,7 @@ const addServiceCharge = async (bookingId, payload) => {
   }
 };
 
-const addDamageCharge = async (bookingId, payload) => {
+const addDamageCharge = async (bookingId, payload, actor = null) => {
   const connection = await db.getConnection();
 
   try {
@@ -737,6 +1006,22 @@ const addDamageCharge = async (bookingId, payload) => {
     const damage = await bookingModel.addDamageCharge(bookingId, booking.room_id, payload, connection);
     const payment = await paymentService.recalculatePaymentForBooking(bookingId, connection);
 
+    await logHistory(
+      bookingId,
+      'damage_added',
+      `Ghi nhận phí hư hỏng/mất vật dụng: ${payload.itemName} x${payload.quantity} = ${displayMoney(damage.totalPrice)}${payload.note ? ` (${payload.note})` : ''}`,
+      {
+        newValue: {
+          itemName: payload.itemName,
+          quantity: payload.quantity,
+          unitPrice: payload.unitPrice
+        },
+        amount: damage.totalPrice
+      },
+      actor,
+      connection
+    );
+
     await connection.commit();
     return { damage, payment };
   } catch (error) {
@@ -747,7 +1032,7 @@ const addDamageCharge = async (bookingId, payload) => {
   }
 };
 
-const extendStay = async (bookingId, payload) => {
+const extendStay = async (bookingId, payload, actor = null) => {
   const connection = await db.getConnection();
 
   try {
@@ -792,17 +1077,53 @@ const extendStay = async (bookingId, payload) => {
       connection
     );
     const addedNights = addedNightly.nights;
-    const addedAmount = addedNightly.total;
+
+    // Phụ thu trẻ em tính theo từng đêm nên các đêm gia hạn cũng phải chịu phụ
+    // thu. Số trẻ chịu phí không được lưu riêng, nên suy ra phụ thu mỗi đêm từ
+    // tổng phụ thu đã chốt lúc đặt chia cho số đêm ban đầu.
+    const originalNights = getNightCount(dayString(booking.check_in), currentCheckOut);
+    const currentSurcharge = Number(booking.occupancy_surcharge || 0);
+    const surchargePerNight = originalNights > 0 ? currentSurcharge / originalNights : 0;
+    const addedSurcharge = Math.round(surchargePerNight * addedNights);
+    const newSurcharge = currentSurcharge + addedSurcharge;
+
+    const addedAmount = addedNightly.total + addedSurcharge;
     const newTotalPrice = Number(booking.total_price || 0) + addedAmount;
 
-    await bookingModel.updateBookingStay(bookingId, payload.checkOut, newTotalPrice, connection);
+    await bookingModel.saveNightlyPrices(bookingId, addedNightly.prices, connection);
+    await bookingModel.updateBookingStay(
+      bookingId,
+      payload.checkOut,
+      newTotalPrice,
+      connection,
+      newSurcharge
+    );
     const payment = await paymentService.recalculatePaymentForBooking(bookingId, connection);
+
+    await logHistory(
+      bookingId,
+      'extended',
+      `Gia hạn ngày ở: trả phòng từ ${displayDate(currentCheckOut)} chuyển thành ${displayDate(payload.checkOut)} (+${addedNights} đêm, +${displayMoney(addedAmount)}${addedSurcharge > 0 ? ` gồm phụ thu khách ${displayMoney(addedSurcharge)}` : ''})`,
+      {
+        oldValue: { checkOut: currentCheckOut, totalPrice: Number(booking.total_price || 0) },
+        newValue: {
+          checkOut: dayString(payload.checkOut),
+          totalPrice: newTotalPrice,
+          addedNights,
+          addedSurcharge
+        },
+        amount: addedAmount
+      },
+      actor,
+      connection
+    );
 
     await connection.commit();
     return {
       booking: await bookingModel.getBookingById(bookingId),
       addedNights,
       addedAmount,
+      addedSurcharge,
       payment
     };
   } catch (error) {
@@ -813,7 +1134,7 @@ const extendStay = async (bookingId, payload) => {
   }
 };
 
-const transferRoom = async (bookingId, payload) => {
+const transferRoom = async (bookingId, payload, actor = null) => {
   const connection = await db.getConnection();
 
   try {
@@ -837,10 +1158,23 @@ const transferRoom = async (bookingId, payload) => {
       throw new HttpError(409, 'Phòng muốn chuyển đến đang được bảo trì');
     }
 
+    // Sau khi chuyển, booking chiếm phòng mới cho tới hết ngày trả phòng chứ
+    // không chỉ tới toDate do client gửi. Vì vậy phải kiểm tra trùng lịch trên
+    // đúng khoảng splitDate → check_out, nếu không hai booking đã trả tiền có
+    // thể cùng nằm trong một phòng.
+    const stayStart = dayString(booking.check_in);
+    const stayEnd = dayString(booking.check_out);
+    const splitDate =
+      dayString(payload.fromDate) < stayStart
+        ? stayStart
+        : dayString(payload.fromDate) > stayEnd
+          ? stayEnd
+          : dayString(payload.fromDate);
+
     const conflicts = await bookingModel.getConflictingBookings(
       toRoom.id,
-      payload.fromDate,
-      payload.toDate,
+      splitDate,
+      stayEnd,
       connection,
       true,
       { excludeBookingId: bookingId }
@@ -860,22 +1194,27 @@ const transferRoom = async (bookingId, payload) => {
 
     // Tính riêng từng giai đoạn: các đêm đã ở phòng cũ giữ giá cũ,
     // các đêm từ ngày chuyển trở đi tính theo giá phòng mới.
-    const stayStart = dayString(booking.check_in);
-    const stayEnd = dayString(booking.check_out);
-    const splitDate =
-      dayString(payload.fromDate) < stayStart
-        ? stayStart
-        : dayString(payload.fromDate) > stayEnd
-          ? stayEnd
-          : dayString(payload.fromDate);
-
-    const oldStage = await calcNightlyPrices(
-      fromRoom?.roomTypeId,
-      booking.room_price || fromRoom?.price_per_night || 0,
+    // Các đêm khách ĐÃ Ở phải giữ nguyên giá đã chốt lúc đặt. Tra lại
+    // room_prices ở đây sẽ tính lại chúng theo bảng giá hiện hành, khiến tiền
+    // của giai đoạn đã qua thay đổi mỗi khi khách sạn đổi giá.
+    const lockedOldNights = await bookingModel.listNightlyPrices(
+      bookingId,
       stayStart,
       splitDate,
       connection
     );
+    const oldStage = lockedOldNights.length > 0
+      ? {
+          nights: lockedOldNights.length,
+          total: lockedOldNights.reduce((sum, night) => sum + Number(night.price), 0)
+        }
+      : await calcNightlyPrices(
+          fromRoom?.roomTypeId,
+          booking.room_price || fromRoom?.price_per_night || 0,
+          stayStart,
+          splitDate,
+          connection
+        );
     const newStage = await calcNightlyPrices(
       toRoom.roomTypeId,
       toRoom.price_per_night,
@@ -883,10 +1222,29 @@ const transferRoom = async (bookingId, payload) => {
       stayEnd,
       connection
     );
-    const newTotalPrice = oldStage.total + newStage.total;
+    // total_price gồm cả phụ thu khách (trẻ em) đã chốt lúc đặt. Nếu chỉ cộng
+    // tiền phòng hai giai đoạn thì phụ thu biến mất khỏi tổng tiền và
+    // recalculatePaymentForBooking sẽ trừ tiếp một lần nữa.
+    const occupancySurcharge = Number(booking.occupancy_surcharge || 0);
+    const newTotalPrice = oldStage.total + newStage.total + occupancySurcharge;
+
+    // Chốt lại giá các đêm ở phòng mới để lần chuyển phòng kế tiếp không tính lại.
+    await bookingModel.saveNightlyPrices(bookingId, newStage.prices, connection);
 
     await bookingModel.updateBookingStay(bookingId, stayEnd, newTotalPrice, connection);
     const payment = await paymentService.recalculatePaymentForBooking(bookingId, connection);
+
+    await logHistory(
+      bookingId,
+      'room_transferred',
+      `Chuyển phòng từ ${fromRoom?.roomNumber || booking.room_id} sang ${toRoom.roomNumber} kể từ ngày ${displayDate(splitDate)}${payload.reason ? `. Lý do: ${payload.reason}` : ''}. Tổng tiền phòng mới: ${displayMoney(newTotalPrice)}`,
+      {
+        oldValue: { roomId: booking.room_id, roomNumber: fromRoom?.roomNumber, totalPrice: Number(booking.total_price || 0) },
+        newValue: { roomId: toRoom.id, roomNumber: toRoom.roomNumber, fromDate: dayString(splitDate), totalPrice: newTotalPrice }
+      },
+      actor,
+      connection
+    );
 
     await connection.commit();
     return {
@@ -918,7 +1276,7 @@ const transferRoom = async (bookingId, payload) => {
   }
 };
 
-const checkIn = async (bookingId, payload = {}) => {
+const checkIn = async (bookingId, payload = {}, actor = null) => {
   const connection = await db.getConnection();
 
   try {
@@ -961,10 +1319,23 @@ const checkIn = async (bookingId, payload = {}) => {
     await bookingModel.updateBookingStatus(bookingId, 'checked_in', connection);
     await bookingModel.updateRoomStatus(booking.room_id, 'occupied', connection);
 
+    const wasLate = isLateCheckIn(booking.check_in, now);
+    await logHistory(
+      bookingId,
+      'checked_in',
+      `Khách nhận phòng${wasLate ? ' (check-in muộn)' : ''}${Array.isArray(payload.guests) && payload.guests.length > 0 ? `. Khách lưu trú: ${payload.guests.map((guest) => guest.fullName).join(', ')}` : ''}`,
+      {
+        oldValue: { status: booking.status },
+        newValue: { status: 'checked_in', lateCheckIn: wasLate }
+      },
+      actor,
+      connection
+    );
+
     await connection.commit();
 
     const updatedBooking = await bookingModel.getBookingById(bookingId);
-    const lateCheckIn = isLateCheckIn(booking.check_in, now);
+    const lateCheckIn = wasLate;
 
     return {
       ...updatedBooking,
@@ -981,7 +1352,7 @@ const checkIn = async (bookingId, payload = {}) => {
   }
 };
 
-const markNoShow = async (bookingId, { allowBeforeDeadline = false, connection: externalConnection } = {}) => {
+const markNoShow = async (bookingId, { allowBeforeDeadline = false, connection: externalConnection, actor = null } = {}) => {
   const ownsConnection = !externalConnection;
   const connection = externalConnection || (await db.getConnection());
 
@@ -1022,6 +1393,18 @@ const markNoShow = async (bookingId, { allowBeforeDeadline = false, connection: 
     const voucher = await voucherService.createNoShowCompensationVoucher(
       booking.user_id,
       bookingId,
+      connection
+    );
+
+    await logHistory(
+      bookingId,
+      'no_show',
+      `Đánh dấu khách không đến (no-show). Không hoàn tiền theo chính sách, tặng voucher ${voucher.code} giảm ${Number(voucher.discountPercentage)}% cho lần đặt sau`,
+      {
+        oldValue: { status: booking.status },
+        newValue: { status: 'no_show', voucherCode: voucher.code }
+      },
+      actor,
       connection
     );
 
@@ -1089,7 +1472,7 @@ const processNoShows = async () => {
   }
 };
 
-const checkOut = async (bookingId) => {
+const checkOut = async (bookingId, actor = null) => {
   const connection = await db.getConnection();
 
   try {
@@ -1160,6 +1543,19 @@ const checkOut = async (bookingId) => {
       }
     }
 
+    await logHistory(
+      bookingId,
+      'checked_out',
+      `Khách trả phòng${earlyCheckout ? ` sớm ${earlyCheckout.unusedNights} đêm (dự kiến ${displayDate(checkOutDay)}). Tạo yêu cầu hoàn 50% = ${displayMoney(earlyCheckout.refundAmount)} chờ duyệt` : ''}`,
+      {
+        oldValue: { status: 'checked_in', checkOut: checkOutDay },
+        newValue: { status: 'checked_out', actualCheckOut: today },
+        amount: earlyCheckout ? earlyCheckout.refundAmount : null
+      },
+      actor,
+      connection
+    );
+
     await connection.commit();
     return {
       ...(await bookingModel.getBookingById(bookingId)),
@@ -1181,6 +1577,10 @@ module.exports = {
   createBooking,
   listBookings,
   getBookingById,
+  getBookingHistory,
+  logHistory,
+  getPaymentSummary,
+  requestOutstandingPayment,
   getRefundPreview,
   cancelBooking,
   saveGuestIdentities,
