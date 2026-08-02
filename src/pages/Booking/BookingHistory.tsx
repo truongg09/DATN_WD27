@@ -1,12 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Alert, Button, Empty, Input, Modal, message, Radio, Rate, Select, Space, Spin, Table, Tag } from 'antd';
+import { Alert, Button, Empty, Input, Modal, message, Radio, Rate, Select, Space, Spin, Table, Tag, Upload } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
+import type { UploadFile, UploadProps } from 'antd/es/upload/interface';
 import {
   CalendarOutlined,
   CreditCardOutlined,
   EyeOutlined,
   HomeOutlined,
+  PlusOutlined,
   ReloadOutlined,
   StarOutlined,
   StopOutlined,
@@ -25,7 +27,61 @@ import { VIETQR_BANKS } from '../../utils/vietqr';
 import { useAuth } from '../../contexts/AuthContext';
 import { unwrapList } from '../../utils/unwrapList';
 import type { Payment } from '../../types/payment';
+import api from '../../services/api';
 import './BookingHistory.css';
+
+const MAX_REVIEW_IMAGES = 5;
+const MAX_IMAGE_SIZE_MB = 5;
+
+// Upload 1 ảnh lên server ngay khi người dùng chọn, dùng chung API
+// POST /upload/review-images (multer, trả về { data: { urls: string[] } }).
+const uploadReviewImage: UploadProps['customRequest'] = async (options) => {
+  const { file, onSuccess, onError } = options;
+  try {
+    const formData = new FormData();
+    formData.append('images', file as File);
+    const res = await api.post('/upload/review-images', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    const body = (res as unknown as { data?: unknown })?.data ?? res;
+    const url =
+      (body as { data?: { urls?: string[] } })?.data?.urls?.[0] ??
+      (body as { urls?: string[] })?.urls?.[0];
+    if (!url) throw new Error('Không nhận được URL ảnh');
+    onSuccess?.({ url }, new XMLHttpRequest());
+  } catch (error) {
+    console.error('Upload review image error:', error);
+    message.error('Tải ảnh lên thất bại, vui lòng thử lại');
+    onError?.(error as Error);
+  }
+};
+
+const beforeUploadReviewImage = (file: File) => {
+  const isImage = file.type.startsWith('image/');
+  if (!isImage) {
+    message.error('Chỉ được chọn file ảnh');
+    return Upload.LIST_IGNORE;
+  }
+  const isUnderLimit = file.size / 1024 / 1024 < MAX_IMAGE_SIZE_MB;
+  if (!isUnderLimit) {
+    message.error(`Ảnh phải nhỏ hơn ${MAX_IMAGE_SIZE_MB}MB`);
+    return Upload.LIST_IGNORE;
+  }
+  return true;
+};
+
+const imageUrlsToFileList = (urls?: string[]): UploadFile[] =>
+  (urls || []).map((url, index) => ({
+    uid: `existing-${index}-${url}`,
+    name: url.split('/').pop() || `image-${index}`,
+    status: 'done',
+    url,
+  }));
+
+const fileListToImageUrls = (fileList: UploadFile[]): string[] =>
+  fileList
+    .map((file) => file.url || (file.response as { url?: string } | undefined)?.url)
+    .filter((url): url is string => Boolean(url));
 
 interface BookingRow {
   id: number;
@@ -44,12 +100,20 @@ interface ReviewRow {
   bookingId: number;
   rating: number;
   comment: string;
+  status?: string;
+  adminReply?: string | null;
+  hideReason?: string | null;
+  images?: string[];
 }
 
 interface ReviewInfo {
   id: number;
   rating: number;
   comment: string;
+  status?: string;
+  adminReply?: string | null;
+  hideReason?: string | null;
+  images?: string[];
 }
 
 type PaymentByBooking = Record<number, Payment | null>;
@@ -92,6 +156,14 @@ const paymentStatusMap: Record<string, { label: string; color: string }> = {
   refunded: { label: 'Đã hoàn tiền', color: 'red' },
 };
 
+// Nhãn/màu cho trạng thái kiểm duyệt của đánh giá (review), khác với
+// trạng thái booking ở trên nên đặt tên map riêng để tránh nhầm lẫn.
+const reviewStatusMap: Record<string, { label: string; color: string }> = {
+  pending: { label: 'Đang chờ duyệt', color: 'gold' },
+  approved: { label: 'Đã duyệt', color: 'green' },
+  hidden: { label: 'Bị từ chối/ẩn', color: 'red' },
+};
+
 const activeStatuses = ['pending', 'confirmed', 'checked_in'];
 
 const BookingHistory: React.FC = () => {
@@ -107,6 +179,7 @@ const BookingHistory: React.FC = () => {
   const [reviewComment, setReviewComment] = useState('');
   const [submittingReview, setSubmittingReview] = useState(false);
   const [editingReviewId, setEditingReviewId] = useState<number | null>(null);
+  const [reviewImageFileList, setReviewImageFileList] = useState<UploadFile[]>([]);
   const [reviewsByBooking, setReviewsByBooking] = useState<ReviewsByBooking>({});
   const [refundsByBooking, setRefundsByBooking] = useState<Record<number, RefundRow>>({});
   const [cancelTarget, setCancelTarget] = useState<BookingRow | null>(null);
@@ -158,7 +231,15 @@ const BookingHistory: React.FC = () => {
             Object.fromEntries(
               reviewRows.map((r) => [
                 r.bookingId,
-                { id: r.id, rating: r.rating, comment: r.comment },
+                {
+                  id: r.id,
+                  rating: r.rating,
+                  comment: r.comment,
+                  status: r.status,
+                  adminReply: r.adminReply,
+                  hideReason: r.hideReason,
+                  images: r.images,
+                },
               ])
             )
           );
@@ -303,30 +384,50 @@ const BookingHistory: React.FC = () => {
       setEditingReviewId(existing.id);
       setReviewRating(existing.rating);
       setReviewComment(existing.comment);
+      setReviewImageFileList(imageUrlsToFileList(existing.images));
     } else {
       setEditingReviewId(null);
       setReviewRating(5);
       setReviewComment('');
+      setReviewImageFileList([]);
     }
   };
 
   const handleSubmitReview = async () => {
     if (!reviewBooking) return;
 
+    // Còn ảnh đang upload dở dang -> chặn submit để tránh lưu thiếu ảnh
+    if (reviewImageFileList.some((file) => file.status === 'uploading')) {
+      message.warning('Vui lòng đợi ảnh tải lên xong');
+      return;
+    }
+
+    const reviewImages = fileListToImageUrls(reviewImageFileList);
+
     setSubmittingReview(true);
     try {
       if (editingReviewId) {
+        const wasHidden = reviewsByBooking[reviewBooking.id]?.status === 'hidden';
         await updateReview(editingReviewId, {
           rating: reviewRating,
           comment: reviewComment.trim(),
+          images: reviewImages,
         });
-        message.success('Đã cập nhật đánh giá!');
+        message.success(
+          wasHidden ? 'Đã cập nhật đánh giá, đang chờ duyệt lại!' : 'Đã cập nhật đánh giá!',
+        );
         setReviewsByBooking((prev) => ({
           ...prev,
           [reviewBooking.id]: {
+            ...prev[reviewBooking.id],
             id: editingReviewId,
             rating: reviewRating,
             comment: reviewComment.trim(),
+            images: reviewImages,
+            // Nếu review trước đó bị ẩn/từ chối và nội dung vừa đổi, backend sẽ
+            // đưa về "pending" để duyệt lại; phản ánh ngay trên UI cho khớp.
+            status: wasHidden ? 'pending' : prev[reviewBooking.id]?.status,
+            hideReason: wasHidden ? null : prev[reviewBooking.id]?.hideReason,
           },
         }));
       } else {
@@ -334,15 +435,22 @@ const BookingHistory: React.FC = () => {
           bookingId: reviewBooking.id,
           rating: reviewRating,
           comment: reviewComment.trim(),
+          images: reviewImages,
         });
-        message.success('Cảm ơn bạn đã đánh giá!');
-        const newId = (res as { data?: { data?: { id?: number } } })?.data?.data?.id ?? 0;
+        message.success('Cảm ơn bạn đã đánh giá! Đánh giá của bạn đang chờ duyệt.');
+        const createBody = (res as unknown as { data?: unknown })?.data ?? res;
+        const newId =
+          (createBody as { data?: { id?: number } })?.data?.id ??
+          (createBody as { id?: number })?.id ??
+          0;
         setReviewsByBooking((prev) => ({
           ...prev,
           [reviewBooking.id]: {
             id: newId,
             rating: reviewRating,
             comment: reviewComment.trim(),
+            status: 'pending',
+            images: reviewImages,
           },
         }));
       }
@@ -526,9 +634,16 @@ const BookingHistory: React.FC = () => {
               )}
 
               {record.status === 'checked_out' && (
-                <Button icon={<StarOutlined />} onClick={() => openReviewModal(record)}>
-                  {existingReview ? 'Xem/Sửa đánh giá' : 'Đánh giá'}
-                </Button>
+                <Space size={4} wrap>
+                  <Button icon={<StarOutlined />} onClick={() => openReviewModal(record)}>
+                    {existingReview ? 'Xem/Sửa đánh giá' : 'Đánh giá'}
+                  </Button>
+                  {existingReview?.status && existingReview.status !== 'approved' && (
+                    <Tag color={reviewStatusMap[existingReview.status]?.color || 'default'}>
+                      {reviewStatusMap[existingReview.status]?.label || existingReview.status}
+                    </Tag>
+                  )}
+                </Space>
               )}
             </Space>
           );
@@ -717,6 +832,15 @@ const BookingHistory: React.FC = () => {
         okText={editingReviewId ? 'Cập nhật đánh giá' : 'Gửi đánh giá'}
         cancelText="Đóng"
         confirmLoading={submittingReview}
+        okButtonProps={{
+          disabled:
+            !!editingReviewId &&
+            reviewBooking !== null &&
+            reviewsByBooking[reviewBooking.id]?.status === 'hidden' &&
+            reviewRating === reviewsByBooking[reviewBooking.id]?.rating &&
+            reviewComment.trim().toLowerCase() ===
+              (reviewsByBooking[reviewBooking.id]?.comment || '').trim().toLowerCase(),
+        }}
         onOk={handleSubmitReview}
         onCancel={() => !submittingReview && setReviewBooking(null)}
         destroyOnHidden
@@ -724,6 +848,36 @@ const BookingHistory: React.FC = () => {
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div>
+            {editingReviewId && reviewBooking && (
+              <>
+                {reviewsByBooking[reviewBooking.id]?.status === 'pending' && (
+                  <Alert
+                    type="info"
+                    showIcon
+                    message="Đánh giá của bạn đang chờ duyệt. Sau khi được quản trị viên duyệt, đánh giá sẽ hiển thị công khai."
+                    style={{ marginBottom: 12 }}
+                  />
+                )}
+                {reviewsByBooking[reviewBooking.id]?.status === 'hidden' && (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    message={`Đánh giá đang bị ẩn/từ chối${
+                      reviewsByBooking[reviewBooking.id]?.hideReason
+                        ? ': ' + reviewsByBooking[reviewBooking.id]?.hideReason
+                        : ''
+                    }. Vui lòng chỉnh sửa nội dung trước khi gửi lại.`}
+                    style={{ marginBottom: 12 }}
+                  />
+                )}
+                {reviewsByBooking[reviewBooking.id]?.adminReply && (
+                  <div style={{ padding: 12, background: '#f5f5f5', borderRadius: 8, marginBottom: 12 }}>
+                    <strong>Phản hồi của khách sạn:</strong>
+                    <p style={{ margin: '4px 0 0' }}>{reviewsByBooking[reviewBooking.id]?.adminReply}</p>
+                  </div>
+                )}
+              </>
+            )}
             <p style={{ marginBottom: 4 }}>Chất lượng kỳ nghỉ của bạn:</p>
             <Rate value={reviewRating} onChange={setReviewRating} />
           </div>
@@ -735,6 +889,26 @@ const BookingHistory: React.FC = () => {
             value={reviewComment}
             onChange={(e) => setReviewComment(e.target.value)}
           />
+          <div>
+            <p style={{ marginBottom: 8 }}>Ảnh thực tế (không bắt buộc, tối đa {MAX_REVIEW_IMAGES} ảnh):</p>
+            <Upload
+              listType="picture-card"
+              fileList={reviewImageFileList}
+              customRequest={uploadReviewImage}
+              beforeUpload={beforeUploadReviewImage}
+              onChange={({ fileList }) => setReviewImageFileList(fileList)}
+              maxCount={MAX_REVIEW_IMAGES}
+              multiple
+              accept="image/*"
+            >
+              {reviewImageFileList.length >= MAX_REVIEW_IMAGES ? null : (
+                <div>
+                  <PlusOutlined />
+                  <div style={{ marginTop: 8 }}>Thêm ảnh</div>
+                </div>
+              )}
+            </Upload>
+          </div>
         </div>
       </Modal>
     </main>
