@@ -25,6 +25,9 @@ import {
   EyeInvisibleOutlined,
   EyeOutlined,
   SearchOutlined,
+  CheckOutlined,
+  CloseOutlined,
+  ClockCircleOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import api from '../../services/api';
@@ -34,7 +37,7 @@ import './ReviewManagement.css';
 const { Paragraph, Text } = Typography;
 const { TextArea } = Input;
 
-type ReviewStatus = 'approved' | 'hidden';
+type ReviewStatus = 'pending' | 'approved' | 'hidden';
 
 interface Review {
   id: number;
@@ -46,6 +49,7 @@ interface Review {
   images?: string[];
   adminReply?: string | null;
   repliedAt?: string | null;
+  hideReason?: string | null;
   createdAt: string;
   customerName: string;
   bookingStatus: string;
@@ -57,8 +61,9 @@ interface Review {
 
 const STAR_OPTIONS = [5, 4, 3, 2, 1].map((star) => ({ value: star, label: `${star} sao` }));
 const STATUS_OPTIONS = [
+  { value: 'pending', label: 'Chờ duyệt' },
   { value: 'approved', label: 'Đang hiển thị' },
-  { value: 'hidden', label: 'Đã ẩn' },
+  { value: 'hidden', label: 'Đã ẩn / từ chối' },
 ];
 
 function ReviewManagement() {
@@ -72,6 +77,16 @@ function ReviewManagement() {
   const [activeReview, setActiveReview] = useState<Review | null>(null);
   const [replyForm] = Form.useForm();
   const [submittingReply, setSubmittingReply] = useState(false);
+
+  // Modal hỏi lý do khi Ẩn / Từ chối 1 đánh giá — lý do này sẽ được lưu lại
+  // và dùng để tạo thông báo gửi cho khách hàng ở phía backend.
+  const [hideModalOpen, setHideModalOpen] = useState(false);
+  const [hideTarget, setHideTarget] = useState<Review | null>(null);
+  const [hideForm] = Form.useForm();
+  const [submittingHide, setSubmittingHide] = useState(false);
+
+  // id đang trong lúc gọi API duyệt (để disable nút, tránh double click)
+  const [approvingId, setApprovingId] = useState<number | null>(null);
 
   const fetchReviews = useCallback(async () => {
     setLoading(true);
@@ -120,19 +135,71 @@ function ReviewManagement() {
     }
   };
 
-  const handleToggleStatus = async (record: Review) => {
-    const nextStatus: ReviewStatus = record.status === 'hidden' ? 'approved' : 'hidden';
+  // Duyệt đánh giá (pending -> approved) hoặc Hiển thị lại (hidden -> approved).
+  // Cả 2 trường hợp đều gọi chung 1 API, không cần lý do.
+  const handleApprove = async (record: Review) => {
+    setApprovingId(record.id);
     try {
-      await api.patch(`/reviews/${record.id}/status`, { status: nextStatus });
+      await api.patch(`/reviews/${record.id}/status`, { status: 'approved' });
       message.success(
-        nextStatus === 'hidden' ? 'Đã ẩn đánh giá' : 'Đã hiển thị lại đánh giá',
+        record.status === 'pending'
+          ? 'Đã duyệt đánh giá và thông báo cho khách hàng'
+          : 'Đã hiển thị lại đánh giá và thông báo cho khách hàng',
       );
       setReviews((prev) =>
-        prev.map((r) => (r.id === record.id ? { ...r, status: nextStatus } : r)),
+        prev.map((r) =>
+          r.id === record.id ? { ...r, status: 'approved', hideReason: null } : r,
+        ),
       );
     } catch (error) {
       console.error('Error updating status:', error);
       message.error('Lỗi khi cập nhật trạng thái');
+    } finally {
+      setApprovingId(null);
+    }
+  };
+
+  const openHideModal = (record: Review) => {
+    setHideTarget(record);
+    hideForm.resetFields();
+    setHideModalOpen(true);
+  };
+
+  const closeHideModal = () => {
+    setHideModalOpen(false);
+    setHideTarget(null);
+    hideForm.resetFields();
+  };
+
+  // Dùng chung cho 2 tình huống: Từ chối (pending -> hidden) và Ẩn (approved -> hidden)
+  const handleConfirmHide = async () => {
+    if (!hideTarget) return;
+    try {
+      const values = await hideForm.validateFields();
+      setSubmittingHide(true);
+      await api.patch(`/reviews/${hideTarget.id}/status`, {
+        status: 'hidden',
+        reason: values.reason?.trim() || undefined,
+      });
+      message.success(
+        hideTarget.status === 'pending'
+          ? 'Đã từ chối đánh giá và thông báo cho khách hàng'
+          : 'Đã ẩn đánh giá và thông báo cho khách hàng',
+      );
+      setReviews((prev) =>
+        prev.map((r) =>
+          r.id === hideTarget.id
+            ? { ...r, status: 'hidden', hideReason: values.reason?.trim() || null }
+            : r,
+        ),
+      );
+      closeHideModal();
+    } catch (error: any) {
+      if (error?.errorFields) return; // lỗi validate form, không cần toast
+      console.error('Error hiding review:', error);
+      message.error('Lỗi khi cập nhật đánh giá');
+    } finally {
+      setSubmittingHide(false);
     }
   };
 
@@ -154,7 +221,7 @@ function ReviewManagement() {
       const values = await replyForm.validateFields();
       setSubmittingReply(true);
       await api.post(`/reviews/${activeReview.id}/reply`, { reply: values.reply });
-      message.success('Gửi phản hồi thành công');
+      message.success('Gửi phản hồi thành công, đã thông báo cho khách hàng');
       setReviews((prev) =>
         prev.map((r) =>
           r.id === activeReview.id
@@ -187,8 +254,11 @@ function ReviewManagement() {
 
   const stats = useMemo(() => {
     const total = reviews.length;
+    const ratedReviews = reviews.filter((r) => r.status !== 'pending');
     const avgRating =
-      total > 0 ? reviews.reduce((sum, r) => sum + Number(r.rating || 0), 0) / total : 0;
+      ratedReviews.length > 0
+        ? ratedReviews.reduce((sum, r) => sum + Number(r.rating || 0), 0) / ratedReviews.length
+        : 0;
 
     const distribution = [5, 4, 3, 2, 1].map((star) => ({
       star,
@@ -196,8 +266,9 @@ function ReviewManagement() {
     }));
 
     const hiddenCount = reviews.filter((r) => r.status === 'hidden').length;
+    const pendingCount = reviews.filter((r) => r.status === 'pending').length;
 
-    return { total, avgRating, distribution, hiddenCount };
+    return { total, avgRating, distribution, hiddenCount, pendingCount };
   }, [reviews]);
 
   const columns: ColumnsType<Review> = [
@@ -277,6 +348,15 @@ function ReviewManagement() {
               <div>{record.adminReply}</div>
             </div>
           )}
+
+          {record.status === 'hidden' && record.hideReason && (
+            <div className="review-hide-reason">
+              <Text type="danger" className="review-hide-reason-label">
+                Lý do ẩn/từ chối:
+              </Text>{' '}
+              <Text type="secondary">{record.hideReason}</Text>
+            </div>
+          )}
         </div>
       ),
     },
@@ -284,15 +364,22 @@ function ReviewManagement() {
       title: 'Trạng thái',
       dataIndex: 'status',
       key: 'status',
-      width: 120,
+      width: 130,
       filters: STATUS_OPTIONS.map((s) => ({ text: s.label, value: s.value })),
       onFilter: (value, record) => record.status === value,
-      render: (status: ReviewStatus) =>
-        status === 'hidden' ? (
-          <Tag color="default">Đã ẩn</Tag>
-        ) : (
-          <Tag color="green">Đang hiển thị</Tag>
-        ),
+      render: (status: ReviewStatus) => {
+        if (status === 'pending') {
+          return (
+            <Tag icon={<ClockCircleOutlined />} color="gold">
+              Chờ duyệt
+            </Tag>
+          );
+        }
+        if (status === 'hidden') {
+          return <Tag color="default">Đã ẩn / từ chối</Tag>;
+        }
+        return <Tag color="green">Đang hiển thị</Tag>;
+      },
     },
     {
       title: 'Đặt phòng',
@@ -315,23 +402,50 @@ function ReviewManagement() {
     {
       title: 'Hành động',
       key: 'action',
-      width: 140,
+      width: 180,
       render: (_, record) => (
         <Space size="small">
-          <Tooltip title={record.adminReply ? 'Sửa phản hồi' : 'Phản hồi'}>
-            <Button
-              icon={<MessageOutlined />}
-              size="small"
-              onClick={() => openReplyModal(record)}
-            />
-          </Tooltip>
-          <Tooltip title={record.status === 'hidden' ? 'Hiển thị lại' : 'Ẩn đánh giá'}>
-            <Button
-              icon={record.status === 'hidden' ? <EyeOutlined /> : <EyeInvisibleOutlined />}
-              size="small"
-              onClick={() => handleToggleStatus(record)}
-            />
-          </Tooltip>
+          {record.status === 'pending' ? (
+            <>
+              <Tooltip title="Duyệt đánh giá">
+                <Button
+                  type="primary"
+                  icon={<CheckOutlined />}
+                  size="small"
+                  loading={approvingId === record.id}
+                  onClick={() => handleApprove(record)}
+                />
+              </Tooltip>
+              <Tooltip title="Từ chối đánh giá">
+                <Button
+                  danger
+                  icon={<CloseOutlined />}
+                  size="small"
+                  onClick={() => openHideModal(record)}
+                />
+              </Tooltip>
+            </>
+          ) : (
+            <>
+              <Tooltip title={record.adminReply ? 'Sửa phản hồi' : 'Phản hồi'}>
+                <Button
+                  icon={<MessageOutlined />}
+                  size="small"
+                  onClick={() => openReplyModal(record)}
+                />
+              </Tooltip>
+              <Tooltip title={record.status === 'hidden' ? 'Hiển thị lại' : 'Ẩn đánh giá'}>
+                <Button
+                  icon={record.status === 'hidden' ? <EyeOutlined /> : <EyeInvisibleOutlined />}
+                  size="small"
+                  loading={approvingId === record.id}
+                  onClick={() =>
+                    record.status === 'hidden' ? handleApprove(record) : openHideModal(record)
+                  }
+                />
+              </Tooltip>
+            </>
+          )}
           <Popconfirm
             title="Xóa đánh giá này?"
             description="Hành động này không thể hoàn tác."
@@ -356,7 +470,7 @@ function ReviewManagement() {
           <div>
             <span className="review-mgmt-eyebrow">HotelHub · Admin</span>
             <h1>Quản lý đánh giá</h1>
-            <p>Theo dõi phản hồi của khách hàng theo từng phòng và xử lý nội dung vi phạm.</p>
+            <p>Duyệt đánh giá mới, theo dõi phản hồi của khách hàng và xử lý nội dung vi phạm.</p>
           </div>
           <div className="review-mgmt-toolbar">
             <Input
@@ -378,7 +492,7 @@ function ReviewManagement() {
             <Select
               allowClear
               placeholder="Lọc theo trạng thái"
-              style={{ width: 160 }}
+              style={{ width: 180 }}
               value={statusFilter ?? undefined}
               onChange={(value) => setStatusFilter(value ?? null)}
               options={STATUS_OPTIONS}
@@ -396,6 +510,11 @@ function ReviewManagement() {
           </div>
 
           <div className="review-stat-card">
+            <span className="review-stat-label">Chờ duyệt</span>
+            <div className="review-stat-value">{stats.pendingCount}</div>
+          </div>
+
+          <div className="review-stat-card">
             <span className="review-stat-label">Điểm trung bình</span>
             <div className="review-stat-value">
               <StarFilled className="star-icon" />
@@ -405,7 +524,7 @@ function ReviewManagement() {
           </div>
 
           <div className="review-stat-card">
-            <span className="review-stat-label">Đã ẩn</span>
+            <span className="review-stat-label">Đã ẩn / từ chối</span>
             <div className="review-stat-value">{stats.hiddenCount}</div>
           </div>
 
@@ -457,6 +576,7 @@ function ReviewManagement() {
         </div>
       </section>
 
+      {/* Modal phản hồi công khai */}
       <Modal
         title={`Phản hồi đánh giá của ${activeReview?.customerName ?? ''}`}
         open={replyModalOpen}
@@ -507,6 +627,47 @@ function ReviewManagement() {
             ]}
           >
             <TextArea rows={4} placeholder="Cảm ơn quý khách đã đánh giá..." />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* Modal hỏi lý do khi Từ chối (pending -> hidden) hoặc Ẩn (approved -> hidden)
+          một đánh giá — lý do này được gửi kèm lên backend để lưu vào hideReason
+          và tạo thông báo cho khách hàng. */}
+      <Modal
+        title={`${hideTarget?.status === 'pending' ? 'Từ chối' : 'Ẩn'} đánh giá của ${
+          hideTarget?.customerName ?? ''
+        }`}
+        open={hideModalOpen}
+        onCancel={closeHideModal}
+        onOk={handleConfirmHide}
+        confirmLoading={submittingHide}
+        okText={hideTarget?.status === 'pending' ? 'Từ chối đánh giá' : 'Ẩn đánh giá'}
+        okButtonProps={{ danger: true }}
+        cancelText="Hủy"
+        destroyOnHidden
+      >
+        {hideTarget && (
+          <div className="reply-modal-review-preview">
+            <Rate disabled defaultValue={hideTarget.rating} style={{ fontSize: 14 }} />
+            <Paragraph type="secondary" className="reply-modal-comment">
+              {hideTarget.comment || 'Không có bình luận'}
+            </Paragraph>
+          </div>
+        )}
+        <Text type="secondary">
+          {hideTarget?.status === 'pending'
+            ? 'Khách hàng sẽ nhận được thông báo rằng đánh giá của họ chưa được duyệt và có thể chỉnh sửa để gửi lại.'
+            : 'Khách hàng sẽ nhận được thông báo rằng đánh giá của họ đã bị ẩn.'}{' '}
+          Nhập lý do (không bắt buộc) để khách hàng hiểu rõ hơn.
+        </Text>
+        <Form form={hideForm} layout="vertical" style={{ marginTop: 12 }}>
+          <Form.Item
+            name="reason"
+            label={hideTarget?.status === 'pending' ? 'Lý do từ chối (sẽ gửi cho khách hàng)' : 'Lý do ẩn (sẽ gửi cho khách hàng)'}
+            rules={[{ max: 500, message: 'Lý do tối đa 500 ký tự' }]}
+          >
+            <TextArea rows={3} placeholder="Ví dụ: Nội dung chứa từ ngữ không phù hợp..." />
           </Form.Item>
         </Form>
       </Modal>
