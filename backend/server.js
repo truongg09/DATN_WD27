@@ -17,7 +17,6 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 // Routes
 const authRoutes = require('./routes/auth');
 const roomRoutes = require('./routes/rooms');
-const employeeRoutes = require('./routes/employees');
 const amenityRoutes = require('./routes/amenities');
 const bookingRoutes = require('./routes/bookings');
 const paymentRoutes = require('./routes/payments');
@@ -41,7 +40,6 @@ const uploadRoutes = require('./routes/upload');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/rooms', roomRoutes);
-app.use('/api/employees', employeeRoutes);
 app.use('/api/amenities', amenityRoutes);
 app.use('/api/bookings', bookingRoutes);
 app.use('/api/payments', paymentRoutes);

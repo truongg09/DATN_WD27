@@ -176,6 +176,18 @@ function BookingManagement() {
     const values = await form.validateFields();
 
     try {
+      if (operation === 'declareGuests' || operation === 'guests') {
+        if (Array.isArray(values.guests)) {
+          for (const g of values.guests) {
+            const idNum = String(g?.identityNumber || '').trim();
+            if (!/^\d{12}$/.test(idNum)) {
+              message.error(`Số CCCD của "${g?.fullName || 'người ở'}" phải bao gồm đúng 12 chữ số (không chứa chữ cái hoặc ký hiệu)`);
+              return;
+            }
+          }
+        }
+      }
+
       // Khách đã nhận phòng thì chỉ cập nhật danh sách người ở, không gọi lại
       // check-in (API check-in từ chối mọi trạng thái ngoài chờ/đã xác nhận).
       if (operation === 'declareGuests') {
@@ -359,8 +371,26 @@ function BookingManagement() {
                   <Form.Item {...field} name={[field.name, 'fullName']} rules={[{ required: true, message: 'Nhập họ tên' }]}>
                     <Input placeholder="Họ tên người ở" />
                   </Form.Item>
-                  <Form.Item {...field} name={[field.name, 'identityNumber']} rules={[{ required: true, message: 'Nhập CCCD' }]}>
-                    <Input placeholder="CCCD/CMND" />
+                  <Form.Item
+                    {...field}
+                    name={[field.name, 'identityNumber']}
+                    rules={[
+                      { required: true, message: 'Nhập CCCD' },
+                      { pattern: /^\d{12}$/, message: 'Số CCCD phải bao gồm đúng 12 chữ số (không chứa chữ cái hoặc ký hiệu)' },
+                    ]}
+                  >
+                    <Input
+                      placeholder="CCCD/CMND (12 chữ số)"
+                      maxLength={12}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/\D/g, '').slice(0, 12);
+                        const currentGuests = form.getFieldValue('guests') || [];
+                        if (currentGuests[field.name]) {
+                          currentGuests[field.name].identityNumber = val;
+                          form.setFieldsValue({ guests: [...currentGuests] });
+                        }
+                      }}
+                    />
                   </Form.Item>
                   <Form.Item {...field} name={[field.name, 'phone']}>
                     <Input placeholder="Số điện thoại" />

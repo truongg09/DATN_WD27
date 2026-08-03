@@ -20,6 +20,8 @@ import {
   RollbackOutlined,
   CheckOutlined,
   CloseOutlined,
+  PrinterOutlined,
+  FileTextOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { confirmTransferPayment, getPayments, refundPayment } from '../../services/paymentService';
@@ -96,6 +98,7 @@ function PaymentManagement() {
   const [rejectWithdrawTarget, setRejectWithdrawTarget] = useState<WalletTransaction | null>(null);
   const [rejectWithdrawNote, setRejectWithdrawNote] = useState('');
   const [processingWithdrawId, setProcessingWithdrawId] = useState<number | null>(null);
+  const [selectedWithdrawalBill, setSelectedWithdrawalBill] = useState<WalletTransaction | null>(null);
 
   const fetchPayments = useCallback(async () => {
     setLoading(true);
@@ -155,6 +158,11 @@ function PaymentManagement() {
     try {
       await approveWithdrawal(withdrawal.id);
       message.success(`Đã duyệt rút ${formatPrice(Number(withdrawal.amount))}`);
+      setSelectedWithdrawalBill({
+        ...withdrawal,
+        status: 'approved',
+        processedAt: new Date().toISOString(),
+      });
       fetchWithdrawals();
     } catch (error: unknown) {
       const err = error as { response?: { data?: { message?: string } } };
@@ -322,6 +330,15 @@ function PaymentManagement() {
               Từ chối
             </Button>
           </Space>
+        ) : record.status === 'approved' ? (
+          <Button
+            type="default"
+            size="small"
+            icon={<PrinterOutlined />}
+            onClick={() => setSelectedWithdrawalBill(record)}
+          >
+            Xem Bill
+          </Button>
         ) : (
           <span style={{ color: '#8a93a5', fontSize: 12 }}>
             {record.processedAt ? dayjs(record.processedAt).format('DD/MM/YYYY HH:mm') : '-'}
@@ -739,6 +756,147 @@ function PaymentManagement() {
           value={rejectNote}
           onChange={(e) => setRejectNote(e.target.value)}
         />
+      </Modal>
+
+      {/* MODAL BILL / PHIẾU CHI XÁC NHẬN RÚT TIỀN */}
+      <Modal
+        open={Boolean(selectedWithdrawalBill)}
+        onCancel={() => setSelectedWithdrawalBill(null)}
+        width={600}
+        title={
+          <span>
+            <FileTextOutlined style={{ marginRight: 8, color: '#1677ff' }} />
+            Phiếu chi — Xác nhận rút tiền ví
+          </span>
+        }
+        footer={[
+          <Button key="close" onClick={() => setSelectedWithdrawalBill(null)}>
+            Đóng
+          </Button>,
+          <Button
+            key="print"
+            type="primary"
+            icon={<PrinterOutlined />}
+            onClick={() => window.print()}
+          >
+            In phiếu chi / Bill
+          </Button>,
+        ]}
+        destroyOnHidden
+        centered
+      >
+        <style>{`
+          @media print {
+            body * {
+              visibility: hidden !important;
+            }
+            .withdrawal-bill-sheet,
+            .withdrawal-bill-sheet * {
+              visibility: visible !important;
+            }
+            .withdrawal-bill-sheet {
+              position: fixed !important;
+              left: 0 !important;
+              top: 0 !important;
+              width: 100% !important;
+              margin: 0 !important;
+              padding: 30px !important;
+              background: #ffffff !important;
+              color: #000000 !important;
+              z-index: 999999 !important;
+            }
+            .ant-modal-header,
+            .ant-modal-footer,
+            .ant-modal-close,
+            .ant-modal-mask {
+              display: none !important;
+            }
+            .ant-modal-wrap,
+            .ant-modal-root,
+            .ant-modal,
+            .ant-modal-content,
+            .ant-modal-body {
+              position: static !important;
+              width: 100% !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              box-shadow: none !important;
+            }
+          }
+        `}</style>
+        {selectedWithdrawalBill && (
+          <div className="withdrawal-bill-sheet" style={{ padding: '8px 4px' }}>
+            <div style={{ textAlign: 'center', marginBottom: 20, borderBottom: '2px dashed #cbd5e1', paddingBottom: 16 }}>
+              <h2 style={{ margin: 0, color: '#1e293b', fontSize: 20 }}>HotelHub — PHIẾU CHI TIỀN RÚT VÍ</h2>
+              <p style={{ margin: '4px 0', color: '#64748b', fontSize: 13 }}>
+                Xác nhận đã chi trả tiền cho khách hàng rút từ ví tích lũy
+              </p>
+              <Tag color="green" style={{ fontSize: 13, padding: '4px 12px', marginTop: 6 }}>
+                Mã phiếu chi: BILL-RUT-{selectedWithdrawalBill.id}
+              </Tag>
+            </div>
+
+            <Descriptions bordered column={1} size="small">
+              <Descriptions.Item label="Thời điểm chi tiền">
+                <strong>
+                  {selectedWithdrawalBill.processedAt
+                    ? dayjs(selectedWithdrawalBill.processedAt).format('HH:mm - DD/MM/YYYY')
+                    : dayjs().format('HH:mm - DD/MM/YYYY')}
+                </strong>
+              </Descriptions.Item>
+              <Descriptions.Item label="Tên khách hàng">
+                <strong>{selectedWithdrawalBill.customer_name || 'Khách hàng'}</strong>
+              </Descriptions.Item>
+              <Descriptions.Item label="Số điện thoại">
+                {selectedWithdrawalBill.customer_phone || '—'}
+              </Descriptions.Item>
+              <Descriptions.Item label="Email khách hàng">
+                {selectedWithdrawalBill.customer_email || '—'}
+              </Descriptions.Item>
+              <Descriptions.Item label="Số tiền đã chi">
+                <strong style={{ fontSize: 18, color: '#cf1322' }}>
+                  {formatPrice(Number(selectedWithdrawalBill.amount))}
+                </strong>
+              </Descriptions.Item>
+              <Descriptions.Item label="Hình thức nhận">
+                {selectedWithdrawalBill.refundMethod === 'cash' ? (
+                  <Tag color="orange">Nhận tiền mặt tại quầy lễ tân</Tag>
+                ) : (
+                  <Tag color="blue">Chuyển khoản ngân hàng</Tag>
+                )}
+              </Descriptions.Item>
+              {selectedWithdrawalBill.refundMethod !== 'cash' && (
+                <>
+                  <Descriptions.Item label="Ngân hàng nhận">
+                    <strong>{selectedWithdrawalBill.bankName || '—'}</strong>
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Số tài khoản">
+                    <span style={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 14 }}>
+                      {selectedWithdrawalBill.accountNumber || '—'}
+                    </span>
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Chủ tài khoản">
+                    <strong>{selectedWithdrawalBill.accountName || '—'}</strong>
+                  </Descriptions.Item>
+                </>
+              )}
+              <Descriptions.Item label="Ghi chú xác nhận">
+                {selectedWithdrawalBill.note || 'Đã xác nhận chi tiền thành công cho khách hàng.'}
+              </Descriptions.Item>
+            </Descriptions>
+
+            <div style={{ marginTop: 24, display: 'flex', justifyContent: 'space-between', textAlign: 'center' }}>
+              <div>
+                <p style={{ margin: 0, fontWeight: 600 }}>Người lập phiếu / Lễ tân</p>
+                <p style={{ margin: '40px 0 0', color: '#94a3b8', fontSize: 12 }}>(Ký và ghi rõ họ tên)</p>
+              </div>
+              <div>
+                <p style={{ margin: 0, fontWeight: 600 }}>Khách hàng nhận tiền</p>
+                <p style={{ margin: '40px 0 0', color: '#94a3b8', fontSize: 12 }}>(Ký và ghi rõ họ tên)</p>
+              </div>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );

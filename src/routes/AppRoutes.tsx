@@ -38,7 +38,6 @@ import RoomTypeManagement from "../pages/Admin/RoomTypeManagement";
 import BookingManagement from "../pages/Admin/BookingManagement";
 import CustomerManagement from "../pages/Admin/CustomerManagement";
 import CustomerDetail from "../pages/Admin/CustomerDetail";
-import EmployeeManagement from "../pages/Admin/EmployeeManagement";
 import ServiceManagement from "../pages/Admin/ServiceManagement";
 import VoucherManagement from "../pages/Admin/VoucherManagement";
 import ReviewManagement from "../pages/Admin/ReviewManagement";
@@ -123,11 +122,6 @@ const AppRoutes = () => {
             <Route index element={<CustomerManagement />} />
             <Route path=":id" element={<CustomerDetail />} />
           </Route>
-
-          <Route
-            path="employees"
-            element={<EmployeeManagement />}
-          />
 
           <Route
             path="services"
