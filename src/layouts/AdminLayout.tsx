@@ -107,7 +107,6 @@ function AdminLayout() {
               </Link>
             </li>
             <li><Link to="/admin/customers">Khách hàng</Link></li>
-            <li><Link to="/admin/employees">Nhân viên</Link></li>
             <li>
               <Link to="/admin/services">
                 {withBadge(
