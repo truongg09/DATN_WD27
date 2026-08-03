@@ -923,16 +923,21 @@ function RoomManagement() {
                     {rooms.map(room => {
                       let color = 'green';
                       let statusText = 'Trống sạch';
+                      let cardBg = '#ffffff';
+
                       if (room.status === 'occupied') {
-                        color = 'red';
-                        statusText = 'Đang ở';
-                      } else if (room.status === 'reserved') {
                         color = 'blue';
+                        statusText = 'Đang ở';
+                        cardBg = '#eff6ff';
+                      } else if (room.status === 'reserved') {
+                        color = 'orange';
                         statusText = 'Đã cọc';
+                        cardBg = '#fffbeb';
                       } else if (room.status === 'maintenance') {
                         const isCleaning = room.maintenanceNote && room.maintenanceNote.toLowerCase().includes('dọn');
-                        color = isCleaning ? 'purple' : 'orange';
+                        color = isCleaning ? 'purple' : 'red';
                         statusText = isCleaning ? 'Chờ dọn dẹp' : 'Bảo trì';
+                        cardBg = isCleaning ? '#faf5ff' : '#fff1f2';
                       }
 
                       return (
@@ -944,7 +949,7 @@ function RoomManagement() {
                               textAlign: 'center',
                               border: '1px solid #e8e0d5',
                               borderRadius: '8px',
-                              backgroundColor: room.status === 'maintenance' ? (room.maintenanceNote && room.maintenanceNote.toLowerCase().includes('dọn') ? '#faf5ff' : '#fff1f2') : '#ffffff'
+                              backgroundColor: cardBg
                             }}
                           >
                             <div style={{ padding: '16px 12px' }}>
@@ -1377,55 +1382,79 @@ function RoomManagement() {
         footer={null}
         width={600}
       >
-        {selectedRoom && (
-          <Descriptions bordered column={1}>
-            <Descriptions.Item label="ID">{selectedRoom.id}</Descriptions.Item>
-            <Descriptions.Item label="Số phòng">{selectedRoom.roomNumber}</Descriptions.Item>
-            <Descriptions.Item label="Loại phòng">{selectedRoom.room_type_name}</Descriptions.Item>
-            <Descriptions.Item label="Mô tả">{selectedRoom.room_type_description || '—'}</Descriptions.Item>
-            <Descriptions.Item label="Tầng">{selectedRoom.floor}</Descriptions.Item>
-            <Descriptions.Item label="Diện tích">{selectedRoom.area} m²</Descriptions.Item>
-            <Descriptions.Item label="Giá/đêm">{formatPrice(selectedRoom.price_per_night)}</Descriptions.Item>
-            <Descriptions.Item label="Sức chứa">{selectedRoom.capacity} người</Descriptions.Item>
-            <Descriptions.Item label="Trạng thái">
-              {(() => {
-                let color = 'default';
-                let text: string = selectedRoom.status;
-                if (selectedRoom.status === 'available') {
-                  color = 'green';
-                  text = 'Trống sạch';
-                } else if (selectedRoom.status === 'occupied') {
-                  color = 'blue';
-                  text = 'Đang ở';
-                } else if (selectedRoom.status === 'reserved') {
-                  color = 'orange';
-                  text = 'Đã cọc';
-                } else if (selectedRoom.status === 'maintenance') {
-                  const isCleaning = selectedRoom.maintenanceNote && selectedRoom.maintenanceNote.toLowerCase().includes('dọn');
-                  color = isCleaning ? 'purple' : 'red';
-                  text = isCleaning ? 'Chờ dọn dẹp' : 'Bảo trì';
-                }
-                return (
-                  <Tag color={color}>
-                    {text}
-                  </Tag>
-                );
-              })()}
-            </Descriptions.Item>
-            {selectedRoom.status === 'maintenance' && (
-              <>
-                <Descriptions.Item label={selectedRoom.maintenanceNote && selectedRoom.maintenanceNote.toLowerCase().includes('dọn') ? "Lý do dọn dẹp" : "Lý do bảo trì"}>
-                  {selectedRoom.maintenanceNote || 'Không có ghi chú'}
-                </Descriptions.Item>
-                <Descriptions.Item label="Dự kiến hoàn thành">
-                  {selectedRoom.maintenanceExpectedCompletion
-                    ? dayjs(selectedRoom.maintenanceExpectedCompletion).format('DD/MM/YYYY')
-                    : 'Chưa xác định'}
-                </Descriptions.Item>
-              </>
-            )}
-          </Descriptions>
-        )}
+        {selectedRoom && (() => {
+          const activeBooking = bookings.find(b => {
+            const bRoomId = b.room_id || b.roomId;
+            return Number(bRoomId) === selectedRoom.id && 
+                   (b.status === 'checked_in' || b.status === 'confirmed');
+          });
+
+          return (
+            <Descriptions bordered column={1}>
+              <Descriptions.Item label="ID">{selectedRoom.id}</Descriptions.Item>
+              <Descriptions.Item label="Số phòng"><strong>Phòng {selectedRoom.roomNumber}</strong></Descriptions.Item>
+              <Descriptions.Item label="Loại phòng">{selectedRoom.room_type_name}</Descriptions.Item>
+              <Descriptions.Item label="Mô tả">{selectedRoom.room_type_description || '—'}</Descriptions.Item>
+              <Descriptions.Item label="Tầng">Tầng {selectedRoom.floor}</Descriptions.Item>
+              <Descriptions.Item label="Diện tích">{selectedRoom.area} m²</Descriptions.Item>
+              <Descriptions.Item label="Giá/đêm">{formatPrice(selectedRoom.price_per_night)}</Descriptions.Item>
+              <Descriptions.Item label="Sức chứa">{selectedRoom.capacity} người</Descriptions.Item>
+              <Descriptions.Item label="Trạng thái">
+                {(() => {
+                  let color = 'default';
+                  let text: string = selectedRoom.status;
+                  if (selectedRoom.status === 'available') {
+                    color = 'green';
+                    text = 'Trống sạch';
+                  } else if (selectedRoom.status === 'occupied') {
+                    color = 'blue';
+                    text = 'Đang ở';
+                  } else if (selectedRoom.status === 'reserved') {
+                    color = 'orange';
+                    text = 'Đã cọc';
+                  } else if (selectedRoom.status === 'maintenance') {
+                    const isCleaning = selectedRoom.maintenanceNote && selectedRoom.maintenanceNote.toLowerCase().includes('dọn');
+                    color = isCleaning ? 'purple' : 'red';
+                    text = isCleaning ? 'Chờ dọn dẹp' : 'Bảo trì';
+                  }
+                  return (
+                    <Tag color={color} style={{ fontWeight: 'bold' }}>
+                      {text}
+                    </Tag>
+                  );
+                })()}
+              </Descriptions.Item>
+              {selectedRoom.status === 'maintenance' && (
+                <>
+                  <Descriptions.Item label={selectedRoom.maintenanceNote && selectedRoom.maintenanceNote.toLowerCase().includes('dọn') ? "Lý do dọn dẹp" : "Lý do bảo trì"}>
+                    {selectedRoom.maintenanceNote || 'Không có ghi chú'}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Dự kiến hoàn thành">
+                    {selectedRoom.maintenanceExpectedCompletion
+                      ? dayjs(selectedRoom.maintenanceExpectedCompletion).format('DD/MM/YYYY')
+                      : 'Chưa xác định'}
+                  </Descriptions.Item>
+                </>
+              )}
+              {activeBooking && (
+                <>
+                  <Descriptions.Item label="Mã đặt phòng liên kết">
+                    <Tag color="cyan">#{activeBooking.id || activeBooking.bookingId}</Tag>
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Tên khách hàng">
+                    <strong>{activeBooking.customer_name}</strong>
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Số điện thoại khách">
+                    {activeBooking.customer_phone || '—'}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Thời gian lưu trú">
+                    {dayjs(activeBooking.check_in).format('DD/MM/YYYY')} đến {dayjs(activeBooking.check_out).format('DD/MM/YYYY')} ({dayjs(activeBooking.check_out).diff(dayjs(activeBooking.check_in), 'day')} đêm)
+                  </Descriptions.Item>
+                </>
+              )}
+            </Descriptions>
+          );
+        })()}
       </Modal>
 
       {/* Booking Detail Modal */}
