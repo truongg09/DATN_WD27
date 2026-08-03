@@ -1,0 +1,185 @@
+.search-form-section {
+  background: #fff5ed;
+  padding: 60px 20px;
+}
+
+.search-form-section .container {
+  max-width: 1200px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.search-form-section h2 {
+  color: #ab8965;
+  margin-bottom: 40px;
+  font-size: 36px;
+  font-weight: 700;
+}
+
+.search-form-wrapper {
+  background: #fff;
+  padding: 24px 32px;
+  border-radius: 30px;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.08);
+  display: inline-block;
+  width: 100%;
+  max-width: 1100px;
+}
+
+.search-form {
+  display: flex;
+  gap: 24px;
+  justify-content: center;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.search-field {
+  flex: 1;
+  min-width: 300px;
+  text-align: left;
+  padding: 8px 0;
+}
+
+.field-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #333;
+  font-weight: 700;
+  margin-bottom: 12px;
+  font-size: 17px;
+  padding: 0 4px;
+}
+
+.field-label .anticon {
+  color: #ab8965;
+  font-size: 18px;
+}
+
+.search-button-wrapper {
+  display: flex;
+  align-items: flex-start;
+  padding-top: 41px;
+}
+
+.custom-search-button {
+  background: linear-gradient(135deg, #ab8965 0%, #9a7a5a 100%);
+  border: none;
+  border-radius: 12px;
+  padding: 16px 50px;
+  font-size: 17px;
+  font-weight: 700;
+  height: 53px;
+  line-height: 1;
+  box-shadow: 0 4px 15px rgba(171, 137, 101, 0.35);
+  cursor: pointer;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.custom-search-button:hover {
+  background: #70533a;
+}
+
+/* Custom styles for RangePicker */
+.search-field .ant-picker {
+  border: 2px solid #e8e0d5;
+  border-radius: 10px;
+  padding: 12px 16px;
+  font-size: 15px;
+  transition: all 0.3s ease;
+  box-shadow: none;
+}
+
+.search-field .ant-picker:hover {
+  border-color: #ab8965;
+}
+
+.search-field .ant-picker-focused {
+  border-color: #ab8965;
+  box-shadow: 0 0 0 3px rgba(171, 137, 101, 0.15);
+}
+
+.search-field .ant-picker-input > input {
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.search-field .ant-picker-suffix {
+  color: #ab8965;
+}
+
+/* Guest selector styles */
+.guest-selector {
+  border: 2px solid #e8e0d5;
+  border-radius: 10px;
+  padding: 12px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.guest-selector:hover {
+  border-color: #ab8965;
+}
+
+.guest-selector .guest-text {
+  font-size: 15px;
+  font-weight: 500;
+  color: #333;
+}
+
+.guest-selector .guest-icon {
+  color: #ab8965;
+  font-size: 16px;
+}
+
+/* Nights count styles */
+.nights-count {
+  margin-top: 10px;
+  padding-left: 6px;
+  font-size: 16px;
+  color: #ab8965;
+  font-weight: 600;
+}
+
+@media (max-width: 768px) {
+  .search-form-section {
+    padding: 40px 16px;
+  }
+
+  .search-form-section h2 {
+    font-size: 24px;
+    margin-bottom: 24px;
+  }
+
+  .search-form-wrapper {
+    padding: 20px 16px;
+    border-radius: 20px;
+  }
+
+  .search-form {
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .search-field {
+    min-width: 100%;
+  }
+
+  .search-button-wrapper {
+    padding-top: 8px;
+    width: 100%;
+  }
+
+  .custom-search-button {
+    width: 100%;
+    padding: 14px 20px;
+  }
+}
