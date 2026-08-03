@@ -378,6 +378,7 @@ const processPayment = async (paymentId, payload, actor = null) => {
     // hỏng mà bị đưa ngược về 'confirmed' thì không check-out được nữa.
     if (['pending', 'confirmed'].includes(booking.status)) {
       await bookingModel.updateBookingStatus(booking.id, 'confirmed', connection);
+      await bookingModel.updateRoomStatus(booking.room_id, 'reserved', connection);
     }
     await bookingModel.cancelCompetingUnpaidBookings(
       booking.room_id,
@@ -539,6 +540,7 @@ const confirmPayment = async (paymentId, payload, actor = null) => {
     if (booking.status === 'pending') {
       await bookingModel.updateBookingStatus(booking.id, 'confirmed', connection);
     }
+    await bookingModel.updateRoomStatus(booking.room_id, 'reserved', connection);
 
     await logBookingHistory(
       booking.id,
