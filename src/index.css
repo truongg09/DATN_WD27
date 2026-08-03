@@ -219,3 +219,64 @@ body .auth-modal-content .ant-input-password .ant-input-suffix {
   color: #70533a;
   text-decoration: underline;
 }
+
+/* Styling cho In Bill / Phiếu chi khi window.print() */
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+
+  .withdrawal-bill-sheet,
+  .withdrawal-bill-sheet *,
+  .printable-bill,
+  .printable-bill * {
+    visibility: visible !important;
+  }
+
+  .withdrawal-bill-sheet,
+  .printable-bill {
+    position: fixed !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 24px !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    z-index: 999999 !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  .ant-modal-header,
+  .ant-modal-footer,
+  .ant-modal-close,
+  .ant-modal-mask {
+    display: none !important;
+  }
+
+  .ant-modal-wrap,
+  .ant-modal-root,
+  .ant-modal,
+  .ant-modal-content,
+  .ant-modal-body {
+    position: static !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  .ant-descriptions-bordered {
+    border: 1px solid #000 !important;
+  }
+
+  .ant-descriptions-bordered .ant-descriptions-item-label,
+  .ant-descriptions-bordered .ant-descriptions-item-content {
+    border: 1px solid #cbd5e1 !important;
+    color: #000 !important;
+  }
+}

@@ -31,7 +31,8 @@ import {
   BellOutlined,
   SolutionOutlined,
   DollarCircleOutlined,
-  CopyOutlined
+  CopyOutlined,
+  ExclamationCircleOutlined
 } from "@ant-design/icons";
 import { useAuth } from "../../contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
@@ -204,8 +205,8 @@ function Profile() {
         message.error("Vui lòng chọn ngân hàng nhận tiền");
         return;
       }
-      if (!/^[A-Za-z0-9]{4,30}$/.test(withdrawAccountNumber.replace(/\s+/g, ""))) {
-        message.error("Số tài khoản không hợp lệ (4-30 ký tự chữ/số)");
+      if (!/^\d{4,30}$/.test(withdrawAccountNumber.replace(/\s+/g, ""))) {
+        message.error("Số tài khoản ngân hàng chỉ được bao gồm các chữ số (0-9)");
         return;
       }
       if (withdrawAccountName.trim().length < 3) {
@@ -466,8 +467,22 @@ function Profile() {
                       </Form.Item>
                     </Col>
                     <Col xs={24} sm={12}>
-                      <Form.Item name="citizenId" label="Số CCCD/CMND">
-                        <Input size="large" placeholder="Nhập số CCCD hoặc hộ chiếu" />
+                      <Form.Item
+                        name="citizenId"
+                        label="Số CCCD (12 chữ số)"
+                        rules={[
+                          { pattern: /^\d{12}$/, message: "Số CCCD phải bao gồm đúng 12 chữ số (không chứa chữ cái hoặc ký hiệu)" }
+                        ]}
+                      >
+                        <Input
+                          size="large"
+                          placeholder="Nhập đúng 12 số CCCD"
+                          maxLength={12}
+                          onChange={(e) => {
+                            const val = e.target.value.replace(/\D/g, "").slice(0, 12);
+                            form.setFieldsValue({ citizenId: val });
+                          }}
+                        />
                       </Form.Item>
                     </Col>
                   </Row>
@@ -884,13 +899,35 @@ function Profile() {
                       <InputNumber
                         style={{ width: "100%" }}
                         min={1}
-                        max={walletBalance.available}
                         value={withdrawAmount}
                         onChange={(value) => setWithdrawAmount(Number(value) || 0)}
                         formatter={(value) => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ".")}
                         parser={(value) => Number((value || "0").replace(/\./g, ""))}
                         addonAfter="₫"
+                        status={withdrawAmount > walletBalance.available ? "error" : undefined}
                       />
+                      {withdrawAmount > walletBalance.available && (
+                        <div
+                          style={{
+                            color: "#ff4d4f",
+                            fontSize: 13,
+                            marginTop: 6,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
+                            background: "#fff2f0",
+                            padding: "8px 12px",
+                            borderRadius: 6,
+                            border: "1px solid #ffccc7",
+                          }}
+                        >
+                          <ExclamationCircleOutlined style={{ color: "#ff4d4f", fontSize: 15 }} />
+                          <span>
+                            Số dư không đủ để rút. Vui lòng nhập số tiền nhỏ hơn hoặc bằng số dư hiện có (
+                            <strong>{new Intl.NumberFormat("vi-VN").format(walletBalance.available)}₫</strong>).
+                          </span>
+                        </div>
+                      )}
                     </div>
 
                     <Radio.Group
@@ -916,10 +953,10 @@ function Profile() {
                           }))}
                         />
                         <Input
-                          placeholder="Số tài khoản nhận tiền"
+                          placeholder="Số tài khoản nhận tiền (chỉ nhập số 0-9)"
                           maxLength={30}
                           value={withdrawAccountNumber}
-                          onChange={(e) => setWithdrawAccountNumber(e.target.value)}
+                          onChange={(e) => setWithdrawAccountNumber(e.target.value.replace(/\D/g, ""))}
                         />
                         <Input
                           placeholder="Tên chủ tài khoản (VD: NGUYEN VAN A)"
