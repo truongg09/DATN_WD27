@@ -1,0 +1,291 @@
+/* Payment Sandbox styles */
+.sandbox-loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background-color: #f7f9fc;
+}
+
+.sandbox-container {
+  min-height: 100vh;
+  background-color: #f0f2f5;
+  padding: 40px 20px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  transition: background-color 0.3s ease;
+}
+
+.sandbox-wrapper {
+  width: 100%;
+  max-width: 1000px;
+  background: #ffffff;
+  border-radius: 16px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+}
+
+/* Header style */
+.sandbox-header {
+  padding: 20px 30px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.gateway-logo {
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+}
+
+.logo-text.zalopay {
+  color: #0068ff;
+  font-family: 'Outfit', sans-serif;
+}
+
+.logo-text.vnpay {
+  color: #004481;
+}
+
+.logo-text.vnpay .qr-tag {
+  color: #e31837;
+  font-style: italic;
+  font-weight: 900;
+}
+
+.sandbox-badge {
+  background-color: #ffe58f;
+  color: #d46b08;
+  border: 1px solid #ffe58f;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Body layout */
+.sandbox-body {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 30px;
+  padding: 30px;
+}
+
+@media (max-width: 768px) {
+  .sandbox-body {
+    grid-template-columns: 1fr;
+  }
+}
+
+.sandbox-sidebar {
+  display: flex;
+  flex-direction: column;
+}
+
+.info-card {
+  background-color: #fafafa;
+  border-radius: 12px;
+  height: 100%;
+}
+
+.info-card .ant-card-head {
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.info-card .ant-card-head-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #333333;
+}
+
+.txn-code {
+  font-family: monospace;
+  font-size: 13px;
+  background-color: #e6f7ff;
+  color: #1890ff;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.payment-amount {
+  font-size: 20px;
+  color: #ff4d4f;
+}
+
+.secure-badge {
+  margin-top: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #52c41a;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* QR Code section */
+.sandbox-qr-section {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.qr-card {
+  border: 1px solid #f0f0f0;
+  border-radius: 12px;
+  text-align: center;
+}
+
+.timer-wrapper {
+  font-size: 14px;
+  color: #666666;
+  margin-bottom: 20px;
+}
+
+.timer-wrapper .timer {
+  font-size: 18px;
+  font-weight: 700;
+  color: #ff4d4f;
+  margin-left: 5px;
+}
+
+.qr-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.qr-border {
+  position: relative;
+  padding: 12px;
+  background: white;
+  border: 2px solid #e8e8e8;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  overflow: hidden;
+}
+
+.qr-image {
+  display: block;
+  width: 200px;
+  height: 200px;
+}
+
+/* Scanner scanning line animation */
+.qr-scanner-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: #ff4d4f;
+  box-shadow: 0 0 8px #ff4d4f;
+  animation: scan 3s ease-in-out infinite;
+}
+
+@keyframes scan {
+  0% {
+    top: 0%;
+  }
+  50% {
+    top: 100%;
+  }
+  100% {
+    top: 0%;
+  }
+}
+
+.qr-instruction {
+  font-size: 13px;
+  color: #555555;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.sandbox-alert {
+  text-align: left;
+  margin-bottom: 24px;
+}
+
+.sandbox-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.btn-confirm {
+  width: 100%;
+  height: 48px;
+  font-size: 16px;
+  font-weight: 600;
+  border-radius: 8px;
+}
+
+.btn-cancel {
+  width: 100%;
+  height: 44px;
+  font-size: 14px;
+  border-radius: 8px;
+}
+
+/* Theme variations */
+/* ZaloPay */
+.sandbox-container.zalopay-theme {
+  background-color: #eef6ff;
+}
+
+.sandbox-container.zalopay-theme .qr-scanner-line {
+  background: #0068ff;
+  box-shadow: 0 0 8px #0068ff;
+}
+
+.sandbox-container.zalopay-theme .btn-confirm {
+  background-color: #0068ff;
+  border-color: #0068ff;
+}
+
+.sandbox-container.zalopay-theme .btn-confirm:hover {
+  background-color: #0052cc !important;
+  border-color: #0052cc !important;
+}
+
+/* VNPay */
+.sandbox-container.vnpay-theme {
+  background-color: #e6f7ff;
+}
+
+.sandbox-container.vnpay-theme .qr-scanner-line {
+  background: #1890ff;
+  box-shadow: 0 0 8px #1890ff;
+}
+
+.sandbox-container.vnpay-theme .btn-confirm {
+  background-color: #004481;
+  border-color: #004481;
+}
+
+.sandbox-container.vnpay-theme .btn-confirm:hover {
+  background-color: #1890ff !important;
+  border-color: #1890ff !important;
+}
+
+/* Footer style */
+.sandbox-footer {
+  padding: 20px 30px;
+  border-top: 1px solid #f0f0f0;
+  text-align: center;
+  color: #8c8c8c;
+  font-size: 12px;
+  background-color: #fafafa;
+}
+
+.sandbox-back-link {
+  margin-top: 8px;
+}

@@ -1,0 +1,292 @@
+.header {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 1000;
+    background: #fff;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+.header-top {
+    background: #ab8965;
+    color: #fff;
+    padding: 10px 0;
+}
+
+.header-top .container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 20px;
+}
+
+.contact-info span {
+    margin-right: 20px;
+}
+
+.social-links a {
+    color: #fff;
+    margin-left: 15px;
+    font-size: 16px;
+}
+
+.header-main {
+    padding: 20px 0;
+}
+
+.header-main .container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 20px;
+}
+
+.logo h2 {
+    color: #ab8965;
+    font-size: 28px;
+}
+
+.nav-menu ul {
+    display: flex;
+    list-style: none;
+    gap: 30px;
+}
+
+.nav-menu a {
+    text-decoration: none;
+    color: #333;
+    font-weight: 500;
+    transition: color 0.3s;
+}
+
+.nav-menu a:hover {
+    color: #ab8965;
+}
+
+.auth-buttons {
+    display: flex;
+    gap: 15px;
+    align-items: center;
+}
+
+.btn-register {
+    background: transparent;
+    color: #333;
+    border: 2px solid #ab8965;
+    padding: 10px 25px;
+    border-radius: 12px;
+    font-size: 16px;
+    font-weight: 600;
+    transition: all 0.3s;
+}
+
+.btn-register:hover {
+    background: #ab8965;
+    color: #fff;
+}
+
+.btn-login {
+    background: linear-gradient(135deg, #ab8965 0%, #9a7a5a 100%);
+    color: #fff;
+    border: none;
+    padding: 12px 30px;
+    border-radius: 12px;
+    font-size: 16px;
+    font-weight: 600;
+    box-shadow: 0 4px 15px rgba(171, 137, 101, 0.35);
+}
+
+.btn-login:hover {
+    background: #70533a;
+}
+
+.user-info {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+}
+
+.user-greeting {
+    color: #333;
+    font-weight: 600;
+    font-size: 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px;
+    background: linear-gradient(135deg, #f8f5f2 0%, #fff9f5 100%);
+    border-radius: 30px;
+    border: 2px solid #f0e8e0;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+    max-width: 220px;
+    transition: all 0.2s ease;
+}
+
+.user-greeting.is-link {
+}
+
+.user-greeting.is-link:hover {
+    border-color: #ab8965;
+    background: #fdfaf7;
+    box-shadow: 0 4px 12px rgba(171, 137, 101, 0.18);
+}
+
+.user-greeting span {
+    color: #ab8965;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.user-greeting svg {
+    color: #ab8965;
+    font-size: 18px;
+}
+
+.user-greeting span {
+    color: #ab8965;
+}
+
+.btn-logout {
+    background: linear-gradient(135deg, #ab8965 0%, #9a7a5a 100%);
+    color: #fff;
+    border: none;
+    padding: 12px 28px;
+    border-radius: 12px;
+    font-size: 16px;
+    font-weight: 600;
+    box-shadow: 0 4px 15px rgba(171, 137, 101, 0.35);
+}
+
+.btn-logout:hover {
+    background: #70533a;
+}
+
+/* Hamburger button – hidden on desktop */
+.hamburger-btn {
+    display: none;
+    background: none;
+    border: none;
+    font-size: 24px;
+    color: #333;
+    padding: 8px;
+}
+
+/* ===== Mobile Responsive ===== */
+@media (max-width: 768px) {
+    .header-top {
+        padding: 6px 0;
+        font-size: 12px;
+    }
+
+    .header-top .container {
+        flex-direction: column;
+        gap: 4px;
+        padding: 0 12px;
+    }
+
+    .contact-info span {
+        margin-right: 12px;
+        font-size: 12px;
+    }
+
+    .header-main {
+        padding: 12px 0;
+    }
+
+    .header-main .container {
+        flex-wrap: wrap;
+        padding: 0 16px;
+    }
+
+    .logo h2 {
+        font-size: 22px;
+    }
+
+    .hamburger-btn {
+        display: block;
+        order: 2;
+        margin-left: auto;
+    }
+
+    .logo {
+        order: 1;
+    }
+
+    .nav-menu {
+        display: none;
+        order: 3;
+        width: 100%;
+        border-top: 1px solid #eee;
+        padding-top: 12px;
+        margin-top: 12px;
+    }
+
+    .nav-menu.open {
+        display: block;
+    }
+
+    .nav-menu ul {
+        flex-direction: column;
+        gap: 0;
+    }
+
+    .nav-menu ul li a {
+        display: block;
+        padding: 10px 0;
+        border-bottom: 1px solid #f0f0f0;
+    }
+
+    .auth-buttons {
+        display: none;
+        order: 4;
+        width: 100%;
+        padding-top: 12px;
+    }
+
+    .auth-buttons.open {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+
+    .auth-buttons .btn-register,
+    .auth-buttons .btn-login {
+        flex: 1;
+        min-width: 120px;
+        text-align: center;
+        padding: 10px 16px;
+        font-size: 14px;
+    }
+
+    .user-info {
+        width: 100%;
+        flex-wrap: wrap;
+    }
+
+    .user-greeting {
+        max-width: 100%;
+    }
+
+    .btn-logout {
+        padding: 10px 20px;
+        font-size: 14px;
+    }
+}
+
+@media (max-width: 480px) {
+    .header-top .contact-info {
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
+    }
+
+    .contact-info span {
+        margin-right: 0;
+    }
+}

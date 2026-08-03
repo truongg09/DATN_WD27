@@ -1,0 +1,83 @@
+.employee-layout {
+  display: flex;
+  min-height: 100vh;
+  background-color: #f0f2f5;
+}
+
+.employee-sidebar {
+  width: 250px;
+  background-color: #001529;
+  color: white;
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  overflow-y: auto;
+}
+
+.employee-logo {
+  padding: 20px;
+  text-align: center;
+  border-bottom: 1px solid #1f2937;
+}
+
+.employee-logo h2 {
+  color: #fff;
+  font-size: 20px;
+}
+
+.employee-nav ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  flex: 1;
+}
+
+.employee-nav li {
+  border-bottom: 1px solid #1f2937;
+}
+
+.employee-nav a {
+  display: block;
+  padding: 15px 20px;
+  color: rgba(255, 255, 255, 0.85);
+  text-decoration: none;
+  transition: all 0.3s;
+}
+
+.employee-nav a:hover {
+  background-color: #1890ff;
+  color: white;
+}
+
+.employee-user {
+  text-align: center;
+  padding: 20px;
+  border-top: 1px solid #1f2937;
+}
+
+.employee-user p {
+  margin: 0 0 10px 0;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.employee-btn-logout {
+  padding: 10px 50px;
+  background: linear-gradient(135deg, #ab8965 0%, #9a7a5a 100%);
+  border: none;
+  color: #fff;
+  border-radius: 10px;
+  transition: background 0.3s;
+}
+
+.employee-btn-logout:hover {
+  background: #70533a;
+}
+
+.employee-content {
+  flex: 1;
+  margin-left: 250px;
+  padding: 24px;
+}
