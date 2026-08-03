@@ -172,6 +172,20 @@ router.put('/types/:id', requireAuth, requireStaff, async (req, res) => {
   try {
     const { id } = req.params;
     const { typeName, capacity, defaultPrice, description, status, amenityIds } = req.body;
+
+    if (status === 'inactive') {
+      const [activeRooms] = await db.query(
+        'SELECT roomNumber, status FROM rooms WHERE roomTypeId = ? AND status IN ("occupied", "reserved") AND isDeleted = 0',
+        [id]
+      );
+      if (activeRooms.length > 0) {
+        const roomNumbers = activeRooms.map(r => r.roomNumber).join(', ');
+        return res.status(400).json({
+          message: `Không thể ngừng hoạt động hạng phòng này vì có các phòng thuộc hạng này đang có khách ở hoặc đã cọc: Phòng ${roomNumbers}`
+        });
+      }
+    }
+
     await db.query(
       'UPDATE room_types SET typeName = ?, capacity = ?, defaultPrice = ?, description = ?, status = ? WHERE id = ?',
       [typeName, capacity, defaultPrice, description, status, id]
