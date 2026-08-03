@@ -1382,7 +1382,7 @@ function RoomManagement() {
             <Descriptions.Item label="Trạng thái">
               {(() => {
                 let color = 'default';
-                let text = selectedRoom.status;
+                let text: string = selectedRoom.status;
                 if (selectedRoom.status === 'available') {
                   color = 'green';
                   text = 'Trống sạch';
