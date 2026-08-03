@@ -336,6 +336,10 @@ const ensureOperationalSchema = async () => {
     if (!hasReviewColumn('repliedAt')) {
       await db.query('ALTER TABLE reviews ADD COLUMN repliedAt DATETIME NULL');
     }
+    // Lý do quản trị viên ẩn đánh giá, hiển thị lại cho khách trong thông báo.
+    if (!hasReviewColumn('hideReason')) {
+      await db.query('ALTER TABLE reviews ADD COLUMN hideReason TEXT NULL');
+    }
   }
 
   // Giá từng đêm được CHỐT tại thời điểm đặt. Nếu không lưu lại, các thao tác

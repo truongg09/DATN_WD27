@@ -11,6 +11,9 @@ dist-ssr
 .env.local
 .env.*.local
 
+# Khóa ký JWT sinh tự động khi chạy backend lần đầu, mỗi máy một khóa riêng
+.jwt-secret
+
 # IDE
 .vscode/*
 !.vscode/extensions.json
