@@ -142,9 +142,9 @@ router.post('/withdraw', requireAuth, async (req, res) => {
       const accountName = String(req.body?.accountName || '').trim().toUpperCase();
       const bankName = String(req.body?.bankName || '').trim();
 
-      if (!/^[A-Za-z0-9]{4,30}$/.test(accountNumber)) {
+      if (!/^\d{4,30}$/.test(accountNumber)) {
         await connection.rollback();
-        return res.status(400).json({ message: 'Số tài khoản không hợp lệ (4-30 ký tự chữ/số)' });
+        return res.status(400).json({ message: 'Số tài khoản ngân hàng chỉ được bao gồm các chữ số (0-9)' });
       }
       if (accountName.length < 3) {
         await connection.rollback();
