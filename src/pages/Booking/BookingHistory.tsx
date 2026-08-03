@@ -333,8 +333,8 @@ const BookingHistory: React.FC = () => {
         message.error('Vui lòng chọn ngân hàng nhận tiền hoàn');
         return;
       }
-      if (!/^[A-Za-z0-9]{4,30}$/.test(refundAccountNumber.replace(/\s+/g, ''))) {
-        message.error('Số tài khoản không hợp lệ (4-30 ký tự chữ/số)');
+      if (!/^\d{4,30}$/.test(refundAccountNumber.replace(/\s+/g, ''))) {
+        message.error('Số tài khoản ngân hàng chỉ được bao gồm các chữ số (0-9)');
         return;
       }
       if (refundAccountName.trim().length < 3) {
@@ -784,10 +784,10 @@ const BookingHistory: React.FC = () => {
                       }))}
                     />
                     <Input
-                      placeholder="Số tài khoản nhận tiền"
+                      placeholder="Số tài khoản nhận tiền (chỉ nhập số 0-9)"
                       maxLength={30}
                       value={refundAccountNumber}
-                      onChange={(e) => setRefundAccountNumber(e.target.value)}
+                      onChange={(e) => setRefundAccountNumber(e.target.value.replace(/\D/g, ''))}
                     />
                     <Input
                       placeholder="Tên chủ tài khoản (VD: NGUYEN VAN A)"

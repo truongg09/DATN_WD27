@@ -764,8 +764,8 @@ const normalizeRefundRequest = (refundRequest) => {
     const accountName = String(refundRequest.accountName || '').trim().toUpperCase();
     const bankName = String(refundRequest.bankName || '').trim();
 
-    if (!/^[A-Za-z0-9]{4,30}$/.test(accountNumber)) {
-      throw new HttpError(400, 'Số tài khoản nhận hoàn tiền không hợp lệ (4-30 ký tự chữ/số)');
+    if (!/^\d{4,30}$/.test(accountNumber)) {
+      throw new HttpError(400, 'Số tài khoản ngân hàng nhận hoàn tiền chỉ được bao gồm các chữ số (0-9)');
     }
     if (accountName.length < 3) {
       throw new HttpError(400, 'Vui lòng nhập tên chủ tài khoản nhận hoàn tiền');
