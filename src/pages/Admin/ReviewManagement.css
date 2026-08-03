@@ -1,0 +1,410 @@
+.review-mgmt-page {
+  min-height: 100vh;
+  padding: 32px;
+  background:
+    linear-gradient(180deg, rgba(248, 244, 238, 0.92) 0%, rgba(255, 255, 255, 0.96) 42%),
+    radial-gradient(circle at 15% 8%, rgba(177, 141, 101, 0.14), transparent 30%);
+}
+
+.review-mgmt-shell {
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+/* ---------- Header ---------- */
+.review-mgmt-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 18px;
+  padding: 26px 30px;
+  margin-bottom: 20px;
+  border: 1px solid rgba(171, 137, 101, 0.18);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 24px 60px rgba(35, 31, 28, 0.08);
+}
+
+.review-mgmt-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  margin-bottom: 8px;
+  color: #ab8965;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.review-mgmt-hero h1 {
+  margin: 0;
+  color: #202124;
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1.15;
+}
+
+.review-mgmt-hero p {
+  max-width: 520px;
+  margin: 8px 0 0;
+  color: #667085;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.review-mgmt-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.review-mgmt-toolbar .ant-input-affix-wrapper {
+  flex: 1 1 220px;
+  min-width: 200px;
+}
+
+.review-mgmt-toolbar .ant-select {
+  flex: 0 1 150px;
+  min-width: 130px;
+}
+
+.review-mgmt-toolbar .ant-btn {
+  flex: 0 0 auto;
+  margin-left: auto;
+  height: 40px;
+  font-weight: 700;
+}
+
+.review-mgmt-toolbar .ant-select-selector,
+.review-mgmt-toolbar .ant-btn {
+  border-radius: 10px !important;
+}
+
+/* ---------- Stat cards ---------- */
+.review-mgmt-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+/* Khối phân bố số sao chiếm trọn hàng dưới thay vì chỉ 1 cột rồi để trống 2 cột còn lại */
+.review-distribution-card {
+  grid-column: 1 / -1;
+}
+
+.review-stat-card {
+  padding: 20px 22px;
+  border: 1px solid #efe7dd;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 16px 36px rgba(35, 31, 28, 0.06);
+}
+
+.review-stat-label {
+  display: block;
+  color: #667085;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.review-stat-value {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 10px;
+  color: #202124;
+  font-size: 34px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.review-stat-value .unit {
+  color: #98a2b3;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.review-stat-value .star-icon {
+  color: #f0b429;
+  font-size: 26px;
+  margin-right: 2px;
+}
+
+/* Distribution bars */
+.review-distribution-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.review-distribution-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.review-distribution-row {
+  display: grid;
+  grid-template-columns: 46px 1fr 28px;
+  align-items: center;
+  gap: 10px;
+}
+
+.review-distribution-label {
+  color: #344054;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.review-distribution-track {
+  height: 8px;
+  border-radius: 999px;
+  background: #f3ece2;
+  overflow: hidden;
+}
+
+.review-distribution-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #d8b98c, #ab8965);
+  transition: width 0.3s ease;
+}
+
+.review-distribution-count {
+  color: #667085;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: right;
+}
+
+/* ---------- Table panel ---------- */
+.review-table-panel {
+  overflow: hidden;
+  border: 1px solid #efe7dd;
+  border-radius: 20px;
+  background: #ffffff;
+  box-shadow: 0 28px 70px rgba(35, 31, 28, 0.08);
+}
+
+.review-table-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 22px 24px;
+  border-bottom: 1px solid #f1ece6;
+}
+
+.review-table-header h2 {
+  margin: 0;
+  color: #202124;
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.review-mgmt-table .ant-table {
+  background: transparent;
+}
+
+.review-mgmt-table .ant-table-thead > tr > th {
+  padding: 16px 20px;
+  border-bottom: 1px solid #eadfd3;
+  background: #fbf7f2;
+  color: #202124;
+  font-size: 13px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.review-mgmt-table .ant-table-tbody > tr > td {
+  padding: 18px 20px;
+  border-bottom: 1px solid #f1ece6;
+  color: #202124;
+  font-size: 14px;
+  vertical-align: top;
+}
+
+.review-mgmt-table .ant-table-tbody > tr:hover > td {
+  background: #fffaf4;
+}
+
+.review-mgmt-table .ant-table-pagination {
+  margin: 18px 24px 22px;
+}
+
+/* Cells */
+.review-customer-name {
+  color: #202124;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+/* Ép các ngôi sao nằm trên 1 hàng, không bị bẻ dòng khi cột hẹp */
+.review-mgmt-table .ant-rate {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+.review-mgmt-table .ant-rate-star {
+  margin-inline-end: 2px;
+}
+
+.review-room-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.review-room-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #344054;
+  font-weight: 700;
+  font-size: 13.5px;
+}
+
+.review-room-line .anticon {
+  color: #ab8965;
+}
+
+.review-room-empty {
+  color: #98a2b3;
+  font-style: italic;
+}
+
+.review-room-type-tag {
+  margin: 0;
+  padding: 2px 10px;
+  border: none;
+  border-radius: 999px;
+  background: #f3ece2;
+  color: #8a6a44;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.review-booking-tag {
+  margin: 0;
+  padding: 3px 10px;
+  border: none;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #3730a3;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.review-comment-text {
+  margin: 0 !important;
+  color: #344054;
+  line-height: 1.55;
+}
+
+.review-comment-empty {
+  color: #98a2b3;
+  font-style: italic;
+}
+
+.review-date-cell {
+  color: #667085;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.review-delete-btn {
+  border-radius: 10px !important;
+  background: #fff1f0 !important;
+  border: 1px solid #ffccc7 !important;
+  color: #cf1322 !important;
+  box-shadow: none !important;
+}
+
+.review-delete-btn:hover {
+  background: #ffe1df !important;
+  border-color: #ff7875 !important;
+}
+
+/* ---------- Ảnh đính kèm review ---------- */
+.review-images-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.review-thumb {
+  border-radius: 6px;
+  object-fit: cover;
+  border: 1px solid #eee;
+}
+
+.review-images-more {
+  font-size: 12px;
+  color: #888;
+}
+
+/* ---------- Phản hồi admin ---------- */
+.review-admin-reply {
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: #f6f8fa;
+  border-left: 3px solid #1677ff;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.review-admin-reply-label {
+  display: block;
+  font-size: 12px;
+  margin-bottom: 2px;
+}
+
+.reply-modal-review-preview {
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  background: #fafafa;
+  border-radius: 6px;
+}
+
+.reply-modal-comment {
+  margin: 6px 0 0 !important;
+}
+
+/* ---------- Responsive ---------- */
+@media (max-width: 900px) {
+  .review-mgmt-stats {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .review-mgmt-page {
+    padding: 16px;
+  }
+
+  .review-mgmt-hero {
+    padding: 20px;
+  }
+
+  .review-mgmt-toolbar .ant-input-affix-wrapper,
+  .review-mgmt-toolbar .ant-select,
+  .review-mgmt-toolbar .ant-btn {
+    flex: 1 1 100%;
+    margin-left: 0;
+  }
+
+  .review-table-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
