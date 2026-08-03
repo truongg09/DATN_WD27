@@ -532,18 +532,36 @@ function RoomTypeManagement() {
               )}
             </Descriptions.Item>
             <Descriptions.Item label="Giá mặc định">{formatPrice(selectedType.defaultPrice)}</Descriptions.Item>
-            <Descriptions.Item label="Tiện nghi">
-              {selectedType.amenityIds ? (
-                selectedType.amenityIds.split(',').map(idStr => {
+            <Descriptions.Item label="Tiện nghi chi tiết">
+              {(() => {
+                if (!selectedType.amenityIds) {
+                  return <span style={{ color: '#ccc' }}>Chưa thiết lập tiện nghi</span>;
+                }
+                const resolvedAmenities = selectedType.amenityIds.split(',').map(idStr => {
                   const amId = Number(idStr);
-                  const found = amenities.find(a => a.id === amId);
-                  return found ? (
-                    <Tag color="purple" key={amId} style={{ margin: '2px' }}>{found.name}</Tag>
-                  ) : null;
-                })
-              ) : (
-                <span style={{ color: '#ccc' }}>Chưa thiết lập tiện nghi</span>
-              )}
+                  return amenities.find(a => a.id === amId);
+                }).filter((a): a is Amenity => !!a);
+
+                const groups = groupAmenities(resolvedAmenities);
+                if (groups.length === 0) {
+                  return <span style={{ color: '#ccc' }}>Chưa thiết lập tiện nghi</span>;
+                }
+
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {groups.map(([groupName, list]) => (
+                      <div key={groupName}>
+                        <strong style={{ fontSize: '11px', color: '#ab8965', display: 'block', marginBottom: '2px' }}>
+                          {groupName}:
+                        </strong>
+                        {list.map(am => (
+                          <Tag color="purple" key={am.id} style={{ margin: '2px 4px 2px 0' }}>{am.name}</Tag>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
             </Descriptions.Item>
             <Descriptions.Item label="Mô tả">{selectedType.description || '—'}</Descriptions.Item>
 
