@@ -1,0 +1,284 @@
+.report-mgmt-page {
+  min-height: 100vh;
+  padding: 32px;
+  background:
+    linear-gradient(180deg, rgba(248, 244, 238, 0.92) 0%, rgba(255, 255, 255, 0.96) 42%),
+    radial-gradient(circle at 15% 8%, rgba(177, 141, 101, 0.14), transparent 30%);
+}
+
+.report-mgmt-shell {
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+/* ---------- Header ---------- */
+.report-mgmt-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 18px;
+  padding: 26px 30px;
+  margin-bottom: 20px;
+  border: 1px solid rgba(171, 137, 101, 0.18);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 24px 60px rgba(35, 31, 28, 0.08);
+}
+
+.report-mgmt-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  margin-bottom: 8px;
+  color: #ab8965;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.report-mgmt-hero h1 {
+  margin: 0;
+  color: #202124;
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1.15;
+}
+
+.report-mgmt-hero p {
+  max-width: 560px;
+  margin: 8px 0 0;
+  color: #667085;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.report-mgmt-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.report-mgmt-toolbar .ant-select {
+  flex: 0 1 150px;
+  min-width: 130px;
+}
+
+.report-mgmt-toolbar .ant-btn {
+  flex: 0 0 auto;
+  height: 40px;
+  font-weight: 700;
+}
+
+.report-mgmt-toolbar .ant-btn:first-of-type {
+  margin-left: auto;
+}
+
+.report-mgmt-toolbar .ant-select-selector,
+.report-mgmt-toolbar .ant-btn {
+  border-radius: 10px !important;
+}
+
+.report-export-pdf-btn {
+  background: #fff1f0 !important;
+  border: 1px solid #ffccc7 !important;
+  color: #cf1322 !important;
+}
+
+.report-export-pdf-btn:hover {
+  background: #ffe1df !important;
+  border-color: #ff7875 !important;
+  color: #cf1322 !important;
+}
+
+.report-export-excel-btn {
+  background: #f0f9eb !important;
+  border: 1px solid #c8e6b8 !important;
+  color: #2e7d32 !important;
+}
+
+.report-export-excel-btn:hover {
+  background: #e2f3d9 !important;
+  border-color: #a5d68e !important;
+  color: #2e7d32 !important;
+}
+
+/* ---------- Stat cards ---------- */
+.report-mgmt-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.report-stat-card {
+  padding: 20px 22px;
+  border: 1px solid #efe7dd;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 16px 36px rgba(35, 31, 28, 0.06);
+}
+
+.report-stat-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #667085;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.report-stat-label .anticon {
+  color: #ab8965;
+}
+
+.report-stat-value {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 10px;
+  color: #202124;
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.report-stat-value .unit {
+  color: #98a2b3;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.report-stat-value.is-success {
+  color: #3f8600;
+}
+
+.report-stat-value.is-danger {
+  color: #cf1322;
+}
+
+.report-stat-value.is-warning {
+  color: #d69e2e;
+}
+
+.report-stat-value.is-info {
+  color: #2b6cb0;
+}
+
+.report-stat-sub {
+  display: block;
+  margin-top: 6px;
+  color: #98a2b3;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+/* ---------- Table panels ---------- */
+.report-table-panel {
+  overflow: hidden;
+  border: 1px solid #efe7dd;
+  border-radius: 20px;
+  background: #ffffff;
+  box-shadow: 0 28px 70px rgba(35, 31, 28, 0.08);
+  margin-bottom: 20px;
+}
+
+.report-table-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 22px 24px;
+  border-bottom: 1px solid #f1ece6;
+}
+
+.report-table-header h2 {
+  margin: 0;
+  color: #202124;
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.report-mgmt-table .ant-table {
+  background: transparent;
+}
+
+.report-mgmt-table .ant-table-thead > tr > th {
+  padding: 16px 20px;
+  border-bottom: 1px solid #eadfd3;
+  background: #fbf7f2;
+  color: #202124;
+  font-size: 13px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.report-mgmt-table .ant-table-tbody > tr > td {
+  padding: 16px 20px;
+  border-bottom: 1px solid #f1ece6;
+  color: #202124;
+  font-size: 14px;
+}
+
+.report-mgmt-table .ant-table-tbody > tr:hover > td {
+  background: #fffaf4;
+}
+
+.report-summary-row {
+  background: #fbf7f2;
+  font-weight: 800;
+}
+
+/* ---------- Breakdown grid (2 cột) ---------- */
+.report-breakdown-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.report-breakdown-grid .report-table-panel {
+  margin-bottom: 0;
+}
+
+/* ---------- Responsive ---------- */
+@media (max-width: 1100px) {
+  .report-mgmt-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .report-breakdown-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .report-mgmt-page {
+    padding: 16px;
+  }
+
+  .report-mgmt-hero {
+    padding: 20px;
+  }
+
+  .report-mgmt-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .report-mgmt-toolbar .ant-select,
+  .report-mgmt-toolbar .ant-btn {
+    flex: 1 1 100%;
+  }
+
+  .report-mgmt-toolbar .ant-btn:first-of-type {
+    margin-left: 0;
+  }
+
+  .report-table-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

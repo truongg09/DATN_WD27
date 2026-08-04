@@ -1,17 +1,17 @@
-import { Outlet } from 'react-router-dom'
-import Footer from '../components/layout/Footer'
-import Header from '../components/layout/Header'
+import { Outlet } from 'react-router-dom';
+import Header from '../components/Header/Header';
+import Footer from '../components/Footer/Footer';
 
 function ClientLayout() {
   return (
-    <div className="ml-app">
+    <div>
       <Header />
       <main>
         <Outlet />
       </main>
       <Footer />
     </div>
-  )
+  );
 }
 
-export default ClientLayout
+export default ClientLayout;
