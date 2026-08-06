@@ -28,15 +28,20 @@ const enrichInvoiceWithServices = async (row, connection) => {
     Number(invoice.stayRoomAmount || 0) > 0
       ? Number(invoice.stayRoomAmount)
       : invoice.roomAmount;
+  const surchargeAmount = Math.max(
+    Number(invoice.surchargeAmount || 0),
+    Number(invoice.occupancySurcharge || 0)
+  );
   const totalAmount =
-    roomAmount + serviceAmount + invoice.surchargeAmount - invoice.discountAmount;
+    roomAmount + serviceAmount + surchargeAmount - invoice.discountAmount;
 
   return {
     ...invoice,
     services,
     roomAmount,
     serviceAmount,
-    subtotal: roomAmount + serviceAmount + invoice.surchargeAmount,
+    surchargeAmount,
+    subtotal: roomAmount + serviceAmount + surchargeAmount,
     totalAmount
   };
 };

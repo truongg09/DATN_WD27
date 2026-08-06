@@ -25,6 +25,12 @@ const hashLegacyPlaintextPasswords = async () => {
 
 const ensureOperationalSchema = async () => {
   await hashLegacyPlaintextPasswords();
+  try {
+    await db.query('DROP TABLE IF EXISTS employees');
+  } catch (err) {
+    console.error('Lỗi khi xóa bảng employees:', err.message);
+  }
+
   const [bookingColumns] = await db.query('DESCRIBE bookings');
   if (!bookingColumns.some((column) => column.Field === 'cancellation_reason')) {
     await db.query('ALTER TABLE bookings ADD COLUMN cancellation_reason TEXT NULL AFTER notes');

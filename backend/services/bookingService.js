@@ -634,9 +634,22 @@ const getPaymentSummary = async (bookingId) => {
 
   let payment = null;
   try {
-    payment = await paymentService.getPaymentByBookingId(bookingId);
+    payment = await paymentService.recalculatePaymentForBooking(bookingId);
   } catch {
     payment = null;
+  }
+  if (!payment) {
+    try {
+      payment = await paymentService.createPaymentForBooking(bookingId);
+    } catch {
+      payment = null;
+    }
+  }
+
+  let voucherCode = null;
+  if (booking.voucher_id) {
+    const [vouchers] = await db.query('SELECT code FROM vouchers WHERE id = ?', [booking.voucher_id]);
+    voucherCode = vouchers[0]?.code || null;
   }
 
   const [services] = await db.query(
@@ -667,14 +680,15 @@ const getPaymentSummary = async (bookingId) => {
     totalAmount: Number(payment?.totalAmount || 0),
     paidAmount: Number(payment?.paidAmount || 0),
     remainingAmount,
-    // Phần phát sinh trong lúc lưu trú - đây mới là thứ khách thường phải trả
-    // thêm lúc trả phòng, tách riêng để lễ tân giải thích cho khách.
+    discountAmount: Number(payment?.discountAmount || 0),
+    voucherCode,
+    occupancySurcharge: Number(booking.occupancy_surcharge || 0),
+    surchargeAmount: Number(payment?.surchargeAmount || booking.occupancy_surcharge || 0),
     serviceAmount: services.reduce((sum, item) => sum + Number(item.totalPrice || 0), 0),
     damageAmount: damages.reduce((sum, item) => sum + Number(item.totalPrice || 0), 0),
     services,
     damages,
     canCheckOut: remainingAmount <= 0,
-    // Nội dung chuyển khoản phải chứa mã đặt phòng để đối soát sao kê.
     transferContent: `${paymentSettings.transferPrefix || 'HB'}${bookingId}`,
     bankAccount: {
       bankBin: paymentSettings.bankBin,
@@ -750,8 +764,8 @@ const normalizeRefundRequest = (refundRequest) => {
     const accountName = String(refundRequest.accountName || '').trim().toUpperCase();
     const bankName = String(refundRequest.bankName || '').trim();
 
-    if (!/^[A-Za-z0-9]{4,30}$/.test(accountNumber)) {
-      throw new HttpError(400, 'Số tài khoản nhận hoàn tiền không hợp lệ (4-30 ký tự chữ/số)');
+    if (!/^\d{4,30}$/.test(accountNumber)) {
+      throw new HttpError(400, 'Số tài khoản ngân hàng nhận hoàn tiền chỉ được bao gồm các chữ số (0-9)');
     }
     if (accountName.length < 3) {
       throw new HttpError(400, 'Vui lòng nhập tên chủ tài khoản nhận hoàn tiền');

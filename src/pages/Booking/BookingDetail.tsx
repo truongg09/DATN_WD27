@@ -367,13 +367,16 @@ const BookingDetail: React.FC = () => {
   const stayRoomAmount = Number(booking.room_price || booking.price_per_night || 0) * nights;
   const invoiceRoomAmount = invoice
     ? Number(invoice.stayRoomAmount || stayRoomAmount || invoice.roomAmount || 0)
-    : 0;
+    : stayRoomAmount;
+  const invoiceSurchargeAmount = invoice
+    ? Math.max(Number(invoice.surchargeAmount || 0), Number(invoice.occupancySurcharge || booking.occupancy_surcharge || 0))
+    : Number(booking.occupancy_surcharge || 0);
+  const invoiceDiscountAmount = invoice
+    ? Number(invoice.discountAmount || 0)
+    : Number(payment?.discountAmount || 0);
   const invoiceTotalAmount = invoice
-    ? invoiceRoomAmount +
-      invoiceServiceAmount +
-      Number(invoice.surchargeAmount || 0) -
-      Number(invoice.discountAmount || 0)
-    : 0;
+    ? Number(invoice.totalAmount || (invoiceRoomAmount + invoiceServiceAmount + invoiceSurchargeAmount - invoiceDiscountAmount))
+    : Number(booking.payable_total || booking.total_price || 0);
 
   return (
     <div className="booking-detail-page">
@@ -581,7 +584,7 @@ const BookingDetail: React.FC = () => {
         </Card>
 
         {invoice && (
-          <Card title="Hóa đơn" className="invoice-card">
+          <Card title="Hóa đơn dịch vụ lưu trú" className="invoice-card">
             <div className="invoice-header">
               <FileTextOutlined className="invoice-icon" />
               <div>
@@ -591,36 +594,86 @@ const BookingDetail: React.FC = () => {
               <Tag color="green">Đã phát hành</Tag>
             </div>
 
-            <Divider />
+            <Divider style={{ margin: '16px 0' }} />
 
             <div className="invoice-body">
-              <div className="invoice-row">
-                <span>Tiền phòng</span>
-                <span>{formatPrice(invoiceRoomAmount)}</span>
-              </div>
-              <div className="invoice-row service-total">
-                <span>Tiền dịch vụ</span>
-                <strong>{formatPrice(invoiceServiceAmount)}</strong>
-              </div>
-              {invoiceServices.map((service, index) => (
-                <div className="invoice-service-row" key={`${service.serviceId}-${index}`}>
-                  <span>
-                    {service.serviceName}
-                    <small>{service.quantity} × {formatPrice(service.unitPrice)}</small>
-                  </span>
-                  <span>{formatPrice(service.totalPrice)}</span>
-                </div>
-              ))}
-              {invoice.discountAmount > 0 && (
-                <div className="invoice-row">
-                  <span>Giảm giá</span>
-                  <span>-{formatPrice(invoice.discountAmount)}</span>
-                </div>
-              )}
-              <div className="invoice-row total">
-                <span>Tổng thanh toán</span>
-                <span>{formatPrice(invoiceTotalAmount)}</span>
-              </div>
+              <table className="invoice-table">
+                <thead>
+                  <tr>
+                    <th>Khoản mục</th>
+                    <th style={{ textAlign: 'center' }}>Chi tiết / SL</th>
+                    <th style={{ textAlign: 'right' }}>Thành tiền</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>
+                      <strong>Tiền phòng lưu trú</strong>
+                      <small style={{ display: 'block', color: '#888' }}>
+                        {booking.room_number ? `Phòng ${String(booking.room_number)}` : 'Chưa xếp phòng'}{' '}
+                        {booking.room_type_name ? `(${String(booking.room_type_name)})` : ''}
+                      </small>
+                    </td>
+                    <td style={{ textAlign: 'center' }}>{nights} đêm</td>
+                    <td style={{ textAlign: 'right', fontWeight: 600 }}>{formatPrice(invoiceRoomAmount)}</td>
+                  </tr>
+
+                  {invoiceSurchargeAmount > 0 && (
+                    <tr>
+                      <td>
+                        <strong>Phụ thu (trẻ em)</strong>
+                        <small style={{ display: 'block', color: '#888' }}>Phụ thu theo chính sách lưu trú trẻ em đi kèm</small>
+                      </td>
+                      <td style={{ textAlign: 'center' }}>
+                        {Number(booking.children || invoice.childrenCount || 0)} trẻ em
+                      </td>
+                      <td style={{ textAlign: 'right', fontWeight: 600 }}>{formatPrice(invoiceSurchargeAmount)}</td>
+                    </tr>
+                  )}
+
+                  {invoiceServices.length > 0 && (
+                    <>
+                      <tr className="invoice-section-header">
+                        <td colSpan={2}>
+                          <strong>Dịch vụ phát sinh ({invoiceServices.length})</strong>
+                        </td>
+                        <td style={{ textAlign: 'right', fontWeight: 600 }}>{formatPrice(invoiceServiceAmount)}</td>
+                      </tr>
+                      {invoiceServices.map((service, index) => (
+                        <tr key={`${service.serviceId}-${index}`} className="invoice-sub-row">
+                          <td style={{ paddingLeft: 24 }}>{service.serviceName}</td>
+                          <td style={{ textAlign: 'center' }}>
+                            {service.quantity} × {formatPrice(service.unitPrice)}
+                          </td>
+                          <td style={{ textAlign: 'right' }}>{formatPrice(service.totalPrice)}</td>
+                        </tr>
+                      ))}
+                    </>
+                  )}
+
+                  {invoiceDiscountAmount > 0 && (
+                    <tr className="invoice-discount-row">
+                      <td colSpan={2}>
+                        <strong style={{ color: '#cf1322' }}>Giảm giá (Voucher)</strong>
+                        {Boolean(voucher?.code) && <Tag color="purple" style={{ marginLeft: 8 }}>{String(voucher?.code)}</Tag>}
+                      </td>
+                      <td style={{ textAlign: 'right', color: '#cf1322', fontWeight: 600 }}>
+                        -{formatPrice(invoiceDiscountAmount)}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+                <tfoot>
+                  <tr className="invoice-total-row">
+                    <td colSpan={2}>
+                      <strong style={{ fontSize: 16 }}>Tổng thanh toán</strong>
+                    </td>
+                    <td style={{ textAlign: 'right' }}>
+                      <strong style={{ fontSize: 18, color: '#1677ff' }}>{formatPrice(invoiceTotalAmount)}</strong>
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
             </div>
           </Card>
         )}

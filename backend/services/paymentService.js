@@ -723,9 +723,13 @@ const confirmTransferPayment = async (paymentId, confirmedBy, actor = null) => {
   return result.payment;
 };
 
-const applyVoucher = async (paymentId, code, userId) => {
+const applyVoucher = async (paymentId, code, actor) => {
   const normalizedCode = String(code || '').trim().toUpperCase();
   if (!normalizedCode) throw new HttpError(400, 'Vui lòng nhập mã voucher');
+
+  const userId = typeof actor === 'object' ? actor?.userId : actor;
+  const userRole = typeof actor === 'object' ? actor?.role : 'customer';
+  const isStaff = ['admin', 'employee', 'staff', 'manager', 'receptionist'].includes(userRole);
 
   const connection = await db.getConnection();
   try {
@@ -741,16 +745,12 @@ const applyVoucher = async (paymentId, code, userId) => {
       throw new HttpError(409, 'Không thể áp voucher cho giao dịch này');
     }
 
-    const [bookingRows] = await connection.query(
-      'SELECT id, user_id, voucherId FROM bookings WHERE id = ? FOR UPDATE',
-      [payment.bookingId]
-    );
-    const booking = bookingRows[0];
+    const booking = await bookingModel.getBookingById(payment.bookingId, connection, true);
     if (!booking) throw new HttpError(404, 'Không tìm thấy đặt phòng');
-    if (Number(booking.user_id) !== Number(userId)) {
+    if (!isStaff && Number(booking.user_id) !== Number(userId)) {
       throw new HttpError(403, 'Bạn không có quyền áp voucher cho đặt phòng này');
     }
-    if (booking.voucherId) throw new HttpError(409, 'Đặt phòng đã áp dụng voucher');
+    if (booking.voucher_id || booking.voucherId) throw new HttpError(409, 'Đặt phòng đã áp dụng voucher');
 
     const [voucherRows] = await connection.query(
       `SELECT * FROM vouchers
@@ -768,15 +768,18 @@ const applyVoucher = async (paymentId, code, userId) => {
       [voucher.id]
     );
     const customerVoucher = assignmentRows.find((row) => Number(row.userId) === Number(userId));
-    if (assignmentRows.length > 0 && !customerVoucher) {
+    if (assignmentRows.length > 0 && !customerVoucher && !isStaff) {
       throw new HttpError(403, 'Voucher này dành riêng cho khách hàng khác');
     }
     if (customerVoucher?.isUsed) throw new HttpError(409, 'Voucher đã được sử dụng');
 
-    const subtotal =
-      Number(payment.roomAmount) +
-      Number(payment.serviceAmount) +
-      Number(payment.surchargeAmount);
+    const guestSurcharge = Number(booking.occupancy_surcharge || 0);
+    const roomAmount = Math.max(Number(booking.total_price || 0) - guestSurcharge, 0);
+    const serviceAmount = await bookingModel.sumBookingServices(payment.bookingId, connection);
+    const damageSurcharge = await bookingModel.sumDamageCharges(payment.bookingId, connection);
+    const surchargeAmount = guestSurcharge + damageSurcharge;
+    const subtotal = roomAmount + serviceAmount + surchargeAmount;
+
     if (subtotal < Number(voucher.minBookingAmount || 0)) {
       throw new HttpError(
         400,
@@ -799,9 +802,6 @@ const applyVoucher = async (paymentId, code, userId) => {
     }
     const remainingAmount = totalAmount - paidAmount;
 
-    // Voucher có thể phủ hết số tiền còn lại. Nếu không cập nhật paymentStatus,
-    // booking vẫn bị coi là chưa thanh toán: hết 15 phút giữ chỗ sẽ bị tự hủy
-    // và check-in/check-out đều bị chặn.
     const newPaymentStatus = remainingAmount <= 0
       ? 'paid'
       : paidAmount > 0
@@ -809,13 +809,18 @@ const applyVoucher = async (paymentId, code, userId) => {
         : 'unpaid';
 
     await paymentModel.updatePayment(paymentId, {
+      roomAmount,
+      serviceAmount,
+      surchargeAmount,
       discountAmount,
       totalAmount,
       remainingAmount,
       paymentStatus: newPaymentStatus
     }, connection);
-    await connection.query('UPDATE bookings SET voucherId = ? WHERE id = ?', [
+
+    await connection.query('UPDATE bookings SET voucherId = ?, totalAmount = ? WHERE id = ?', [
       voucher.id,
+      totalAmount,
       booking.id
     ]);
     await connection.query('UPDATE vouchers SET quantity = quantity - 1 WHERE id = ?', [
@@ -835,7 +840,7 @@ const applyVoucher = async (paymentId, code, userId) => {
         newValue: { voucherCode: voucher.code, discountAmount, totalAmount },
         amount: discountAmount
       },
-      { userId, role: 'customer' },
+      typeof actor === 'object' ? actor : { userId, role: 'customer' },
       connection
     );
 

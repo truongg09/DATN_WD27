@@ -32,7 +32,8 @@ const formatInvoice = (row) => {
 
   const roomAmount = Number(row.roomAmount ?? row.subtotal ?? 0);
   const serviceAmount = Number(row.serviceAmount ?? 0);
-  const surchargeAmount = Number(row.surchargeAmount ?? 0);
+  const occupancySurcharge = Number(row.occupancy_surcharge ?? 0);
+  const surchargeAmount = Math.max(Number(row.surchargeAmount ?? 0), occupancySurcharge);
   const discountAmount = Number(row.discountAmount ?? 0);
 
   return {
@@ -48,6 +49,8 @@ const formatInvoice = (row) => {
     roomTypeName: row.room_type_name,
     checkIn: row.check_in,
     checkOut: row.check_out,
+    childrenCount: Number(row.children_count ?? 0),
+    occupancySurcharge,
     stayRoomAmount: Number(row.stay_room_amount ?? 0),
     roomAmount,
     serviceAmount,

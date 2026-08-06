@@ -267,7 +267,7 @@ const applyVoucher = async (req, res) => {
     const result = await paymentService.applyVoucher(
       paymentId,
       req.body?.code,
-      req.user.userId
+      { userId: req.user.userId, role: req.user.role }
     );
     res.json({ message: 'Áp dụng voucher thành công', data: result });
   } catch (error) {

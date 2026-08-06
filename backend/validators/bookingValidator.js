@@ -190,6 +190,9 @@ const normalizeGuestIdentitiesPayload = (body) => {
       if (!identityNumber) {
         throw new HttpError(400, `Vui lòng nhập giấy tờ tùy thân của khách thứ ${index + 1}`);
       }
+      if (!/^\d{12}$/.test(identityNumber)) {
+        throw new HttpError(400, `Số CCCD của khách thứ ${index + 1} (${fullName}) phải bao gồm đúng 12 chữ số (không chứa chữ cái hoặc ký hiệu)`);
+      }
 
       return {
         fullName,
