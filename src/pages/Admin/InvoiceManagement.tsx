@@ -109,7 +109,7 @@ function InvoiceDetail({ invoice }: { invoice: Invoice }) {
           <strong>{formatCurrency(service.totalPrice)}</strong>
         </div>
       ))}
-      <AmountRow label="Phụ thu" value={invoice.surchargeAmount} />
+      <AmountRow label={invoice.occupancySurcharge && invoice.occupancySurcharge > 0 ? "Phụ thu (trẻ em)" : "Phụ thu"} value={invoice.surchargeAmount} />
       <AmountRow label="Giảm giá" value={-invoice.discountAmount} />
       <AmountRow label="Tổng thanh toán" value={invoice.totalAmount} total />
     </div>

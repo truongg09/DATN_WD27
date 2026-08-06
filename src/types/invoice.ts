@@ -26,6 +26,8 @@ export interface Invoice {
   serviceAmount: number;
   services?: InvoiceServiceItem[];
   surchargeAmount: number;
+  occupancySurcharge?: number;
+  childrenCount?: number;
   discountAmount: number;
   totalAmount: number;
   status: InvoiceStatus;

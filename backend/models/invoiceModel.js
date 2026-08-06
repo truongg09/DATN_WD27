@@ -13,6 +13,8 @@ const INVOICE_SELECT = `
     rt.typeName AS room_type_name,
     DATE(bd.checkInDate) AS check_in,
     DATE(bd.checkOutDate) AS check_out,
+    COALESCE(bd.occupancySurcharge, 0) AS occupancy_surcharge,
+    COALESCE(bd.children, 0) AS children_count,
     COALESCE(
       bd.roomPrice * GREATEST(DATEDIFF(bd.checkOutDate, bd.checkInDate), 1),
       0

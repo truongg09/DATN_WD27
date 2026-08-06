@@ -4,6 +4,7 @@ import {
   Button,
   Descriptions,
   Divider,
+  Input,
   Modal,
   QRCode,
   Result,
@@ -21,6 +22,7 @@ import {
   LogoutOutlined,
   QrcodeOutlined,
   ReloadOutlined,
+  TagOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../../services/api';
@@ -44,6 +46,10 @@ interface PaymentSummary {
   totalAmount: number;
   paidAmount: number;
   remainingAmount: number;
+  discountAmount?: number;
+  voucherCode?: string | null;
+  occupancySurcharge?: number;
+  surchargeAmount?: number;
   serviceAmount: number;
   damageAmount: number;
   services: ChargeRow[];
@@ -78,6 +84,8 @@ const CheckoutPaymentModal: React.FC<Props> = ({ bookingId, open, onClose, onChe
   const [working, setWorking] = useState(false);
   const [summary, setSummary] = useState<PaymentSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [voucherInput, setVoucherInput] = useState('');
+  const [applyingVoucher, setApplyingVoucher] = useState(false);
 
   const loadSummary = useCallback(
     async (silent = false) => {
@@ -107,15 +115,30 @@ const CheckoutPaymentModal: React.FC<Props> = ({ bookingId, open, onClose, onChe
     if (!open || !bookingId) {
       setSummary(null);
       setError(null);
+      setVoucherInput('');
       return;
     }
 
     loadSummary();
-    // Khách quét QR chuyển khoản xong, lễ tân không phải bấm gì: số tiền còn
-    // thiếu tự cập nhật khi giao dịch được ghi nhận.
     const timer = window.setInterval(() => loadSummary(true), 8000);
     return () => window.clearInterval(timer);
   }, [open, bookingId, loadSummary]);
+
+  const handleApplyVoucher = async () => {
+    if (!summary?.paymentId || !voucherInput.trim()) return;
+    setApplyingVoucher(true);
+    try {
+      await api.post(`/payments/${summary.paymentId}/apply-voucher`, { code: voucherInput.trim() });
+      message.success('Áp dụng mã giảm giá thành công!');
+      setVoucherInput('');
+      await loadSummary();
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } }).response?.data?.message;
+      message.error(msg || 'Không thể áp dụng voucher');
+    } finally {
+      setApplyingVoucher(false);
+    }
+  };
 
   const qrValue =
     summary && summary.remainingAmount > 0
@@ -254,13 +277,67 @@ const CheckoutPaymentModal: React.FC<Props> = ({ bookingId, open, onClose, onChe
           <Descriptions bordered size="small" column={3} style={{ marginBottom: 16 }}>
             <Descriptions.Item label="Khách hàng">{summary.customerName || '—'}</Descriptions.Item>
             <Descriptions.Item label="Phòng">{summary.roomNumber || '—'}</Descriptions.Item>
-            <Descriptions.Item label="Tổng hóa đơn">{money(summary.totalAmount)}</Descriptions.Item>
+            <Descriptions.Item label="Tổng hóa đơn">
+              <strong>{money(summary.totalAmount)}</strong>
+            </Descriptions.Item>
             <Descriptions.Item label="Đã thanh toán">
-              <span style={{ color: '#389e0d' }}>{money(summary.paidAmount)}</span>
+              <span style={{ color: '#389e0d', fontWeight: 600 }}>{money(summary.paidAmount)}</span>
+            </Descriptions.Item>
+            <Descriptions.Item label="Giảm giá (Voucher)">
+              <span style={{ color: '#cf1322', fontWeight: 600 }}>
+                {summary.discountAmount ? `−${money(summary.discountAmount)}` : '0₫'}
+              </span>
+              {summary.voucherCode && (
+                <Tag color="purple" style={{ marginLeft: 6 }}>
+                  {summary.voucherCode}
+                </Tag>
+              )}
+            </Descriptions.Item>
+            <Descriptions.Item label="Phụ thu trẻ em">
+              {money(summary.occupancySurcharge)}
             </Descriptions.Item>
             <Descriptions.Item label="Dịch vụ phát sinh">{money(summary.serviceAmount)}</Descriptions.Item>
             <Descriptions.Item label="Phí hư hỏng">{money(summary.damageAmount)}</Descriptions.Item>
           </Descriptions>
+
+          {summary.remainingAmount > 0 && (
+            <div
+              style={{
+                marginBottom: 16,
+                display: 'flex',
+                gap: 10,
+                alignItems: 'center',
+                background: '#fafafa',
+                padding: '10px 14px',
+                borderRadius: 8,
+                border: '1px solid #f0f0f0',
+              }}
+            >
+              <TagOutlined style={{ color: '#722ed1' }} />
+              <span style={{ fontWeight: 500 }}>Áp dụng mã Voucher:</span>
+              <Input
+                placeholder="Nhập mã giảm giá"
+                value={voucherInput}
+                onChange={(e) => setVoucherInput(e.target.value)}
+                style={{ width: 220 }}
+                disabled={Boolean(summary.voucherCode)}
+                onPressEnter={handleApplyVoucher}
+              />
+              <Button
+                type="primary"
+                onClick={handleApplyVoucher}
+                loading={applyingVoucher}
+                disabled={Boolean(summary.voucherCode) || !voucherInput.trim()}
+              >
+                Áp dụng
+              </Button>
+              {summary.voucherCode && (
+                <Tag color="purple" style={{ fontSize: 13, padding: '4px 8px' }}>
+                  Đã áp dụng: {summary.voucherCode} (Giảm {money(summary.discountAmount)})
+                </Tag>
+              )}
+            </div>
+          )}
 
           {summary.remainingAmount <= 0 ? (
             <Result
