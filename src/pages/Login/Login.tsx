@@ -42,9 +42,9 @@ function Login() {
       if (response.user.role === "admin") {
         console.log('Navigating to admin...');
         navigate("/admin");
-      } else if (response.user.role === "employee") {
-        console.log('Navigating to employee...');
-        navigate("/employee");
+      } else if (response.user.role === "staff" || response.user.role === "employee") {
+        console.log('Navigating to staff...');
+        navigate("/staff");
       } else {
         console.log('Navigating to home...');
         navigate("/");
