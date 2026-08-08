@@ -658,9 +658,10 @@ const getActorDisplayName = async (accountId, connection) => {
   if (!accountId) return null;
   const [rows] = await run(connection).query(
     `
-      SELECT COALESCE(NULLIF(c.fullName, ''), NULLIF(a.full_name, ''), a.email) AS name
+      SELECT COALESCE(NULLIF(e.fullName, ''), NULLIF(c.fullName, ''), NULLIF(a.full_name, ''), a.email) AS name
       FROM accounts a
       LEFT JOIN customers c ON c.accountId = a.id
+      LEFT JOIN employees e ON e.accountId = a.id
       WHERE a.id = ?
       LIMIT 1
     `,
