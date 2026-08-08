@@ -41,8 +41,8 @@ function Register() {
       message.success("Đăng ký tài khoản thành công!");
       if (response.user.role === "admin") {
         navigate("/admin");
-      } else if (response.user.role === "employee") {
-        navigate("/employee");
+      } else if (response.user.role === "staff" || response.user.role === "employee") {
+        navigate("/staff");
       } else {
         navigate("/");
       }

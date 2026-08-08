@@ -3,10 +3,10 @@ import { Routes, Route } from "react-router-dom";
 // Layouts
 import ClientLayout from "../layouts/ClientLayout";
 import AdminLayout from "../layouts/AdminLayout";
-import EmployeeLayout from "../layouts/EmployeeLayout";
+import StaffLayout from "../layouts/StaffLayout";
 import AuthLayout from "../layouts/AuthLayout";
 import AdminRoute from "./AdminRoute";
-import EmployeeRoute from "./EmployeeRoute";
+import StaffRoute from "./StaffRoute";
 
 // Public Pages
 import Home from "../pages/Home/Home";
@@ -45,18 +45,6 @@ import PaymentManagement from "../pages/Admin/PaymentManagement";
 import InvoiceManagement from "../pages/Admin/InvoiceManagement";
 import PaymentSettings from "../pages/Admin/PaymentSettings";
 import ReportManagement from "../pages/Admin/ReportManagement";
-
-// Employee Pages
-import EmployeeDashboard from "../pages/Employee/EmployeeDashboard";
-import BookingCalendar from "../pages/Employee/BookingCalendar";
-import ReceiveBooking from "../pages/Employee/ReceiveBooking";
-import RoomStatus from "../pages/Employee/RoomStatus";
-import Customers from "../pages/Employee/Customers";
-import CheckinCheckout from "../pages/Employee/CheckinCheckout";
-import Payment from "../pages/Employee/Payment";
-import CustomerService from "../pages/Employee/CustomerService";
-import RoomRequests from "../pages/Employee/RoomRequests";
-import Reviews from "../pages/Employee/Reviews";
 
 const AppRoutes = () => {
   return (
@@ -158,53 +146,34 @@ const AppRoutes = () => {
         </Route>
       </Route>
 
-      {/* EMPLOYEE */}
-      <Route element={<EmployeeRoute />}>
-        <Route path="/employee" element={<EmployeeLayout />}>
+      {/* STAFF */}
+      <Route element={<StaffRoute />}>
+        <Route path="/staff" element={<StaffLayout />}>
 
-          <Route index element={<EmployeeDashboard />} />
-          <Route path="dashboard" element={<EmployeeDashboard />} />
+          <Route index element={<Dashboard />} />
 
-          <Route path="booking-calendar" element={<BookingCalendar />} />
+          <Route path="rooms" element={<RoomManagement />} />
 
           <Route
-            path="receive-booking"
-            element={<ReceiveBooking />}
+            path="bookings"
+            element={<BookingManagement />}
           />
 
-          <Route
-            path="room-status"
-            element={<RoomStatus />}
-          />
+          <Route path="customers">
+            <Route index element={<CustomerManagement />} />
+            <Route path=":id" element={<CustomerDetail />} />
+          </Route>
 
           <Route
-            path="customers"
-            element={<Customers />}
+            path="services"
+            element={<ServiceManagement />}
           />
 
-          <Route
-            path="checkin-checkout"
-            element={<CheckinCheckout />}
-          />
+          <Route path="invoices" element={<InvoiceManagement />} />
 
           <Route
-            path="payment"
-            element={<Payment />}
-          />
-
-          <Route
-            path="customer-service"
-            element={<CustomerService />}
-          />
-
-          <Route
-            path="room-requests"
-            element={<RoomRequests />}
-          />
-
-          <Route
-            path="reviews"
-            element={<Reviews />}
+            path="payments"
+            element={<PaymentManagement />}
           />
 
         </Route>

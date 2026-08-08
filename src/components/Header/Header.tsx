@@ -67,10 +67,10 @@ const Header: React.FC = () => {
               <li><Link to="/booking" onClick={closeMenu}>Đặt phòng</Link></li>
               <li><Link to="/contact" onClick={closeMenu}>Liên hệ</Link></li>
               {isAuthenticated && user?.role === "admin" && (
-                <li><Link to="/admin" onClick={closeMenu}>Admin</Link></li>
+                <li><Link to="/admin" onClick={closeMenu}>Trang quản lý</Link></li>
               )}
-              {isAuthenticated && user?.role === 'employee' && (
-                <li><Link to="/employee" onClick={closeMenu}>Nhân viên</Link></li>
+              {(isAuthenticated && (user?.role === 'staff' || user?.role === 'employee')) && (
+                <li><Link to="/staff" onClick={closeMenu}>Trang quản lý</Link></li>
               )}
             </ul>
           </nav>
