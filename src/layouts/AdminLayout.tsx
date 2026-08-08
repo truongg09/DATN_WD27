@@ -81,7 +81,7 @@ function AdminLayout() {
           <h2>
             HotelHub Admin
             {counts.total > 0 && (
-              <Tooltip title={`${counts.total} việc đang chờ xử lý`}>
+              <Tooltip>
                 <Badge
                   count={counts.total}
                   size="small"
@@ -102,7 +102,6 @@ function AdminLayout() {
                 {withBadge(
                   'Đặt phòng',
                   counts.pendingBookings + counts.unpaidStays,
-                  `${counts.pendingBookings} đơn chờ xác nhận, ${counts.unpaidStays} khách đang ở còn nợ tiền`
                 )}
               </Link>
             </li>
@@ -112,7 +111,6 @@ function AdminLayout() {
                 {withBadge(
                   'Quản lý dịch vụ',
                   counts.pendingServiceRequests,
-                  `${counts.pendingServiceRequests} yêu cầu dịch vụ chờ duyệt`
                 )}
               </Link>
             </li>
@@ -124,7 +122,6 @@ function AdminLayout() {
                 {withBadge(
                   'Thanh toán',
                   counts.pendingRefunds + counts.pendingWithdrawals + counts.pendingTransferConfirmations,
-                  `${counts.pendingTransferConfirmations} khách báo đã chuyển khoản, ${counts.pendingRefunds} yêu cầu hoàn tiền, ${counts.pendingWithdrawals} yêu cầu rút ví`
                 )}
               </Link>
             </li>
