@@ -969,6 +969,7 @@ module.exports = {
   listEligibleNoShowBookings,
   getCheckoutLateFeeTiers,
   findNextBookingForRoom,
+  findAdjacentBookingsForRoom,
   addLateCheckoutCharge,
   sumLateCheckoutCharges,
   updateActualCheckOutTime,
