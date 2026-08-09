@@ -505,6 +505,7 @@ const reassignRoom = async (req, res) => {
   }
 };
 
+
 module.exports = {
   checkAvailability,
   checkTypeAvailability,
