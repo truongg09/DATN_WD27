@@ -1,11 +1,35 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Alert, Button, Empty, Input, Modal, Tooltip, message, Radio, Rate, Select, Space, Spin, Table, Tag, Upload } from 'antd';
+import {
+  Alert,
+  Button,
+  DatePicker,
+  Descriptions,
+  Empty,
+  Form,
+  InputNumber,
+  Input,
+  Modal,
+  Popconfirm,
+  Select,
+  Tabs,
+  Tooltip,
+  message,
+  Radio,
+  Rate,
+  Space,
+  Spin,
+  Table,
+  Tag,
+  Upload,
+} from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import type { UploadFile, UploadProps } from 'antd/es/upload/interface';
 import {
   CalendarOutlined,
   CreditCardOutlined,
+  DeleteOutlined,
+  EditOutlined,
   EyeOutlined,
   HomeOutlined,
   PlusOutlined,
@@ -15,19 +39,29 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import {
+  addBookingServiceCharge,
   cancelBooking,
+  checkAvailability,
+  extendBookingStay,
+  updateBookingStay,
+  updateBookingServiceCharge,
+  deleteBookingServiceCharge,
   getBookings,
   getRefundPreview,
   type RefundPreview,
 } from '../../services/bookingService';
 import { getPaymentByBookingId } from '../../services/paymentService';
 import { createReview, getReviews, updateReview } from '../../services/reviewService';
+import { getServices } from '../../services/serviceService';
 import { getMyRefunds, type RefundRow } from '../../services/refundService';
+import { getRooms, getRoomTypes } from '../../services/roomService';
 import { VIETQR_BANKS } from '../../utils/vietqr';
 import { useAuth } from '../../contexts/AuthContext';
 import { unwrapList } from '../../utils/unwrapList';
 import type { Payment } from '../../types/payment';
+import type { Service } from '../../types/service';
 import api from '../../services/api';
+import BookingDetailModal from '../Admin/BookingDetailModal';
 import './BookingHistory.css';
 
 const MAX_REVIEW_IMAGES = 5;
@@ -190,6 +224,36 @@ const BookingHistory: React.FC = () => {
   const [refundAccountNumber, setRefundAccountNumber] = useState('');
   const [refundAccountName, setRefundAccountName] = useState('');
   const [cancellationReason, setCancellationReason] = useState('');
+  const [viewModalVisible, setViewModalVisible] = useState(false);
+  const [viewBookingId, setViewBookingId] = useState<number | null>(null);
+
+  // Modal chỉnh sửa đặt phòng
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editBookingId, setEditBookingId] = useState<number | null>(null);
+  const [editLoading, setEditLoading] = useState(false);
+  const [editDetail, setEditDetail] = useState<any>(null);
+  const [allRoomTypes, setAllRoomTypes] = useState<any[]>([]);
+  const [allRooms, setAllRooms] = useState<any[]>([]);
+  const [allServices, setAllServices] = useState<Service[]>([]);
+  const [editTab, setEditTab] = useState('info');
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [availabilityLoading, setAvailabilityLoading] = useState(false);
+  const [availabilityResult, setAvailabilityResult] = useState<any>(null);
+  const [availabilityError, setAvailabilityError] = useState<string | null>(null);
+
+  // Form values
+  const [editStayRange, setEditStayRange] = useState<[any, any] | null>(null);
+  const [editRoomTypeId, setEditRoomTypeId] = useState<number | null>(null);
+  const [editTransferReason, setEditTransferReason] = useState('');
+  const [newServiceId, setNewServiceId] = useState<number | null>(null);
+  const [newServiceQty, setNewServiceQty] = useState<number>(1);
+  const [savingServiceAction, setSavingServiceAction] = useState<number | string | null>(null);
+
+  // Modal sửa số lượng dịch vụ
+  const [editSvcModalOpen, setEditSvcModalOpen] = useState(false);
+  const [editSvcRow, setEditSvcRow] = useState<any>(null);
+  const [editSvcQty, setEditSvcQty] = useState(1);
+  const [editingSvcSaving, setEditingSvcSaving] = useState(false);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNowTick((value) => value + 1), 1000);
@@ -296,6 +360,324 @@ const BookingHistory: React.FC = () => {
       { label: 'Chưa thanh toán', value: unpaidBookings },
     ];
   }, [bookings, payments]);
+
+  const openEditModal = async (record: BookingRow) => {
+    setEditBookingId(record.id);
+    setEditModalOpen(true);
+    setEditLoading(true);
+    setEditDetail(null);
+    setAvailabilityResult(null);
+    setAvailabilityError(null);
+    setEditTab('info');
+    setNewServiceId(null);
+    setNewServiceQty(1);
+    setEditTransferReason('');
+    try {
+      const [detailRes, rtRes, roomsRes, servicesRes] = await Promise.all([
+        api.get(`/bookings/${record.id}`),
+        getRoomTypes(),
+        getRooms(),
+        getServices(),
+      ]);
+      const detail = (detailRes as any).data || detailRes;
+      setEditDetail(detail);
+      setAllRoomTypes(unwrapList<any>(rtRes));
+      setAllRooms(unwrapList<any>(roomsRes));
+      setAllServices(servicesRes);
+      setEditStayRange(
+        detail.check_in && detail.check_out
+          ? [dayjs(detail.check_in), dayjs(detail.check_out)]
+          : null
+      );
+      const currentType = unwrapList<any>(rtRes).find(
+        (rt: any) => rt.typeName === detail.room_type_name
+      );
+      setEditRoomTypeId(currentType?.id ?? null);
+    } catch (err: any) {
+      message.error(err.response?.data?.message || 'Không thể tải chi tiết đặt phòng để chỉnh sửa');
+    } finally {
+      setEditLoading(false);
+    }
+  };
+
+  const runAvailabilityCheck = async (opts?: { overrideRange?: [any, any] | null; overrideRoomTypeId?: number | null }) => {
+    const range = opts?.overrideRange ?? editStayRange;
+    const rtId = opts?.overrideRoomTypeId ?? editRoomTypeId;
+    const ci = range?.[0];
+    const co = range?.[1];
+    if (!range || !ci || !co || !ci.isValid() || !co.isValid() || !co.isAfter(ci)) {
+      setAvailabilityError('Vui lòng chọn khoảng thời gian hợp lệ (ngày trả phải sau ngày nhận)');
+      setAvailabilityResult(null);
+      return;
+    }
+    if (!rtId) {
+      setAvailabilityError('Vui lòng chọn hạng phòng');
+      setAvailabilityResult(null);
+      return;
+    }
+    setAvailabilityLoading(true);
+    setAvailabilityError(null);
+    setAvailabilityResult(null);
+    try {
+      const payload: Record<string, unknown> = {
+        checkIn: ci.format('YYYY-MM-DD'),
+        checkOut: co.format('YYYY-MM-DD'),
+        roomTypeId: rtId,
+        childrenAges: [],
+      };
+      const res = await checkAvailability(payload);
+      const body: any = (res as any).data ?? res;
+      if (body?.available) {
+        setAvailabilityResult(body);
+      } else {
+        setAvailabilityError(
+          'Không có phòng trống cho khoảng thời gian này. Vui lòng thử ngày khác hoặc hạng phòng khác.'
+        );
+        setAvailabilityResult(null);
+      }
+    } catch (err: any) {
+      setAvailabilityError(err.response?.data?.message || 'Kiểm tra phòng trống thất bại');
+      setAvailabilityResult(null);
+    } finally {
+      setAvailabilityLoading(false);
+    }
+  };
+
+  const saveInfoChanges = async () => {
+    if (!editBookingId || !editDetail) return;
+    setSavingEdit(true);
+    try {
+      const [newCheckIn, newCheckOut] = editStayRange ?? [null, null];
+      if (!newCheckIn || !newCheckOut || !newCheckIn.isValid() || !newCheckOut.isValid()) {
+        message.warning('Vui lòng chọn khoảng thời gian hợp lệ');
+        setSavingEdit(false);
+        return;
+      }
+
+      const currentCheckOut = dayjs(editDetail.check_out);
+      const currentCheckIn = dayjs(editDetail.check_in);
+
+      const status = editDetail.status as string;
+      const diffCheckIn = !newCheckIn.isSame(currentCheckIn, 'day');
+      const diffCheckOut = !newCheckOut.isSame(currentCheckOut, 'day');
+      const currentRT = editDetail.room_type_id ?? editDetail.roomType?.id;
+      const diffRoomType = editRoomTypeId && Number(editRoomTypeId) !== Number(currentRT);
+
+      const extendingOnly =
+        !diffCheckIn && diffCheckOut && newCheckOut.isAfter(currentCheckOut) && !diffRoomType;
+
+      if (status === 'pending' || status === 'confirmed') {
+        if (!diffCheckIn && !diffCheckOut && !diffRoomType) {
+          message.info('Không có thay đổi nào để lưu');
+          setSavingEdit(false);
+          return;
+        }
+        const payload: Record<string, unknown> = {
+          checkIn: newCheckIn.format('YYYY-MM-DD'),
+          checkOut: newCheckOut.format('YYYY-MM-DD'),
+        };
+        if (editRoomTypeId) payload.roomTypeId = Number(editRoomTypeId);
+
+        const res = await updateBookingStay(editBookingId, payload as any);
+        const result = (res as any).data?.data ?? (res as any).data ?? res;
+        const delta = result?.deltaTotal ?? 0;
+        const msg = delta !== 0
+          ? `Cập nhật đặt phòng thành công! (Tiền phòng ${delta > 0 ? 'tăng' : 'giảm'} ${new Intl.NumberFormat('vi-VN').format(Math.abs(delta))}đ)`
+          : 'Cập nhật đặt phòng thành công!';
+        message.success(msg + ' Đang làm mới dữ liệu...');
+        setEditModalOpen(false);
+        await loadHistory();
+        return;
+      }
+
+      if (status === 'checked_in') {
+        if (diffCheckIn || diffRoomType) {
+          message.error('Đã check-in rồi: không thể đổi ngày nhận hoặc hạng phòng. Chỉ có thể gia hạn ngày trả!');
+          setSavingEdit(false);
+          return;
+        }
+        if (extendingOnly) {
+          await extendBookingStay(editBookingId, {
+            checkOut: newCheckOut.format('YYYY-MM-DD'),
+          });
+          message.success('Gia hạn thời gian ở thành công! Đang làm mới dữ liệu...');
+          setEditModalOpen(false);
+          await loadHistory();
+          return;
+        }
+        message.warning('Vui lòng chọn ngày trả mới lớn hơn ngày trả hiện tại để gia hạn');
+        setSavingEdit(false);
+        return;
+      }
+
+      message.warning('Trạng thái booking này không cho phép cập nhật thời gian ở.');
+    } catch (err: any) {
+      message.error(err.response?.data?.message || 'Lưu thay đổi thất bại');
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const addServiceToBooking = async () => {
+    if (!editBookingId || !newServiceId) return;
+    setSavingEdit(true);
+    try {
+      const res = await addBookingServiceCharge(editBookingId, {
+        serviceId: Number(newServiceId),
+        quantity: Number(newServiceQty || 1),
+      });
+      const result = (res as any).data ?? res;
+      const serviceName = allServices.find((s) => s.id === Number(newServiceId))?.serviceName || 'Dịch vụ';
+      const svc = result?.service;
+      const pm = result?.payment;
+      Modal.success({
+        title: 'Đã cộng dịch vụ',
+        content: (
+          <div>
+            <p>
+              <strong>{serviceName}</strong> × {newServiceQty} đã được cộng thêm{' '}
+              <strong>
+                {new Intl.NumberFormat('vi-VN').format(
+                  Number(svc?.totalPrice ?? 0)
+                )}
+                đ
+              </strong>
+              .
+            </p>
+            {pm && (
+              <p>
+                Số tiền khách còn phải thanh toán:{' '}
+                <strong style={{ color: '#cf1322' }}>
+                  {new Intl.NumberFormat('vi-VN').format(
+                    Number(pm.remainingAmount ?? 0)
+                  )}
+                  đ
+                </strong>
+              </p>
+            )}
+          </div>
+        ),
+        onOk: async () => {
+          if (editBookingId) {
+            const detailRes = await api.get(`/bookings/${editBookingId}`);
+            const detail = (detailRes as any).data || detailRes;
+            setEditDetail(detail);
+          }
+          setNewServiceId(null);
+          setNewServiceQty(1);
+          await loadHistory();
+        },
+      });
+    } catch (err: any) {
+      message.error(err.response?.data?.message || 'Không thể cộng dịch vụ');
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const openEditServiceQty = (row: any) => {
+    setEditSvcRow(row);
+    setEditSvcQty(Number(row?.quantity || 1));
+    setEditSvcModalOpen(true);
+  };
+
+  const saveEditServiceQty = async () => {
+    if (!editBookingId || !editSvcRow) return;
+    setEditingSvcSaving(true);
+    try {
+      const res = await updateBookingServiceCharge(editBookingId, Number(editSvcRow.id), {
+        quantity: Number(editSvcQty || 1),
+      });
+      const result = (res as any).data ?? res;
+      const delta = Number(result?.charge?.delta ?? 0);
+      const pm = result?.payment;
+      Modal.success({
+        title: 'Đã cập nhật số lượng dịch vụ',
+        content: (
+          <div>
+            <p>
+              Dịch vụ <strong>{editSvcRow.serviceName || editSvcRow.name || ' '}</strong> đã được cập nhật.
+              {delta !== 0 && (
+                <span>
+                  {' '}Tổng tiền dịch vụ{' '}
+                  <strong style={{ color: delta > 0 ? '#cf1322' : '#3f8600' }}>
+                    {delta > 0 ? 'tăng thêm ' : 'giảm bớt '}
+                    {new Intl.NumberFormat('vi-VN').format(Math.abs(delta))}đ
+                  </strong>
+                  .
+                </span>
+              )}
+            </p>
+            {pm && (
+              <p>
+                Số tiền còn phải thanh toán:{' '}
+                <strong style={{ color: '#cf1322' }}>
+                  {new Intl.NumberFormat('vi-VN').format(Number(pm.remainingAmount ?? 0))}đ
+                </strong>
+              </p>
+            )}
+          </div>
+        ),
+        onOk: async () => {
+          if (editBookingId) {
+            const detailRes = await api.get(`/bookings/${editBookingId}`);
+            setEditDetail((detailRes as any).data || detailRes);
+          }
+          setEditSvcModalOpen(false);
+          setEditSvcRow(null);
+          await loadHistory();
+        },
+      });
+    } catch (err: any) {
+      message.error(err.response?.data?.message || 'Không thể cập nhật dịch vụ');
+    } finally {
+      setEditingSvcSaving(false);
+    }
+  };
+
+  const removeServiceCharge = async (row: any) => {
+    if (!editBookingId) return;
+    setSavingServiceAction?.(`del-${row.id}`);
+    try {
+      const res = await deleteBookingServiceCharge(editBookingId, Number(row.id));
+      const result = (res as any).data ?? res;
+      const removed = Number(result?.removed?.totalPrice ?? 0);
+      const pm = result?.payment;
+      Modal.success({
+        title: 'Đã xóa dịch vụ',
+        content: (
+          <div>
+            <p>
+              Đã xóa <strong>{row.serviceName || row.name || 'dịch vụ'}</strong> khỏi đơn, hoàn lại{' '}
+              <strong style={{ color: '#3f8600' }}>
+                {new Intl.NumberFormat('vi-VN').format(Math.abs(removed))}đ
+              </strong>
+              .
+            </p>
+            {pm && (
+              <p>
+                Số tiền còn phải thanh toán:{' '}
+                <strong style={{ color: '#cf1322' }}>
+                  {new Intl.NumberFormat('vi-VN').format(Number(pm.remainingAmount ?? 0))}đ
+                </strong>
+              </p>
+            )}
+          </div>
+        ),
+        onOk: async () => {
+          if (editBookingId) {
+            const detailRes = await api.get(`/bookings/${editBookingId}`);
+            setEditDetail((detailRes as any).data || detailRes);
+          }
+          await loadHistory();
+        },
+      });
+    } catch (err: any) {
+      message.error(err.response?.data?.message || 'Không thể xóa dịch vụ');
+    } finally {
+      setSavingServiceAction?.(null);
+    }
+  };
 
   const openCancelModal = async (record: BookingRow) => {
     setCancelTarget(record);
@@ -611,10 +993,27 @@ const BookingHistory: React.FC = () => {
           return (
             <Space className="history-actions" size="small" wrap>
               <Tooltip title="Xem chi tiết đặt phòng">
-                <Link to={`/booking/${record.id}`}>
-                  <Button type="primary" icon={<EyeOutlined style={{ color: 'white' }} />} size="small"></Button>
-                </Link>
+                <Button
+                  type="primary"
+                  icon={<EyeOutlined style={{ color: 'white' }} />}
+                  size="small"
+                  onClick={() => {
+                    setViewBookingId(record.id);
+                    setViewModalVisible(true);
+                  }}
+                ></Button>
               </Tooltip>
+
+              {['pending', 'confirmed', 'checked_in'].includes(record.status) && (
+                <Tooltip title="Chỉnh sửa đặt phòng (ngày, hạng phòng, dịch vụ)">
+                  <Button
+                    type="primary"
+                    icon={<EditOutlined style={{ color: 'white' }} />}
+                    size="small"
+                    onClick={() => openEditModal(record)}
+                  ></Button>
+                </Tooltip>
+              )}
 
               {canPay && (
                 <Tooltip title="Thanh toán đặt phòng">
@@ -914,6 +1313,531 @@ const BookingHistory: React.FC = () => {
           </div>
         </div>
       </Modal>
+
+      <Modal
+        title={
+          <Space>
+            <span>Chỉnh sửa đặt phòng #{editBookingId}</span>
+            {editDetail?.status && (
+              <Tag color={bookingStatusMap[editDetail.status]?.color || 'default'}>
+                {bookingStatusMap[editDetail.status]?.label || editDetail.status}
+              </Tag>
+            )}
+          </Space>
+        }
+        open={editModalOpen}
+        onCancel={() => !savingEdit && setEditModalOpen(false)}
+        okText={editTab === 'info' ? 'Lưu thay đổi' : 'Cộng dịch vụ'}
+        cancelText="Đóng"
+        confirmLoading={savingEdit}
+        onOk={() => {
+          if (editTab === 'info') saveInfoChanges();
+          else addServiceToBooking();
+        }}
+        okButtonProps={
+          editTab === 'services'
+            ? {
+                disabled:
+                  !newServiceId ||
+                  !(newServiceQty > 0) ||
+                  !['pending', 'confirmed', 'checked_in'].includes(
+                    editDetail?.status ?? ''
+                  ),
+              }
+            : undefined
+        }
+        width={1080}
+        style={{ top: 24 }}
+        styles={{
+          body: {
+            maxHeight: 'calc(100vh - 160px)',
+            overflowY: 'auto',
+            paddingRight: 8,
+          },
+        }}
+        destroyOnHidden
+      >
+        {editLoading && (
+          <div style={{ textAlign: 'center', padding: 48 }}>
+            <Spin tip="Đang tải dữ liệu chỉnh sửa..." />
+          </div>
+        )}
+        {!editLoading && !editDetail && (
+          <Alert type="error" message="Không thể tải chi tiết đặt phòng. Vui lòng thử lại." showIcon />
+        )}
+        {!editLoading && editDetail && (
+          <Tabs
+            activeKey={editTab}
+            onChange={setEditTab}
+            items={[
+              {
+                key: 'info',
+                label: 'Ngày & Hạng phòng',
+                children: (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+                    <Descriptions bordered size="small" column={2} title="Thông tin hiện tại">
+                      <Descriptions.Item label="Mã đặt phòng">#{editDetail.id}</Descriptions.Item>
+                      <Descriptions.Item label="Phòng hiện tại">
+                        {editDetail.room_number
+                          ? `Phòng ${editDetail.room_number} (${editDetail.room_type_name || '?'})`
+                          : '—'}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Ngày nhận (hiện tại)">
+                        {dayjs(editDetail.check_in).format('DD/MM/YYYY')}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Ngày trả (hiện tại)">
+                        {dayjs(editDetail.check_out).format('DD/MM/YYYY')}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Số đêm">
+                        {Math.max(
+                          dayjs(editDetail.check_out)
+                            .startOf('day')
+                            .diff(dayjs(editDetail.check_in).startOf('day'), 'day'),
+                          0
+                        )}{' '}
+                        đêm
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Số khách">
+                        {editDetail.adults ?? 0} người lớn, {editDetail.children ?? 0} trẻ em
+                      </Descriptions.Item>
+                    </Descriptions>
+
+                    <Form layout="vertical">
+                      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.1fr) minmax(0, 1fr)', gap: 16 }}>
+                        <Form.Item label="Thời gian (nhận — trả)" required style={{ marginBottom: 0 }}>
+                          <DatePicker.RangePicker
+                            style={{ width: '100%' }}
+                            format="DD/MM/YYYY"
+                            value={editStayRange}
+                            disabledDate={(d) => d.isBefore(dayjs().subtract(1, 'day').endOf('day'))}
+                            onChange={(val) => {
+                              setEditStayRange(val as [any, any] | null);
+                              setAvailabilityResult(null);
+                              setAvailabilityError(null);
+                            }}
+                          />
+                        </Form.Item>
+                        <Form.Item label="Hạng phòng" required style={{ marginBottom: 0 }}>
+                          <Select
+                            placeholder="Chọn hạng phòng"
+                            value={editRoomTypeId ?? undefined}
+                            onChange={(val) => {
+                              setEditRoomTypeId(val ?? null);
+                              setAvailabilityResult(null);
+                              setAvailabilityError(null);
+                            }}
+                            options={allRoomTypes.map((rt: any) => ({
+                              value: rt.id,
+                              label: `${rt.typeName} · ${new Intl.NumberFormat('vi-VN').format(
+                                Number(rt.defaultPrice || 0)
+                              )}đ/đêm`,
+                            }))}
+                          />
+                        </Form.Item>
+                      </div>
+
+                      <Space style={{ margin: '8px 0' }}>
+                        <Button
+                          type="primary"
+                          icon={availabilityLoading ? <Spin size="small" /> : <ReloadOutlined />}
+                          disabled={availabilityLoading}
+                          onClick={() => runAvailabilityCheck()}
+                        >
+                          Kiểm tra phòng trống & tính giá
+                        </Button>
+                        <Button
+                          onClick={() => {
+                            setAvailabilityResult(null);
+                            setAvailabilityError(null);
+                          }}
+                        >
+                          Xem lại
+                        </Button>
+                      </Space>
+
+                      {availabilityError && (
+                        <Alert type="error" showIcon message={availabilityError} />
+                      )}
+                      {availabilityLoading && (
+                        <div style={{ textAlign: 'center', padding: 24 }}>
+                          <Spin tip="Đang kiểm tra phòng trống..." />
+                        </div>
+                      )}
+                      {!availabilityLoading && availabilityResult && (
+                        <Alert
+                          type="success"
+                          showIcon
+                          message="Hạng phòng trống! Có thể thực hiện thay đổi"
+                          description={
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                              <div>
+                                <strong>Hạng phòng:</strong>{' '}
+                                {editRoomTypeId
+                                  ? allRoomTypes.find((rt: any) => rt.id === Number(editRoomTypeId))
+                                      ?.typeName || '—'
+                                  : '—'}
+                              </div>
+                              <div>
+                                <strong>Số đêm:</strong> {availabilityResult.nights} đêm
+                              </div>
+                              <div>
+                                <strong>Giá/đêm:</strong>{' '}
+                                {new Intl.NumberFormat('vi-VN').format(
+                                  Number(availabilityResult.pricePerNight || 0)
+                                )}
+                                đ
+                              </div>
+                              <div>
+                                <strong>Tổng tiền ở (chưa bao gồm dịch vụ cũ):</strong>{' '}
+                                <span style={{ color: '#b45309', fontWeight: 700 }}>
+                                  {new Intl.NumberFormat('vi-VN').format(
+                                    Number(availabilityResult.totalAmount ?? 0) ||
+                                    Number(availabilityResult.stayAmount || 0) +
+                                      Number(
+                                        typeof availabilityResult.childSurcharge === 'object'
+                                          ? availabilityResult.childSurcharge?.amount || 0
+                                          : availabilityResult.childSurcharge || 0
+                                      )
+                                  )}
+                                  đ
+                                </span>
+                              </div>
+                            </div>
+                          }
+                        />
+                      )}
+                    </Form>
+
+                    <Alert
+                      type="info"
+                      showIcon
+                      message="Chính sách cập nhật"
+                      description={
+                        <ul style={{ margin: '6px 0 0 18px', padding: 0 }}>
+                          <li>
+                            ✅ <strong>Chưa nhận phòng (pending / đã xác nhận)</strong>: đổi ngày nhận, ngày trả, hạng phòng tùy ý (hệ thống tự kiểm tra phòng trống và tính lại giá).
+                          </li>
+                          <li>
+                            ✅ <strong>Đã nhận phòng (đang lưu trú)</strong>: chỉ được gia hạn ngày trả (ngày nhận không đổi, ngày trả mới &gt; cũ).
+                          </li>
+                          <li>
+                            ⚠️ Nếu đã trả phòng / đã hủy / khách không đến: không được chỉnh sửa. Vui lòng liên hệ lễ tân nếu cần hỗ trợ thêm.
+                          </li>
+                        </ul>
+                      }
+                    />
+                  </div>
+                ),
+              },
+              {
+                key: 'services',
+                label: 'Dịch vụ',
+                children: (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+                    <div>
+                      <h4 style={{ margin: '0 0 8px' }}>Dịch vụ đã cộng trong đặt phòng</h4>
+                      <Table
+                        size="small"
+                        rowKey="id"
+                        pagination={false}
+                        dataSource={editDetail.services || []}
+                        locale={{
+                          emptyText: (
+                            <Empty
+                              image={Empty.PRESENTED_IMAGE_SIMPLE}
+                              description="Chưa có dịch vụ phát sinh nào"
+                            />
+                          ),
+                        }}
+                        columns={[
+                          {
+                            title: 'Dịch vụ',
+                            dataIndex: 'serviceName',
+                            render: (v: string, row: any) => (
+                              <div>
+                                <strong>{v}</strong>
+                                {row.description && (
+                                  <div style={{ fontSize: 12, color: '#666' }}>
+                                    {row.description}
+                                  </div>
+                                )}
+                              </div>
+                            ),
+                          },
+                          {
+                            title: 'Đơn giá',
+                            dataIndex: 'unitPrice',
+                            align: 'right',
+                            render: (v: any) =>
+                              new Intl.NumberFormat('vi-VN').format(Number(v || 0)) + 'đ',
+                          },
+                          { title: 'SL', dataIndex: 'quantity', align: 'center' },
+                          {
+                            title: 'Thành tiền',
+                            dataIndex: 'totalPrice',
+                            align: 'right',
+                            render: (v: any) => (
+                              <strong>
+                                {new Intl.NumberFormat('vi-VN').format(Number(v || 0))}đ
+                              </strong>
+                            ),
+                          },
+                          {
+                            title: 'Ghi chú',
+                            dataIndex: 'createdAt',
+                            render: (v: any) =>
+                              v
+                                ? dayjs(v).format('HH:mm DD/MM/YYYY')
+                                : '—',
+                          },
+                          ...(
+                            ['pending', 'confirmed', 'checked_in'].includes(
+                              (editDetail.status as string) ?? ''
+                            )
+                              ? [
+                                  {
+                                    title: 'Thao tác',
+                                    key: 'action',
+                                    align: 'center',
+                                    width: 128,
+                                    render: (_v: any, row: any) => (
+                                      <Space size={4}>
+                                        <Tooltip title="Sửa số lượng dịch vụ">
+                                          <Button
+                                            type="link"
+                                            size="small"
+                                            icon={<EditOutlined />}
+                                            onClick={() => openEditServiceQty(row)}
+                                            disabled={
+                                              savingServiceAction === `edit-${row.id}`
+                                            }
+                                          />
+                                        </Tooltip>
+                                        <Popconfirm
+                                          title="Xóa dịch vụ này?"
+                                          description={
+                                            <>
+                                              Xóa{' '}
+                                              <strong>
+                                                {row.serviceName || row.name} (x
+                                                {row.quantity})
+                                              </strong>{' '}
+                                              khỏi đơn, hoàn lại{' '}
+                                              <strong style={{ color: '#3f8600' }}>
+                                                {new Intl.NumberFormat('vi-VN').format(
+                                                  Number(row.totalPrice || 0)
+                                                )}
+                                                đ
+                                              </strong>
+                                              ?
+                                            </>
+                                          }
+                                          okText="Xóa"
+                                          cancelText="Hủy"
+                                          okButtonProps={{
+                                            danger: true,
+                                            loading: savingServiceAction === `del-${row.id}`,
+                                          }}
+                                          onConfirm={() => removeServiceCharge(row)}
+                                        >
+                                          <Tooltip title="Xóa dịch vụ khỏi đơn">
+                                            <Button
+                                              type="link"
+                                              size="small"
+                                              danger
+                                              icon={<DeleteOutlined />}
+                                            />
+                                          </Tooltip>
+                                        </Popconfirm>
+                                      </Space>
+                                    ),
+                                  } as any,
+                                ]
+                              : []
+                          ),
+                        ]}
+                        summary={() => {
+                          const rows = editDetail.services || [];
+                          if (rows.length === 0) return null;
+                          const total = rows.reduce(
+                            (s: number, r: any) => s + Number(r.totalPrice || 0),
+                            0
+                          );
+                          const summaryColSpan = ['pending', 'confirmed', 'checked_in'].includes(
+                            (editDetail.status as string) ?? ''
+                          )
+                            ? 3
+                            : 3;
+                          const totalColIndex = ['pending', 'confirmed', 'checked_in'].includes(
+                            (editDetail.status as string) ?? ''
+                          )
+                            ? 3
+                            : 3;
+                          return (
+                            <Table.Summary.Row>
+                              <Table.Summary.Cell index={0} colSpan={summaryColSpan}>
+                                <strong>Tổng dịch vụ đã cộng</strong>
+                              </Table.Summary.Cell>
+                              <Table.Summary.Cell index={totalColIndex} align="right">
+                                <strong>
+                                  {new Intl.NumberFormat('vi-VN').format(total)}đ
+                                </strong>
+                              </Table.Summary.Cell>
+                              <Table.Summary.Cell index={4} />
+                            </Table.Summary.Row>
+                          );
+                        }}
+                      />
+                    </div>
+
+                    <Modal
+                      title={
+                        <span>
+                          Sửa số lượng <strong>{editSvcRow?.serviceName || editSvcRow?.name || ''}</strong>
+                        </span>
+                      }
+                      open={editSvcModalOpen}
+                      onOk={saveEditServiceQty}
+                      confirmLoading={editingSvcSaving}
+                      onCancel={() => !editingSvcSaving && setEditSvcModalOpen(false)}
+                      okText="Lưu"
+                      cancelText="Hủy"
+                      width={520}
+                    >
+                      <div style={{ padding: '10px 0', display: 'flex', flexDirection: 'column', gap: 14 }}>
+                        <Alert
+                          type="info"
+                          showIcon
+                          message="Đơn giá không thay đổi khi sửa số lượng"
+                          description={
+                            <div>
+                              <p style={{ margin: '4px 0 0' }}>
+                                Đơn giá hiện tại:{' '}
+                                <strong>
+                                  {new Intl.NumberFormat('vi-VN').format(
+                                    Number(editSvcRow?.unitPrice || 0) ||
+                                      Math.round(
+                                        Number(editSvcRow?.totalPrice || 0) /
+                                          Math.max(1, Number(editSvcRow?.quantity || 1))
+                                      )
+                                  )}
+                                  đ
+                                </strong>
+                              </p>
+                            </div>
+                          }
+                        />
+                        <Form layout="vertical">
+                          <Form.Item label="Số lượng mới" required>
+                            <InputNumber
+                              min={1}
+                              max={999}
+                              style={{ width: '100%' }}
+                              value={editSvcQty}
+                              onChange={(v) => setEditSvcQty(Number(v || 1))}
+                            />
+                          </Form.Item>
+                          <Alert
+                            type="success"
+                            showIcon
+                            message="Tạm tính"
+                            description={
+                              <strong style={{ color: '#b45309' }}>
+                                {new Intl.NumberFormat('vi-VN').format(
+                                  editSvcQty *
+                                    (Number(editSvcRow?.unitPrice || 0) ||
+                                      Math.round(
+                                        Number(editSvcRow?.totalPrice || 0) /
+                                          Math.max(1, Number(editSvcRow?.quantity || 1))
+                                      ))
+                                )}
+                                đ
+                              </strong>
+                            }
+                          />
+                        </Form>
+                      </div>
+                    </Modal>
+
+                    <div
+                      style={{
+                        border: '1px dashed #d9d9d9',
+                        borderRadius: 12,
+                        padding: 16,
+                        background: '#fafafa',
+                      }}
+                    >
+                      <h4 style={{ margin: '0 0 12px' }}>Cộng thêm dịch vụ mới</h4>
+                      {!['pending', 'confirmed', 'checked_in'].includes(
+                        editDetail.status ?? ''
+                      ) && (
+                        <Alert
+                          style={{ marginBottom: 12 }}
+                          type="warning"
+                          showIcon
+                          message="Trạng thái đặt phòng này không cho phép cộng thêm dịch vụ. (Chỉ cho phép: chờ xác nhận / đã xác nhận / đang ở)."
+                        />
+                      )}
+                      <Form layout="vertical">
+                        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16 }}>
+                          <Form.Item label="Chọn dịch vụ" required>
+                            <Select
+                              allowClear
+                              showSearch
+                              placeholder="Chọn một dịch vụ..."
+                              value={newServiceId ?? undefined}
+                              optionFilterProp="label"
+                              onChange={(val) => setNewServiceId(val ?? null)}
+                              options={allServices.map((s: Service) => ({
+                                value: s.id,
+                                label: `${s.serviceName} — ${new Intl.NumberFormat('vi-VN').format(
+                                  Number(s.price || 0)
+                                )}đ`,
+                                description: s.description,
+                              }))}
+                            />
+                          </Form.Item>
+                          <Form.Item label="Số lượng" required>
+                            <InputNumber
+                              min={1}
+                              style={{ width: '100%' }}
+                              value={newServiceQty}
+                              onChange={(v) => setNewServiceQty(Number(v || 1))}
+                            />
+                          </Form.Item>
+                        </div>
+                        {newServiceId && newServiceQty > 0 && (
+                          <Alert
+                            type="info"
+                            showIcon
+                            message={`Thành tiền tạm tính: ${new Intl.NumberFormat('vi-VN').format(
+                              Number(
+                                allServices.find((s) => s.id === Number(newServiceId))?.price ??
+                                  0
+                              ) * Number(newServiceQty)
+                            )}đ. Sau khi xác nhận, hệ thống sẽ cộng vào hóa đơn và thông báo số tiền còn lại cần thanh toán.`}
+                          />
+                        )}
+                      </Form>
+                      <div style={{ fontSize: 12, color: '#888', marginTop: 10 }}>
+                        ⚠️ <strong>Lưu ý:</strong> Backend chưa hỗ trợ API xóa dịch vụ đã cộng.
+                        Nếu cần sửa số lượng hoặc hủy dịch vụ, vui lòng liên hệ lễ tân để được
+                        hỗ trợ thủ công.
+                      </div>
+                    </div>
+                  </div>
+                ),
+              },
+            ]}
+          />
+        )}
+      </Modal>
+
+      <BookingDetailModal
+        bookingId={viewModalVisible ? viewBookingId : null}
+        open={viewModalVisible}
+        onClose={() => setViewModalVisible(false)}
+      />
     </main>
   );
 };

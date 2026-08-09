@@ -76,11 +76,37 @@ export const addBookingServiceCharge = async (
   return api.post(`/bookings/${id}/services`, data);
 };
 
+export const updateBookingServiceCharge = async (
+  id: number,
+  serviceChargeId: number,
+  data: { quantity: number }
+) => {
+  return api.patch(`/bookings/${id}/services/${serviceChargeId}`, data);
+};
+
+export const deleteBookingServiceCharge = async (
+  id: number,
+  serviceChargeId: number
+) => {
+  return api.delete(`/bookings/${id}/services/${serviceChargeId}`);
+};
+
 export const extendBookingStay = async (
   id: number,
   data: { checkOut: string }
 ) => {
   return api.patch(`/bookings/${id}/extend`, data);
+};
+
+export const updateBookingStay = async (
+  id: number,
+  data: {
+    checkIn: string;
+    checkOut: string;
+    roomTypeId?: number | null;
+  }
+) => {
+  return api.patch(`/bookings/${id}/update-stay`, data);
 };
 
 export const checkIn = async (
