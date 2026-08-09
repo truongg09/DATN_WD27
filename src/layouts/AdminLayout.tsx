@@ -125,7 +125,7 @@ function AdminLayout() {
                 )}
               </Link>
             </li>
-            <li><Link to="/admin/payment-settings">Cài đặt thanh toán</Link></li>
+            <li><Link to="/admin/payment-settings">Cài đặt & Chính sách</Link></li>
             <li><Link to="/admin/reports">Báo cáo</Link></li>
           </ul>
         </nav>
