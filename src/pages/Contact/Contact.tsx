@@ -28,9 +28,7 @@ const Contact: React.FC = () => {
     }
   });
 
-  const onSubmit = (data: ContactFormInput) => {
-    console.log('Contact Form Submitted:', data);
-    // Simple response simulation
+  const onSubmit = () => {
     alert('Cảm ơn bạn đã liên hệ với HotelHub. Chúng tôi đã tiếp nhận thông tin và sẽ phản hồi sớm nhất có thể!');
     reset();
   };
