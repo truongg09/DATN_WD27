@@ -12,7 +12,8 @@ const {
   normalizeUpdateServiceChargePayload,
   normalizeTransferRoomPayload,
   normalizeTypeAvailabilityPayload,
-  normalizeIdParam
+  normalizeIdParam,
+  normalizeReassignRoomPayload
 } = require('../validators/bookingValidator');
 
 // Mặc định từ chối: chỉ nhân viên hoặc đúng chủ đặt phòng mới được xem/thao tác.
@@ -353,9 +354,9 @@ const markNoShow = async (req, res) => {
 const checkOut = async (req, res) => {
   try {
     const bookingId = normalizeIdParam(req.params.id);
-    const booking = await bookingService.checkOut(bookingId, req.user || null);
+    const booking = await bookingService.checkOut(bookingId, req.body?.actualCheckOutTime, req.user || null);
     res.json({
-      message: 'Trả phòng thành công',
+      message: booking.lateCheckout ? `Trả phòng thành công (đã tính phí trễ giờ)` : 'Trả phòng thành công',
       data: booking
     });
   } catch (error) {
@@ -490,6 +491,20 @@ const rejectServiceRequest = async (req, res) => {
   }
 };
 
+const reassignRoom = async (req, res) => {
+  try {
+    const bookingId = normalizeIdParam(req.params.id);
+    const payload = normalizeReassignRoomPayload(req.body);
+    const result = await bookingService.reassignConflictingBooking(bookingId, payload, req.user || null);
+    res.json({
+      message: 'Đã đổi phòng cho đặt phòng',
+      data: result
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
 module.exports = {
   checkAvailability,
   checkTypeAvailability,
@@ -515,5 +530,6 @@ module.exports = {
   markNoShow,
   listServiceRequests,
   confirmServiceRequest,
-  rejectServiceRequest
+  rejectServiceRequest,
+  reassignRoom
 };

@@ -29,5 +29,6 @@ router.patch('/:id/transfer-room', requireAuth, requireStaff, bookingController.
 router.patch('/:id/check-in', requireAuth, requireStaff, bookingController.checkIn);
 router.patch('/:id/check-out', requireAuth, requireStaff, bookingController.checkOut);
 router.patch('/:id/no-show', requireAuth, requireStaff, bookingController.markNoShow);
+router.patch('/:id/reassign-room', requireAuth, requireStaff, bookingController.reassignRoom);
 
 module.exports = router;

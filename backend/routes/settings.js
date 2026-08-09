@@ -139,4 +139,108 @@ router.put('/children-policy', requireAuth, async (req, res) => {
   }
 });
 
+// Thêm vào cuối file, trước module.exports
+
+const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)(:[0-5]\d)?$/;
+const normalizeTime = (value, fallback) => {
+  if (!TIME_REGEX.test(String(value || ''))) return fallback;
+  return String(value).length === 5 ? `${value}:00` : String(value);
+};
+
+// Public: trang đặt phòng / trang chi tiết cần hiển thị giờ nhận-trả phòng
+// và chính sách hoàn tiền khi hủy. Gộp từ 2 bảng: checkout_late_fee_tiers
+// (nguồn "sống" cho giờ chuẩn, được checkOut()/checkIn() dùng để tính phí
+// trễ giờ) và cancellation_policies (nguồn cho % hoàn tiền khi hủy).
+router.get('/policies', async (_req, res) => {
+  try {
+    const [[cancellation]] = await db.query('SELECT * FROM cancellation_policies WHERE id = 1');
+    const [[tiers]] = await db.query('SELECT * FROM checkout_late_fee_tiers WHERE id = 1');
+
+    res.json({
+      data: {
+        checkInTime: tiers?.standardCheckInTime || cancellation?.standardCheckInTime || '14:00:00',
+        checkOutTime: tiers?.standardCheckOutTime || cancellation?.standardCheckOutTime || '12:00:00',
+        nearTierMaxDays: cancellation?.nearTierMaxDays ?? 3,
+        nearTierPercent: Number(cancellation?.nearTierPercent ?? 100),
+        midTierMaxDays: cancellation?.midTierMaxDays ?? 7,
+        midTierPercent: Number(cancellation?.midTierPercent ?? 50),
+        farTierPercent: Number(cancellation?.farTierPercent ?? 0)
+      }
+    });
+  } catch (error) {
+    console.error('Get policies error:', error);
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
+  }
+});
+
+
+router.put('/policies', requireAuth, async (req, res) => {
+  try {
+    if (req.user?.role !== 'admin') {
+      return res.status(403).json({ message: 'Chỉ admin được phép thay đổi chính sách' });
+    }
+
+    const {
+      checkInTime,
+      checkOutTime,
+      nearTierMaxDays,
+      nearTierPercent,
+      midTierMaxDays,
+      midTierPercent,
+      farTierPercent
+    } = req.body || {};
+
+    const normalizedCheckIn = normalizeTime(checkInTime, '14:00:00');
+    const normalizedCheckOut = normalizeTime(checkOutTime, '12:00:00');
+
+    const near = Number(nearTierMaxDays);
+    const mid = Number(midTierMaxDays);
+    const nearPct = Number(nearTierPercent);
+    const midPct = Number(midTierPercent);
+    const farPct = Number(farTierPercent);
+
+    if (!Number.isInteger(near) || near < 0) {
+      return res.status(400).json({ message: 'Số ngày mốc gần không hợp lệ' });
+    }
+    if (!Number.isInteger(mid) || mid <= near) {
+      return res.status(400).json({ message: 'Số ngày mốc xa phải lớn hơn mốc gần' });
+    }
+    for (const [label, pct] of [['nearTierPercent', nearPct], ['midTierPercent', midPct], ['farTierPercent', farPct]]) {
+      if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
+        return res.status(400).json({ message: `${label} phải từ 0-100` });
+      }
+    }
+
+    await db.query(
+      `UPDATE cancellation_policies
+       SET nearTierMaxDays = ?, nearTierPercent = ?, midTierMaxDays = ?, midTierPercent = ?,
+           farTierPercent = ?, standardCheckInTime = ?, standardCheckOutTime = ?
+       WHERE id = 1`,
+      [near, nearPct, mid, midPct, farPct, normalizedCheckIn, normalizedCheckOut]
+    );
+    await db.query(
+      `UPDATE checkout_late_fee_tiers
+       SET standardCheckInTime = ?, standardCheckOutTime = ?
+       WHERE id = 1`,
+      [normalizedCheckIn, normalizedCheckOut]
+    );
+
+    res.json({
+      data: {
+        checkInTime: normalizedCheckIn,
+        checkOutTime: normalizedCheckOut,
+        nearTierMaxDays: near,
+        nearTierPercent: nearPct,
+        midTierMaxDays: mid,
+        midTierPercent: midPct,
+        farTierPercent: farPct
+      },
+      message: 'Đã lưu chính sách hủy phòng và giờ nhận/trả phòng'
+    });
+  } catch (error) {
+    console.error('Update policies error:', error);
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
+  }
+});
+
 module.exports = router;

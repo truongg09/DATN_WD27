@@ -35,6 +35,10 @@ const BOOKING_SELECT = `
     bd.children,
     bd.roomPrice AS room_price,
     COALESCE(bd.occupancySurcharge, 0) AS occupancy_surcharge,
+    COALESCE(bd.requestedCheckInTime, b.requestedCheckInTime) AS requested_check_in_time,
+    COALESCE(bd.requestedCheckOutTime, b.requestedCheckOutTime) AS requested_check_out_time,
+    b.actualCheckInTime AS actual_check_in_time,
+    b.actualCheckOutTime AS actual_check_out_time,
     COALESCE(b.guest_name, c.fullName) AS customer_name,
     COALESCE(b.guest_email, a.email) AS customer_email,
     COALESCE(b.guest_phone, c.phone, a.phone) AS customer_phone,
@@ -335,8 +339,12 @@ const createBooking = async (payload, totalPrice, connection) => {
 
   const [result] = await run(connection).query(
     `
-      INSERT INTO bookings (user_id, customerId, room_id, check_in, check_out, total_price, totalAmount, status, bookingStatus, notes, guest_name, guest_email, guest_phone)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO bookings (
+        user_id, customerId, room_id, check_in, check_out, total_price, totalAmount,
+        status, bookingStatus, notes, guest_name, guest_email, guest_phone,
+        requestedCheckInTime, requestedCheckOutTime
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       payload.userId,
@@ -351,7 +359,9 @@ const createBooking = async (payload, totalPrice, connection) => {
       payload.notes || null,
       payload.guestName || null,
       payload.guestEmail || null,
-      payload.guestPhone || null
+      payload.guestPhone || null,
+      payload.requestedCheckInTime || null,
+      payload.requestedCheckOutTime || null
     ]
   );
 
@@ -362,8 +372,9 @@ const createBookingDetail = async (bookingId, payload, roomPrice, occupancySurch
   await run(connection).query(
     `
       INSERT INTO booking_details
-        (bookingId, roomId, checkInDate, checkOutDate, adults, children, roomPrice, occupancySurcharge)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        (bookingId, roomId, checkInDate, checkOutDate, adults, children, roomPrice, occupancySurcharge,
+         requestedCheckInTime, requestedCheckOutTime)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       bookingId,
@@ -373,7 +384,9 @@ const createBookingDetail = async (bookingId, payload, roomPrice, occupancySurch
       payload.adults,
       payload.children,
       roomPrice,
-      occupancySurcharge
+      occupancySurcharge,
+      payload.requestedCheckInTime || null,
+      payload.requestedCheckOutTime || null
     ]
   );
 };
@@ -507,9 +520,7 @@ const sumDamageCharges = async (bookingId, connection) => {
 };
 
 const updateBookingStay = async (bookingId, checkOut, totalPrice, connection, occupancySurcharge = null) => {
-  // Cột legacy totalAmount phải bao gồm cả tiền dịch vụ (lúc tạo booking nó được
-  // ghi bằng total_price + serviceAmount). Ghi đè bằng riêng tiền phòng sẽ làm
-  // cột này thiếu tiền dịch vụ và lệch với payments.totalAmount.
+
   const serviceAmount = await sumBookingServices(bookingId, connection);
 
   await run(connection).query(
@@ -780,6 +791,143 @@ const listEligibleNoShowBookings = async (connection) => {
   return rows;
 };
 
+const DEFAULT_CHECKOUT_LATE_FEE_TIERS = {
+  graceMinutes: 60,
+  tier1MaxHours: 3.0,
+  tier1Percent: 30.00,
+  tier2MaxHours: 6.0,
+  tier2Percent: 50.00,
+  tier3Percent: 100.00,
+  standardCheckOutTime: '12:00:00',
+  standardCheckInTime: '14:00:00',
+  housekeepingBufferMinutes: 60,
+  absoluteMaxLateHours: 6.0
+};
+
+const notifyStaffAndAdmins = async (title, content, connection) => {
+  const [staffAccounts] = await run(connection).query(
+    `SELECT id FROM accounts WHERE role IN ('admin', 'staff', 'employee') AND status = 'active'`
+  );
+  for (const account of staffAccounts) {
+    await createCustomerNotification(account.id, title, content, connection);
+  }
+};
+
+const reassignRoomForBooking = async (bookingId, newRoomId, connection) => {
+  await run(connection).query('UPDATE bookings SET room_id = ? WHERE id = ?', [newRoomId, bookingId]);
+  await run(connection).query('UPDATE booking_details SET roomId = ? WHERE bookingId = ?', [newRoomId, bookingId]);
+};
+
+const getCheckoutLateFeeTiers = async (connection) => {
+  const [rows] = await run(connection).query('SELECT * FROM checkout_late_fee_tiers WHERE id = 1');
+  // Luôn trả về object hợp lệ — giống mẫu getPaymentAccountSettings/getChildrenPolicy,
+  // để checkOut() không bao giờ âm thầm bỏ qua tính phí trễ giờ vì thiếu cấu hình.
+  return rows[0] ? { ...DEFAULT_CHECKOUT_LATE_FEE_TIERS, ...rows[0] } : { ...DEFAULT_CHECKOUT_LATE_FEE_TIERS };
+};
+
+// Booking gần nhất nhận phòng TỪ ngày checkout của booking hiện tại trở đi, cùng phòng.
+const findNextBookingForRoom = async (roomId, fromDate, connection) => {
+  const [rows] = await run(connection).query(
+    `
+      SELECT b.id, DATE(COALESCE(bd.checkInDate, b.check_in)) AS checkInDate
+      FROM bookings b
+      LEFT JOIN booking_details bd ON bd.bookingId = b.id
+      WHERE COALESCE(bd.roomId, b.room_id) = ?
+        AND b.status IN ('pending', 'confirmed', 'checked_in')
+        AND DATE(COALESCE(bd.checkInDate, b.check_in)) >= ?
+      ORDER BY DATE(COALESCE(bd.checkInDate, b.check_in)) ASC
+      LIMIT 1
+    `,
+    [roomId, fromDate]
+  );
+  return rows[0] || null;
+};
+
+const findAdjacentBookingsForRoom = async (roomId, checkInDate, checkOutDate, excludeBookingId, connection) => {
+  const [previousRows] = await run(connection).query(
+    `
+      SELECT b.id, b.status, b.actualCheckOutTime,
+             COALESCE(bd.requestedCheckOutTime, b.requestedCheckOutTime) AS requestedCheckOutTime
+      FROM bookings b
+      LEFT JOIN booking_details bd ON bd.bookingId = b.id
+      WHERE COALESCE(bd.roomId, b.room_id) = ?
+        AND b.id != ?
+        AND b.status IN ('confirmed', 'checked_in', 'checked_out')
+        AND DATE(COALESCE(bd.checkOutDate, b.check_out)) = ?
+      ORDER BY b.id DESC
+      LIMIT 1
+    `,
+    [roomId, excludeBookingId, checkInDate]
+  );
+
+  const [nextRows] = await run(connection).query(
+    `
+      SELECT b.id, b.status,
+             COALESCE(bd.requestedCheckInTime, b.requestedCheckInTime) AS requestedCheckInTime
+      FROM bookings b
+      LEFT JOIN booking_details bd ON bd.bookingId = b.id
+      WHERE COALESCE(bd.roomId, b.room_id) = ?
+        AND b.id != ?
+        AND b.status IN ('pending', 'confirmed')
+        AND DATE(COALESCE(bd.checkInDate, b.check_in)) = ?
+      ORDER BY b.id ASC
+      LIMIT 1
+    `,
+    [roomId, excludeBookingId, checkOutDate]
+  );
+
+  return {
+    previousBooking: previousRows[0] || null,
+    nextBooking: nextRows[0] || null
+  };
+};
+
+const findActiveCheckedInBooking = async (roomId, excludeBookingId, connection) => {
+  const [rows] = await run(connection).query(
+    `
+      SELECT b.id
+      FROM bookings b
+      LEFT JOIN booking_details bd ON bd.bookingId = b.id
+      WHERE COALESCE(bd.roomId, b.room_id) = ?
+        AND b.status = 'checked_in'
+        AND b.id != ?
+      LIMIT 1
+    `,
+    [roomId, excludeBookingId]
+  );
+  return rows[0] || null;
+};
+
+const addLateCheckoutCharge = async (bookingId, payload, connection) => {
+  const [result] = await run(connection).query(
+    `
+      INSERT INTO booking_late_checkout_charges
+        (bookingId, lateMinutes, tierPercent, nightlyRate, totalPrice, note)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `,
+    [bookingId, payload.lateMinutes, payload.tierPercent, payload.nightlyRate, payload.totalPrice, payload.note || null]
+  );
+  return { id: result.insertId, totalPrice: payload.totalPrice };
+};
+
+const sumLateCheckoutCharges = async (bookingId, connection) => {
+  const [[row]] = await run(connection).query(
+    'SELECT COALESCE(SUM(totalPrice), 0) AS total FROM booking_late_checkout_charges WHERE bookingId = ?',
+    [bookingId]
+  );
+  return Number(row?.total || 0);
+};
+
+const updateActualCheckOutTime = async (bookingId, time, connection) => {
+  await run(connection).query('UPDATE bookings SET actualCheckOutTime = ? WHERE id = ?', [time, bookingId]);
+};
+
+// Đối xứng với updateActualCheckOutTime — ghi lại thời điểm khách thực sự nhận
+// phòng (không phải giờ khách yêu cầu lúc đặt) để đối chiếu/thống kê sau này.
+const updateActualCheckInTime = async (bookingId, time, connection) => {
+  await run(connection).query('UPDATE bookings SET actualCheckInTime = ? WHERE id = ?', [time, bookingId]);
+};
+
 module.exports = {
   getAccountById,
   getOrCreateCustomerId,
@@ -818,5 +966,13 @@ module.exports = {
   updateBookingStatus,
   releaseAvailabilityByBooking,
   updateRoomStatus,
-  listEligibleNoShowBookings
+  listEligibleNoShowBookings,
+  getCheckoutLateFeeTiers,
+  findNextBookingForRoom,
+  addLateCheckoutCharge,
+  sumLateCheckoutCharges,
+  updateActualCheckOutTime,
+  updateActualCheckInTime,
+  notifyStaffAndAdmins,
+  reassignRoomForBooking
 };

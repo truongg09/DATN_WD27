@@ -117,10 +117,6 @@ export const checkIn = async (
   );
 };
 
-export const checkOut = async (
-  id: number
-) => {
-  return api.patch(
-    `/bookings/${id}/check-out`
-  );
+export const checkOut = async (id: number, actualCheckOutTime?: string) => {
+  return api.patch(`/bookings/${id}/check-out`, { actualCheckOutTime });
 };

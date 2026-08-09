@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from "react";
 import {
   Alert,
   Button,
@@ -14,7 +14,7 @@ import {
   Tag,
   Tooltip,
   message,
-} from 'antd';
+} from "antd";
 import {
   BellOutlined,
   CopyOutlined,
@@ -23,10 +23,14 @@ import {
   QrcodeOutlined,
   ReloadOutlined,
   TagOutlined,
-} from '@ant-design/icons';
-import dayjs from 'dayjs';
-import api from '../../services/api';
-import { buildVietQrPayload, findBankByBin, toTransferText } from '../../utils/vietqr';
+} from "@ant-design/icons";
+import dayjs from "dayjs";
+import api from "../../services/api";
+import {
+  buildVietQrPayload,
+  findBankByBin,
+  toTransferText,
+} from "../../utils/vietqr";
 
 interface ChargeRow {
   serviceName?: string;
@@ -42,6 +46,8 @@ interface PaymentSummary {
   bookingStatus: string;
   customerName: string | null;
   roomNumber: string | null;
+  checkOut: string | null;
+  standardCheckOutTime: string | null;
   paymentId: number | null;
   totalAmount: number;
   paidAmount: number;
@@ -65,11 +71,23 @@ interface PaymentSummary {
   };
 }
 
+interface EarlyCheckoutInfo {
+  refundId: number;
+  unusedNights: number;
+  unusedAmount: number;
+  refundRate: number;
+  refundAmount: number;
+  status: string;
+  message: string;
+}
+
 const money = (value?: string | number | null) =>
-  new Intl.NumberFormat('vi-VN').format(Number(value || 0)) + '₫';
+  new Intl.NumberFormat("vi-VN").format(Number(value || 0)) + "₫";
 
 const dateTime = (value?: string | null) =>
-  value && dayjs(value).isValid() ? dayjs(value).format('HH:mm DD/MM/YYYY') : '—';
+  value && dayjs(value).isValid()
+    ? dayjs(value).format("HH:mm DD/MM/YYYY")
+    : "—";
 
 interface Props {
   bookingId: number | null;
@@ -79,12 +97,17 @@ interface Props {
   onCheckedOut: () => void;
 }
 
-const CheckoutPaymentModal: React.FC<Props> = ({ bookingId, open, onClose, onCheckedOut }) => {
+const CheckoutPaymentModal: React.FC<Props> = ({
+  bookingId,
+  open,
+  onClose,
+  onCheckedOut,
+}) => {
   const [loading, setLoading] = useState(false);
   const [working, setWorking] = useState(false);
   const [summary, setSummary] = useState<PaymentSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [voucherInput, setVoucherInput] = useState('');
+  const [voucherInput, setVoucherInput] = useState("");
   const [applyingVoucher, setApplyingVoucher] = useState(false);
 
   const loadSummary = useCallback(
@@ -92,15 +115,18 @@ const CheckoutPaymentModal: React.FC<Props> = ({ bookingId, open, onClose, onChe
       if (!bookingId) return null;
       if (!silent) setLoading(true);
       try {
-        const response = await api.get(`/bookings/${bookingId}/payment-summary`);
+        const response = await api.get(
+          `/bookings/${bookingId}/payment-summary`,
+        );
         const data = (response as unknown as { data: PaymentSummary }).data;
         setSummary(data);
         setError(null);
         return data;
       } catch (err: unknown) {
-        const msg = (err as { response?: { data?: { message?: string } } }).response?.data?.message;
+        const msg = (err as { response?: { data?: { message?: string } } })
+          .response?.data?.message;
         if (!silent) {
-          setError(msg || 'Không thể tải thông tin thanh toán');
+          setError(msg || "Không thể tải thông tin thanh toán");
           setSummary(null);
         }
         return null;
@@ -108,14 +134,14 @@ const CheckoutPaymentModal: React.FC<Props> = ({ bookingId, open, onClose, onChe
         if (!silent) setLoading(false);
       }
     },
-    [bookingId]
+    [bookingId],
   );
 
   useEffect(() => {
     if (!open || !bookingId) {
       setSummary(null);
       setError(null);
-      setVoucherInput('');
+      setVoucherInput("");
       return;
     }
 
@@ -128,13 +154,16 @@ const CheckoutPaymentModal: React.FC<Props> = ({ bookingId, open, onClose, onChe
     if (!summary?.paymentId || !voucherInput.trim()) return;
     setApplyingVoucher(true);
     try {
-      await api.post(`/payments/${summary.paymentId}/apply-voucher`, { code: voucherInput.trim() });
-      message.success('Áp dụng mã giảm giá thành công!');
-      setVoucherInput('');
+      await api.post(`/payments/${summary.paymentId}/apply-voucher`, {
+        code: voucherInput.trim(),
+      });
+      message.success("Áp dụng mã giảm giá thành công!");
+      setVoucherInput("");
       await loadSummary();
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string } } }).response?.data?.message;
-      message.error(msg || 'Không thể áp dụng voucher');
+      const msg = (err as { response?: { data?: { message?: string } } })
+        .response?.data?.message;
+      message.error(msg || "Không thể áp dụng voucher");
     } finally {
       setApplyingVoucher(false);
     }
@@ -148,22 +177,38 @@ const CheckoutPaymentModal: React.FC<Props> = ({ bookingId, open, onClose, onChe
           amount: summary.remainingAmount,
           addInfo: summary.transferContent,
         })
-      : '';
+      : "";
 
   const bank = summary ? findBankByBin(summary.bankAccount.bankBin) : undefined;
+
+  const lateCheckoutWarning = (() => {
+    if (!summary?.checkOut || !summary?.standardCheckOutTime) return null;
+    const standard = dayjs(
+      `${dayjs(summary.checkOut).format("YYYY-MM-DD")}T${summary.standardCheckOutTime}`,
+    );
+    if (!standard.isValid()) return null;
+    const now = dayjs();
+    if (now.isBefore(standard)) return null;
+
+    const lateMinutes = now.diff(standard, "minute");
+    return {
+      lateMinutes,
+      standardTimeLabel: summary.standardCheckOutTime.slice(0, 5),
+    };
+  })();
 
   const copy = async (value: string, label: string) => {
     try {
       await navigator.clipboard.writeText(value);
       message.success(`Đã sao chép ${label}`);
     } catch {
-      message.warning('Trình duyệt không cho phép sao chép tự động');
+      message.warning("Trình duyệt không cho phép sao chép tự động");
     }
   };
 
   // Ghi nhận đã nhận tiền. Chỉ nhân viên gọi được API này — khách không thể tự
   // đánh dấu đã trả tiền.
-  const recordPayment = async (paymentMethod: 'cash' | 'bank_transfer') => {
+  const recordPayment = async (paymentMethod: "cash" | "bank_transfer") => {
     if (!summary?.paymentId) return;
     setWorking(true);
     try {
@@ -172,14 +217,15 @@ const CheckoutPaymentModal: React.FC<Props> = ({ bookingId, open, onClose, onChe
         amount: summary.remainingAmount,
       });
       message.success(
-        paymentMethod === 'cash'
+        paymentMethod === "cash"
           ? `Đã thu ${money(summary.remainingAmount)} tiền mặt`
-          : `Đã ghi nhận ${money(summary.remainingAmount)} chuyển khoản`
+          : `Đã ghi nhận ${money(summary.remainingAmount)} chuyển khoản`,
       );
       await loadSummary();
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string } } }).response?.data?.message;
-      message.error(msg || 'Không ghi nhận được thanh toán');
+      const msg = (err as { response?: { data?: { message?: string } } })
+        .response?.data?.message;
+      message.error(msg || "Không ghi nhận được thanh toán");
     } finally {
       setWorking(false);
     }
@@ -190,11 +236,12 @@ const CheckoutPaymentModal: React.FC<Props> = ({ bookingId, open, onClose, onChe
     setWorking(true);
     try {
       await api.post(`/bookings/${bookingId}/payment-request`);
-      message.success('Đã gửi yêu cầu thanh toán vào ứng dụng của khách');
+      message.success("Đã gửi yêu cầu thanh toán vào ứng dụng của khách");
       await loadSummary(true);
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string } } }).response?.data?.message;
-      message.error(msg || 'Không gửi được yêu cầu thanh toán');
+      const msg = (err as { response?: { data?: { message?: string } } })
+        .response?.data?.message;
+      message.error(msg || "Không gửi được yêu cầu thanh toán");
     } finally {
       setWorking(false);
     }
@@ -204,13 +251,44 @@ const CheckoutPaymentModal: React.FC<Props> = ({ bookingId, open, onClose, onChe
     if (!bookingId) return;
     setWorking(true);
     try {
-      await api.patch(`/bookings/${bookingId}/check-out`);
-      message.success('Đã trả phòng thành công');
+      const response = await api.patch(`/bookings/${bookingId}/check-out`, {
+        actualCheckOutTime: new Date().toISOString(),
+      });
+      const result = (response as any).data?.data;
+      const lateFee = result?.lateCheckout?.feeAmount;
+      const earlyCheckout: EarlyCheckoutInfo | null =
+        result?.earlyCheckout || null;
+
+      if (earlyCheckout) {
+        // Trả phòng sớm luôn kèm 1 yêu cầu hoàn tiền tự động chờ duyệt — lễ
+        // tân PHẢI biết ngay, không được để phát hiện muộn ở tab Lịch sử.
+        Modal.success({
+          title: "Đã trả phòng — có yêu cầu hoàn tiền tự động",
+          content: (
+            <div>
+              <p>{earlyCheckout.message}</p>
+              <p style={{ color: "#888", fontSize: 13 }}>
+                Yêu cầu hoàn tiền đang ở trạng thái chờ duyệt. Vào tab Lịch
+                sử/Thanh toán của đặt phòng để theo dõi hoặc xử lý tiếp.
+              </p>
+            </div>
+          ),
+          okText: "Đã hiểu",
+        });
+      } else {
+        message.success(
+          lateFee > 0
+            ? `Đã trả phòng. Đã tính phí trễ giờ ${money(lateFee)}.`
+            : "Đã trả phòng thành công",
+        );
+      }
+
       onCheckedOut();
       onClose();
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string } } }).response?.data?.message;
-      message.error(msg || 'Không thể trả phòng');
+      const msg = (err as { response?: { data?: { message?: string } } })
+        .response?.data?.message;
+      message.error(msg || "Không thể trả phòng");
       await loadSummary(true);
     } finally {
       setWorking(false);
@@ -218,15 +296,20 @@ const CheckoutPaymentModal: React.FC<Props> = ({ bookingId, open, onClose, onChe
   };
 
   const chargeColumns = [
-    { title: 'Khoản mục', key: 'name', render: (_: unknown, row: ChargeRow) => row.serviceName || row.itemName || '—' },
-    { title: 'SL', dataIndex: 'quantity', align: 'center' as const, width: 60 },
     {
-      title: 'Thành tiền',
-      dataIndex: 'totalPrice',
-      align: 'right' as const,
+      title: "Khoản mục",
+      key: "name",
+      render: (_: unknown, row: ChargeRow) =>
+        row.serviceName || row.itemName || "—",
+    },
+    { title: "SL", dataIndex: "quantity", align: "center" as const, width: 60 },
+    {
+      title: "Thành tiền",
+      dataIndex: "totalPrice",
+      align: "right" as const,
       render: (value: string | number) => <strong>{money(value)}</strong>,
     },
-    { title: 'Thời điểm', dataIndex: 'createdAt', render: dateTime },
+    { title: "Thời điểm", dataIndex: "createdAt", render: dateTime },
   ];
 
   return (
@@ -235,22 +318,38 @@ const CheckoutPaymentModal: React.FC<Props> = ({ bookingId, open, onClose, onChe
         <span>
           <DollarOutlined style={{ marginRight: 8 }} />
           Thu tiền & trả phòng
-          {summary && <Tag style={{ marginLeft: 10 }}>Đơn #{summary.bookingId}</Tag>}
+          {summary && (
+            <Tag style={{ marginLeft: 10 }}>Đơn #{summary.bookingId}</Tag>
+          )}
         </span>
       }
       open={open}
       onCancel={onClose}
       width={960}
       style={{ top: 24 }}
-      styles={{ body: { maxHeight: 'calc(100vh - 170px)', overflowY: 'auto', paddingRight: 8 } }}
+      styles={{
+        body: {
+          maxHeight: "calc(100vh - 170px)",
+          overflowY: "auto",
+          paddingRight: 8,
+        },
+      }}
       destroyOnHidden
       footer={
         <Space>
           <Button onClick={onClose}>Đóng</Button>
-          <Button icon={<ReloadOutlined />} onClick={() => loadSummary()} loading={loading}>
+          <Button
+            icon={<ReloadOutlined />}
+            onClick={() => loadSummary()}
+            loading={loading}
+          >
             Kiểm tra lại
           </Button>
-          <Tooltip title={summary?.canCheckOut ? '' : 'Phải thu đủ tiền trước khi trả phòng'}>
+          <Tooltip
+            title={
+              summary?.canCheckOut ? "" : "Phải thu đủ tiền trước khi trả phòng"
+            }
+          >
             <Button
               type="primary"
               icon={<LogoutOutlined />}
@@ -265,7 +364,7 @@ const CheckoutPaymentModal: React.FC<Props> = ({ bookingId, open, onClose, onChe
       }
     >
       {loading && (
-        <div style={{ textAlign: 'center', padding: 40 }}>
+        <div style={{ textAlign: "center", padding: 40 }}>
           <Spin tip="Đang tải công nợ..." />
         </div>
       )}
@@ -274,18 +373,31 @@ const CheckoutPaymentModal: React.FC<Props> = ({ bookingId, open, onClose, onChe
 
       {!loading && !error && summary && (
         <>
-          <Descriptions bordered size="small" column={3} style={{ marginBottom: 16 }}>
-            <Descriptions.Item label="Khách hàng">{summary.customerName || '—'}</Descriptions.Item>
-            <Descriptions.Item label="Phòng">{summary.roomNumber || '—'}</Descriptions.Item>
+          <Descriptions
+            bordered
+            size="small"
+            column={3}
+            style={{ marginBottom: 16 }}
+          >
+            <Descriptions.Item label="Khách hàng">
+              {summary.customerName || "—"}
+            </Descriptions.Item>
+            <Descriptions.Item label="Phòng">
+              {summary.roomNumber || "—"}
+            </Descriptions.Item>
             <Descriptions.Item label="Tổng hóa đơn">
               <strong>{money(summary.totalAmount)}</strong>
             </Descriptions.Item>
             <Descriptions.Item label="Đã thanh toán">
-              <span style={{ color: '#389e0d', fontWeight: 600 }}>{money(summary.paidAmount)}</span>
+              <span style={{ color: "#389e0d", fontWeight: 600 }}>
+                {money(summary.paidAmount)}
+              </span>
             </Descriptions.Item>
             <Descriptions.Item label="Giảm giá (Voucher)">
-              <span style={{ color: '#cf1322', fontWeight: 600 }}>
-                {summary.discountAmount ? `−${money(summary.discountAmount)}` : '0₫'}
+              <span style={{ color: "#cf1322", fontWeight: 600 }}>
+                {summary.discountAmount
+                  ? `−${money(summary.discountAmount)}`
+                  : "0₫"}
               </span>
               {summary.voucherCode && (
                 <Tag color="purple" style={{ marginLeft: 6 }}>
@@ -296,24 +408,28 @@ const CheckoutPaymentModal: React.FC<Props> = ({ bookingId, open, onClose, onChe
             <Descriptions.Item label="Phụ thu trẻ em">
               {money(summary.occupancySurcharge)}
             </Descriptions.Item>
-            <Descriptions.Item label="Dịch vụ phát sinh">{money(summary.serviceAmount)}</Descriptions.Item>
-            <Descriptions.Item label="Phí hư hỏng">{money(summary.damageAmount)}</Descriptions.Item>
+            <Descriptions.Item label="Dịch vụ phát sinh">
+              {money(summary.serviceAmount)}
+            </Descriptions.Item>
+            <Descriptions.Item label="Phí hư hỏng">
+              {money(summary.damageAmount)}
+            </Descriptions.Item>
           </Descriptions>
 
           {summary.remainingAmount > 0 && (
             <div
               style={{
                 marginBottom: 16,
-                display: 'flex',
+                display: "flex",
                 gap: 10,
-                alignItems: 'center',
-                background: '#fafafa',
-                padding: '10px 14px',
+                alignItems: "center",
+                background: "#fafafa",
+                padding: "10px 14px",
                 borderRadius: 8,
-                border: '1px solid #f0f0f0',
+                border: "1px solid #f0f0f0",
               }}
             >
-              <TagOutlined style={{ color: '#722ed1' }} />
+              <TagOutlined style={{ color: "#722ed1" }} />
               <span style={{ fontWeight: 500 }}>Áp dụng mã Voucher:</span>
               <Input
                 placeholder="Nhập mã giảm giá"
@@ -332,11 +448,25 @@ const CheckoutPaymentModal: React.FC<Props> = ({ bookingId, open, onClose, onChe
                 Áp dụng
               </Button>
               {summary.voucherCode && (
-                <Tag color="purple" style={{ fontSize: 13, padding: '4px 8px' }}>
-                  Đã áp dụng: {summary.voucherCode} (Giảm {money(summary.discountAmount)})
+                <Tag
+                  color="purple"
+                  style={{ fontSize: 13, padding: "4px 8px" }}
+                >
+                  Đã áp dụng: {summary.voucherCode} (Giảm{" "}
+                  {money(summary.discountAmount)})
                 </Tag>
               )}
             </div>
+          )}
+
+          {lateCheckoutWarning && (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 16 }}
+              message={`Đã quá giờ trả phòng chuẩn (${lateCheckoutWarning.standardTimeLabel}) ${lateCheckoutWarning.lateMinutes} phút`}
+              description="Hệ thống sẽ tự động tính phí trễ giờ theo chính sách khi bạn bấm Trả phòng. Vui lòng cân nhắc trước khi tiếp tục hoặc thông báo cho khách."
+            />
           )}
 
           {summary.remainingAmount <= 0 ? (
@@ -355,12 +485,31 @@ const CheckoutPaymentModal: React.FC<Props> = ({ bookingId, open, onClose, onChe
                 description="Đưa mã QR bên dưới cho khách quét bằng app ngân hàng, hoặc gửi yêu cầu để khách tự thanh toán trong ứng dụng. Sau khi tiền về, bấm ghi nhận rồi trả phòng."
               />
 
-              <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', marginBottom: 16 }}>
-                <div style={{ textAlign: 'center' }}>
-                  <div style={{ padding: 12, background: '#fff', border: '1px solid #eee', borderRadius: 12 }}>
-                    <QRCode value={qrValue || 'invalid'} size={220} errorLevel="M" bordered={false} />
+              <div
+                style={{
+                  display: "flex",
+                  gap: 24,
+                  flexWrap: "wrap",
+                  marginBottom: 16,
+                }}
+              >
+                <div style={{ textAlign: "center" }}>
+                  <div
+                    style={{
+                      padding: 12,
+                      background: "#fff",
+                      border: "1px solid #eee",
+                      borderRadius: 12,
+                    }}
+                  >
+                    <QRCode
+                      value={qrValue || "invalid"}
+                      size={220}
+                      errorLevel="M"
+                      bordered={false}
+                    />
                   </div>
-                  <div style={{ marginTop: 8, fontSize: 12, color: '#888' }}>
+                  <div style={{ marginTop: 8, fontSize: 12, color: "#888" }}>
                     <QrcodeOutlined /> Quét bằng mọi app ngân hàng (VietQR)
                   </div>
                 </div>
@@ -376,17 +525,28 @@ const CheckoutPaymentModal: React.FC<Props> = ({ bookingId, open, onClose, onChe
                         type="link"
                         size="small"
                         icon={<CopyOutlined />}
-                        onClick={() => copy(summary.bankAccount.accountNumber, 'số tài khoản')}
+                        onClick={() =>
+                          copy(
+                            summary.bankAccount.accountNumber,
+                            "số tài khoản",
+                          )
+                        }
                       />
                     </Descriptions.Item>
-                    <Descriptions.Item label="Chủ tài khoản">{summary.bankAccount.accountName}</Descriptions.Item>
+                    <Descriptions.Item label="Chủ tài khoản">
+                      {summary.bankAccount.accountName}
+                    </Descriptions.Item>
                     <Descriptions.Item label="Số tiền">
-                      <strong style={{ color: '#cf1322', fontSize: 16 }}>{money(summary.remainingAmount)}</strong>
+                      <strong style={{ color: "#cf1322", fontSize: 16 }}>
+                        {money(summary.remainingAmount)}
+                      </strong>
                       <Button
                         type="link"
                         size="small"
                         icon={<CopyOutlined />}
-                        onClick={() => copy(String(summary.remainingAmount), 'số tiền')}
+                        onClick={() =>
+                          copy(String(summary.remainingAmount), "số tiền")
+                        }
                       />
                     </Descriptions.Item>
                     <Descriptions.Item label="Nội dung chuyển khoản">
@@ -395,22 +555,39 @@ const CheckoutPaymentModal: React.FC<Props> = ({ bookingId, open, onClose, onChe
                         type="link"
                         size="small"
                         icon={<CopyOutlined />}
-                        onClick={() => copy(toTransferText(summary.transferContent), 'nội dung chuyển khoản')}
+                        onClick={() =>
+                          copy(
+                            toTransferText(summary.transferContent),
+                            "nội dung chuyển khoản",
+                          )
+                        }
                       />
-                      <div style={{ fontSize: 12, color: '#888' }}>
-                        Giữ đúng nội dung này để đối soát sao kê theo mã đặt phòng.
+                      <div style={{ fontSize: 12, color: "#888" }}>
+                        Giữ đúng nội dung này để đối soát sao kê theo mã đặt
+                        phòng.
                       </div>
                     </Descriptions.Item>
                   </Descriptions>
 
                   <Space wrap style={{ marginTop: 12 }}>
-                    <Button icon={<BellOutlined />} onClick={sendPaymentRequest} loading={working}>
+                    <Button
+                      icon={<BellOutlined />}
+                      onClick={sendPaymentRequest}
+                      loading={working}
+                    >
                       Gửi yêu cầu vào app của khách
                     </Button>
-                    <Button type="primary" loading={working} onClick={() => recordPayment('bank_transfer')}>
+                    <Button
+                      type="primary"
+                      loading={working}
+                      onClick={() => recordPayment("bank_transfer")}
+                    >
                       Đã nhận chuyển khoản
                     </Button>
-                    <Button loading={working} onClick={() => recordPayment('cash')}>
+                    <Button
+                      loading={working}
+                      onClick={() => recordPayment("cash")}
+                    >
                       Thu tiền mặt
                     </Button>
                   </Space>
@@ -421,7 +598,7 @@ const CheckoutPaymentModal: React.FC<Props> = ({ bookingId, open, onClose, onChe
 
           {summary.services.length > 0 && (
             <>
-              <Divider style={{ margin: '12px 0' }}>
+              <Divider style={{ margin: "12px 0" }}>
                 Dịch vụ đã dùng ({summary.services.length})
               </Divider>
               <Table
@@ -436,7 +613,7 @@ const CheckoutPaymentModal: React.FC<Props> = ({ bookingId, open, onClose, onChe
 
           {summary.damages.length > 0 && (
             <>
-              <Divider style={{ margin: '12px 0' }}>
+              <Divider style={{ margin: "12px 0" }}>
                 Phí hư hỏng ({summary.damages.length})
               </Divider>
               <Table
@@ -446,8 +623,16 @@ const CheckoutPaymentModal: React.FC<Props> = ({ bookingId, open, onClose, onChe
                 dataSource={summary.damages}
                 columns={[
                   ...chargeColumns.slice(0, 3),
-                  { title: 'Ghi chú', dataIndex: 'note', render: (v?: string | null) => v || '—' },
-                  { title: 'Thời điểm', dataIndex: 'createdAt', render: dateTime },
+                  {
+                    title: "Ghi chú",
+                    dataIndex: "note",
+                    render: (v?: string | null) => v || "—",
+                  },
+                  {
+                    title: "Thời điểm",
+                    dataIndex: "createdAt",
+                    render: dateTime,
+                  },
                 ]}
               />
             </>

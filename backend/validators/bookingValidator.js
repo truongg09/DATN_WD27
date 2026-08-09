@@ -4,6 +4,7 @@ const utc = require('dayjs/plugin/utc');
 dayjs.extend(utc);
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
 const toPositiveInt = (value, fieldName) => {
   if (value === undefined || value === null || value === '') {
@@ -40,6 +41,22 @@ const normalizeDate = (value, fieldName) => {
   }
 
   return value;
+};
+
+// Giờ khách mong muốn nhận/trả phòng khi đặt phòng - tùy chọn, chỉ để lễ tân
+// chủ động chuẩn bị, không ảnh hưởng đến việc tính phí hay chặn đặt phòng.
+// Lưu dưới dạng HH:mm:ss cho khớp kiểu cột TIME của MySQL.
+const normalizeOptionalTime = (value, fieldName) => {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+
+  const str = String(value).trim();
+  if (!TIME_PATTERN.test(str)) {
+    throw new HttpError(400, `${fieldName} phải có định dạng HH:mm`);
+  }
+
+  return `${str}:00`;
 };
 
 const assertDateRange = (checkIn, checkOut) => {
@@ -102,6 +119,14 @@ const normalizeBookingPayload = (body, userFromToken) => {
     guestEmail: body.guestEmail ?? body.guest_email ?? null,
     guestPhone: body.guestPhone ?? body.guest_phone ?? null,
     serviceRequests: normalizeServiceRequestsPayload(body.serviceRequests ?? body.service_requests),
+    requestedCheckInTime: normalizeOptionalTime(
+      body.requestedCheckInTime ?? body.requested_check_in_time,
+      'requestedCheckInTime'
+    ),
+    requestedCheckOutTime: normalizeOptionalTime(
+      body.requestedCheckOutTime ?? body.requested_check_out_time,
+      'requestedCheckOutTime'
+    ),
     status: body.status || 'confirmed'
   };
 
@@ -277,6 +302,9 @@ const normalizeTransferRoomPayload = (body) => {
 
 const normalizeIdParam = (id, fieldName = 'id') => toPositiveInt(id, fieldName);
 
+const normalizeReassignRoomPayload = (body) => ({
+  roomId: toPositiveInt(body.roomId ?? body.room_id, 'roomId')
+});
 module.exports = {
   normalizeBookingPayload,
   normalizeAvailabilityPayload,
@@ -288,5 +316,6 @@ module.exports = {
   normalizeGuestIdentitiesPayload,
   normalizeDamageChargePayload,
   normalizeTransferRoomPayload,
-  normalizeIdParam
+  normalizeIdParam,
+  normalizeReassignRoomPayload
 };
