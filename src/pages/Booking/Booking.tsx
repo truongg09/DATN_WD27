@@ -752,7 +752,12 @@ const Booking: React.FC = () => {
                   <Controller
                     name="guestPhone"
                     control={control}
-                    rules={{ required: 'Vui lòng nhập số điện thoại' }}
+                    rules={{ required: 'Vui lòng nhập số điện thoại' , 
+                            pattern: {
+                              value: /^(0|\+84)[0-9]{9,10}$/,
+                              message: 'Số điện thoại không hợp lệ'
+                            }
+                          }}
                     render={({ field }) => (
                       <Input 
                         {...field}
