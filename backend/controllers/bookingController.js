@@ -355,6 +355,12 @@ const checkOut = async (req, res) => {
   try {
     const bookingId = normalizeIdParam(req.params.id);
     const booking = await bookingService.checkOut(bookingId, req.body?.actualCheckOutTime, req.user || null);
+    if (booking.requiresPayment) {
+      return res.status(409).json({
+        message: `Đã cộng phí trả phòng muộn ${Number(booking.lateCheckout.feeAmount || 0).toLocaleString('vi-VN')}₫. Vui lòng thu đủ tiền trước khi trả phòng.`,
+        data: booking
+      });
+    }
     res.json({
       message: booking.lateCheckout ? `Trả phòng thành công (đã tính phí trễ giờ)` : 'Trả phòng thành công',
       data: booking
