@@ -562,7 +562,7 @@ const BookingDetail: React.FC = () => {
           </Card>
         )}
 
-        <Card title="Hủy phòng sát giờ nhận phòng" className="cancellation-policy-card">
+        {/* <Card title="Hủy phòng sát giờ nhận phòng" className="cancellation-policy-card">
           <div className="cancellation-policy">
             <div className="policy-row header-row">
               <span>Thời gian hủy</span>
@@ -581,7 +581,7 @@ const BookingDetail: React.FC = () => {
               <span>0%</span>
             </div>
           </div>
-        </Card>
+        </Card> */}
 
         {invoice && (
           <Card title="Hóa đơn dịch vụ lưu trú" className="invoice-card">

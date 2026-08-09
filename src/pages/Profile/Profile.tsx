@@ -361,7 +361,7 @@ function Profile() {
 
               <div style={menuItemStyle("bookings")} onClick={() => setActiveTab("bookings")}>
                 <CalendarOutlined style={{ marginRight: "12px", fontSize: "17px" }} />
-                <span>Đặt chỗ của tôi</span>
+                <span>Lịch sử đặt phòng</span>
               </div>
 
               <div style={menuItemStyle("refunds")} onClick={() => {
@@ -509,10 +509,10 @@ function Profile() {
               </div>
             )}
 
-            {/* TAB: ĐẶT CHỖ CỦA TÔI */}
+            {/* TAB: Lịch sử đặt phòng */}
             {activeTab === "bookings" && (
               <div>
-                <Title level={3} style={{ marginBottom: "24px", color: "#2b2420" }}>Đặt phòng gần đây</Title>
+                <Title level={3} style={{ marginBottom: "24px", color: "#2b2420" }}>Lịch sử đặt phòng</Title>
                 <Table
                   dataSource={bookings}
                   rowKey="id"
@@ -779,6 +779,9 @@ function Profile() {
                           )}
                         </div>
                       )
+                    },
+                    {
+                      title: "Thao tác",
                     }
                   ]}
                 />

@@ -178,7 +178,7 @@ function VoucherManagement() {
       },
     },
     {
-      title: 'Hành động',
+      title: 'Thao tác',
       key: 'action',
       render: (_: object, record: AdminVoucher) => (
         <Space>

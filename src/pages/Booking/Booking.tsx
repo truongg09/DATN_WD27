@@ -647,9 +647,8 @@ const Booking: React.FC = () => {
             <div className="history-panel-header">
               <div>
                 <span className="history-eyebrow">
-                  <HistoryOutlined /> Lịch sử của bạn
+                  <HistoryOutlined />Lịch sử đặt phòng của bạn
                 </span>
-                <h2>Đặt phòng gần đây</h2>
               </div>
               <Link to="/booking/history" className="history-view-all">
                 Xem tất cả <ArrowRightOutlined />
