@@ -27,6 +27,7 @@ interface Booking {
   check_out: string | null;
   status: string;
   total_price: string | number | null;
+  room_price?: string | number | null;
   payable_total?: string | number | null;
   adults: number | null;
   children: number | null;
@@ -44,6 +45,7 @@ interface RoomItem {
   id: number;
   roomNumber: string;
   room_type_name?: string;
+  price_per_night?: string | number;
   status: string;
 }
 
@@ -234,13 +236,47 @@ function BookingManagement() {
       }
 
       if (operation === 'transfer') {
-        await api.patch(`/bookings/${selectedBooking.id}/transfer-room`, {
+        const response = await api.patch(`/bookings/${selectedBooking.id}/transfer-room`, {
           toRoomId: values.toRoomId,
           fromDate: values.fromDate.format('YYYY-MM-DD'),
           toDate: values.toDate.format('YYYY-MM-DD'),
           reason: values.reason,
         });
-        message.success('Đã chuyển phòng và lưu lịch sử');
+        const result = response.data?.data;
+        const previousTotal = Number(selectedBooking.total_price || 0);
+        const newTotal = Number(result?.priceBreakdown?.totalPrice || 0);
+        const priceDifference = newTotal - previousTotal;
+        const remainingAmount = Number(result?.payment?.remainingAmount || 0);
+
+        Modal.info({
+          title: 'Đã chuyển phòng',
+          okText: 'Đã hiểu',
+          content: (
+            <div>
+              <p>
+                Tổng tiền phòng sau khi chuyển: <strong>{formatPrice(newTotal)}</strong>.
+              </p>
+              {priceDifference > 0 ? (
+                <p>
+                  Phòng mới đắt hơn, khách cần thanh toán thêm:{' '}
+                  <strong style={{ color: '#cf1322' }}>{formatPrice(priceDifference)}</strong>.
+                </p>
+              ) : priceDifference < 0 ? (
+                <p>
+                  Phòng mới rẻ hơn, tiền phòng được giảm:{' '}
+                  <strong style={{ color: '#389e0d' }}>{formatPrice(Math.abs(priceDifference))}</strong>.
+                </p>
+              ) : (
+                <p>Giá phòng không thay đổi.</p>
+              )}
+              {priceDifference > 0 && (
+                <p>
+                  Số tiền khách còn phải thanh toán: <strong>{formatPrice(remainingAmount)}</strong>.
+                </p>
+              )}
+            </div>
+          ),
+        });
       }
 
       closeOperation();
@@ -390,6 +426,15 @@ function BookingManagement() {
     if (operation === 'transfer') {
       return (
         <>
+          <div
+            style={{ marginBottom: 16, padding: '10px 12px', background: '#f6ffed', border: '1px solid #b7eb8f', borderRadius: 8 }}
+          >
+            <div style={{ color: '#389e0d', fontWeight: 600 }}>Phòng đang ở</div>
+            <div>
+              Phòng {selectedBooking?.room_number || '—'} · {selectedBooking?.room_type_name || '—'} · Giá đang áp dụng:{' '}
+              <strong>{formatPrice(selectedBooking?.room_price)}</strong>/đêm
+            </div>
+          </div>
           <Form.Item name="toRoomId" label="Phòng chuyển đến" rules={[{ required: true, message: 'Chọn phòng' }]}>
             <Select
               showSearch
@@ -397,7 +442,7 @@ function BookingManagement() {
                 .filter((room) => room.id !== selectedBooking?.room_id)
                 .map((room) => ({
                   value: room.id,
-                  label: `Phòng ${room.roomNumber} - ${room.room_type_name || ''} (${room.status})`,
+                  label: `Phòng ${room.roomNumber} · ${room.room_type_name || ''} · ${formatPrice(room.price_per_night)}/đêm (${room.status})`,
                 }))}
             />
           </Form.Item>
