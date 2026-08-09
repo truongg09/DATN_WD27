@@ -34,7 +34,6 @@ const voucherRoutes = require('./routes/vouchers');
 const settingsRoutes = require('./routes/settings');
 const refundRoutes = require('./routes/refunds');
 const walletRoutes = require('./routes/wallet');
-const ensureOperationalSchema = require('./ensure-operational-schema');
 const reportRoutes = require('./routes/reports');
 const uploadRoutes = require('./routes/upload');
 
@@ -92,13 +91,6 @@ bookingService.processNoShows().catch((error) => {
 });
 
 // Start server
-ensureOperationalSchema()
-  .then(() => {
-    app.listen(PORT, () => {
-      console.log(`Server is running on port ${PORT}`);
-    });
-  })
-  .catch((error) => {
-    console.error('Failed to ensure operational schema:', error);
-    process.exit(1);
-  });
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
+});

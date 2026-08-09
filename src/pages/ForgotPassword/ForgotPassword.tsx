@@ -17,8 +17,7 @@ function ForgotPassword() {
     },
   });
 
-  const onSubmit = (data: ForgotForm) => {
-    console.log("Forgot password data:", data);
+  const onSubmit = () => {
     message.success("Yêu cầu đặt lại mật khẩu (demo) đã được gửi!");
   };
 

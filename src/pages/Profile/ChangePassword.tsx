@@ -22,12 +22,10 @@ function ChangePassword() {
     name: "newPassword",
   });
 
-  const onSubmit = async (data: ChangePasswordForm) => {
+  const onSubmit = async () => {
     try {
-      console.log(data);
-
       // Gọi API đổi mật khẩu tại đây
-      // await changePassword(data);
+      // await changePassword();
 
       message.success("Đổi mật khẩu thành công");
     } catch {

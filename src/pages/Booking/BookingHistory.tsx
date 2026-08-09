@@ -1507,25 +1507,6 @@ const BookingHistory: React.FC = () => {
                         />
                       )}
                     </Form>
-
-                    <Alert
-                      type="info"
-                      showIcon
-                      message="Chính sách cập nhật"
-                      description={
-                        <ul style={{ margin: '6px 0 0 18px', padding: 0 }}>
-                          <li>
-                            ✅ <strong>Chưa nhận phòng (pending / đã xác nhận)</strong>: đổi ngày nhận, ngày trả, hạng phòng tùy ý (hệ thống tự kiểm tra phòng trống và tính lại giá).
-                          </li>
-                          <li>
-                            ✅ <strong>Đã nhận phòng (đang lưu trú)</strong>: chỉ được gia hạn ngày trả (ngày nhận không đổi, ngày trả mới &gt; cũ).
-                          </li>
-                          <li>
-                            ⚠️ Nếu đã trả phòng / đã hủy / khách không đến: không được chỉnh sửa. Vui lòng liên hệ lễ tân nếu cần hỗ trợ thêm.
-                          </li>
-                        </ul>
-                      }
-                    />
                   </div>
                 ),
               },
@@ -1663,22 +1644,13 @@ const BookingHistory: React.FC = () => {
                             (s: number, r: any) => s + Number(r.totalPrice || 0),
                             0
                           );
-                          const summaryColSpan = ['pending', 'confirmed', 'checked_in'].includes(
-                            (editDetail.status as string) ?? ''
-                          )
-                            ? 3
-                            : 3;
-                          const totalColIndex = ['pending', 'confirmed', 'checked_in'].includes(
-                            (editDetail.status as string) ?? ''
-                          )
-                            ? 3
-                            : 3;
+                          // Lưu ý index của Table.Summary.Cell: colSpan=3 ở cột đầu tiên để che 3 cột (Dịch vụ + Đơn giá + SL), sau đó cột "Thành tiền" có index=3 đúng.
                           return (
                             <Table.Summary.Row>
-                              <Table.Summary.Cell index={0} colSpan={summaryColSpan}>
+                              <Table.Summary.Cell index={0} colSpan={3}>
                                 <strong>Tổng dịch vụ đã cộng</strong>
                               </Table.Summary.Cell>
-                              <Table.Summary.Cell index={totalColIndex} align="right">
+                              <Table.Summary.Cell index={3} align="right">
                                 <strong>
                                   {new Intl.NumberFormat('vi-VN').format(total)}đ
                                 </strong>
@@ -1819,11 +1791,6 @@ const BookingHistory: React.FC = () => {
                           />
                         )}
                       </Form>
-                      <div style={{ fontSize: 12, color: '#888', marginTop: 10 }}>
-                        ⚠️ <strong>Lưu ý:</strong> Backend chưa hỗ trợ API xóa dịch vụ đã cộng.
-                        Nếu cần sửa số lượng hoặc hủy dịch vụ, vui lòng liên hệ lễ tân để được
-                        hỗ trợ thủ công.
-                      </div>
                     </div>
                   </div>
                 ),

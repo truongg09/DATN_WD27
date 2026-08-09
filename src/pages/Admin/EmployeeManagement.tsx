@@ -59,7 +59,6 @@ function EmployeeManagement() {
     setLoading(true);
     try {
       const response = await api.get('/employees');
-      console.log('API response:', response);
       setEmployees(response.data);
     } catch (error) {
       console.error('Error fetching employees:', error);
@@ -70,18 +69,7 @@ function EmployeeManagement() {
   };
 
   useEffect(() => {
-    void (async () => {
-      setLoading(true);
-      try {
-        const response = await api.get('/employees');
-        setEmployees(response.data);
-      } catch (error) {
-        console.error('Error fetching employees:', error);
-        message.error('Lỗi khi tải danh sách nhân viên');
-      } finally {
-        setLoading(false);
-      }
-    })();
+    void fetchEmployees();
   }, []);
 
   const handleAdd = () => {
@@ -110,10 +98,8 @@ function EmployeeManagement() {
   };
 
   const handleDelete = async (id: number) => {
-    console.log('Trying to delete employee with id:', id);
     try {
-      const response = await api.delete(`/employees/${id}`);
-      console.log('Delete API response:', response);
+      await api.delete(`/employees/${id}`);
       message.success('Xóa nhân viên thành công');
       fetchEmployees();
     } catch (error: unknown) {
