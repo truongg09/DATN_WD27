@@ -338,7 +338,7 @@ function CustomerManagement() {
       render: (status: 'active' | 'locked') => <StatusPill status={status} />
     },
     {
-      title: 'Hành động',
+      title: 'Thao tác',
       key: 'actions',
       width: 130,
       align: 'center' as const,

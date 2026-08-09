@@ -194,7 +194,7 @@ function EmployeeManagement() {
       )
     },
     {
-      title: 'Hành động',
+      title: 'Thao tác',
       key: 'actions',
       render: (_: unknown, record: Employee) => (
         <Space>

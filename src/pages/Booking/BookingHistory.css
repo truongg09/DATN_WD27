@@ -59,10 +59,9 @@
 }
 
 .booking-history-toolbar .ant-btn,
-.history-primary-btn,
-.history-actions .ant-btn {
+.history-primary-btn {
   height: 40px;
-  border-radius: 10px;
+  border-radius: 100px;
   font-weight: 700;
 }
 
@@ -220,10 +219,6 @@
 
 .history-actions {
   gap: 8px !important;
-}
-
-.history-actions .ant-btn {
-  padding-inline: 12px;
 }
 
 .history-empty {

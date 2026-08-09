@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Alert, Button, Empty, Input, Modal, message, Radio, Rate, Select, Space, Spin, Table, Tag, Upload } from 'antd';
+import { Alert, Button, Empty, Input, Modal, Tooltip, message, Radio, Rate, Select, Space, Spin, Table, Tag, Upload } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import type { UploadFile, UploadProps } from 'antd/es/upload/interface';
 import {
@@ -490,10 +490,10 @@ const BookingHistory: React.FC = () => {
         <Tag className="history-status-tag" color={paymentStatusMap[payment.paymentStatus]?.color || 'default'}>
           {paymentStatusMap[payment.paymentStatus]?.label || payment.paymentStatus}
         </Tag>
-        {payment.verificationStatus === 'pending' && (
+        {/* {payment.verificationStatus === 'pending' && (
           <Tag className="history-status-tag" color="gold">Chờ đối soát chuyển khoản</Tag>
-        )}
-        {(payment.paymentStatus === 'unpaid' || payment.paymentStatus === 'deposit_paid') && (
+        )} */}
+        {/* {(payment.paymentStatus === 'unpaid' || payment.paymentStatus === 'deposit_paid') && (
           <span className={`history-hold-time ${isHoldExpired ? 'expired' : ''}`}>
             {hasDeposit
               ? 'Đã cọc, cần thanh toán phần còn lại'
@@ -501,7 +501,7 @@ const BookingHistory: React.FC = () => {
                 ? 'Hết thời gian giữ chỗ'
                 : `Còn ${formatHoldTime(holdRemainingMs)}`}
           </span>
-        )}
+        )} */}
         {refund && (
           <Tag
             className="history-status-tag"
@@ -561,11 +561,11 @@ const BookingHistory: React.FC = () => {
           return (
             <div>
               <strong className="history-price">{formatPrice(total)}</strong>
-              {Number(payment?.serviceAmount || 0) > 0 && (
+              {/* {Number(payment?.serviceAmount || 0) > 0 && (
                 <div className="history-price-note">
                   Đã gồm {formatPrice(payment?.serviceAmount || 0)} dịch vụ
                 </div>
-              )}
+              )} */}
             </div>
           );
         },
@@ -609,35 +609,39 @@ const BookingHistory: React.FC = () => {
           const existingReview = reviewsByBooking[record.id];
 
           return (
-            <Space className="history-actions" wrap>
-              <Link to={`/booking/${record.id}`}>
-                <Button icon={<EyeOutlined />}>Chi tiết</Button>
-              </Link>
+            <Space className="history-actions" size="small" wrap>
+              <Tooltip title="Xem chi tiết đặt phòng">
+                <Link to={`/booking/${record.id}`}>
+                  <Button type="primary" icon={<EyeOutlined style={{ color: 'white' }} />} size="small"></Button>
+                </Link>
+              </Tooltip>
 
               {canPay && (
-                <Link to={`/booking/${record.id}/payment`}>
-                  <Button className="history-pay-btn" type="primary" icon={<CreditCardOutlined />}>
-                    Thanh toán
-                  </Button>
-                </Link>
+                <Tooltip title="Thanh toán đặt phòng">
+                  <Link to={`/booking/${record.id}/payment`}>
+                    <Button className="history-pay-btn" type="primary" icon={<CreditCardOutlined />} size="small"></Button>
+                  </Link>
+                </Tooltip>
               )}
 
               {canCancel && (
-                <Button
-                  danger
-                  icon={<StopOutlined />}
-                  loading={cancellingId === record.id}
-                  onClick={() => openCancelModal(record)}
-                >
-                  Hủy
-                </Button>
+                <Tooltip title="Hủy đặt phòng">
+                  <Button
+                    type="primary"
+                    danger
+                    icon={<StopOutlined />}
+                    size="small"
+                    loading={cancellingId === record.id}
+                    onClick={() => openCancelModal(record)}
+                  ></Button>
+                </Tooltip>
               )}
 
               {record.status === 'checked_out' && (
                 <Space size={4} wrap>
-                  <Button icon={<StarOutlined />} onClick={() => openReviewModal(record)}>
-                    {existingReview ? 'Xem/Sửa đánh giá' : 'Đánh giá'}
-                  </Button>
+                  <Tooltip title={existingReview ? 'Xem/Sửa đánh giá' : 'Đánh giá phòng'}>
+                    <Button type="primary" icon={<StarOutlined />} size="small" onClick={() => openReviewModal(record)}></Button>
+                  </Tooltip>
                   {existingReview?.status && existingReview.status !== 'approved' && (
                     <Tag color={reviewStatusMap[existingReview.status]?.color || 'default'}>
                       {reviewStatusMap[existingReview.status]?.label || existingReview.status}
@@ -658,7 +662,6 @@ const BookingHistory: React.FC = () => {
       <section className="booking-history-shell">
         <div className="booking-history-hero">
           <div>
-            <span className="booking-history-eyebrow">HotelHub</span>
             <h1>Lịch sử đặt phòng</h1>
             <p>Theo dõi đặt phòng, thanh toán và thao tác hủy phòng của bạn tại một nơi.</p>
           </div>

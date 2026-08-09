@@ -734,7 +734,7 @@ function RoomManagement() {
       }
     },
     {
-      title: 'Hành động',
+      title: 'Thao tác',
       key: 'action',
       render: (_: unknown, record: Room) => (
         <Space>

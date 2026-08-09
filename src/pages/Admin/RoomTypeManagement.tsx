@@ -317,7 +317,7 @@ function RoomTypeManagement() {
       ellipsis: true,
     },
     {
-      title: 'Hành động',
+      title: 'Thao tác',
       key: 'actions',
       width: 150,
       render: (_: unknown, record: RoomType) => (

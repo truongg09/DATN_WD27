@@ -400,7 +400,7 @@ function ReviewManagement() {
       ),
     },
     {
-      title: 'Hành động',
+      title: 'Thao tác',
       key: 'action',
       width: 180,
       render: (_, record) => (

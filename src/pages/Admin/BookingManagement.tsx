@@ -513,7 +513,7 @@ function BookingManagement() {
                 <th style={thStyle}>Số khách</th>
                 <th style={thStyle}>Tổng tiền</th>
                 <th style={thStyle}>Trạng thái</th>
-                <th style={thStyle}>Hành động</th>
+                <th style={thStyle}>Thao tác</th>
               </tr>
             </thead>
             <tbody>
