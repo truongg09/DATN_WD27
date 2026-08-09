@@ -1,4 +1,7 @@
 const HttpError = require('../utils/httpError');
+const dayjs = require('dayjs');
+const utc = require('dayjs/plugin/utc');
+dayjs.extend(utc);
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -169,9 +172,43 @@ const normalizeServiceChargePayload = (body) => ({
   quantity: toPositiveInt(body.quantity ?? 1, 'quantity')
 });
 
+const normalizeUpdateServiceChargePayload = (body) => {
+  if (body.quantity === undefined || body.quantity === null) {
+    throw new HttpError(400, 'quantity là bắt buộc khi cập nhật dịch vụ');
+  }
+  return {
+    quantity: toPositiveInt(body.quantity, 'quantity'),
+  };
+};
+
 const normalizeExtendStayPayload = (body) => ({
   checkOut: normalizeDate(body.checkOut ?? body.checkOutDate ?? body.check_out, 'checkOut')
 });
+
+const normalizeUpdateStayPayload = (body) => {
+  const checkIn = normalizeDate(
+    body.checkIn ?? body.checkInDate ?? body.check_in,
+    'checkIn'
+  );
+  const checkOut = normalizeDate(
+    body.checkOut ?? body.checkOutDate ?? body.check_out,
+    'checkOut'
+  );
+  // Chuỗi ngày ISO YYYY-MM-DD có thể so sánh trực tiếp bằng toán tử chuỗi
+  // (không cần thêm dayjs plugin isSameOrBefore, tránh lỗi TypeError)
+  if (!checkIn || !checkOut || checkOut <= checkIn) {
+    throw new HttpError(400, 'Ngày trả phòng phải sau ngày nhận phòng');
+  }
+  const roomTypeId = body.roomTypeId ?? body.room_type_id;
+  if (roomTypeId !== undefined && roomTypeId !== null && !Number.isInteger(Number(roomTypeId))) {
+    throw new HttpError(400, 'roomTypeId phải là số nguyên');
+  }
+  return {
+    checkIn,
+    checkOut,
+    roomTypeId: roomTypeId != null ? Number(roomTypeId) : null,
+  };
+};
 
 const normalizeGuestIdentitiesPayload = (body) => {
   const guests = Array.isArray(body.guests) ? body.guests : [];
@@ -245,7 +282,9 @@ module.exports = {
   normalizeAvailabilityPayload,
   normalizeTypeAvailabilityPayload,
   normalizeServiceChargePayload,
+  normalizeUpdateServiceChargePayload,
   normalizeExtendStayPayload,
+  normalizeUpdateStayPayload,
   normalizeGuestIdentitiesPayload,
   normalizeDamageChargePayload,
   normalizeTransferRoomPayload,

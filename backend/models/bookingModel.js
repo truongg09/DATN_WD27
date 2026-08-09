@@ -401,6 +401,46 @@ const addBookingService = async (bookingId, service, quantity, connection) => {
   return result.insertId;
 };
 
+const getBookingServiceChargeById = async (svcId, connection) => {
+  const [rows] = await run(connection).query(
+    `SELECT bs.*, s.serviceName, s.price AS unitPrice
+     FROM booking_services bs
+     LEFT JOIN services s ON s.id = bs.serviceId
+     WHERE bs.id = ?`,
+    [Number(svcId)]
+  );
+  return rows[0] || null;
+};
+
+const updateBookingServiceCharge = async (svcId, payload, connection) => {
+  // payload: { quantity, totalPrice } - lấy unitPrice từ service rồi tính lại total = unitPrice * qty
+  const fields = [];
+  const params = [];
+  if (payload.quantity != null) {
+    fields.push('quantity = ?');
+    params.push(payload.quantity);
+  }
+  if (payload.totalPrice != null) {
+    fields.push('totalPrice = ?');
+    params.push(payload.totalPrice);
+  }
+  if (fields.length === 0) return 0;
+  params.push(Number(svcId));
+  const [result] = await run(connection).query(
+    `UPDATE booking_services SET ${fields.join(', ')} WHERE id = ?`,
+    params
+  );
+  return result.affectedRows || 0;
+};
+
+const deleteBookingServiceCharge = async (svcId, connection) => {
+  const [result] = await run(connection).query(
+    'DELETE FROM booking_services WHERE id = ?',
+    [Number(svcId)]
+  );
+  return result.affectedRows || 0;
+};
+
 const sumBookingServices = async (bookingId, connection) => {
   const [[row]] = await run(connection).query(
     'SELECT COALESCE(SUM(totalPrice), 0) AS total FROM booking_services WHERE bookingId = ?',
@@ -488,6 +528,54 @@ const updateBookingStay = async (bookingId, checkOut, totalPrice, connection, oc
   await run(connection).query(
     'UPDATE booking_details SET checkOutDate = ? WHERE bookingId = ?',
     [checkOut, bookingId]
+  );
+};
+
+// Cập nhật FULL đặt phòng (ngày nhận, ngày trả, phòng vật lý, tiền phòng, phụ thu).
+// Dùng cho việc cập nhật tự do check-in/check-out/hạng phòng của booking chưa check-in.
+const updateBookingStayFull = async (bookingId, payload, connection) => {
+  const serviceAmount = await sumBookingServices(bookingId, connection);
+  const totalAmount = Number(payload.totalPrice || 0) + Number(serviceAmount || 0);
+
+  // 1) bookings table (schema thật: user_id, customerId, room_id, check_in, check_out,
+  //    total_price, status, notes, cancellation_reason, guest_name, guest_email,
+  //    guest_phone, voucherId, bookingCode, bookingStatus, totalAmount, createdAt, created_at)
+  await run(connection).query(
+    `UPDATE bookings
+     SET check_in = ?,
+         check_out = ?,
+         room_id = ?,
+         total_price = ?,
+         totalAmount = ?
+     WHERE id = ?`,
+    [
+      payload.checkIn,
+      payload.checkOut,
+      payload.roomId,
+      payload.totalPrice,
+      totalAmount,
+      bookingId,
+    ]
+  );
+
+  // 2) booking_details table (schema thật: bookingId, roomId, checkInDate, checkOutDate,
+  //    adults, children, roomPrice, occupancySurcharge)
+  await run(connection).query(
+    `UPDATE booking_details
+     SET checkInDate = ?,
+         checkOutDate = ?,
+         roomId = ?,
+         roomPrice = ?,
+         occupancySurcharge = ?
+     WHERE bookingId = ?`,
+    [
+      payload.checkIn,
+      payload.checkOut,
+      payload.roomId,
+      payload.roomPrice,
+      payload.occupancySurcharge ?? 0,
+      bookingId,
+    ]
   );
 };
 
@@ -709,12 +797,16 @@ module.exports = {
   upsertAvailabilityRows,
   getServiceById,
   addBookingService,
+  getBookingServiceChargeById,
+  updateBookingServiceCharge,
+  deleteBookingServiceCharge,
   sumBookingServices,
   createCustomerNotification,
   replaceBookingGuests,
   addDamageCharge,
   sumDamageCharges,
   updateBookingStay,
+  updateBookingStayFull,
   transferBookingRoom,
   saveNightlyPrices,
   listNightlyPrices,

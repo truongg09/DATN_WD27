@@ -944,7 +944,7 @@ const addServiceCharge = async (bookingId, payload, actor = null) => {
       throw new HttpError(404, 'Không tìm thấy đặt phòng');
     }
 
-    if (!['confirmed', 'checked_in'].includes(booking.status)) {
+    if (!['pending', 'confirmed', 'checked_in'].includes(booking.status)) {
       throw new HttpError(409, `Không thể thêm phí dịch vụ khi đặt phòng ở trạng thái ${bookingStatusLabel(booking.status)}`);
     }
 
@@ -960,7 +960,7 @@ const addServiceCharge = async (bookingId, payload, actor = null) => {
     await logHistory(
       bookingId,
       'service_added',
-      `Thêm dịch vụ phát sinh: ${service.serviceName} x${payload.quantity} = ${displayMoney(addedAmount)}`,
+      `Thêm dịch vụ: ${service.serviceName} x${payload.quantity} = ${displayMoney(addedAmount)}`,
       {
         newValue: {
           serviceId: service.id,
@@ -992,6 +992,122 @@ const addServiceCharge = async (bookingId, payload, actor = null) => {
         quantity: payload.quantity,
         totalPrice: addedAmount
       },
+      payment
+    };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
+const updateServiceCharge = async (bookingId, serviceChargeId, payload, actor = null) => {
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    const booking = await bookingModel.getBookingById(bookingId, connection, true);
+    if (!booking) throw new HttpError(404, 'Không tìm thấy đặt phòng');
+    if (!['pending', 'confirmed', 'checked_in'].includes(booking.status)) {
+      throw new HttpError(409, `Không thể sửa dịch vụ khi đặt phòng ở trạng thái ${bookingStatusLabel(booking.status)}`);
+    }
+
+    const oldCharge = await bookingModel.getBookingServiceChargeById(serviceChargeId, connection);
+    if (!oldCharge) throw new HttpError(404, 'Không tìm thấy dòng dịch vụ này');
+    if (Number(oldCharge.bookingId) !== Number(bookingId)) {
+      throw new HttpError(403, 'Dòng dịch vụ này không thuộc đặt phòng đã chỉ định');
+    }
+    // Lấy đơn giá hiện tại từ tham chiếu đến bảng services (unitPrice), nếu ko có thì tính từ oldTotal/qty
+    const unitPrice = Number(oldCharge.unitPrice)
+      || Math.round(Number(oldCharge.totalPrice) / Math.max(1, Number(oldCharge.quantity || 1)));
+
+    const oldQty = Number(oldCharge.quantity || 0);
+    const oldTotal = Number(oldCharge.totalPrice || 0);
+    const newQty = Number(payload.quantity || 0);
+    if (newQty < 1) {
+      throw new HttpError(400, 'Số lượng phải lớn hơn 0. Nếu muốn bỏ dịch vụ hãy dùng nút Xóa.');
+    }
+    const newTotal = Math.round(unitPrice * newQty);
+    const delta = newTotal - oldTotal;
+
+    await bookingModel.updateBookingServiceCharge(
+      serviceChargeId,
+      { quantity: newQty, totalPrice: newTotal },
+      connection
+    );
+    const payment = await paymentService.recalculatePaymentForBooking(bookingId, connection);
+
+    await logHistory(
+      bookingId,
+      'service_updated',
+      `Sửa dịch vụ ${oldCharge.serviceName || '(dịch vụ)'}: x${oldQty} → x${newQty} (${displayMoney(oldTotal)} → ${displayMoney(newTotal)}, ${delta >= 0 ? 'tăng ' + displayMoney(delta) : 'giảm ' + displayMoney(Math.abs(delta))})`,
+      {
+        oldValue: { quantity: oldQty, totalPrice: oldTotal, serviceName: oldCharge.serviceName, unitPrice },
+        newValue: { quantity: newQty, totalPrice: newTotal },
+        amount: delta
+      },
+      actor,
+      connection
+    );
+
+    await connection.commit();
+    return {
+      booking: await bookingModel.getBookingById(bookingId),
+      charge: { id: serviceChargeId, quantity: newQty, totalPrice: newTotal, delta },
+      payment
+    };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
+const deleteServiceCharge = async (bookingId, serviceChargeId, actor = null) => {
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    const booking = await bookingModel.getBookingById(bookingId, connection, true);
+    if (!booking) throw new HttpError(404, 'Không tìm thấy đặt phòng');
+    if (!['pending', 'confirmed', 'checked_in'].includes(booking.status)) {
+      throw new HttpError(409, `Không thể xóa dịch vụ khi đặt phòng ở trạng thái ${bookingStatusLabel(booking.status)}`);
+    }
+
+    const charge = await bookingModel.getBookingServiceChargeById(serviceChargeId, connection);
+    if (!charge) throw new HttpError(404, 'Không tìm thấy dòng dịch vụ này');
+    if (Number(charge.bookingId) !== Number(bookingId)) {
+      throw new HttpError(403, 'Dòng dịch vụ này không thuộc đặt phòng đã chỉ định');
+    }
+
+    const removedTotal = Number(charge.totalPrice || 0);
+    await bookingModel.deleteBookingServiceCharge(serviceChargeId, connection);
+    const payment = await paymentService.recalculatePaymentForBooking(bookingId, connection);
+
+    await logHistory(
+      bookingId,
+      'service_removed',
+      `Xóa dịch vụ ${charge.serviceName || '(dịch vụ)'} (x${charge.quantity}, được ${displayMoney(removedTotal)})`,
+      {
+        oldValue: {
+          id: serviceChargeId,
+          serviceName: charge.serviceName,
+          quantity: Number(charge.quantity),
+          unitPrice: Number(charge.unitPrice || 0),
+          totalPrice: removedTotal
+        },
+        amount: -Math.abs(removedTotal)
+      },
+      actor,
+      connection
+    );
+
+    await connection.commit();
+    return {
+      booking: await bookingModel.getBookingById(bookingId),
+      removed: { id: serviceChargeId, totalPrice: removedTotal },
       payment
     };
   } catch (error) {
@@ -1139,6 +1255,201 @@ const extendStay = async (bookingId, payload, actor = null) => {
       addedAmount,
       addedSurcharge,
       payment
+    };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
+const updateStay = async (bookingId, payload, actor = null) => {
+  const connection = await db.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    const booking = await bookingModel.getBookingById(bookingId, connection, true);
+    if (!booking) {
+      throw new HttpError(404, 'Không tìm thấy đặt phòng');
+    }
+
+    // Chỉ cho phép cập nhật khi booking chưa check-in (pending/confirmed)
+    if (!['pending', 'confirmed'].includes(booking.status)) {
+      throw new HttpError(
+        409,
+        `Không thể cập nhật thời gian ở khi đặt phòng ở trạng thái ${bookingStatusLabel(booking.status)}. Hãy dùng API chuyển phòng / gia hạn thay thế.`
+      );
+    }
+
+    const oldCheckIn = dayString(booking.check_in);
+    const oldCheckOut = dayString(booking.check_out);
+    const newCheckIn = dayString(payload.checkIn);
+    const newCheckOut = dayString(payload.checkOut);
+    const newRoomTypeId = payload.roomTypeId != null ? Number(payload.roomTypeId) : null;
+
+    const today = dayString(new Date());
+    if (newCheckIn < today) {
+      throw new HttpError(400, 'Ngày nhận phòng mới không được sớm hơn hôm nay');
+    }
+
+    // Query thủ công để lấy loại phòng hiện tại (BOOKING_SELECT không alias room_type_id)
+    const oldRoomInfo = booking.room_id
+      ? await bookingModel.getRoomWithType(booking.room_id, connection, false)
+      : null;
+    const oldRoomTypeId = oldRoomInfo ? Number(oldRoomInfo.roomTypeId) : null;
+    const targetRoomTypeId = newRoomTypeId ?? oldRoomTypeId;
+    if (!targetRoomTypeId) {
+      throw new HttpError(400, 'Không xác định được hạng phòng để cập nhật');
+    }
+
+    const availableRooms = await bookingModel.listAvailableRoomsByType(
+      targetRoomTypeId,
+      newCheckIn,
+      newCheckOut,
+      connection,
+      true
+    );
+    const conflictingExcludingSelf = (await bookingModel.getConflictingBookings(
+      booking.room_id,
+      newCheckIn,
+      newCheckOut,
+      connection,
+      true,
+      { excludeBookingId: bookingId }
+    )).length;
+
+    let targetRoom = null;
+    if (newRoomTypeId != null && newRoomTypeId !== oldRoomTypeId) {
+      if (!Array.isArray(availableRooms) || availableRooms.length === 0) {
+        throw new HttpError(409, 'Không còn phòng trống thuộc hạng phòng này cho khoảng thời gian bạn chọn');
+      }
+      targetRoom = availableRooms[0];
+    } else {
+      const keepOldRoom = conflictingExcludingSelf === 0 && booking.room_id;
+      if (keepOldRoom) {
+        targetRoom = await bookingModel.getRoomWithType(booking.room_id, connection, true);
+      } else if (Array.isArray(availableRooms) && availableRooms.length > 0) {
+        targetRoom = availableRooms[0];
+      } else {
+        throw new HttpError(409, 'Không còn phòng trống (kể cả phòng cũ) cho khoảng thời gian bạn chọn');
+      }
+    }
+
+    if (!targetRoom) {
+      throw new HttpError(409, 'Không xác định được phòng phù hợp để cập nhật');
+    }
+
+    const targetRoomType = await (async () => {
+      try {
+        const [[row]] = await (connection || db).query(
+          'SELECT id, typeName, capacity, defaultPrice, status, description FROM room_types WHERE id = ? LIMIT 1',
+          [targetRoomTypeId]
+        );
+        return row || null;
+      } catch {
+        return null;
+      }
+    })();
+    const basePricePerNight =
+      Number(booking.room_price || 0) > 0
+        ? booking.room_price
+        : Number(targetRoom.price_per_night || targetRoomType?.defaultPrice || 0);
+
+    // Tính lại giá theo từng đêm (theo roomTypeId mới) cho toàn bộ khoảng thời gian mới
+    const nightly = await calcNightlyPrices(
+      targetRoomTypeId,
+      basePricePerNight,
+      newCheckIn,
+      newCheckOut,
+      connection
+    );
+    const newNights = nightly.nights;
+    const newStayAmount = nightly.total;
+
+    // Tính lại phụ thu trẻ em: giữ nguyên phụ thu/đêm cũ, nhân với số đêm mới
+    const originalNights = getNightCount(oldCheckIn, oldCheckOut);
+    const currentSurcharge = Number(booking.occupancy_surcharge || 0);
+    const surchargePerNight = originalNights > 0 ? currentSurcharge / originalNights : 0;
+    const newSurcharge = Math.round(surchargePerNight * newNights);
+
+    const newTotalPrice = newStayAmount + newSurcharge;
+    const roomPricePerNight = newNights > 0 ? Math.round(newStayAmount / newNights) : basePricePerNight;
+
+    // Xóa nightly prices cũ, lưu mới lại cho toàn bộ khoảng thời gian mới
+    await (connection || db).query(
+      'DELETE FROM booking_nightly_prices WHERE bookingId = ?',
+      [bookingId]
+    );
+    await bookingModel.saveNightlyPrices(bookingId, nightly.prices, connection);
+
+    // Dùng helper đã viết theo đúng pattern run(connection).query + schema thật
+    await bookingModel.updateBookingStayFull(
+      bookingId,
+      {
+        checkIn: newCheckIn,
+        checkOut: newCheckOut,
+        roomId: targetRoom.id,
+        totalPrice: newTotalPrice,
+        roomPrice: basePricePerNight,
+        occupancySurcharge: newSurcharge,
+      },
+      connection
+    );
+
+    const payment = await paymentService.recalculatePaymentForBooking(bookingId, connection);
+
+    const diffLines = [];
+    if (oldCheckIn !== newCheckIn) diffLines.push(`nhận ${displayDate(oldCheckIn)} → ${displayDate(newCheckIn)}`);
+    if (oldCheckOut !== newCheckOut) diffLines.push(`trả ${displayDate(oldCheckOut)} → ${displayDate(newCheckOut)}`);
+    if (oldRoomTypeId !== Number(targetRoomTypeId)) {
+      diffLines.push(`hạng phòng → ${targetRoomType?.typeName || targetRoomTypeId}`);
+    }
+    if (Number(booking.room_id) !== Number(targetRoom.id)) {
+      diffLines.push(`phòng ${booking.room_number} → ${targetRoom.roomNumber}`);
+    }
+    const diffStr = diffLines.length ? diffLines.join(', ') : 'Cập nhật thời gian ở';
+    const diffTotal = newTotalPrice - Number(booking.total_price || 0);
+
+    await logHistory(
+      bookingId,
+      'stay_updated',
+      `Cập nhật đặt phòng: ${diffStr} (tổng tiền phòng ${diffTotal >= 0 ? 'tăng' : 'giảm'} ${displayMoney(Math.abs(diffTotal))})`,
+      {
+        oldValue: {
+          checkIn: oldCheckIn,
+          checkOut: oldCheckOut,
+          roomTypeId: booking.room_type_id,
+          roomId: booking.room_id,
+          totalPrice: Number(booking.total_price || 0),
+        },
+        newValue: {
+          checkIn: newCheckIn,
+          checkOut: newCheckOut,
+          roomTypeId: targetRoomTypeId,
+          roomId: targetRoom.id,
+          nights: newNights,
+          totalPrice: newTotalPrice,
+          occupancySurcharge: newSurcharge,
+        },
+        amount: diffTotal,
+      },
+      actor,
+      connection
+    );
+
+    await connection.commit();
+    return {
+      booking: await bookingModel.getBookingById(bookingId),
+      nights: newNights,
+      roomType: targetRoomType,
+      room: targetRoom,
+      stayAmount: newStayAmount,
+      occupancySurcharge: newSurcharge,
+      totalPrice: newTotalPrice,
+      deltaTotal: diffTotal,
+      payment,
     };
   } catch (error) {
     await connection.rollback();
@@ -1602,8 +1913,11 @@ module.exports = {
   cancelBooking,
   saveGuestIdentities,
   addServiceCharge,
+  updateServiceCharge,
+  deleteServiceCharge,
   addDamageCharge,
   extendStay,
+  updateStay,
   transferRoom,
   checkIn,
   checkOut,
