@@ -975,5 +975,6 @@ module.exports = {
   updateActualCheckOutTime,
   updateActualCheckInTime,
   notifyStaffAndAdmins,
-  reassignRoomForBooking
+  reassignRoomForBooking,
+  findActiveCheckedInBooking
 };
