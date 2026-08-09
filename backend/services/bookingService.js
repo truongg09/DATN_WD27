@@ -2625,6 +2625,12 @@ const checkOut = async (bookingId, actualCheckOutTimeInput, actor = null) => {
       payment.remainingAmount > 0 ||
       payment.paymentStatus !== "paid"
     ) {
+      // Fee trả phòng muộn phải được lưu lại để lễ tân thu tiền ở màn hình
+      // thanh toán; không rollback cùng lỗi check-out như các khoản nợ cũ.
+      if (lateCheckout) {
+        await connection.commit();
+        return { requiresPayment: true, lateCheckout };
+      }
       throw new HttpError(
         409,
         "Vui lòng thanh toán toàn bộ tiền phòng và chi phí phát sinh trước khi check-out",
