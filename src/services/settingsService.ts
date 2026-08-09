@@ -16,3 +16,17 @@ export const getPaymentSettings = async () => {
 export const updatePaymentSettings = async (data: PaymentSettings) => {
   return api.put("/settings/payment", data) as Promise<{ data: PaymentSettings; message?: string }>;
 };
+
+export interface PoliciesInfo {
+  checkInTime: string;
+  checkOutTime: string;
+  nearTierMaxDays: number;
+  nearTierPercent: number;
+  midTierMaxDays: number;
+  midTierPercent: number;
+  farTierPercent: number;
+}
+
+export const getPolicies = async () => {
+  return api.get('/settings/policies') as Promise<{ data: PoliciesInfo }>;
+};

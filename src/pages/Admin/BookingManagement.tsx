@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Button, DatePicker, Form, Input, InputNumber, message, Modal, Select, Space, Tag, Tooltip } from 'antd';
+import { Alert, Button, DatePicker, Form, Input, InputNumber, message, Modal, Select, Space, Tag, Tooltip } from 'antd';
 import {
   CheckOutlined,
   CloseOutlined,
@@ -16,6 +16,8 @@ import dayjs from 'dayjs';
 import api from '../../services/api';
 import BookingDetailModal from './BookingDetailModal';
 import CheckoutPaymentModal from './CheckoutPaymentModal';
+import { getPolicies } from '../../services/settingsService';
+import type { PoliciesInfo } from '../../services/settingsService';
 
 interface Booking {
   id: number;
@@ -25,6 +27,7 @@ interface Booking {
   room_id?: number | null;
   room_number: string | null;
   room_type_name: string | null;
+  room_status?: string | null;
   check_in: string | null;
   check_out: string | null;
   status: string;
@@ -34,6 +37,7 @@ interface Booking {
   children: number | null;
   notes?: string | null;
   created_at: string | null;
+  requested_check_in_time?: string | null;
 }
 
 interface ServiceItem {
@@ -97,27 +101,32 @@ function BookingManagement() {
   const [checkoutBookingId, setCheckoutBookingId] = useState<number | null>(null);
   const [operation, setOperation] = useState<Operation>(null);
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
+  const [reassigning, setReassigning] = useState(false);
+  const [policies, setPolicies] = useState<PoliciesInfo | null>(null);
   const [form] = Form.useForm();
 
-  const fetchBookings = async () => {
+  // Trả về mảng booking vừa tải để nơi gọi (VD: sau khi chuyển phòng) có thể
+  // lấy ngay bản ghi mới nhất mà không cần đọc lại state bất đồng bộ.
+  const fetchBookings = async (): Promise<Booking[]> => {
     setLoading(true);
     try {
       const response = await api.get('/bookings');
       const data = Array.isArray(response.data) ? response.data : [];
-      setBookings(
-        data
-          .map((booking: Booking) => ({
-            ...booking,
-            status: normalizeStatus(booking.status),
-            adults: booking.adults ?? 0,
-            children: booking.children ?? 0,
-          }))
-          .filter((booking: Booking) => booking.check_in && booking.check_out)
-      );
+      const mapped = data
+        .map((booking: Booking) => ({
+          ...booking,
+          status: normalizeStatus(booking.status),
+          adults: booking.adults ?? 0,
+          children: booking.children ?? 0,
+        }))
+        .filter((booking: Booking) => booking.check_in && booking.check_out);
+      setBookings(mapped);
+      return mapped;
     } catch (error) {
       console.error('Error fetching bookings:', error);
       message.error('Lỗi khi tải danh sách đặt phòng');
       setBookings([]);
+      return [];
     } finally {
       setLoading(false);
     }
@@ -137,7 +146,52 @@ function BookingManagement() {
   useEffect(() => {
     fetchBookings();
     fetchSupportData();
+    // Chỉ dùng để phát hiện khách đến sớm hơn giờ chuẩn -> hỏi xác nhận
+    // trước khi check-in, không hiển thị note nào khác trong màn hình này.
+    getPolicies()
+      .then((res) => setPolicies(res.data))
+      .catch(() => setPolicies(null));
   }, []);
+
+  // Có phải khách đang đến SỚM hơn giờ nhận phòng chuẩn không (so trên đúng
+  // ngày check_in của booking). Chỉ true khi hôm nay là ngày nhận phòng và
+  // giờ hiện tại còn trước giờ chuẩn; nếu quá ngày (khách đến muộn vài hôm)
+  // thì không tính là "sớm" theo nghĩa cần xác nhận đặc biệt.
+  const isEarlyCheckIn = (booking: Booking) => {
+    if (!booking.check_in) return false;
+    const standardTime = (policies?.checkInTime || '14:00:00').slice(0, 8);
+    const standardCheckIn = dayjs(`${dayjs(booking.check_in).format('YYYY-MM-DD')}T${standardTime}`);
+    return dayjs().isSame(dayjs(booking.check_in), 'day') && dayjs().isBefore(standardCheckIn);
+  };
+
+  // Phòng cùng hạng (so theo room_type_name) đang trống, khác phòng hiện tại
+  // của booking — dùng để gợi ý chuyển khách khi phòng gốc đang bảo trì/dọn dẹp.
+  const getSimilarAvailableRooms = (booking: Booking) =>
+    rooms.filter(
+      (room) =>
+        room.status === 'available' &&
+        room.id !== booking.room_id &&
+        (room.room_type_name || '') === (booking.room_type_name || '')
+    );
+
+  const handleReassignSimilarRoom = async (roomId: number) => {
+    if (!selectedBooking) return;
+    setReassigning(true);
+    try {
+      await api.patch(`/bookings/${selectedBooking.id}/reassign-room`, { roomId });
+      message.success('Đã chuyển khách sang phòng khác cùng hạng');
+      const updatedList = await fetchBookings();
+      const updated = updatedList.find((b) => b.id === selectedBooking.id);
+      if (updated) {
+        setSelectedBooking(updated);
+      }
+      await fetchSupportData();
+    } catch (error: any) {
+      message.error(error.response?.data?.message || 'Không thể chuyển phòng lúc này');
+    } finally {
+      setReassigning(false);
+    }
+  };
 
   const openOperation = (type: Operation, booking: Booking) => {
     setOperation(type);
@@ -173,6 +227,15 @@ function BookingManagement() {
 
   const submitOperation = async () => {
     if (!selectedBooking || !operation) return;
+
+    // Chặn ngay từ phía UI: phòng đang bảo trì thì không cho bấm Check-in,
+    // tránh gọi API rồi mới nhận lỗi 409 cụt lủn. Lễ tân cần chuyển phòng
+    // trước (dùng nút "Chuyển đến phòng ..." ở khối cảnh báo phía trên form).
+    if (operation === 'guests' && (selectedBooking.room_status || 'available') === 'maintenance') {
+      message.error('Phòng đang dọn dẹp/bảo trì, vui lòng chuyển khách sang phòng khác trước khi check-in');
+      return;
+    }
+
     const values = await form.validateFields();
 
     try {
@@ -325,10 +388,22 @@ function BookingManagement() {
     });
   };
 
-  const handleCheckIn = (booking: Booking) => {
-    openOperation('guests', booking);
-  };
-
+const handleCheckIn = (booking: Booking) => {
+  if (isEarlyCheckIn(booking)) {
+    const requestedNote = booking.requested_check_in_time
+      ? ` Khách có báo trước giờ nhận phòng dự kiến ${booking.requested_check_in_time.slice(0, 5)}.`
+      : '';
+    Modal.confirm({
+      title: 'Xác nhận check-in sớm?',
+      content: `Khách đã đến trước giờ nhận phòng chuẩn (${(policies?.checkInTime || '14:00').slice(0, 5)}).${requestedNote} Xác nhận khách đã đến và cho nhận phòng sớm?`,
+      okText: 'Xác nhận, khách đã đến',
+      cancelText: 'Chưa, để sau',
+      onOk: () => openOperation('guests', booking),
+    });
+    return;
+  }
+  openOperation('guests', booking);
+};
   // Trả phòng luôn đi qua màn hình thu tiền: nếu khách còn nợ dịch vụ/phí hư
   // hỏng thì lễ tân có sẵn mã QR để khách quét trả ngay tại quầy, thu đủ mới
   // cho trả phòng. Trước đây bấm trả phòng khi còn nợ chỉ báo lỗi cụt.
@@ -359,6 +434,77 @@ function BookingManagement() {
         }
       },
     });
+  };
+
+  // Cảnh báo trạng thái phòng ngay trong modal check-in, kèm hành động chuyển
+  // phòng nếu phòng gốc đang bảo trì/dọn dẹp. Chỉ hiển thị cho operation
+  // 'guests' (luồng check-in) — 'declareGuests' là khai báo sau khi đã nhận
+  // phòng nên không còn ý nghĩa kiểm tra sẵn sàng.
+  const renderRoomReadinessNote = () => {
+    if (operation !== 'guests' || !selectedBooking) return null;
+
+    const status = selectedBooking.room_status || 'available';
+
+    if (status === 'maintenance') {
+      const similarRooms = getSimilarAvailableRooms(selectedBooking);
+      return (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="Phòng đang dọn dẹp / bảo trì"
+          description={
+            <div>
+              <p style={{ marginBottom: 8 }}>
+                Phòng {selectedBooking.room_number || ''} hiện chưa sẵn sàng đón khách. Vui lòng
+                chuyển khách sang phòng cùng hạng còn trống trước khi check-in.
+              </p>
+              {similarRooms.length > 0 ? (
+                <Space wrap>
+                  {similarRooms.map((room) => (
+                    <Button
+                      key={room.id}
+                      size="small"
+                      loading={reassigning}
+                      onClick={() => handleReassignSimilarRoom(room.id)}
+                    >
+                      Chuyển đến phòng {room.roomNumber}
+                    </Button>
+                  ))}
+                </Space>
+              ) : (
+                <span style={{ color: '#cf1322' }}>
+                  Hiện không còn phòng cùng hạng trống. Vui lòng đổi sang hạng phòng khác, thương
+                  lượng với khách, hoặc chờ dọn xong rồi thử lại.
+                </span>
+              )}
+            </div>
+          }
+        />
+      );
+    }
+
+    if (status === 'available') {
+      return (
+        <Alert
+          type="success"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message={`Phòng ${selectedBooking.room_number || ''} đã sẵn sàng đón khách`}
+        />
+      );
+    }
+
+    // Trạng thái khác (VD: occupied) không nên xảy ra với booking pending/confirmed,
+    // nhưng vẫn hiển thị để lễ tân chủ động kiểm tra thay vì im lặng bỏ qua.
+    return (
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 16 }}
+        message={`Trạng thái phòng hiện tại: ${status}`}
+      />
+    );
   };
 
   const renderOperationForm = () => {
@@ -624,6 +770,7 @@ function BookingManagement() {
         cancelText="Đóng"
         width={operation === 'guests' || operation === 'declareGuests' ? 900 : 560}
       >
+        {renderRoomReadinessNote()}
         <Form form={form} layout="vertical">
           {renderOperationForm()}
         </Form>

@@ -187,7 +187,8 @@ const recalculatePaymentForBooking = async (bookingId, connection) => {
   const roomAmount = Math.max(Number(booking.total_price || 0) - guestSurcharge, 0);
   const serviceAmount = await bookingModel.sumBookingServices(bookingId, connection);
   const damageSurcharge = await bookingModel.sumDamageCharges(bookingId, connection);
-  const surchargeAmount = guestSurcharge + damageSurcharge;
+  const lateCheckoutSurcharge = await bookingModel.sumLateCheckoutCharges(bookingId, connection);
+  const surchargeAmount = guestSurcharge + damageSurcharge + lateCheckoutSurcharge;
   const discountAmount = Number(payment.discountAmount || 0);
   const paidAmount = Number(payment.paidAmount || 0);
   const totalAmount = Math.max(roomAmount + serviceAmount + surchargeAmount - discountAmount, 0);
