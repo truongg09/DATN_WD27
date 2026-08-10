@@ -1,24 +1,24 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { 
-  faBed, 
-  faBath, 
+import React, { useState, useEffect } from "react";
+import { useParams, useNavigate, Link } from "react-router-dom";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import {
+  faBed,
+  faBath,
   faExpandArrowsAlt,
   faCheck,
   faArrowLeft,
   faStar,
-  faUser
-} from '@fortawesome/free-solid-svg-icons';
-import { getRoomById } from '../../services/roomService';
-import './RoomDetail.css';
+  faUser,
+} from "@fortawesome/free-solid-svg-icons";
+import { getRoomById } from "../../services/roomService";
+import "./RoomDetail.css";
 
 interface RoomData {
   id: number;
   roomNumber: string;
   floor: number;
   area: string | number;
-  status: 'available' | 'occupied' | 'maintenance';
+  status: "available" | "occupied" | "maintenance";
   roomTypeId: number;
   room_type_name: string;
   room_type_description: string;
@@ -27,7 +27,18 @@ interface RoomData {
   imageUrl?: string;
   images: string[];
   db_amenities?: { name: string; icon: string }[];
-  db_reviews?: { id: number; customerName: string; rating: number; comment: string; createdAt: string }[];
+  db_reviews?: {
+    id: number;
+    customerName: string;
+    rating: number;
+    comment: string;
+    createdAt: string;
+  }[];
+  adultCapacity?: number;
+  childCapacity?: number;
+  maxOccupancy?: number;
+  extraAdultFee?: number;
+  extraChildFee?: number;
 }
 
 const RoomDetail: React.FC = () => {
@@ -38,53 +49,65 @@ const RoomDetail: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [selectedImage, setSelectedImage] = useState(0);
 
-
-
   const getDefaultImages = (typeName: string): string[] => {
     const name = typeName.toLowerCase();
     let mainImages: string[];
 
-    if (name.includes('standard') || name.includes('superior')) {
+    if (name.includes("standard") || name.includes("superior")) {
       mainImages = [
-        new URL('../../assets/rooms/standard/standard1.jpg', import.meta.url).href,
-        new URL('../../assets/rooms/standard/standard2.jpg', import.meta.url).href,
-        new URL('../../assets/rooms/standard/standard3.jpg', import.meta.url).href,
-        new URL('../../assets/rooms/standard/standard4.jpg', import.meta.url).href
+        new URL("../../assets/rooms/standard/standard1.jpg", import.meta.url)
+          .href,
+        new URL("../../assets/rooms/standard/standard2.jpg", import.meta.url)
+          .href,
+        new URL("../../assets/rooms/standard/standard3.jpg", import.meta.url)
+          .href,
+        new URL("../../assets/rooms/standard/standard4.jpg", import.meta.url)
+          .href,
       ];
-    } else if (name.includes('deluxe')) {
+    } else if (name.includes("deluxe")) {
       mainImages = [
-        new URL('../../assets/rooms/deluxe/deluxe1.jpg', import.meta.url).href,
-        new URL('../../assets/rooms/deluxe/deluxe3.jpg', import.meta.url).href,
-        new URL('../../assets/rooms/deluxe/deluxe4.jpg', import.meta.url).href
+        new URL("../../assets/rooms/deluxe/deluxe1.jpg", import.meta.url).href,
+        new URL("../../assets/rooms/deluxe/deluxe3.jpg", import.meta.url).href,
+        new URL("../../assets/rooms/deluxe/deluxe4.jpg", import.meta.url).href,
       ];
-    } else if (name.includes('family')) {
+    } else if (name.includes("family")) {
       mainImages = [
-        new URL('../../assets/rooms/family/family1.jpg', import.meta.url).href,
-        new URL('../../assets/rooms/family/family2.jpg', import.meta.url).href,
-        new URL('../../assets/rooms/family/family4.jpg', import.meta.url).href
+        new URL("../../assets/rooms/family/family1.jpg", import.meta.url).href,
+        new URL("../../assets/rooms/family/family2.jpg", import.meta.url).href,
+        new URL("../../assets/rooms/family/family4.jpg", import.meta.url).href,
       ];
     } else {
       mainImages = [
-        new URL('../../assets/rooms/luxury/luxury1.jpg', import.meta.url).href,
-        new URL('../../assets/rooms/luxury/luxury2.jpg', import.meta.url).href,
-        new URL('../../assets/rooms/luxury/luxury3.jpg', import.meta.url).href
+        new URL("../../assets/rooms/luxury/luxury1.jpg", import.meta.url).href,
+        new URL("../../assets/rooms/luxury/luxury2.jpg", import.meta.url).href,
+        new URL("../../assets/rooms/luxury/luxury3.jpg", import.meta.url).href,
       ];
     }
 
     const amenitiesImages = [
-      new URL('../../assets/rooms/bathroom/bathroom1.jpg', import.meta.url).href,
-      new URL('../../assets/rooms/bathroom/bathroom2.jpg', import.meta.url).href,
-      new URL('../../assets/rooms/balcony-view/balcony1.jpg', import.meta.url).href,
-      new URL('../../assets/rooms/balcony-view/balcony2.jpg', import.meta.url).href
+      new URL("../../assets/rooms/bathroom/bathroom1.jpg", import.meta.url)
+        .href,
+      new URL("../../assets/rooms/bathroom/bathroom2.jpg", import.meta.url)
+        .href,
+      new URL("../../assets/rooms/balcony-view/balcony1.jpg", import.meta.url)
+        .href,
+      new URL("../../assets/rooms/balcony-view/balcony2.jpg", import.meta.url)
+        .href,
     ];
 
     return [...mainImages, ...amenitiesImages];
   };
 
-  const mapImages = (imagesArr: string[] | undefined, typeName: string): string[] => {
+  const mapImages = (
+    imagesArr: string[] | undefined,
+    typeName: string,
+  ): string[] => {
     if (imagesArr && imagesArr.length > 0) {
       const firstImage = imagesArr[0];
-      if (firstImage && (firstImage.startsWith('http://') || firstImage.startsWith('https://'))) {
+      if (
+        firstImage &&
+        (firstImage.startsWith("http://") || firstImage.startsWith("https://"))
+      ) {
         return imagesArr;
       }
     }
@@ -93,21 +116,29 @@ const RoomDetail: React.FC = () => {
 
   const getDetailedDescription = (typeName: string, dbDesc: string): string => {
     const name = typeName.toLowerCase();
-    let baseDesc = dbDesc || '';
+    let baseDesc = dbDesc || "";
     if (baseDesc.length < 30) {
-      if (name.includes('standard')) {
-        baseDesc = 'Phòng nghỉ tiêu chuẩn với không gian ấm cúng, thiết kế hiện đại và đầy đủ tiện nghi thiết yếu. Đây là lựa chọn tối ưu và tiết kiệm nhất cho du khách đi công tác hoặc du lịch ngắn ngày.';
-      } else if (name.includes('superior')) {
-        baseDesc = 'Phòng Superior mang đến không gian rộng rãi hơn, cửa sổ lớn đón ánh sáng tự nhiên và tầm nhìn thoáng đãng. Nội thất được thiết kế tinh tế với khu vực làm việc riêng biệt và các tiện nghi cao cấp.';
-      } else if (name.includes('deluxe')) {
-        baseDesc = 'Phòng Deluxe sang trọng mang phong cách kiến trúc hiện đại, trang bị giường cỡ King êm ái cùng khu vực ban công riêng ngắm toàn cảnh thành phố. Thích hợp cho các cặp đôi tận hưởng kỳ nghỉ ngọt ngào.';
-      } else if (name.includes('family')) {
-        baseDesc = 'Thiết kế tối ưu dành riêng cho gia đình hoặc nhóm bạn, phòng Family cung cấp không gian sinh hoạt rộng rãi, hệ thống 2 giường đôi cao cấp và bồn tắm thư giãn riêng biệt sau ngày dài khám phá.';
-      } else if (name.includes('suite')) {
-        baseDesc = 'Hạng phòng Tổng thống sang trọng bậc nhất với phòng khách riêng biệt, quầy bar mini hiện đại và phòng ngủ hoàng gia. Dịch vụ chăm sóc khách hàng VIP riêng tư mang đến trải nghiệm nghỉ dưỡng hoàn hảo nhất.';
+      if (name.includes("standard")) {
+        baseDesc =
+          "Phòng nghỉ tiêu chuẩn với không gian ấm cúng, thiết kế hiện đại và đầy đủ tiện nghi thiết yếu. Đây là lựa chọn tối ưu và tiết kiệm nhất cho du khách đi công tác hoặc du lịch ngắn ngày.";
+      } else if (name.includes("superior")) {
+        baseDesc =
+          "Phòng Superior mang đến không gian rộng rãi hơn, cửa sổ lớn đón ánh sáng tự nhiên và tầm nhìn thoáng đãng. Nội thất được thiết kế tinh tế với khu vực làm việc riêng biệt và các tiện nghi cao cấp.";
+      } else if (name.includes("deluxe")) {
+        baseDesc =
+          "Phòng Deluxe sang trọng mang phong cách kiến trúc hiện đại, trang bị giường cỡ King êm ái cùng khu vực ban công riêng ngắm toàn cảnh thành phố. Thích hợp cho các cặp đôi tận hưởng kỳ nghỉ ngọt ngào.";
+      } else if (name.includes("family")) {
+        baseDesc =
+          "Thiết kế tối ưu dành riêng cho gia đình hoặc nhóm bạn, phòng Family cung cấp không gian sinh hoạt rộng rãi, hệ thống 2 giường đôi cao cấp và bồn tắm thư giãn riêng biệt sau ngày dài khám phá.";
+      } else if (name.includes("suite")) {
+        baseDesc =
+          "Hạng phòng Tổng thống sang trọng bậc nhất với phòng khách riêng biệt, quầy bar mini hiện đại và phòng ngủ hoàng gia. Dịch vụ chăm sóc khách hàng VIP riêng tư mang đến trải nghiệm nghỉ dưỡng hoàn hảo nhất.";
       }
     }
-    return baseDesc + ' Trang thiết bị trong phòng bao gồm hệ thống điều hòa độc lập, kết nối internet tốc độ cao không giới hạn, két sắt an toàn, minibar đầy đủ đồ uống và trà/cà phê miễn phí hàng ngày. Phòng tắm được lát đá cẩm thạch sang trọng kèm theo đầy đủ vật dụng vệ sinh cá nhân cao cấp.';
+    return (
+      baseDesc +
+      " Trang thiết bị trong phòng bao gồm hệ thống điều hòa độc lập, kết nối internet tốc độ cao không giới hạn, két sắt an toàn, minibar đầy đủ đồ uống và trà/cà phê miễn phí hàng ngày. Phòng tắm được lát đá cẩm thạch sang trọng kèm theo đầy đủ vật dụng vệ sinh cá nhân cao cấp."
+    );
   };
 
   useEffect(() => {
@@ -118,19 +149,22 @@ const RoomDetail: React.FC = () => {
         const response = await getRoomById(Number(id));
         if (response && response.data) {
           const roomObj = response.data;
-          
+
           // Map backend images or use high-quality Unsplash fallbacks
           roomObj.images = mapImages(roomObj.images, roomObj.room_type_name);
           // Set rich description
-          roomObj.room_type_description = getDetailedDescription(roomObj.room_type_name, roomObj.room_type_description);
-          
+          roomObj.room_type_description = getDetailedDescription(
+            roomObj.room_type_name,
+            roomObj.room_type_description,
+          );
+
           setRoom(roomObj);
         } else {
-          setError('Không tìm thấy thông tin chi tiết phòng.');
+          setError("Không tìm thấy thông tin chi tiết phòng.");
         }
       } catch (err) {
-        console.error('Lỗi khi tải chi tiết phòng:', err);
-        setError('Không thể tải thông tin phòng. Vui lòng thử lại sau.');
+        console.error("Lỗi khi tải chi tiết phòng:", err);
+        setError("Không thể tải thông tin phòng. Vui lòng thử lại sau.");
       } finally {
         setLoading(false);
       }
@@ -141,11 +175,8 @@ const RoomDetail: React.FC = () => {
   }, [id]);
 
   const formatPrice = (price: number) => {
-    return new Intl.NumberFormat('vi-VN').format(price) + ' VNĐ';
+    return new Intl.NumberFormat("vi-VN").format(price) + " VNĐ";
   };
-
-
-
 
   const handleBooking = () => {
     navigate(`/booking?id=${id}`);
@@ -173,7 +204,7 @@ const RoomDetail: React.FC = () => {
             </Link>
           </div>
           <div className="rooms-error">
-            <p>{error || 'Không tìm thấy thông tin phòng.'}</p>
+            <p>{error || "Không tìm thấy thông tin phòng."}</p>
           </div>
         </div>
       </div>
@@ -181,17 +212,30 @@ const RoomDetail: React.FC = () => {
   }
 
   const price = parseFloat(room.price_per_night as string) || 0;
-  
+
   // Use DB amenities or fallback static list
-  const amenitiesList = room.db_amenities && room.db_amenities.length > 0 
-    ? room.db_amenities.map(a => a.name)
-    : ['Wifi miễn phí', 'Điều hòa không khí', 'TV màn hình phẳng', 'Mini bar', 'Két sắt', 'Ấm đun nước', 'Máy sấy tóc'];
+  const amenitiesList =
+    room.db_amenities && room.db_amenities.length > 0
+      ? room.db_amenities.map((a) => a.name)
+      : [
+          "Wifi miễn phí",
+          "Điều hòa không khí",
+          "TV màn hình phẳng",
+          "Mini bar",
+          "Két sắt",
+          "Ấm đun nước",
+          "Máy sấy tóc",
+        ];
 
   // Calculate average rating from DB reviews or default
   const reviewsList = room.db_reviews || [];
-  const averageRating = reviewsList.length > 0
-    ? (reviewsList.reduce((acc, curr) => acc + curr.rating, 0) / reviewsList.length).toFixed(1)
-    : '4.8';
+  const averageRating =
+    reviewsList.length > 0
+      ? (
+          reviewsList.reduce((acc, curr) => acc + curr.rating, 0) /
+          reviewsList.length
+        ).toFixed(1)
+      : "4.8";
 
   return (
     <div className="room-detail-page">
@@ -205,29 +249,35 @@ const RoomDetail: React.FC = () => {
 
         <div className="room-detail-main">
           <div className="room-gallery">
-            <div className="main-image" style={{ position: 'relative' }}>
-              <button 
+            <div className="main-image" style={{ position: "relative" }}>
+              <button
                 className="gallery-nav-btn prev"
                 onClick={(e) => {
                   e.stopPropagation();
-                  setSelectedImage(prev => (prev === 0 ? room.images.length - 1 : prev - 1));
+                  setSelectedImage((prev) =>
+                    prev === 0 ? room.images.length - 1 : prev - 1,
+                  );
                 }}
               >
                 &lt;
               </button>
-              <img 
-                src={room.images[selectedImage]} 
+              <img
+                src={room.images[selectedImage]}
                 alt={`Phòng ${room.roomNumber}`}
                 onClick={() => {
-                  setSelectedImage(prev => (prev === room.images.length - 1 ? 0 : prev + 1));
+                  setSelectedImage((prev) =>
+                    prev === room.images.length - 1 ? 0 : prev + 1,
+                  );
                 }}
-                style={{ cursor: 'pointer' }}
+                style={{ cursor: "pointer" }}
               />
-              <button 
+              <button
                 className="gallery-nav-btn next"
                 onClick={(e) => {
                   e.stopPropagation();
-                  setSelectedImage(prev => (prev === room.images.length - 1 ? 0 : prev + 1));
+                  setSelectedImage((prev) =>
+                    prev === room.images.length - 1 ? 0 : prev + 1,
+                  );
                 }}
               >
                 &gt;
@@ -235,9 +285,9 @@ const RoomDetail: React.FC = () => {
             </div>
             <div className="thumbnail-images">
               {room.images.map((img, index) => (
-                <div 
-                  key={index} 
-                  className={`thumbnail ${selectedImage === index ? 'active' : ''}`}
+                <div
+                  key={index}
+                  className={`thumbnail ${selectedImage === index ? "active" : ""}`}
                   onClick={() => setSelectedImage(index)}
                 >
                   <img src={img} alt={`Ảnh ${index + 1}`} />
@@ -252,11 +302,16 @@ const RoomDetail: React.FC = () => {
               <div className="room-rating">
                 <FontAwesomeIcon icon={faStar} className="star-icon" />
                 <span>{averageRating}</span>
-                <span className="review-count">({reviewsList.length > 0 ? reviewsList.length : '96'} đánh giá)</span>
+                <span className="review-count">
+                  ({reviewsList.length > 0 ? reviewsList.length : "96"} đánh
+                  giá)
+                </span>
               </div>
             </div>
-            <h1>Phòng {room.roomNumber} (Tầng {room.floor})</h1>
-            
+            <h1>
+              Phòng {room.roomNumber} (Tầng {room.floor})
+            </h1>
+
             <div className="room-specs">
               <div className="spec-item">
                 <FontAwesomeIcon icon={faBed} />
@@ -272,7 +327,20 @@ const RoomDetail: React.FC = () => {
               </div>
               <div className="spec-item">
                 <FontAwesomeIcon icon={faUser} />
-                <span>Tối đa {room.maxOccupancy ?? room.capacity} người</span>
+                <div className="spec-item">
+                  <FontAwesomeIcon icon={faUser} />
+                  <span>
+                    Tiêu chuẩn: {room.adultCapacity ?? room.capacity} NL
+                    {(room.childCapacity ?? 0) > 0
+                      ? ` + ${room.childCapacity} TE(NL)`
+                      : ""}
+                  </span>
+                </div>
+
+                <div className="spec-item">
+                  <FontAwesomeIcon icon={faUser} />
+                  <span>Tối đa {room.maxOccupancy ?? room.capacity} khách</span>
+                </div>
               </div>
             </div>
 
@@ -283,7 +351,7 @@ const RoomDetail: React.FC = () => {
               </div>
             </div>
 
-            {room.status === 'available' ? (
+            {room.status === "available" ? (
               <button className="btn-book-room" onClick={handleBooking}>
                 Đặt phòng ngay
               </button>
@@ -309,7 +377,10 @@ const RoomDetail: React.FC = () => {
 
         <div className="room-description-section">
           <h2>Mô tả phòng</h2>
-          <p>{room.room_type_description || 'Phòng nghỉ đầy đủ tiện nghi, được dọn dẹp sạch sẽ hàng ngày, không gian yên tĩnh thích hợp cho nghỉ dưỡng và làm việc.'}</p>
+          <p>
+            {room.room_type_description ||
+              "Phòng nghỉ đầy đủ tiện nghi, được dọn dẹp sạch sẽ hàng ngày, không gian yên tĩnh thích hợp cho nghỉ dưỡng và làm việc."}
+          </p>
         </div>
 
         <div className="room-amenities-section">
@@ -325,21 +396,57 @@ const RoomDetail: React.FC = () => {
         </div>
 
         {reviewsList.length > 0 && (
-          <div className="room-reviews-section" style={{ marginTop: '40px' }}>
+          <div className="room-reviews-section" style={{ marginTop: "40px" }}>
             <h2>Đánh giá từ khách hàng ({reviewsList.length})</h2>
-            <div className="reviews-list" style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginTop: '20px' }}>
+            <div
+              className="reviews-list"
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "20px",
+                marginTop: "20px",
+              }}
+            >
               {reviewsList.map((rev) => (
-                <div key={rev.id} className="review-card" style={{ padding: '20px', border: '1px solid #eee', borderRadius: '8px', background: '#fafafa' }}>
-                  <div className="review-header" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
-                    <strong style={{ fontSize: '16px' }}>{rev.customerName}</strong>
-                    <span style={{ color: '#888', fontSize: '14px' }}>{new Date(rev.createdAt).toLocaleDateString('vi-VN')}</span>
+                <div
+                  key={rev.id}
+                  className="review-card"
+                  style={{
+                    padding: "20px",
+                    border: "1px solid #eee",
+                    borderRadius: "8px",
+                    background: "#fafafa",
+                  }}
+                >
+                  <div
+                    className="review-header"
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      marginBottom: "10px",
+                    }}
+                  >
+                    <strong style={{ fontSize: "16px" }}>
+                      {rev.customerName}
+                    </strong>
+                    <span style={{ color: "#888", fontSize: "14px" }}>
+                      {new Date(rev.createdAt).toLocaleDateString("vi-VN")}
+                    </span>
                   </div>
-                  <div className="review-rating" style={{ color: '#ffc107', marginBottom: '10px' }}>
+                  <div
+                    className="review-rating"
+                    style={{ color: "#ffc107", marginBottom: "10px" }}
+                  >
                     {Array.from({ length: rev.rating }).map((_, i) => (
                       <FontAwesomeIcon key={i} icon={faStar} />
                     ))}
                   </div>
-                  <p className="review-comment" style={{ margin: 0, color: '#555', fontStyle: 'italic' }}>"{rev.comment}"</p>
+                  <p
+                    className="review-comment"
+                    style={{ margin: 0, color: "#555", fontStyle: "italic" }}
+                  >
+                    "{rev.comment}"
+                  </p>
                 </div>
               ))}
             </div>
@@ -348,7 +455,10 @@ const RoomDetail: React.FC = () => {
 
         <div className="similar-rooms">
           <h2>Các phòng khác tại tầng {room.floor}</h2>
-          <p className="similar-rooms-note">Bạn có thể tham khảo thêm các phòng khác có cùng diện tích và tầng để thuận tiện di chuyển.</p>
+          <p className="similar-rooms-note">
+            Bạn có thể tham khảo thêm các phòng khác có cùng diện tích và tầng
+            để thuận tiện di chuyển.
+          </p>
         </div>
       </div>
     </div>
