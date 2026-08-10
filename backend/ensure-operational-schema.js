@@ -141,6 +141,37 @@ const ensureOperationalSchema = async () => {
       "ALTER TABLE room_types ADD COLUMN status VARCHAR(50) NOT NULL DEFAULT 'active'"
     );
   }
+  if (!roomTypeColumns.some((column) => column.Field === 'adultCapacity')) {
+    await db.query(
+      'ALTER TABLE room_types ADD COLUMN adultCapacity INT NOT NULL DEFAULT 2 AFTER capacity'
+    );
+  }
+  if (!roomTypeColumns.some((column) => column.Field === 'childCapacity')) {
+    await db.query(
+      'ALTER TABLE room_types ADD COLUMN childCapacity INT NOT NULL DEFAULT 1 AFTER adultCapacity'
+    );
+  }
+  if (!roomTypeColumns.some((column) => column.Field === 'maxOccupancy')) {
+    await db.query(
+      'ALTER TABLE room_types ADD COLUMN maxOccupancy INT NOT NULL DEFAULT 3 AFTER childCapacity'
+    );
+  }
+  if (!roomTypeColumns.some((column) => column.Field === 'extraAdultFee')) {
+    await db.query(
+      'ALTER TABLE room_types ADD COLUMN extraAdultFee DECIMAL(15,2) NOT NULL DEFAULT 200000.00 AFTER maxOccupancy'
+    );
+  }
+  if (!roomTypeColumns.some((column) => column.Field === 'extraChildFee')) {
+    await db.query(
+      'ALTER TABLE room_types ADD COLUMN extraChildFee DECIMAL(15,2) NOT NULL DEFAULT 100000.00 AFTER extraAdultFee'
+    );
+  }
+
+  // Đảm bảo maxOccupancy tối thiểu bằng capacity đối với các dữ liệu hiện có
+  await db.query(
+    'UPDATE room_types SET maxOccupancy = GREATEST(COALESCE(maxOccupancy, 0), COALESCE(capacity, 0)) WHERE capacity IS NOT NULL AND maxOccupancy < capacity'
+  );
+
 
   // The surcharge for guests (for example, chargeable children) is stored on
   // the booking detail. It must not be merged into the accommodation amount.

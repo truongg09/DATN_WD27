@@ -86,6 +86,14 @@ setInterval(() => {
   });
 }, 30 * 60 * 1000);
 
+const ensureOperationalSchema = require('./ensure-operational-schema');
+
+ensureOperationalSchema().then(() => {
+  console.log('Database operational schema sync finished.');
+}).catch((error) => {
+  console.error('Operational schema sync error:', error);
+});
+
 bookingService.processOverdueCheckIns().catch((error) => {
   console.error('Initial overdue check-ins processing error:', error);
 });
