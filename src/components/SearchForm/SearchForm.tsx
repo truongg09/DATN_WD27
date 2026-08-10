@@ -56,6 +56,9 @@ const SearchForm: React.FC = () => {
       rooms: data.rooms.toString(),
       childAges: childAges.join(','),
     });
+    // Router giữ vị trí cuộn khi chuyển trang, nên chủ động đưa khách về đầu
+    // danh sách kết quả ngay khi bắt đầu tìm phòng.
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
     navigate(`/rooms?${queryParams.toString()}`);
   };
 
