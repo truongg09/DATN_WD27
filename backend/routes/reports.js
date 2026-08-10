@@ -202,8 +202,8 @@ router.get('/monthly', requireAuth, async (req, res) => {
           COALESCE(rt.typeName, 'Không rõ') AS roomType,
           COUNT(DISTINCT b.id) AS bookingsCount,
           COALESCE(SUM(
-            (bd.roomPrice + COALESCE(bd.occupancySurcharge, 0))
-            * GREATEST(1, DATEDIFF(bd.checkOutDate, bd.checkInDate))
+            bd.roomPrice * GREATEST(1, DATEDIFF(bd.checkOutDate, bd.checkInDate))
+            + COALESCE(bd.occupancySurcharge, 0)
           ), 0) AS revenue
         FROM bookings b
         JOIN booking_details bd ON bd.bookingId = b.id

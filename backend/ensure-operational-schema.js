@@ -59,6 +59,11 @@ const ensureOperationalSchema = async () => {
       'ALTER TABLE bookings ADD COLUMN requestedCheckInDayOffset INT NOT NULL DEFAULT 0 AFTER requestedCheckInTime'
     );
   }
+  if (!bookingColumns.some((column) => column.Field === 'extraGuestSnapshot')) {
+    await db.query(
+      'ALTER TABLE bookings ADD COLUMN extraGuestSnapshot JSON NULL AFTER notes'
+    );
+  }
 
   await db.query(
     `UPDATE vouchers SET discountType = 'percentage' WHERE discountType = 'percent'`

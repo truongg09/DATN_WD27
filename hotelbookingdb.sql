@@ -128,6 +128,7 @@ CREATE TABLE `bookings` (
   `total_price` decimal(15,2) DEFAULT NULL,
   `status` varchar(50) DEFAULT 'pending',
   `notes` text,
+  `extraGuestSnapshot` json DEFAULT NULL,
   `cancellation_reason` text,
   `cancelInitiator` enum('customer','hotel','system') DEFAULT NULL,
   `guest_name` varchar(255) DEFAULT NULL,
