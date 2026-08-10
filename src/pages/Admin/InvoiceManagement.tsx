@@ -111,6 +111,9 @@ function InvoiceDetail({ invoice }: { invoice: Invoice }) {
       ))}
       <AmountRow label={invoice.occupancySurcharge && invoice.occupancySurcharge > 0 ? "Phụ thu (trẻ em)" : "Phụ thu"} value={invoice.surchargeAmount} />
       <AmountRow label="Giảm giá" value={-invoice.discountAmount} />
+      <AmountRow label="Tiền cọc" value={invoice.depositAmount || 0} />
+      <AmountRow label="Đã thanh toán" value={invoice.paidAmount || 0} />
+      <AmountRow label="Còn phải thanh toán" value={invoice.remainingAmount || 0} />
       <AmountRow label="Tổng thanh toán" value={invoice.totalAmount} total />
     </div>
     <p className="invoice-print-note">Cảm ơn quý khách đã sử dụng dịch vụ của HotelHub.</p>

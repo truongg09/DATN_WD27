@@ -38,7 +38,8 @@ const uploadReviewImage: UploadProps['customRequest'] = async (options) => {
     onError?.(error as Error);
   }
 };
-
+    // Never trust a gateway query parameter alone. The success notice is shown
+    // only after the backend has verified the callback and updated the payment.
 const beforeUploadReviewImage = (file: File) => {
   const isImage = file.type.startsWith('image/');
   if (!isImage) {
@@ -269,8 +270,7 @@ const BookingDetail: React.FC = () => {
           ? payment?.paymentStatus === 'deposit_paid'
           : false;
 
-    // Never trust a gateway query parameter alone. The success notice is shown
-    // only after the backend has verified the callback and updated the payment.
+
     if (isGatewayReturn && isSettled && callbackMatchesPayment && isCurrentZalopayPaymentRecorded) {
       const isFullyPaid = payment?.paymentStatus === 'paid';
       message.success({
@@ -747,6 +747,18 @@ const BookingDetail: React.FC = () => {
                   )}
                 </tbody>
                 <tfoot>
+                  <tr>
+                    <td colSpan={2}>Tiền cọc</td>
+                    <td style={{ textAlign: 'right' }}>{formatPrice(invoice.depositAmount || 0)}</td>
+                  </tr>
+                  <tr>
+                    <td colSpan={2}>Đã thanh toán</td>
+                    <td style={{ textAlign: 'right' }}>{formatPrice(invoice.paidAmount || 0)}</td>
+                  </tr>
+                  <tr>
+                    <td colSpan={2}>Còn phải thanh toán</td>
+                    <td style={{ textAlign: 'right' }}>{formatPrice(invoice.remainingAmount || 0)}</td>
+                  </tr>
                   <tr className="invoice-total-row">
                     <td colSpan={2}>
                       <strong style={{ fontSize: 16 }}>Tổng thanh toán</strong>
