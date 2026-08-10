@@ -10,15 +10,17 @@ const router = express.Router();
 router.get('/', async (_req, res) => {
   try {
     const [rows] = await db.query(`
-      SELECT bs.id, bs.bookingId, bs.serviceId, bs.quantity, bs.totalPrice,
-             s.serviceName, s.price AS unitPrice,
+      SELECT bs.id, bs.bookingId, bs.roomId, bs.serviceId, bs.quantity,
+             COALESCE(bs.unitPrice, s.price) AS unitPrice, bs.totalPrice,
+             COALESCE(bs.status, 'used') AS status, bs.usedAt, bs.createdAt,
+             s.serviceName,
              COALESCE(b.guest_name, c.fullName) AS bookingCustomer,
              r.roomNumber, b.status AS bookingStatus
       FROM booking_services bs
       LEFT JOIN services s ON s.id = bs.serviceId
       LEFT JOIN bookings b ON b.id = bs.bookingId
       LEFT JOIN customers c ON c.id = b.customerId
-      LEFT JOIN rooms r ON r.id = b.room_id
+      LEFT JOIN rooms r ON r.id = COALESCE(bs.roomId, b.room_id)
       ORDER BY bs.id DESC
     `);
     res.json({ data: rows });

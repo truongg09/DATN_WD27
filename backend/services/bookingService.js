@@ -1380,6 +1380,12 @@ const saveGuestIdentities = async (bookingId, payload, actor = null) => {
   }
 };
 
+const getBookingServices = async (bookingId) => {
+  const booking = await bookingModel.getBookingById(bookingId);
+  if (!booking) throw new HttpError(404, "Không tìm thấy đặt phòng");
+  return bookingModel.getBookingServicesByBookingId(bookingId);
+};
+
 const addServiceCharge = async (bookingId, payload, actor = null) => {
   const connection = await db.getConnection();
 
@@ -1400,73 +1406,78 @@ const addServiceCharge = async (bookingId, payload, actor = null) => {
         409,
         `Không thể thêm phí dịch vụ khi đặt phòng ở trạng thái ${bookingStatusLabel(booking.status)}`,
       );
-      if (!["confirmed", "checked_in"].includes(booking.status)) {
-        throw new HttpError(
-          409,
-          `Không thể thêm phí dịch vụ khi đặt phòng ở trạng thái ${bookingStatusLabel(booking.status)}`,
-        );
-      }
+    }
 
-      const service = await bookingModel.getServiceById(
-        payload.serviceId,
-        connection,
-      );
-      if (!service) {
-        throw new HttpError(404, "Không tìm thấy dịch vụ");
-      }
-
-      await bookingModel.addBookingService(
+    if (payload.roomId) {
+      const isValidRoom = await bookingModel.validateRoomInBooking(
         bookingId,
-        service,
-        payload.quantity,
+        payload.roomId,
         connection,
       );
-      const payment = await paymentService.recalculatePaymentForBooking(
-        bookingId,
-        connection,
-      );
-      const addedAmount = Number(service.price) * payload.quantity;
-
-      await logHistory(
-        bookingId,
-        "service_added",
-        `Thêm dịch vụ: ${service.serviceName} x${payload.quantity} = ${displayMoney(addedAmount)}`,
-        "service_added",
-        `Thêm dịch vụ phát sinh: ${service.serviceName} x${payload.quantity} = ${displayMoney(addedAmount)}`,
-        {
-          newValue: {
-            serviceId: service.id,
-            serviceName: service.serviceName,
-            quantity: payload.quantity,
-            unitPrice: Number(service.price),
-          },
-          amount: addedAmount,
-        },
-        actor,
-        connection,
-      );
-
-      if (payment && Number(payment.remainingAmount) > 0) {
-        await bookingModel.createCustomerNotification(
-          booking.user_id,
-          "Thanh toán dịch vụ phát sinh",
-          `Dịch vụ ${service.serviceName} đã được thêm vào đặt phòng #${bookingId} với số tiền ${addedAmount.toLocaleString("vi-VN")} VNĐ. Số tiền còn phải thanh toán là ${Number(payment.remainingAmount).toLocaleString("vi-VN")} VNĐ.`,
-          connection,
-        );
+      if (!isValidRoom) {
+        throw new HttpError(400, "Phòng không thuộc đặt phòng này");
       }
+    }
 
-      await connection.commit();
-      return {
-        booking: await bookingModel.getBookingById(bookingId),
-        service: {
-          id: service.id,
+    const service = await bookingModel.getServiceById(
+      payload.serviceId,
+      connection,
+    );
+    if (!service) {
+      throw new HttpError(404, "Không tìm thấy dịch vụ");
+    }
+
+    const created = await bookingModel.addBookingService(
+      bookingId,
+      service,
+      payload.quantity,
+      connection,
+      { roomId: payload.roomId, status: payload.status },
+    );
+
+    const payment = await paymentService.recalculatePaymentForBooking(
+      bookingId,
+      connection,
+    );
+    const addedAmount = Number(created.totalPrice || 0);
+
+    await logHistory(
+      bookingId,
+      "service_added",
+      `Thêm dịch vụ: ${service.serviceName} x${payload.quantity} = ${displayMoney(addedAmount)}${created.status !== "used" ? ` (trạng thái: ${created.status})` : ""}`,
+      "service_added",
+      `Thêm dịch vụ phát sinh: ${service.serviceName} x${payload.quantity} = ${displayMoney(addedAmount)}`,
+      {
+        newValue: {
+          id: created.id,
+          roomId: payload.roomId || null,
+          serviceId: service.id,
           serviceName: service.serviceName,
           quantity: payload.quantity,
-          totalPrice: addedAmount,
+          unitPrice: Number(service.price),
+          status: created.status,
         },
-        payment,
-      };
+        amount: created.status === "used" ? addedAmount : 0,
+      },
+      actor,
+      connection,
+    );
+
+    if (payment && Number(payment.remainingAmount) > 0 && created.status === "used") {
+      await bookingModel.createCustomerNotification(
+        booking.user_id,
+        "Thanh toán dịch vụ phát sinh",
+        `Dịch vụ ${service.serviceName} đã được thêm vào đặt phòng #${bookingId} với số tiền ${addedAmount.toLocaleString("vi-VN")} VNĐ. Số tiền còn phải thanh toán là ${Number(payment.remainingAmount).toLocaleString("vi-VN")} VNĐ.`,
+        connection,
+      );
     }
+
+    await connection.commit();
+    return {
+      booking: await bookingModel.getBookingById(bookingId),
+      service: created,
+      payment,
+    };
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -1509,29 +1520,33 @@ const updateServiceCharge = async (
         "Dòng dịch vụ này không thuộc đặt phòng đã chỉ định",
       );
     }
-    // Lấy đơn giá hiện tại từ tham chiếu đến bảng services (unitPrice), nếu ko có thì tính từ oldTotal/qty
-    const unitPrice =
-      Number(oldCharge.unitPrice) ||
-      Math.round(
-        Number(oldCharge.totalPrice) /
-          Math.max(1, Number(oldCharge.quantity || 1)),
-      );
 
+    if (payload.roomId) {
+      const isValidRoom = await bookingModel.validateRoomInBooking(
+        bookingId,
+        payload.roomId,
+        connection,
+      );
+      if (!isValidRoom) {
+        throw new HttpError(400, "Phòng không thuộc đặt phòng này");
+      }
+    }
+
+    const unitPrice = Number(oldCharge.unitPrice || 0);
     const oldQty = Number(oldCharge.quantity || 0);
     const oldTotal = Number(oldCharge.totalPrice || 0);
-    const newQty = Number(payload.quantity || 0);
+    const newQty = payload.quantity != null ? Number(payload.quantity) : oldQty;
     if (newQty < 1) {
       throw new HttpError(
         400,
-        "Số lượng phải lớn hơn 0. Nếu muốn bỏ dịch vụ hãy dùng nút Xóa.",
+        "Số lượng phải lớn hơn 0. Nếu muốn hủy dịch vụ hãy đổi trạng thái hoặc xóa.",
       );
     }
     const newTotal = Math.round(unitPrice * newQty);
-    const delta = newTotal - oldTotal;
 
     await bookingModel.updateBookingServiceCharge(
       serviceChargeId,
-      { quantity: newQty, totalPrice: newTotal },
+      payload,
       connection,
     );
     const payment = await paymentService.recalculatePaymentForBooking(
@@ -1542,7 +1557,7 @@ const updateServiceCharge = async (
     await logHistory(
       bookingId,
       "service_updated",
-      `Sửa dịch vụ ${oldCharge.serviceName || "(dịch vụ)"}: x${oldQty} → x${newQty} (${displayMoney(oldTotal)} → ${displayMoney(newTotal)}, ${delta >= 0 ? "tăng " + displayMoney(delta) : "giảm " + displayMoney(Math.abs(delta))})`,
+      `Sửa dịch vụ ${oldCharge.serviceName || "(dịch vụ)"}: x${oldQty} → x${newQty}`,
       {
         oldValue: {
           quantity: oldQty,
@@ -1551,7 +1566,6 @@ const updateServiceCharge = async (
           unitPrice,
         },
         newValue: { quantity: newQty, totalPrice: newTotal },
-        amount: delta,
       },
       actor,
       connection,
@@ -1560,12 +1574,72 @@ const updateServiceCharge = async (
     await connection.commit();
     return {
       booking: await bookingModel.getBookingById(bookingId),
-      charge: {
-        id: serviceChargeId,
-        quantity: newQty,
-        totalPrice: newTotal,
-        delta,
+      charge: await bookingModel.getBookingServiceChargeById(serviceChargeId),
+      payment,
+    };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
+const updateServiceChargeStatus = async (
+  bookingId,
+  serviceChargeId,
+  status,
+  actor = null,
+) => {
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    const booking = await bookingModel.getBookingById(
+      bookingId,
+      connection,
+      true,
+    );
+    if (!booking) throw new HttpError(404, "Không tìm thấy đặt phòng");
+
+    const oldCharge = await bookingModel.getBookingServiceChargeById(
+      serviceChargeId,
+      connection,
+    );
+    if (!oldCharge) throw new HttpError(404, "Không tìm thấy dòng dịch vụ này");
+    if (Number(oldCharge.bookingId) !== Number(bookingId)) {
+      throw new HttpError(
+        403,
+        "Dòng dịch vụ này không thuộc đặt phòng đã chỉ định",
+      );
+    }
+
+    await bookingModel.updateBookingServiceStatus(
+      serviceChargeId,
+      status,
+      connection,
+    );
+    const payment = await paymentService.recalculatePaymentForBooking(
+      bookingId,
+      connection,
+    );
+
+    await logHistory(
+      bookingId,
+      "service_status_updated",
+      `Đổi trạng thái dịch vụ ${oldCharge.serviceName || "(dịch vụ)"}: ${oldCharge.status} → ${status}`,
+      {
+        oldValue: { status: oldCharge.status },
+        newValue: { status },
       },
+      actor,
+      connection,
+    );
+
+    await connection.commit();
+    return {
+      booking: await bookingModel.getBookingById(bookingId),
+      charge: await bookingModel.getBookingServiceChargeById(serviceChargeId),
       payment,
     };
   } catch (error) {
@@ -1591,12 +1665,6 @@ const deleteServiceCharge = async (
       true,
     );
     if (!booking) throw new HttpError(404, "Không tìm thấy đặt phòng");
-    if (!["pending", "confirmed", "checked_in"].includes(booking.status)) {
-      throw new HttpError(
-        409,
-        `Không thể xóa dịch vụ khi đặt phòng ở trạng thái ${bookingStatusLabel(booking.status)}`,
-      );
-    }
 
     const charge = await bookingModel.getBookingServiceChargeById(
       serviceChargeId,
@@ -1610,7 +1678,6 @@ const deleteServiceCharge = async (
       );
     }
 
-    const removedTotal = Number(charge.totalPrice || 0);
     await bookingModel.deleteBookingServiceCharge(serviceChargeId, connection);
     const payment = await paymentService.recalculatePaymentForBooking(
       bookingId,
@@ -1620,16 +1687,15 @@ const deleteServiceCharge = async (
     await logHistory(
       bookingId,
       "service_removed",
-      `Xóa dịch vụ ${charge.serviceName || "(dịch vụ)"} (x${charge.quantity}, được ${displayMoney(removedTotal)})`,
+      `Đã hủy dịch vụ ${charge.serviceName || "(dịch vụ)"} (x${charge.quantity})`,
       {
         oldValue: {
           id: serviceChargeId,
           serviceName: charge.serviceName,
           quantity: Number(charge.quantity),
           unitPrice: Number(charge.unitPrice || 0),
-          totalPrice: removedTotal,
+          status: charge.status,
         },
-        amount: -Math.abs(removedTotal),
       },
       actor,
       connection,
@@ -1638,7 +1704,7 @@ const deleteServiceCharge = async (
     await connection.commit();
     return {
       booking: await bookingModel.getBookingById(bookingId),
-      removed: { id: serviceChargeId, totalPrice: removedTotal },
+      removed: { id: serviceChargeId },
       payment,
     };
   } catch (error) {
@@ -1647,6 +1713,12 @@ const deleteServiceCharge = async (
   } finally {
     connection.release();
   }
+};
+
+const getDamageCharges = async (bookingId) => {
+  const booking = await bookingModel.getBookingById(bookingId);
+  if (!booking) throw new HttpError(404, "Không tìm thấy đặt phòng");
+  return bookingModel.getDamageChargesByBookingId(bookingId);
 };
 
 const addDamageCharge = async (bookingId, payload, actor = null) => {
@@ -1664,16 +1736,28 @@ const addDamageCharge = async (bookingId, payload, actor = null) => {
       throw new HttpError(404, "Không tìm thấy đặt phòng");
     }
 
-    if (!["checked_in"].includes(booking.status)) {
+    if (!["pending", "confirmed", "checked_in"].includes(booking.status)) {
       throw new HttpError(
         409,
-        `Không thể thêm phí hư hỏng khi đặt phòng ở trạng thái ${bookingStatusLabel(booking.status)}`,
+        `Không thể thêm khoản phí khi đặt phòng ở trạng thái ${bookingStatusLabel(booking.status)}`,
       );
+    }
+
+    const targetRoomId = payload.roomId || booking.room_id;
+    if (targetRoomId) {
+      const isValidRoom = await bookingModel.validateRoomInBooking(
+        bookingId,
+        targetRoomId,
+        connection,
+      );
+      if (!isValidRoom) {
+        throw new HttpError(400, "Phòng không thuộc đặt phòng này");
+      }
     }
 
     const damage = await bookingModel.addDamageCharge(
       bookingId,
-      booking.room_id,
+      targetRoomId,
       payload,
       connection,
     );
@@ -1685,12 +1769,14 @@ const addDamageCharge = async (bookingId, payload, actor = null) => {
     await logHistory(
       bookingId,
       "damage_added",
-      `Ghi nhận phí hư hỏng/mất vật dụng: ${payload.itemName} x${payload.quantity} = ${displayMoney(damage.totalPrice)}${payload.note ? ` (${payload.note})` : ""}`,
+      `Ghi nhận khoản phí/hư hỏng: ${payload.itemName} x${payload.quantity} = ${displayMoney(damage.totalPrice)}${payload.note ? ` (${payload.note})` : ""}`,
       {
         newValue: {
           itemName: payload.itemName,
           quantity: payload.quantity,
           unitPrice: payload.unitPrice,
+          chargeType: payload.chargeType || 'damage',
+          status: payload.status || 'used',
         },
         amount: damage.totalPrice,
       },
@@ -1700,6 +1786,198 @@ const addDamageCharge = async (bookingId, payload, actor = null) => {
 
     await connection.commit();
     return { damage, payment };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
+const updateDamageCharge = async (
+  bookingId,
+  chargeId,
+  payload,
+  actor = null,
+) => {
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    const booking = await bookingModel.getBookingById(
+      bookingId,
+      connection,
+      true,
+    );
+    if (!booking) throw new HttpError(404, "Không tìm thấy đặt phòng");
+
+    const current = await bookingModel.getDamageChargeById(
+      chargeId,
+      connection,
+    );
+    if (!current) throw new HttpError(404, "Không tìm thấy khoản phí này");
+    if (Number(current.bookingId) !== Number(bookingId)) {
+      throw new HttpError(
+        403,
+        "Khoản phí này không thuộc đặt phòng đã chỉ định",
+      );
+    }
+
+    if (payload.roomId) {
+      const isValidRoom = await bookingModel.validateRoomInBooking(
+        bookingId,
+        payload.roomId,
+        connection,
+      );
+      if (!isValidRoom) {
+        throw new HttpError(400, "Phòng không thuộc đặt phòng này");
+      }
+    }
+
+    await bookingModel.updateDamageCharge(chargeId, payload, connection);
+    const payment = await paymentService.recalculatePaymentForBooking(
+      bookingId,
+      connection,
+    );
+
+    await logHistory(
+      bookingId,
+      "damage_updated",
+      `Sửa khoản phí/hư hỏng: ${current.itemName}`,
+      {
+        oldValue: current,
+        newValue: payload,
+      },
+      actor,
+      connection,
+    );
+
+    await connection.commit();
+    return {
+      booking: await bookingModel.getBookingById(bookingId),
+      charge: await bookingModel.getDamageChargeById(chargeId),
+      payment,
+    };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
+const updateDamageChargeStatus = async (
+  bookingId,
+  chargeId,
+  status,
+  actor = null,
+) => {
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    const booking = await bookingModel.getBookingById(
+      bookingId,
+      connection,
+      true,
+    );
+    if (!booking) throw new HttpError(404, "Không tìm thấy đặt phòng");
+
+    const current = await bookingModel.getDamageChargeById(
+      chargeId,
+      connection,
+    );
+    if (!current) throw new HttpError(404, "Không tìm thấy khoản phí này");
+    if (Number(current.bookingId) !== Number(bookingId)) {
+      throw new HttpError(
+        403,
+        "Khoản phí này không thuộc đặt phòng đã chỉ định",
+      );
+    }
+
+    await bookingModel.updateDamageChargeStatus(chargeId, status, connection);
+    const payment = await paymentService.recalculatePaymentForBooking(
+      bookingId,
+      connection,
+    );
+
+    await logHistory(
+      bookingId,
+      "damage_status_updated",
+      `Đổi trạng thái khoản phí ${current.itemName}: ${current.status} → ${status}`,
+      {
+        oldValue: { status: current.status },
+        newValue: { status },
+      },
+      actor,
+      connection,
+    );
+
+    await connection.commit();
+    return {
+      booking: await bookingModel.getBookingById(bookingId),
+      charge: await bookingModel.getDamageChargeById(chargeId),
+      payment,
+    };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
+const deleteDamageCharge = async (
+  bookingId,
+  chargeId,
+  actor = null,
+) => {
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    const booking = await bookingModel.getBookingById(
+      bookingId,
+      connection,
+      true,
+    );
+    if (!booking) throw new HttpError(404, "Không tìm thấy đặt phòng");
+
+    const current = await bookingModel.getDamageChargeById(
+      chargeId,
+      connection,
+    );
+    if (!current) throw new HttpError(404, "Không tìm thấy khoản phí này");
+    if (Number(current.bookingId) !== Number(bookingId)) {
+      throw new HttpError(
+        403,
+        "Khoản phí này không thuộc đặt phòng đã chỉ định",
+      );
+    }
+
+    await bookingModel.deleteDamageCharge(chargeId, connection);
+    const payment = await paymentService.recalculatePaymentForBooking(
+      bookingId,
+      connection,
+    );
+
+    await logHistory(
+      bookingId,
+      "damage_removed",
+      `Hủy khoản phí ${current.itemName}`,
+      {
+        oldValue: current,
+      },
+      actor,
+      connection,
+    );
+
+    await connection.commit();
+    return {
+      booking: await bookingModel.getBookingById(bookingId),
+      removed: { id: chargeId },
+      payment,
+    };
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -3045,10 +3323,16 @@ module.exports = {
   getRefundPreview,
   cancelBooking,
   saveGuestIdentities,
+  getBookingServices,
   addServiceCharge,
   updateServiceCharge,
+  updateServiceChargeStatus,
   deleteServiceCharge,
+  getDamageCharges,
   addDamageCharge,
+  updateDamageCharge,
+  updateDamageChargeStatus,
+  deleteDamageCharge,
   extendStay,
   updateStay,
   transferRoom,

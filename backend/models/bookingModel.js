@@ -412,43 +412,133 @@ const getServiceById = async (serviceId, connection) => {
   return rows[0] || null;
 };
 
-const addBookingService = async (bookingId, service, quantity, connection) => {
-  const totalPrice = Number(service.price) * quantity;
+const validateRoomInBooking = async (bookingId, roomId, connection) => {
+  if (!roomId) return true;
+  const [rows] = await run(connection).query(
+    `SELECT 1 FROM booking_details WHERE bookingId = ? AND roomId = ?
+     UNION
+     SELECT 1 FROM bookings WHERE id = ? AND room_id = ?`,
+    [Number(bookingId), Number(roomId), Number(bookingId), Number(roomId)]
+  );
+  return rows.length > 0;
+};
+
+const addBookingService = async (bookingId, service, quantity, connection, options = {}) => {
+  const roomId = options.roomId ? Number(options.roomId) : null;
+  const status = options.status || 'used';
+  const unitPrice = Number(service.price || 0);
+  const totalPrice = unitPrice * Number(quantity);
+  const usedAt = status === 'used' ? new Date() : null;
+
   const [result] = await run(connection).query(
     `
-      INSERT INTO booking_services (bookingId, serviceId, quantity, totalPrice)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO booking_services (bookingId, roomId, serviceId, unitPrice, quantity, status, usedAt, totalPrice)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `,
-    [bookingId, service.id, quantity, totalPrice]
+    [bookingId, roomId, service.id, unitPrice, quantity, status, usedAt, totalPrice]
   );
 
-  return result.insertId;
+  return {
+    id: result.insertId,
+    bookingId,
+    roomId,
+    serviceId: service.id,
+    serviceName: service.serviceName,
+    unitPrice,
+    quantity,
+    status,
+    usedAt,
+    totalPrice
+  };
 };
 
 const getBookingServiceChargeById = async (svcId, connection) => {
   const [rows] = await run(connection).query(
-    `SELECT bs.*, s.serviceName, s.price AS unitPrice
+    `SELECT bs.id, bs.bookingId, bs.roomId, r.roomNumber, bs.serviceId, s.serviceName,
+            COALESCE(bs.unitPrice, s.price) AS unitPrice, bs.quantity, bs.totalPrice,
+            COALESCE(bs.status, 'used') AS status, bs.usedAt, bs.createdAt
      FROM booking_services bs
      LEFT JOIN services s ON s.id = bs.serviceId
+     LEFT JOIN bookings b ON b.id = bs.bookingId
+     LEFT JOIN rooms r ON r.id = COALESCE(bs.roomId, b.room_id)
      WHERE bs.id = ?`,
     [Number(svcId)]
   );
   return rows[0] || null;
 };
 
+const getBookingServicesByBookingId = async (bookingId, connection) => {
+  const [rows] = await run(connection).query(
+    `SELECT bs.id, bs.bookingId, bs.roomId, r.roomNumber, bs.serviceId, s.serviceName, s.description,
+            COALESCE(bs.unitPrice, s.price) AS unitPrice, bs.quantity, bs.totalPrice,
+            COALESCE(bs.status, 'used') AS status, bs.usedAt, bs.createdAt
+     FROM booking_services bs
+     LEFT JOIN services s ON s.id = bs.serviceId
+     LEFT JOIN bookings b ON b.id = bs.bookingId
+     LEFT JOIN rooms r ON r.id = COALESCE(bs.roomId, b.room_id)
+     WHERE bs.bookingId = ?
+     ORDER BY bs.id ASC`,
+    [Number(bookingId)]
+  );
+  return rows;
+};
+
 const updateBookingServiceCharge = async (svcId, payload, connection) => {
-  // payload: { quantity, totalPrice } - lấy unitPrice từ service rồi tính lại total = unitPrice * qty
+  const current = await getBookingServiceChargeById(svcId, connection);
+  if (!current) return 0;
+
   const fields = [];
   const params = [];
+
+  if (payload.roomId !== undefined) {
+    fields.push('roomId = ?');
+    params.push(payload.roomId ? Number(payload.roomId) : null);
+  }
   if (payload.quantity != null) {
+    const unitPrice = Number(current.unitPrice || 0);
+    const quantity = Number(payload.quantity);
+    const totalPrice = unitPrice * quantity;
     fields.push('quantity = ?');
-    params.push(payload.quantity);
-  }
-  if (payload.totalPrice != null) {
+    params.push(quantity);
     fields.push('totalPrice = ?');
-    params.push(payload.totalPrice);
+    params.push(totalPrice);
   }
+  if (payload.status) {
+    fields.push('status = ?');
+    params.push(payload.status);
+    if (payload.status === 'used' && !current.usedAt) {
+      fields.push('usedAt = ?');
+      params.push(new Date());
+    } else if (payload.status === 'unused') {
+      fields.push('usedAt = NULL');
+    }
+  }
+
   if (fields.length === 0) return 0;
+  params.push(Number(svcId));
+  const [result] = await run(connection).query(
+    `UPDATE booking_services SET ${fields.join(', ')} WHERE id = ?`,
+    params
+  );
+  return result.affectedRows || 0;
+};
+
+const updateBookingServiceStatus = async (svcId, newStatus, connection) => {
+  const current = await getBookingServiceChargeById(svcId, connection);
+  if (!current) return 0;
+
+  const fields = ['status = ?'];
+  const params = [newStatus];
+
+  if (newStatus === 'used') {
+    if (!current.usedAt) {
+      fields.push('usedAt = ?');
+      params.push(new Date());
+    }
+  } else if (newStatus === 'unused') {
+    fields.push('usedAt = NULL');
+  }
+
   params.push(Number(svcId));
   const [result] = await run(connection).query(
     `UPDATE booking_services SET ${fields.join(', ')} WHERE id = ?`,
@@ -459,7 +549,7 @@ const updateBookingServiceCharge = async (svcId, payload, connection) => {
 
 const deleteBookingServiceCharge = async (svcId, connection) => {
   const [result] = await run(connection).query(
-    'DELETE FROM booking_services WHERE id = ?',
+    "UPDATE booking_services SET status = 'cancelled' WHERE id = ?",
     [Number(svcId)]
   );
   return result.affectedRows || 0;
@@ -467,7 +557,7 @@ const deleteBookingServiceCharge = async (svcId, connection) => {
 
 const sumBookingServices = async (bookingId, connection) => {
   const [[row]] = await run(connection).query(
-    'SELECT COALESCE(SUM(totalPrice), 0) AS total FROM booking_services WHERE bookingId = ?',
+    "SELECT COALESCE(SUM(totalPrice), 0) AS total FROM booking_services WHERE bookingId = ? AND status = 'used'",
     [bookingId]
   );
   return Number(row?.total || 0);
@@ -501,30 +591,130 @@ const replaceBookingGuests = async (bookingId, guests, connection) => {
 };
 
 const addDamageCharge = async (bookingId, roomId, payload, connection) => {
-  const totalPrice = payload.quantity * payload.unitPrice;
+  const chargeType = payload.chargeType || 'damage';
+  const status = payload.status || 'used';
+  const quantity = Number(payload.quantity || 1);
+  const unitPrice = Number(payload.unitPrice || 0);
+  const totalPrice = quantity * unitPrice;
+
   const [result] = await run(connection).query(
     `
       INSERT INTO booking_damage_charges
-        (bookingId, roomId, itemName, quantity, unitPrice, totalPrice, note)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+        (bookingId, roomId, chargeType, itemName, quantity, unitPrice, totalPrice, status, note)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       bookingId,
       roomId,
+      chargeType,
       payload.itemName,
-      payload.quantity,
-      payload.unitPrice,
+      quantity,
+      unitPrice,
       totalPrice,
+      status,
       payload.note || null
     ]
   );
 
-  return { id: result.insertId, totalPrice };
+  return { id: result.insertId, chargeType, totalPrice, status };
+};
+
+const getDamageChargeById = async (chargeId, connection) => {
+  const [rows] = await run(connection).query(
+    `SELECT bdc.id, bdc.bookingId, bdc.roomId, r.roomNumber,
+            COALESCE(bdc.chargeType, 'damage') AS chargeType,
+            bdc.itemName, bdc.quantity, bdc.unitPrice, bdc.totalPrice,
+            COALESCE(bdc.status, 'used') AS status, bdc.note, bdc.createdAt
+     FROM booking_damage_charges bdc
+     LEFT JOIN rooms r ON r.id = bdc.roomId
+     WHERE bdc.id = ?`,
+    [Number(chargeId)]
+  );
+  return rows[0] || null;
+};
+
+const getDamageChargesByBookingId = async (bookingId, connection) => {
+  const [rows] = await run(connection).query(
+    `SELECT bdc.id, bdc.bookingId, bdc.roomId, r.roomNumber,
+            COALESCE(bdc.chargeType, 'damage') AS chargeType,
+            bdc.itemName, bdc.quantity, bdc.unitPrice, bdc.totalPrice,
+            COALESCE(bdc.status, 'used') AS status, bdc.note, bdc.createdAt
+     FROM booking_damage_charges bdc
+     LEFT JOIN rooms r ON r.id = bdc.roomId
+     WHERE bdc.bookingId = ?
+     ORDER BY bdc.id ASC`,
+    [Number(bookingId)]
+  );
+  return rows;
+};
+
+const updateDamageCharge = async (chargeId, payload, connection) => {
+  const current = await getDamageChargeById(chargeId, connection);
+  if (!current) return 0;
+
+  const fields = [];
+  const params = [];
+
+  if (payload.roomId !== undefined) {
+    fields.push('roomId = ?');
+    params.push(payload.roomId ? Number(payload.roomId) : null);
+  }
+  if (payload.chargeType) {
+    fields.push('chargeType = ?');
+    params.push(payload.chargeType);
+  }
+  if (payload.itemName !== undefined) {
+    fields.push('itemName = ?');
+    params.push(String(payload.itemName).trim());
+  }
+  if (payload.quantity != null || payload.unitPrice != null) {
+    const quantity = payload.quantity != null ? Number(payload.quantity) : Number(current.quantity);
+    const unitPrice = payload.unitPrice != null ? Number(payload.unitPrice) : Number(current.unitPrice);
+    const totalPrice = quantity * unitPrice;
+    fields.push('quantity = ?');
+    params.push(quantity);
+    fields.push('unitPrice = ?');
+    params.push(unitPrice);
+    fields.push('totalPrice = ?');
+    params.push(totalPrice);
+  }
+  if (payload.status) {
+    fields.push('status = ?');
+    params.push(payload.status);
+  }
+  if (payload.note !== undefined) {
+    fields.push('note = ?');
+    params.push(payload.note ? String(payload.note).trim() : null);
+  }
+
+  if (fields.length === 0) return 0;
+  params.push(Number(chargeId));
+  const [result] = await run(connection).query(
+    `UPDATE booking_damage_charges SET ${fields.join(', ')} WHERE id = ?`,
+    params
+  );
+  return result.affectedRows || 0;
+};
+
+const updateDamageChargeStatus = async (chargeId, newStatus, connection) => {
+  const [result] = await run(connection).query(
+    'UPDATE booking_damage_charges SET status = ? WHERE id = ?',
+    [newStatus, Number(chargeId)]
+  );
+  return result.affectedRows || 0;
+};
+
+const deleteDamageCharge = async (chargeId, connection) => {
+  const [result] = await run(connection).query(
+    "UPDATE booking_damage_charges SET status = 'cancelled' WHERE id = ?",
+    [Number(chargeId)]
+  );
+  return result.affectedRows || 0;
 };
 
 const sumDamageCharges = async (bookingId, connection) => {
   const [[row]] = await run(connection).query(
-    'SELECT COALESCE(SUM(totalPrice), 0) AS total FROM booking_damage_charges WHERE bookingId = ?',
+    "SELECT COALESCE(SUM(totalPrice), 0) AS total FROM booking_damage_charges WHERE bookingId = ? AND status = 'used'",
     [bookingId]
   );
   return Number(row?.total || 0);
@@ -1010,14 +1200,22 @@ module.exports = {
   createBookingDetail,
   upsertAvailabilityRows,
   getServiceById,
+  validateRoomInBooking,
   addBookingService,
   getBookingServiceChargeById,
+  getBookingServicesByBookingId,
   updateBookingServiceCharge,
+  updateBookingServiceStatus,
   deleteBookingServiceCharge,
   sumBookingServices,
   createCustomerNotification,
   replaceBookingGuests,
   addDamageCharge,
+  getDamageChargeById,
+  getDamageChargesByBookingId,
+  updateDamageCharge,
+  updateDamageChargeStatus,
+  deleteDamageCharge,
   sumDamageCharges,
   updateBookingStay,
   updateBookingStayFull,

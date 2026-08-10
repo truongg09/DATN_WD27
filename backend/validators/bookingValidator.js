@@ -202,84 +202,60 @@ const normalizeTypeAvailabilityPayload = (body) => {
   return payload;
 };
 
-const normalizeServiceChargePayload = (body) => ({
-  serviceId: toPositiveInt(body.serviceId ?? body.service_id, 'serviceId'),
-  quantity: toPositiveInt(body.quantity ?? 1, 'quantity')
-});
+const ALLOWED_SERVICE_STATUSES = ['unused', 'used', 'cancelled'];
+const ALLOWED_CHARGE_TYPES = ['damage', 'extra_fee', 'other'];
+
+const normalizeServiceChargePayload = (body) => {
+  const roomId = body.roomId ?? body.room_id;
+  const status = body.status ? String(body.status).trim().toLowerCase() : 'used';
+  if (body.status && !ALLOWED_SERVICE_STATUSES.includes(status)) {
+    throw new HttpError(400, `Trạng thái không hợp lệ (${ALLOWED_SERVICE_STATUSES.join(', ')})`);
+  }
+
+  return {
+    roomId: roomId != null ? toPositiveInt(roomId, 'roomId') : null,
+    serviceId: toPositiveInt(body.serviceId ?? body.service_id, 'serviceId'),
+    quantity: toPositiveInt(body.quantity ?? 1, 'quantity'),
+    status
+  };
+};
 
 const normalizeUpdateServiceChargePayload = (body) => {
-  if (body.quantity === undefined || body.quantity === null) {
-    throw new HttpError(400, 'quantity là bắt buộc khi cập nhật dịch vụ');
+  const payload = {};
+
+  if (body.roomId !== undefined) {
+    payload.roomId = body.roomId != null ? toPositiveInt(body.roomId, 'roomId') : null;
   }
-  return {
-    quantity: toPositiveInt(body.quantity, 'quantity'),
-  };
+  if (body.quantity !== undefined && body.quantity !== null) {
+    payload.quantity = toPositiveInt(body.quantity, 'quantity');
+  }
+  if (body.status !== undefined && body.status !== null) {
+    const status = String(body.status).trim().toLowerCase();
+    if (!ALLOWED_SERVICE_STATUSES.includes(status)) {
+      throw new HttpError(400, `Trạng thái không hợp lệ (${ALLOWED_SERVICE_STATUSES.join(', ')})`);
+    }
+    payload.status = status;
+  }
+
+  if (Object.keys(payload).length === 0) {
+    throw new HttpError(400, 'Không có thông tin nào để cập nhật');
+  }
+
+  return payload;
 };
 
-const normalizeExtendStayPayload = (body) => ({
-  checkOut: normalizeDate(body.checkOut ?? body.checkOutDate ?? body.check_out, 'checkOut')
-});
-
-const normalizeUpdateStayPayload = (body) => {
-  const checkIn = normalizeDate(
-    body.checkIn ?? body.checkInDate ?? body.check_in,
-    'checkIn'
-  );
-  const checkOut = normalizeDate(
-    body.checkOut ?? body.checkOutDate ?? body.check_out,
-    'checkOut'
-  );
-  // Chuỗi ngày ISO YYYY-MM-DD có thể so sánh trực tiếp bằng toán tử chuỗi
-  // (không cần thêm dayjs plugin isSameOrBefore, tránh lỗi TypeError)
-  if (!checkIn || !checkOut || checkOut <= checkIn) {
-    throw new HttpError(400, 'Ngày trả phòng phải sau ngày nhận phòng');
+const normalizeStatusPayload = (body) => {
+  const status = body.status ? String(body.status).trim().toLowerCase() : '';
+  if (!ALLOWED_SERVICE_STATUSES.includes(status)) {
+    throw new HttpError(400, `Trạng thái không hợp lệ (${ALLOWED_SERVICE_STATUSES.join(', ')})`);
   }
-  const roomTypeId = body.roomTypeId ?? body.room_type_id;
-  if (roomTypeId !== undefined && roomTypeId !== null && !Number.isInteger(Number(roomTypeId))) {
-    throw new HttpError(400, 'roomTypeId phải là số nguyên');
-  }
-  return {
-    checkIn,
-    checkOut,
-    roomTypeId: roomTypeId != null ? Number(roomTypeId) : null,
-  };
-};
-
-const normalizeGuestIdentitiesPayload = (body) => {
-  const guests = Array.isArray(body.guests) ? body.guests : [];
-  if (guests.length === 0) {
-    throw new HttpError(400, 'Danh sách khách lưu trú không được để trống');
-  }
-
-  return {
-    guests: guests.map((guest, index) => {
-      const fullName = String(guest.fullName ?? guest.full_name ?? '').trim();
-      const identityNumber = String(guest.identityNumber ?? guest.cccd ?? guest.identity_number ?? '').trim();
-
-      if (!fullName) {
-        throw new HttpError(400, `Vui lòng nhập họ tên khách thứ ${index + 1}`);
-      }
-      if (!identityNumber) {
-        throw new HttpError(400, `Vui lòng nhập giấy tờ tùy thân của khách thứ ${index + 1}`);
-      }
-      if (!/^\d{12}$/.test(identityNumber)) {
-        throw new HttpError(400, `Số CCCD của khách thứ ${index + 1} (${fullName}) phải bao gồm đúng 12 chữ số (không chứa chữ cái hoặc ký hiệu)`);
-      }
-
-      return {
-        fullName,
-        identityNumber,
-        phone: guest.phone ? String(guest.phone).trim() : null,
-        note: guest.note ? String(guest.note).trim() : null
-      };
-    })
-  };
+  return { status };
 };
 
 const normalizeDamageChargePayload = (body) => {
   const itemName = String(body.itemName ?? body.item_name ?? '').trim();
   if (!itemName) {
-    throw new HttpError(400, 'Vui lòng nhập tên vật dụng');
+    throw new HttpError(400, 'Vui lòng nhập tên khoản phí / vật dụng');
   }
 
   const unitPrice = Number(body.unitPrice ?? body.unit_price);
@@ -287,12 +263,75 @@ const normalizeDamageChargePayload = (body) => {
     throw new HttpError(400, 'Đơn giá phải là số không âm');
   }
 
+  const chargeType = body.chargeType ? String(body.chargeType).trim().toLowerCase() : 'damage';
+  if (body.chargeType && !ALLOWED_CHARGE_TYPES.includes(chargeType)) {
+    throw new HttpError(400, `Loại khoản phí không hợp lệ (${ALLOWED_CHARGE_TYPES.join(', ')})`);
+  }
+
+  const status = body.status ? String(body.status).trim().toLowerCase() : 'used';
+  if (body.status && !ALLOWED_SERVICE_STATUSES.includes(status)) {
+    throw new HttpError(400, `Trạng thái không hợp lệ (${ALLOWED_SERVICE_STATUSES.join(', ')})`);
+  }
+
+  const roomId = body.roomId ?? body.room_id;
+
   return {
+    roomId: roomId != null ? toPositiveInt(roomId, 'roomId') : null,
+    chargeType,
     itemName,
     quantity: toPositiveInt(body.quantity ?? 1, 'quantity'),
     unitPrice,
+    status,
     note: body.note ? String(body.note).trim() : null
   };
+};
+
+const normalizeUpdateDamageChargePayload = (body) => {
+  const payload = {};
+
+  if (body.roomId !== undefined) {
+    payload.roomId = body.roomId != null ? toPositiveInt(body.roomId, 'roomId') : null;
+  }
+  if (body.chargeType !== undefined && body.chargeType !== null) {
+    const chargeType = String(body.chargeType).trim().toLowerCase();
+    if (!ALLOWED_CHARGE_TYPES.includes(chargeType)) {
+      throw new HttpError(400, `Loại khoản phí không hợp lệ (${ALLOWED_CHARGE_TYPES.join(', ')})`);
+    }
+    payload.chargeType = chargeType;
+  }
+  if (body.itemName !== undefined && body.itemName !== null) {
+    const itemName = String(body.itemName).trim();
+    if (!itemName) {
+      throw new HttpError(400, 'Tên khoản phí / vật dụng không được để trống');
+    }
+    payload.itemName = itemName;
+  }
+  if (body.quantity !== undefined && body.quantity !== null) {
+    payload.quantity = toPositiveInt(body.quantity, 'quantity');
+  }
+  if (body.unitPrice !== undefined && body.unitPrice !== null) {
+    const unitPrice = Number(body.unitPrice);
+    if (Number.isNaN(unitPrice) || unitPrice < 0) {
+      throw new HttpError(400, 'Đơn giá phải là số không âm');
+    }
+    payload.unitPrice = unitPrice;
+  }
+  if (body.status !== undefined && body.status !== null) {
+    const status = String(body.status).trim().toLowerCase();
+    if (!ALLOWED_SERVICE_STATUSES.includes(status)) {
+      throw new HttpError(400, `Trạng thái không hợp lệ (${ALLOWED_SERVICE_STATUSES.join(', ')})`);
+    }
+    payload.status = status;
+  }
+  if (body.note !== undefined) {
+    payload.note = body.note ? String(body.note).trim() : null;
+  }
+
+  if (Object.keys(payload).length === 0) {
+    throw new HttpError(400, 'Không có thông tin nào để cập nhật');
+  }
+
+  return payload;
 };
 
 const normalizeTransferRoomPayload = (body) => {
@@ -321,10 +360,12 @@ module.exports = {
   normalizeTypeAvailabilityPayload,
   normalizeServiceChargePayload,
   normalizeUpdateServiceChargePayload,
+  normalizeStatusPayload,
   normalizeExtendStayPayload,
   normalizeUpdateStayPayload,
   normalizeGuestIdentitiesPayload,
   normalizeDamageChargePayload,
+  normalizeUpdateDamageChargePayload,
   normalizeTransferRoomPayload,
   normalizeIdParam,
   normalizeReassignRoomPayload
