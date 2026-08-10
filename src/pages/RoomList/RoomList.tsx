@@ -37,6 +37,15 @@ const RoomList: React.FC = () => {
     dayjs(checkOut, DATE_FORMAT, true).isValid() &&
     dayjs(checkOut).isAfter(dayjs(checkIn));
 
+  // Khi tìm lại phòng từ thanh lọc hoặc từ trang chủ, luôn hiển thị từ đầu
+  // trang kết quả thay vì giữ vị trí cuộn ở giữa danh sách trước đó.
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [checkIn, checkOut, adults, children]);
+
   // Draft của thanh tìm kiếm (chỉ áp dụng khi bấm Tìm kiếm)
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null]>([
     hasDates ? dayjs(checkIn) : null,
