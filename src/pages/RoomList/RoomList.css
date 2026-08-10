@@ -366,7 +366,38 @@
   color: #c0392b;
   font-size: 13px;
   margin: 4px 0 0;
+  background: #fdf2f2;
+  border: 1px solid #f8d7da;
+  padding: 8px 12px;
+  border-radius: 8px;
 }
+
+.capacity-notice {
+  color: #8a6d3b;
+  font-size: 13px;
+  margin: 4px 0 0;
+  background: #fdf6ec;
+  border: 1px solid #f0dfc0;
+  padding: 8px 12px;
+  border-radius: 8px;
+}
+
+.type-extra-fee-info {
+  font-size: 13px;
+  color: #555;
+  background: #fcf9f5;
+  border: 1px dashed #e6dcd0;
+  padding: 6px 12px;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  display: inline-block;
+}
+
+.type-extra-fee-info .fee-label {
+  font-weight: 600;
+  color: #70533a;
+}
+
 
 /* ==== Cột giá bên phải ==== */
 .type-card-price {

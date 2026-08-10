@@ -332,11 +332,10 @@ const RoomTypeDetail: React.FC = () => {
             <div className="type-specs">
               <span>
                 <FontAwesomeIcon icon={faUserGroup} /> Tiêu chuẩn:{" "}
-                {adultCapacity} NL
-                {childCapacity > 0 ? ` + ${childCapacity} TE` : ""}
+                <strong>{adultCapacity} NL + {childCapacity} TE</strong>
               </span>
 
-              <span>Tối đa {maxOcc} khách/phòng</span>
+              <span><strong>Tối đa:</strong> {maxOcc} khách/phòng</span>
               {roomType.minArea !== null && (
                 <span>
                   <FontAwesomeIcon icon={faExpandArrowsAlt} />{" "}
@@ -348,36 +347,36 @@ const RoomTypeDetail: React.FC = () => {
             </div>
 
             <div className="type-section capacity-policy-section">
-              <h2>Chính sách</h2>
+              <h2>Chính sách sức chứa & phụ thu</h2>
 
-              <p>
-                Sức chứa tiêu chuẩn: <strong>{adultCapacity} người lớn</strong>
-                {childCapacity > 0 && (
-                  <>
-                    {" "}
-                    + <strong>{childCapacity} trẻ em(người lớn)</strong>
-                  </>
-                )}
-              </p>
+              <div className="policy-block-grid">
+                <div className="policy-box">
+                  <h4>1. Sức chứa tiêu chuẩn (Đã bao gồm trong giá phòng)</h4>
+                  <ul>
+                    <li>Người lớn tiêu chuẩn: <strong>{adultCapacity} người lớn</strong></li>
+                    <li>Trẻ em tiêu chuẩn: <strong>{childCapacity} trẻ em</strong></li>
+                    <li>Tổng sức chứa tiêu chuẩn: <strong>{adultCapacity + childCapacity} người / phòng</strong></li>
+                  </ul>
+                </div>
 
-              <p>
-                Sức chứa tối đa: <strong>{maxOcc} khách/phòng</strong>
-              </p>
+                <div className="policy-box">
+                  <h4>2. Sức chứa tối đa (Giới hạn 1 phòng)</h4>
+                  <ul>
+                    <li>Giới hạn tối đa: <strong>{maxOcc} khách / phòng</strong> (Bao gồm cả Người lớn & Trẻ em)</li>
+                  </ul>
+                </div>
 
-              <p>
-                Khách vượt sức chứa tiêu chuẩn nhưng chưa vượt sức chứa tối đa
-                sẽ được tính phụ thu.
-              </p>
-
-              <p>
-                Người lớn phát sinh:{" "}
-                <strong>{formatPrice(extraAdultFee)}/người/đêm</strong>
-              </p>
-
-              <p>
-                Trẻ em phát sinh:{" "}
-                <strong>{formatPrice(extraChildFee)}/người/đêm</strong>
-              </p>
+                <div className="policy-box highlight">
+                  <h4>3. Phụ thu khách phát sinh (/người/đêm)</h4>
+                  <ul>
+                    <li>Phụ thu người lớn phát sinh: <strong>{formatPrice(extraAdultFee)} / người / đêm</strong></li>
+                    <li>Phụ thu trẻ em phát sinh: <strong>{formatPrice(extraChildFee)} / người / đêm</strong></li>
+                  </ul>
+                  <p className="policy-note">
+                    <em>* Khách vượt sức chứa tiêu chuẩn nhưng chưa vượt sức chứa tối đa có thể được tính phụ thu theo số người phát sinh và số đêm lưu trú.</em>
+                  </p>
+                </div>
+              </div>
             </div>
 
             <div className="type-section">
@@ -439,8 +438,13 @@ const RoomTypeDetail: React.FC = () => {
             <div className="widget-price">
               {hasDates && totalStay > 0 ? (
                 <>
-                  <span className="price-main">{formatPrice(totalStay)}</span>
-                  <span className="price-unit">cho {nights} đêm</span>
+                  <span className="price-main">{formatPrice(totalStay * minimumRooms)}</span>
+                  <span className="price-unit">
+                    {minimumRooms > 1 ? `cho ${minimumRooms} phòng / ${nights} đêm` : `cho 1 phòng / ${nights} đêm`}
+                  </span>
+                  <span className="price-sub" style={{ fontSize: "12px", color: "#888", width: "100%", marginTop: "4px" }}>
+                    {formatPrice(Math.round(totalStay / nights))}/phòng/đêm · Chưa gồm phụ thu phát sinh
+                  </span>
                 </>
               ) : (
                 <>
@@ -448,7 +452,10 @@ const RoomTypeDetail: React.FC = () => {
                   <span className="price-main">
                     {formatPrice(roomType.defaultPrice)}
                   </span>
-                  <span className="price-unit">/đêm</span>
+                  <span className="price-unit">/ phòng / đêm</span>
+                  <span className="price-sub" style={{ fontSize: "12px", color: "#888", width: "100%", marginTop: "4px" }}>
+                    Chưa gồm phụ thu phát sinh
+                  </span>
                 </>
               )}
             </div>
