@@ -5,11 +5,13 @@ const {
   normalizeAvailabilityPayload,
   normalizeBookingPayload,
   normalizeDamageChargePayload,
+  normalizeUpdateDamageChargePayload,
   normalizeExtendStayPayload,
   normalizeUpdateStayPayload,
   normalizeGuestIdentitiesPayload,
   normalizeServiceChargePayload,
   normalizeUpdateServiceChargePayload,
+  normalizeStatusPayload,
   normalizeTransferRoomPayload,
   normalizeTypeAvailabilityPayload,
   normalizeIdParam,
@@ -243,6 +245,18 @@ const getRefundPreview = async (req, res) => {
   }
 };
 
+const getBookingServices = async (req, res) => {
+  try {
+    const bookingId = normalizeIdParam(req.params.id);
+    const currentBooking = await bookingService.getBookingById(bookingId);
+    ensureBookingAccess(req.user, currentBooking, 'xem dịch vụ');
+    const services = await bookingService.getBookingServices(bookingId);
+    res.json({ data: services });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
 const addServiceCharge = async (req, res) => {
   try {
     const bookingId = normalizeIdParam(req.params.id);
@@ -268,7 +282,24 @@ const updateServiceCharge = async (req, res) => {
     const payload = normalizeUpdateServiceChargePayload(req.body);
     const result = await bookingService.updateServiceCharge(bookingId, serviceChargeId, payload, req.user || null);
     res.json({
-      message: 'Cập nhật số lượng dịch vụ thành công',
+      message: 'Cập nhật dịch vụ thành công',
+      data: result
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
+const updateServiceChargeStatus = async (req, res) => {
+  try {
+    const bookingId = normalizeIdParam(req.params.id);
+    const serviceChargeId = normalizeIdParam(req.params.serviceChargeId, 'serviceChargeId');
+    const currentBooking = await bookingService.getBookingById(bookingId);
+    ensureBookingAccess(req.user, currentBooking, 'cập nhật trạng thái dịch vụ');
+    const { status } = normalizeStatusPayload(req.body);
+    const result = await bookingService.updateServiceChargeStatus(bookingId, serviceChargeId, status, req.user || null);
+    res.json({
+      message: 'Cập nhật trạng thái dịch vụ thành công',
       data: result
     });
   } catch (error) {
@@ -281,10 +312,10 @@ const deleteServiceCharge = async (req, res) => {
     const bookingId = normalizeIdParam(req.params.id);
     const serviceChargeId = normalizeIdParam(req.params.serviceChargeId, 'serviceChargeId');
     const currentBooking = await bookingService.getBookingById(bookingId);
-    ensureBookingAccess(req.user, currentBooking, 'xóa dịch vụ');
+    ensureBookingAccess(req.user, currentBooking, 'hủy dịch vụ');
     const result = await bookingService.deleteServiceCharge(bookingId, serviceChargeId, req.user || null);
     res.json({
-      message: 'Xóa dịch vụ thành công',
+      message: 'Hủy dịch vụ thành công',
       data: result
     });
   } catch (error) {
@@ -306,13 +337,77 @@ const saveGuestIdentities = async (req, res) => {
   }
 };
 
+const getDamageCharges = async (req, res) => {
+  try {
+    const bookingId = normalizeIdParam(req.params.id);
+    const currentBooking = await bookingService.getBookingById(bookingId);
+    ensureBookingAccess(req.user, currentBooking, 'xem khoản phát sinh');
+    const charges = await bookingService.getDamageCharges(bookingId);
+    res.json({ data: charges });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
 const addDamageCharge = async (req, res) => {
   try {
     const bookingId = normalizeIdParam(req.params.id);
+    const currentBooking = await bookingService.getBookingById(bookingId);
+    ensureBookingAccess(req.user, currentBooking, 'thêm khoản phát sinh');
     const payload = normalizeDamageChargePayload(req.body);
     const result = await bookingService.addDamageCharge(bookingId, payload, req.user || null);
     res.json({
-      message: 'Đã thêm phí hư hỏng',
+      message: 'Đã thêm khoản phát sinh/hư hỏng',
+      data: result
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
+const updateDamageCharge = async (req, res) => {
+  try {
+    const bookingId = normalizeIdParam(req.params.id);
+    const chargeId = normalizeIdParam(req.params.chargeId, 'chargeId');
+    const currentBooking = await bookingService.getBookingById(bookingId);
+    ensureBookingAccess(req.user, currentBooking, 'sửa khoản phát sinh');
+    const payload = normalizeUpdateDamageChargePayload(req.body);
+    const result = await bookingService.updateDamageCharge(bookingId, chargeId, payload, req.user || null);
+    res.json({
+      message: 'Cập nhật khoản phát sinh thành công',
+      data: result
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
+const updateDamageChargeStatus = async (req, res) => {
+  try {
+    const bookingId = normalizeIdParam(req.params.id);
+    const chargeId = normalizeIdParam(req.params.chargeId, 'chargeId');
+    const currentBooking = await bookingService.getBookingById(bookingId);
+    ensureBookingAccess(req.user, currentBooking, 'cập nhật trạng thái khoản phát sinh');
+    const { status } = normalizeStatusPayload(req.body);
+    const result = await bookingService.updateDamageChargeStatus(bookingId, chargeId, status, req.user || null);
+    res.json({
+      message: 'Cập nhật trạng thái khoản phát sinh thành công',
+      data: result
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
+const deleteDamageCharge = async (req, res) => {
+  try {
+    const bookingId = normalizeIdParam(req.params.id);
+    const chargeId = normalizeIdParam(req.params.chargeId, 'chargeId');
+    const currentBooking = await bookingService.getBookingById(bookingId);
+    ensureBookingAccess(req.user, currentBooking, 'hủy khoản phát sinh');
+    const result = await bookingService.deleteDamageCharge(bookingId, chargeId, req.user || null);
+    res.json({
+      message: 'Hủy khoản phát sinh thành công',
       data: result
     });
   } catch (error) {
@@ -566,11 +661,17 @@ module.exports = {
   requestOutstandingPayment,
   getRefundPreview,
   cancelBooking,
+  getBookingServices,
   addServiceCharge,
   updateServiceCharge,
+  updateServiceChargeStatus,
   deleteServiceCharge,
   saveGuestIdentities,
+  getDamageCharges,
   addDamageCharge,
+  updateDamageCharge,
+  updateDamageChargeStatus,
+  deleteDamageCharge,
   extendStay,
   updateStay,
   transferRoom,

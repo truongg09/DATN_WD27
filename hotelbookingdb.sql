@@ -197,10 +197,12 @@ CREATE TABLE `booking_damage_charges` (
   `id` int NOT NULL,
   `bookingId` int NOT NULL,
   `roomId` int NOT NULL,
+  `chargeType` enum('damage','extra_fee','other') NOT NULL DEFAULT 'damage',
   `itemName` varchar(255) NOT NULL,
   `quantity` int NOT NULL DEFAULT '1',
   `unitPrice` decimal(15,2) NOT NULL DEFAULT '0.00',
   `totalPrice` decimal(15,2) NOT NULL DEFAULT '0.00',
+  `status` enum('unused','used','cancelled') NOT NULL DEFAULT 'used',
   `note` text,
   `createdAt` datetime DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
@@ -410,8 +412,12 @@ CREATE TABLE `booking_room_transfers` (
 CREATE TABLE `booking_services` (
   `id` int NOT NULL,
   `bookingId` int DEFAULT NULL,
+  `roomId` int DEFAULT NULL,
   `serviceId` int DEFAULT NULL,
+  `unitPrice` decimal(15,2) DEFAULT NULL,
   `quantity` int DEFAULT NULL,
+  `status` enum('unused','used','cancelled') NOT NULL DEFAULT 'used',
+  `usedAt` datetime DEFAULT NULL,
   `totalPrice` decimal(15,2) DEFAULT NULL,
   `createdAt` datetime DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
@@ -420,21 +426,21 @@ CREATE TABLE `booking_services` (
 -- Dumping data for table `booking_services`
 --
 
-INSERT INTO `booking_services` (`id`, `bookingId`, `serviceId`, `quantity`, `totalPrice`, `createdAt`) VALUES
-(1, 1, 1, 2, 300000.00, '2026-08-02 11:53:14'),
-(2, 2, 2, 1, 100000.00, '2026-08-02 11:53:14'),
-(3, 3, 3, 2, 600000.00, '2026-08-02 11:53:14'),
-(4, 4, 5, 1, 200000.00, '2026-08-02 11:53:14'),
-(5, 5, 7, 1, 400000.00, '2026-08-02 11:53:14'),
-(7, 305, 1, 1, 150000.00, '2026-08-02 11:53:14'),
-(8, 305, 6, 1, 350000.00, '2026-08-02 11:53:14'),
-(9, 305, 2, 1, 100000.00, '2026-08-02 11:53:14'),
-(10, 307, 1, 1, 150000.00, '2026-08-02 11:53:14'),
-(11, 307, 2, 1, 100000.00, '2026-08-02 11:53:14'),
-(12, 307, 3, 1, 300000.00, '2026-08-02 11:53:14'),
-(13, 308, 4, 1, 500000.00, '2026-08-02 11:53:14'),
-(14, 308, 3, 1, 300000.00, '2026-08-02 11:53:14'),
-(15, 308, 2, 1, 100000.00, '2026-08-02 11:53:14');
+INSERT INTO `booking_services` (`id`, `bookingId`, `roomId`, `serviceId`, `unitPrice`, `quantity`, `status`, `usedAt`, `totalPrice`, `createdAt`) VALUES
+(1, 1, NULL, 1, 150000.00, 2, 'used', '2026-08-02 11:53:14', 300000.00, '2026-08-02 11:53:14'),
+(2, 2, NULL, 2, 100000.00, 1, 'used', '2026-08-02 11:53:14', 100000.00, '2026-08-02 11:53:14'),
+(3, 3, NULL, 3, 300000.00, 2, 'used', '2026-08-02 11:53:14', 600000.00, '2026-08-02 11:53:14'),
+(4, 4, NULL, 5, 200000.00, 1, 'used', '2026-08-02 11:53:14', 200000.00, '2026-08-02 11:53:14'),
+(5, 5, NULL, 7, 400000.00, 1, 'used', '2026-08-02 11:53:14', 400000.00, '2026-08-02 11:53:14'),
+(7, 305, NULL, 1, 150000.00, 1, 'used', '2026-08-02 11:53:14', 150000.00, '2026-08-02 11:53:14'),
+(8, 305, NULL, 6, 350000.00, 1, 'used', '2026-08-02 11:53:14', 350000.00, '2026-08-02 11:53:14'),
+(9, 305, NULL, 2, 100000.00, 1, 'used', '2026-08-02 11:53:14', 100000.00, '2026-08-02 11:53:14'),
+(10, 307, NULL, 1, 150000.00, 1, 'used', '2026-08-02 11:53:14', 150000.00, '2026-08-02 11:53:14'),
+(11, 307, NULL, 2, 100000.00, 1, 'used', '2026-08-02 11:53:14', 100000.00, '2026-08-02 11:53:14'),
+(12, 307, NULL, 3, 300000.00, 1, 'used', '2026-08-02 11:53:14', 300000.00, '2026-08-02 11:53:14'),
+(13, 308, NULL, 4, 500000.00, 1, 'used', '2026-08-02 11:53:14', 500000.00, '2026-08-02 11:53:14'),
+(14, 308, NULL, 3, 300000.00, 1, 'used', '2026-08-02 11:53:14', 300000.00, '2026-08-02 11:53:14'),
+(15, 308, NULL, 2, 100000.00, 1, 'used', '2026-08-02 11:53:14', 100000.00, '2026-08-02 11:53:14');
 
 -- --------------------------------------------------------
 
@@ -445,6 +451,7 @@ INSERT INTO `booking_services` (`id`, `bookingId`, `serviceId`, `quantity`, `tot
 CREATE TABLE `booking_service_requests` (
   `id` int NOT NULL,
   `bookingId` int NOT NULL,
+  `roomId` int DEFAULT NULL,
   `serviceId` int NOT NULL,
   `quantity` int NOT NULL DEFAULT '1',
   `status` varchar(20) NOT NULL DEFAULT 'pending',
@@ -456,15 +463,15 @@ CREATE TABLE `booking_service_requests` (
 -- Dumping data for table `booking_service_requests`
 --
 
-INSERT INTO `booking_service_requests` (`id`, `bookingId`, `serviceId`, `quantity`, `status`, `note`, `createdAt`) VALUES
-(3, 305, 1, 1, 'confirmed', NULL, '2026-07-30 11:07:56'),
-(4, 305, 6, 1, 'confirmed', NULL, '2026-07-30 11:07:56'),
-(5, 307, 1, 1, 'confirmed', NULL, '2026-08-02 11:39:31'),
-(6, 307, 2, 1, 'confirmed', NULL, '2026-08-02 11:39:31'),
-(7, 307, 3, 1, 'confirmed', NULL, '2026-08-02 11:39:31'),
-(8, 308, 4, 1, 'confirmed', NULL, '2026-08-02 11:40:38'),
-(9, 308, 3, 1, 'confirmed', NULL, '2026-08-02 11:40:38'),
-(10, 308, 2, 1, 'confirmed', NULL, '2026-08-02 11:40:38');
+INSERT INTO `booking_service_requests` (`id`, `bookingId`, `roomId`, `serviceId`, `quantity`, `status`, `note`, `createdAt`) VALUES
+(3, 305, NULL, 1, 1, 'confirmed', NULL, '2026-07-30 11:07:56'),
+(4, 305, NULL, 6, 1, 'confirmed', NULL, '2026-07-30 11:07:56'),
+(5, 307, NULL, 1, 1, 'confirmed', NULL, '2026-08-02 11:39:31'),
+(6, 307, NULL, 2, 1, 'confirmed', NULL, '2026-08-02 11:39:31'),
+(7, 307, NULL, 3, 1, 'confirmed', NULL, '2026-08-02 11:39:31'),
+(8, 308, NULL, 4, 1, 'confirmed', NULL, '2026-08-02 11:40:38'),
+(9, 308, NULL, 3, 1, 'confirmed', NULL, '2026-08-02 11:40:38'),
+(10, 308, NULL, 2, 1, 'confirmed', NULL, '2026-08-02 11:40:38');
 
 -- --------------------------------------------------------
 
@@ -1712,14 +1719,16 @@ ALTER TABLE `booking_room_transfers`
 --
 ALTER TABLE `booking_services`
   ADD CONSTRAINT `booking_services_ibfk_1` FOREIGN KEY (`bookingId`) REFERENCES `bookings` (`id`),
-  ADD CONSTRAINT `booking_services_ibfk_2` FOREIGN KEY (`serviceId`) REFERENCES `services` (`id`);
+  ADD CONSTRAINT `booking_services_ibfk_2` FOREIGN KEY (`serviceId`) REFERENCES `services` (`id`),
+  ADD CONSTRAINT `booking_services_ibfk_3` FOREIGN KEY (`roomId`) REFERENCES `rooms` (`id`) ON DELETE SET NULL;
 
 --
 -- Constraints for table `booking_service_requests`
 --
 ALTER TABLE `booking_service_requests`
   ADD CONSTRAINT `booking_service_requests_ibfk_1` FOREIGN KEY (`bookingId`) REFERENCES `bookings` (`id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `booking_service_requests_ibfk_2` FOREIGN KEY (`serviceId`) REFERENCES `services` (`id`) ON DELETE CASCADE;
+  ADD CONSTRAINT `booking_service_requests_ibfk_2` FOREIGN KEY (`serviceId`) REFERENCES `services` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `booking_service_requests_ibfk_3` FOREIGN KEY (`roomId`) REFERENCES `rooms` (`id`) ON DELETE SET NULL;
 
 --
 -- Constraints for table `booking_status_logs`

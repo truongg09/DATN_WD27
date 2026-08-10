@@ -257,15 +257,39 @@ const ensureOperationalSchema = async () => {
       id INT AUTO_INCREMENT PRIMARY KEY,
       bookingId INT NOT NULL,
       roomId INT NOT NULL,
+      chargeType ENUM('damage', 'extra_fee', 'other') NOT NULL DEFAULT 'damage',
       itemName VARCHAR(255) NOT NULL,
       quantity INT NOT NULL DEFAULT 1,
       unitPrice DECIMAL(15,2) NOT NULL DEFAULT 0,
       totalPrice DECIMAL(15,2) NOT NULL DEFAULT 0,
+      status ENUM('unused', 'used', 'cancelled') NOT NULL DEFAULT 'used',
       note TEXT NULL,
       createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (bookingId) REFERENCES bookings(id) ON DELETE CASCADE,
       FOREIGN KEY (roomId) REFERENCES rooms(id) ON DELETE CASCADE
     )
+  `);
+
+  const [bdcColumns] = await db.query('DESCRIBE booking_damage_charges');
+  if (!bdcColumns.some((column) => column.Field === 'chargeType')) {
+    await db.query(
+      "ALTER TABLE booking_damage_charges ADD COLUMN chargeType ENUM('damage', 'extra_fee', 'other') NOT NULL DEFAULT 'damage' AFTER roomId"
+    );
+  }
+  if (!bdcColumns.some((column) => column.Field === 'status')) {
+    await db.query(
+      "ALTER TABLE booking_damage_charges ADD COLUMN status ENUM('unused', 'used', 'cancelled') NOT NULL DEFAULT 'used' AFTER totalPrice"
+    );
+  }
+  await db.query(`
+    UPDATE booking_damage_charges
+    SET chargeType = 'damage'
+    WHERE chargeType IS NULL OR chargeType = ''
+  `);
+  await db.query(`
+    UPDATE booking_damage_charges
+    SET status = 'used'
+    WHERE status IS NULL OR status = ''
   `);
 
   // Service requests made by the customer at booking time.
@@ -276,15 +300,37 @@ const ensureOperationalSchema = async () => {
     CREATE TABLE IF NOT EXISTS booking_service_requests (
       id INT AUTO_INCREMENT PRIMARY KEY,
       bookingId INT NOT NULL,
+      roomId INT NULL,
       serviceId INT NOT NULL,
       quantity INT NOT NULL DEFAULT 1,
       status VARCHAR(20) NOT NULL DEFAULT 'pending',
       note TEXT NULL,
       createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (bookingId) REFERENCES bookings(id) ON DELETE CASCADE,
-      FOREIGN KEY (serviceId) REFERENCES services(id) ON DELETE CASCADE
+      FOREIGN KEY (serviceId) REFERENCES services(id) ON DELETE CASCADE,
+      FOREIGN KEY (roomId) REFERENCES rooms(id) ON DELETE SET NULL
     )
   `);
+
+  const [bsrColumns] = await db.query('DESCRIBE booking_service_requests');
+  if (!bsrColumns.some((column) => column.Field === 'roomId')) {
+    await db.query(
+      'ALTER TABLE booking_service_requests ADD COLUMN roomId INT NULL AFTER bookingId'
+    );
+  }
+  const [bsrFkRows] = await db.query(
+    `SELECT CONSTRAINT_NAME FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'booking_service_requests' AND COLUMN_NAME = 'roomId' AND REFERENCED_TABLE_NAME = 'rooms'`
+  );
+  if (bsrFkRows.length === 0) {
+    try {
+      await db.query(
+        'ALTER TABLE booking_service_requests ADD CONSTRAINT fk_booking_service_requests_room FOREIGN KEY (roomId) REFERENCES rooms(id) ON DELETE SET NULL'
+      );
+    } catch (err) {
+      console.warn('Không thể thêm FK fk_booking_service_requests_room:', err.message);
+    }
+  }
 
   // Refund requests created when a customer cancels a paid booking.
   // Admin reviews them (pending -> approved/rejected); approving marks the payment refunded.
@@ -463,14 +509,71 @@ const ensureOperationalSchema = async () => {
     )
   `);
 
-  // Dịch vụ phát sinh cần biết được thêm vào lúc nào để hiển thị trong
-  // bảng chi tiết. Database dump cũ chưa có cột createdAt.
+  // Dịch vụ phát sinh cần biết phòng nào dùng, đơn giá lúc gọi, trạng thái sử dụng, thời gian dùng.
   const [bookingServiceColumns] = await db.query('DESCRIBE booking_services');
+  if (!bookingServiceColumns.some((column) => column.Field === 'roomId')) {
+    await db.query(
+      'ALTER TABLE booking_services ADD COLUMN roomId INT NULL AFTER bookingId'
+    );
+  }
+  if (!bookingServiceColumns.some((column) => column.Field === 'unitPrice')) {
+    await db.query(
+      'ALTER TABLE booking_services ADD COLUMN unitPrice DECIMAL(15,2) NULL AFTER serviceId'
+    );
+  }
+  if (!bookingServiceColumns.some((column) => column.Field === 'status')) {
+    await db.query(
+      "ALTER TABLE booking_services ADD COLUMN status ENUM('unused', 'used', 'cancelled') NOT NULL DEFAULT 'used' AFTER quantity"
+    );
+  }
+  const usedAtCol = bookingServiceColumns.find((column) => column.Field === 'usedAt');
+  if (!usedAtCol) {
+    await db.query(
+      'ALTER TABLE booking_services ADD COLUMN usedAt DATETIME NULL DEFAULT NULL AFTER status'
+    );
+  } else if (usedAtCol.Default !== null) {
+    await db.query(
+      'ALTER TABLE booking_services MODIFY COLUMN usedAt DATETIME NULL DEFAULT NULL'
+    );
+  }
   if (!bookingServiceColumns.some((column) => column.Field === 'createdAt')) {
     await db.query(
       'ALTER TABLE booking_services ADD COLUMN createdAt DATETIME NULL DEFAULT CURRENT_TIMESTAMP'
     );
   }
+
+  const [bsFkRows] = await db.query(
+    `SELECT CONSTRAINT_NAME FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'booking_services' AND COLUMN_NAME = 'roomId' AND REFERENCED_TABLE_NAME = 'rooms'`
+  );
+  if (bsFkRows.length === 0) {
+    try {
+      await db.query(
+        'ALTER TABLE booking_services ADD CONSTRAINT fk_booking_services_room FOREIGN KEY (roomId) REFERENCES rooms(id) ON DELETE SET NULL'
+      );
+    } catch (err) {
+      console.warn('Không thể thêm FK fk_booking_services_room:', err.message);
+    }
+  }
+
+  // Backfill dữ liệu lịch sử an toàn cho booking_services
+  await db.query(`
+    UPDATE booking_services
+    SET unitPrice = ROUND(totalPrice / quantity, 2)
+    WHERE (unitPrice IS NULL OR unitPrice = 0)
+      AND quantity > 0
+      AND totalPrice > 0
+  `);
+  await db.query(`
+    UPDATE booking_services
+    SET status = 'used'
+    WHERE status IS NULL OR status = ''
+  `);
+  await db.query(`
+    UPDATE booking_services
+    SET usedAt = createdAt
+    WHERE status = 'used' AND usedAt IS NULL AND createdAt IS NOT NULL
+  `);
 
   try {
     await db.query(`

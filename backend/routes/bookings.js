@@ -18,11 +18,18 @@ router.post('/:id/payment-request', requireAuth, requireStaff, bookingController
 router.get('/:id/refund-preview', requireAuth, bookingController.getRefundPreview);
 router.patch('/:id/cancel', requireAuth, bookingController.cancelBooking);
 router.post('/:id/guests', requireAuth, requireStaff, bookingController.saveGuestIdentities);
-// Khách (chủ booking) được phép sửa/thêm/xóa dịch vụ trên booking của mình
+// Khách (chủ booking) hoặc nhân viên thao tác dịch vụ/phí phát sinh trên booking
+router.get('/:id/services', requireAuth, bookingController.getBookingServices);
 router.post('/:id/services', requireAuth, bookingController.addServiceCharge);
+router.patch('/:id/services/:serviceChargeId/status', requireAuth, bookingController.updateServiceChargeStatus);
 router.patch('/:id/services/:serviceChargeId', requireAuth, bookingController.updateServiceCharge);
 router.delete('/:id/services/:serviceChargeId', requireAuth, bookingController.deleteServiceCharge);
+
+router.get('/:id/damages', requireAuth, bookingController.getDamageCharges);
 router.post('/:id/damages', requireAuth, requireStaff, bookingController.addDamageCharge);
+router.patch('/:id/damages/:chargeId/status', requireAuth, requireStaff, bookingController.updateDamageChargeStatus);
+router.patch('/:id/damages/:chargeId', requireAuth, requireStaff, bookingController.updateDamageCharge);
+router.delete('/:id/damages/:chargeId', requireAuth, requireStaff, bookingController.deleteDamageCharge);
 router.patch('/:id/extend', requireAuth, bookingController.extendStay);
 router.patch('/:id/update-stay', requireAuth, bookingController.updateStay);
 router.patch('/:id/transfer-room', requireAuth, requireStaff, bookingController.transferRoom);
