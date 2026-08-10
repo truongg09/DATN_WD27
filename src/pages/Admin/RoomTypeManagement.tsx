@@ -14,7 +14,8 @@ import {
   Tag,
   Row,
   Col,
-  Descriptions
+  Descriptions,
+  Divider
 } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined, DownOutlined, EyeOutlined } from '@ant-design/icons';
 import axios from 'axios';
@@ -665,62 +666,204 @@ function RoomTypeManagement() {
 
       {/* Detail Modal */}
       <Modal
-        title="Chi tiết hạng phòng"
+        title={null}
         open={detailModalVisible}
         onCancel={() => setDetailModalVisible(false)}
         footer={null}
-        width={600}
+        width={860}
+        styles={{ body: { maxHeight: '76vh', overflowY: 'auto', paddingTop: 8 } }}
       >
-        {selectedType && (
-          <Descriptions bordered column={1}>
-            <Descriptions.Item label="ID">{selectedType.id}</Descriptions.Item>
-            <Descriptions.Item label="Tên hạng phòng">{selectedType.typeName}</Descriptions.Item>
-            <Descriptions.Item label="Sức chứa tiêu chuẩn">
-              {(selectedType.adultCapacity ?? selectedType.capacity ?? 2)} người lớn, {(selectedType.childCapacity ?? 0)} trẻ em
-              {` (Tổng tiêu chuẩn: ${(selectedType.adultCapacity ?? selectedType.capacity ?? 2) + (selectedType.childCapacity ?? 0)} người)`}
-            </Descriptions.Item>
-            <Descriptions.Item label="Sức chứa tối đa">
-              <Tag color="blue">{selectedType.maxOccupancy ?? selectedType.capacity} người / phòng</Tag>
-            </Descriptions.Item>
-            <Descriptions.Item label="Phụ thu người lớn">
-              {formatPrice(selectedType.extraAdultFee ?? 0)} / người / đêm
-            </Descriptions.Item>
-            <Descriptions.Item label="Phụ thu trẻ em">
-              {formatPrice(selectedType.extraChildFee ?? 0)} / người / đêm
-            </Descriptions.Item>
-            <Descriptions.Item label="Số lượng phòng">{selectedType.roomCount || 0} phòng</Descriptions.Item>
-            <Descriptions.Item label="Danh sách số phòng">
-              {selectedType.roomNumbers ? (
-                selectedType.roomNumbers.split(', ').map(num => (
-                  <Tag color="blue" key={num} style={{ margin: '2px' }}>{num}</Tag>
-                ))
-              ) : (
-                <span style={{ color: '#ccc' }}>Không có phòng nào thuộc hạng này</span>
-              )}
-            </Descriptions.Item>
-            <Descriptions.Item label="Giá mặc định">{formatPrice(selectedType.defaultPrice)}</Descriptions.Item>
-            <Descriptions.Item label="Tiện nghi">
-              {selectedType.amenityIds ? (
-                selectedType.amenityIds.split(',').map(idStr => {
-                  const amId = Number(idStr);
-                  const found = amenities.find(a => a.id === amId);
-                  return found ? (
-                    <Tag color="purple" key={amId} style={{ margin: '2px' }}>{found.name}</Tag>
-                  ) : null;
-                })
-              ) : (
-                <span style={{ color: '#ccc' }}>Chưa thiết lập tiện nghi</span>
-              )}
-            </Descriptions.Item>
-            <Descriptions.Item label="Mô tả">{selectedType.description || '—'}</Descriptions.Item>
+        {selectedType && (() => {
+          const adult = selectedType.adultCapacity ?? selectedType.capacity ?? 2;
+          const child = selectedType.childCapacity ?? 0;
+          const standardTotal = adult + child;
+          const maxOccupancy = selectedType.maxOccupancy ?? selectedType.capacity ?? standardTotal;
+          const adultFee = selectedType.extraAdultFee !== undefined
+            ? (typeof selectedType.extraAdultFee === 'number' ? selectedType.extraAdultFee : parseFloat(selectedType.extraAdultFee as string) || 0)
+            : undefined;
+          const childFee = selectedType.extraChildFee !== undefined
+            ? (typeof selectedType.extraChildFee === 'number' ? selectedType.extraChildFee : parseFloat(selectedType.extraChildFee as string) || 0)
+            : undefined;
+          const roomNumberTags = selectedType.roomNumbers
+            ? selectedType.roomNumbers.split(',').map(n => n.trim()).filter(Boolean)
+            : [];
+          const selectedAmenities = selectedType.amenityIds
+            ? selectedType.amenityIds.split(',').map(idStr => amenities.find(a => a.id === Number(idStr))).filter(Boolean) as Amenity[]
+            : [];
 
-            <Descriptions.Item label="Trạng thái">
-              <Tag color={selectedType.status === 'active' ? 'green' : 'orange'}>
-                {selectedType.status === 'active' ? 'Hoạt động' : 'Ngừng hoạt động'}
-              </Tag>
-            </Descriptions.Item>
-          </Descriptions>
-        )}
+          return (
+            <div>
+              {/* HEADER */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
+                <div>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: '#1e293b' }}>{selectedType.typeName}</div>
+                  <div style={{ fontSize: 13, color: '#8c8c8c', marginTop: 2 }}>ID #{selectedType.id}</div>
+                </div>
+                <Tag color={selectedType.status === 'active' ? 'green' : 'red'} style={{ fontSize: 13, padding: '4px 12px', fontWeight: 600 }}>
+                  {selectedType.status === 'active' ? 'Hoạt động' : 'Ngừng hoạt động'}
+                </Tag>
+              </div>
+
+              <Divider style={{ margin: '16px 0' }} />
+
+              {/* A. THÔNG TIN CHUNG */}
+              <div style={{ fontWeight: 700, color: '#ab8965', marginBottom: 10, letterSpacing: 0.3 }}>THÔNG TIN CHUNG</div>
+              <Descriptions bordered column={2} size="small" style={{ marginBottom: 20 }}>
+                <Descriptions.Item label="ID">{selectedType.id}</Descriptions.Item>
+                <Descriptions.Item label="Tên hạng phòng"><strong>{selectedType.typeName}</strong></Descriptions.Item>
+                <Descriptions.Item label="Trạng thái" span={2}>
+                  <Tag color={selectedType.status === 'active' ? 'green' : 'red'} style={{ margin: 0 }}>
+                    {selectedType.status === 'active' ? 'Hoạt động' : 'Ngừng hoạt động'}
+                  </Tag>
+                </Descriptions.Item>
+              </Descriptions>
+
+              {selectedType.description && (
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ fontWeight: 700, color: '#ab8965', marginBottom: 8, letterSpacing: 0.3 }}>MÔ TẢ</div>
+                  <div style={{ background: '#fbf9f6', padding: '10px 14px', borderRadius: 8, border: '1px solid #e8e0d5', color: '#475569', fontSize: 13, lineHeight: 1.6 }}>
+                    {selectedType.description}
+                  </div>
+                </div>
+              )}
+
+              <Divider style={{ margin: '16px 0' }} />
+
+              {/* B & C. GIÁ & SỨC CHỨA */}
+              <div style={{ fontWeight: 700, color: '#ab8965', marginBottom: 10, letterSpacing: 0.3 }}>GIÁ &amp; SỨC CHỨA</div>
+              <Row gutter={12} style={{ marginBottom: 20 }}>
+                <Col xs={24} sm={24} md={8}>
+                  <Card size="small" style={{ background: '#fbf9f6', border: '1px solid #e8e0d5', height: '100%' }}>
+                    <div style={{ fontSize: 12, color: '#64748b' }}>Giá mặc định / đêm</div>
+                    <div style={{ fontSize: 17, fontWeight: 700, color: '#ab8965', marginTop: 4 }}>
+                      {formatPrice(selectedType.defaultPrice)}
+                    </div>
+                  </Card>
+                </Col>
+                <Col xs={12} sm={12} md={4}>
+                  <Card size="small" style={{ background: '#f8fafc', border: '1px solid #e2e8f0', height: '100%' }}>
+                    <div style={{ fontSize: 12, color: '#64748b' }}>NL tiêu chuẩn</div>
+                    <div style={{ fontSize: 17, fontWeight: 700, color: '#334155', marginTop: 4 }}>{adult}</div>
+                  </Card>
+                </Col>
+                <Col xs={12} sm={12} md={4}>
+                  <Card size="small" style={{ background: '#f8fafc', border: '1px solid #e2e8f0', height: '100%' }}>
+                    <div style={{ fontSize: 12, color: '#64748b' }}>TE tiêu chuẩn</div>
+                    <div style={{ fontSize: 17, fontWeight: 700, color: '#334155', marginTop: 4 }}>{child}</div>
+                  </Card>
+                </Col>
+                <Col xs={12} sm={12} md={4}>
+                  <Card size="small" style={{ background: '#f8fafc', border: '1px solid #e2e8f0', height: '100%' }}>
+                    <div style={{ fontSize: 12, color: '#64748b' }}>Tổng tiêu chuẩn</div>
+                    <div style={{ fontSize: 17, fontWeight: 700, color: '#334155', marginTop: 4 }}>{standardTotal} khách</div>
+                  </Card>
+                </Col>
+                <Col xs={12} sm={12} md={4}>
+                  <Card size="small" style={{ background: '#eff6ff', border: '1px solid #bfdbfe', height: '100%' }}>
+                    <div style={{ fontSize: 12, color: '#1e40af' }}>Sức chứa tối đa</div>
+                    <div style={{ fontSize: 17, fontWeight: 700, color: '#1e3a8a', marginTop: 4 }}>{maxOccupancy} khách</div>
+                  </Card>
+                </Col>
+              </Row>
+
+              <Divider style={{ margin: '16px 0' }} />
+
+              {/* D. PHỤ THU PHÁT SINH */}
+              <div style={{ fontWeight: 700, color: '#ab8965', marginBottom: 10, letterSpacing: 0.3 }}>CHÍNH SÁCH PHỤ THU KHÁCH PHÁT SINH</div>
+              <Row gutter={12} style={{ marginBottom: 20 }}>
+                <Col xs={24} sm={12}>
+                  <Card size="small" style={{ background: '#fff7ed', border: '1px solid #fed7aa', height: '100%' }}>
+                    <div style={{ fontSize: 12, color: '#9a3412' }}>Phụ thu người lớn</div>
+                    <div style={{ fontSize: 17, fontWeight: 700, color: '#7c2d12', marginTop: 4 }}>
+                      {adultFee !== undefined ? formatPrice(adultFee) : 'Chưa thiết lập'}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#9a3412', marginTop: 2 }}>/ người / đêm</div>
+                  </Card>
+                </Col>
+                <Col xs={24} sm={12}>
+                  <Card size="small" style={{ background: '#fff7ed', border: '1px solid #fed7aa', height: '100%' }}>
+                    <div style={{ fontSize: 12, color: '#9a3412' }}>Phụ thu trẻ em</div>
+                    <div style={{ fontSize: 17, fontWeight: 700, color: '#7c2d12', marginTop: 4 }}>
+                      {childFee !== undefined ? formatPrice(childFee) : 'Chưa thiết lập'}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#9a3412', marginTop: 2 }}>/ người / đêm</div>
+                  </Card>
+                </Col>
+              </Row>
+
+              <Divider style={{ margin: '16px 0' }} />
+
+              {/* E. QUẢN LÝ PHÒNG */}
+              <div style={{ fontWeight: 700, color: '#ab8965', marginBottom: 10, letterSpacing: 0.3 }}>QUẢN LÝ PHÒNG</div>
+              <Row gutter={12} style={{ marginBottom: 12 }}>
+                <Col xs={12} sm={6}>
+                  <Card size="small" style={{ background: '#f1f5f9', border: '1px solid #e2e8f0', textAlign: 'center' }}>
+                    <div style={{ fontSize: 12, color: '#64748b' }}>Tổng số phòng</div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: '#0f172a' }}>{selectedType.roomCount || 0}</div>
+                  </Card>
+                </Col>
+                {selectedType.availableCount !== undefined && (
+                  <Col xs={12} sm={6}>
+                    <Card size="small" style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', textAlign: 'center' }}>
+                      <div style={{ fontSize: 12, color: '#166534' }}>Đang trống</div>
+                      <div style={{ fontSize: 20, fontWeight: 700, color: '#14532d' }}>{selectedType.availableCount}</div>
+                    </Card>
+                  </Col>
+                )}
+                {selectedType.occupiedCount !== undefined && (
+                  <Col xs={12} sm={6}>
+                    <Card size="small" style={{ background: '#eff6ff', border: '1px solid #bfdbfe', textAlign: 'center' }}>
+                      <div style={{ fontSize: 12, color: '#1e40af' }}>Đang ở</div>
+                      <div style={{ fontSize: 20, fontWeight: 700, color: '#1e3a8a' }}>{selectedType.occupiedCount}</div>
+                    </Card>
+                  </Col>
+                )}
+                {selectedType.reservedCount !== undefined && selectedType.reservedCount > 0 && (
+                  <Col xs={12} sm={6}>
+                    <Card size="small" style={{ background: '#fffbeb', border: '1px solid #fde68a', textAlign: 'center' }}>
+                      <div style={{ fontSize: 12, color: '#92400e' }}>Đã cọc</div>
+                      <div style={{ fontSize: 20, fontWeight: 700, color: '#78350f' }}>{selectedType.reservedCount}</div>
+                    </Card>
+                  </Col>
+                )}
+                {selectedType.maintenanceCount !== undefined && selectedType.maintenanceCount > 0 && (
+                  <Col xs={12} sm={6}>
+                    <Card size="small" style={{ background: '#fff1f2', border: '1px solid #fda4af', textAlign: 'center' }}>
+                      <div style={{ fontSize: 12, color: '#9f1239' }}>Bảo trì</div>
+                      <div style={{ fontSize: 20, fontWeight: 700, color: '#881337' }}>{selectedType.maintenanceCount}</div>
+                    </Card>
+                  </Col>
+                )}
+              </Row>
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ fontSize: 12, color: '#64748b', marginBottom: 6 }}>Danh sách số phòng</div>
+                {roomNumberTags.length > 0 ? (
+                  <div>
+                    {roomNumberTags.map(num => (
+                      <Tag color="blue" key={num} style={{ margin: '2px' }}>{num}</Tag>
+                    ))}
+                  </div>
+                ) : (
+                  <span style={{ color: '#ccc' }}>Không có phòng nào thuộc hạng này</span>
+                )}
+              </div>
+
+              <Divider style={{ margin: '16px 0' }} />
+
+              {/* F. TIỆN NGHI */}
+              <div style={{ fontWeight: 700, color: '#ab8965', marginBottom: 10, letterSpacing: 0.3 }}>TIỆN NGHI</div>
+              <div style={{ marginBottom: 4 }}>
+                {selectedAmenities.length > 0 ? (
+                  selectedAmenities.map(am => (
+                    <Tag color="purple" key={am.id} style={{ margin: '2px' }}>{am.name}</Tag>
+                  ))
+                ) : (
+                  <span style={{ color: '#ccc' }}>Chưa thiết lập tiện nghi</span>
+                )}
+              </div>
+            </div>
+          );
+        })()}
       </Modal>
     </Card>
   );
