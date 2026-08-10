@@ -415,7 +415,8 @@ const processPayment = async (paymentId, payload, actor = null) => {
     // Payment settlement is the source of truth. Invoice generation is a
     // follow-up operation and must never roll back money already received.
     let invoice = null;
-    if (isFullyPaid) {
+    // Invoice is finalized at check-out, after all services and charges are locked.
+    if (isFullyPaid && booking.status === 'checked_out') {
       try {
         invoice = await invoiceService.issueInvoiceForPayment(paymentId);
       } catch (error) {
@@ -567,7 +568,8 @@ const confirmPayment = async (paymentId, payload, actor = null) => {
 
     // Keep a successful gateway payment even if invoice creation fails.
     let invoice = null;
-    if (isFullyPaid) {
+    // Gateway settlement follows the same rule: do not issue an invoice before check-out.
+    if (isFullyPaid && booking.status === 'checked_out') {
       try {
         invoice = await invoiceService.issueInvoiceForPayment(paymentId);
       } catch (error) {

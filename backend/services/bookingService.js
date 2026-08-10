@@ -1,6 +1,7 @@
 const db = require("../config/db");
 const bookingModel = require("../models/bookingModel");
 const paymentService = require("./paymentService");
+const invoiceService = require("./invoiceService");
 const emailService = require("./emailService");
 const voucherService = require("./voucherService");
 const HttpError = require("../utils/httpError");
@@ -3293,10 +3294,19 @@ const checkOut = async (bookingId, actualCheckOutTimeInput, actor = null) => {
     );
 
     await connection.commit();
+    // Chỉ phát hành hóa đơn sau khi check-out, khi toàn bộ dịch vụ/phát sinh
+    // đã được chốt và Payment đã thanh toán đủ.
+    let invoice = null;
+    try {
+      invoice = await invoiceService.issueInvoiceForPayment(payment.id);
+    } catch (error) {
+      console.error(`Issue invoice for checkout booking #${bookingId} failed:`, error);
+    }
     return {
       ...(await bookingModel.getBookingById(bookingId)),
       earlyCheckout,
       lateCheckout,
+      invoice
     };
   } catch (error) {
     await connection.rollback();

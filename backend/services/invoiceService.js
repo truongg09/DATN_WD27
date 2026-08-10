@@ -21,19 +21,13 @@ const enrichInvoiceWithServices = async (row, connection) => {
     unitPrice: Number(service.unitPrice ?? 0),
     totalPrice: Number(service.totalPrice ?? 0)
   }));
-  const serviceAmount = services.reduce((sum, service) => sum + service.totalPrice, 0);
+  // Dùng số tiền đã chốt trong invoice; danh sách dịch vụ chỉ dùng để hiển thị.
+  const serviceAmount = Number(invoice.serviceAmount || 0);
   // Tính lại tiền phòng từ đơn giá lưu trú và số đêm. Dữ liệu hóa đơn cũ có
   // trường hợp đã gộp tiền dịch vụ vào roomAmount nên không dùng số đó làm gốc.
-  const roomAmount =
-    Number(invoice.stayRoomAmount || 0) > 0
-      ? Number(invoice.stayRoomAmount)
-      : invoice.roomAmount;
-  const surchargeAmount = Math.max(
-    Number(invoice.surchargeAmount || 0),
-    Number(invoice.occupancySurcharge || 0)
-  );
-  const totalAmount =
-    roomAmount + serviceAmount + surchargeAmount - invoice.discountAmount;
+  const roomAmount = Number(invoice.roomAmount || 0);
+  const surchargeAmount = Number(invoice.surchargeAmount || 0);
+  const totalAmount = Number(invoice.totalAmount || 0);
 
   return {
     ...invoice,
@@ -41,7 +35,7 @@ const enrichInvoiceWithServices = async (row, connection) => {
     roomAmount,
     serviceAmount,
     surchargeAmount,
-    subtotal: roomAmount + serviceAmount + surchargeAmount,
+    subtotal: Number(invoice.subtotal || roomAmount + serviceAmount + surchargeAmount),
     totalAmount
   };
 };
@@ -52,30 +46,43 @@ const issueInvoiceForPayment = async (paymentId, connection) => {
     throw new HttpError(404, 'Không tìm thấy thanh toán');
   }
 
-  const existing = await invoiceModel.getInvoiceByBookingId(payment.bookingId, connection);
-  if (existing) {
-    return enrichInvoiceWithServices(existing, connection);
-  }
-
   const roomAmount = Number(payment.roomAmount ?? 0);
   const serviceAmount = Number(payment.serviceAmount ?? 0);
   const surchargeAmount = Number(payment.surchargeAmount ?? 0);
   const discountAmount = Number(payment.discountAmount ?? 0);
   const subtotal = roomAmount + serviceAmount + surchargeAmount;
 
+  const snapshot = {
+    paymentId: payment.id,
+    roomAmount,
+    serviceAmount,
+    surchargeAmount,
+    subtotal,
+    discountAmount,
+    totalAmount: Number(payment.totalAmount)
+  };
+  const existing = await invoiceModel.getInvoiceByBookingId(payment.bookingId, connection);
+  if (existing) {
+    await invoiceModel.updateInvoiceAmounts(existing.id, snapshot, connection);
+    return enrichInvoiceWithServices(
+      await invoiceModel.getInvoiceById(existing.id, connection),
+      connection
+    );
+  }
+
   const invoiceCode = await buildInvoiceCode(connection);
   const invoiceId = await invoiceModel.createInvoice(
     {
       invoiceCode,
       bookingId: payment.bookingId,
-      paymentId: payment.id,
-      roomAmount,
-      serviceAmount,
-      surchargeAmount,
-      subtotal,
-      discountAmount,
+      paymentId: snapshot.paymentId,
+      roomAmount: snapshot.roomAmount,
+      serviceAmount: snapshot.serviceAmount,
+      surchargeAmount: snapshot.surchargeAmount,
+      subtotal: snapshot.subtotal,
+      discountAmount: snapshot.discountAmount,
       taxAmount: 0,
-      totalAmount: Number(payment.totalAmount),
+      totalAmount: snapshot.totalAmount,
       status: 'issued'
     },
     connection
