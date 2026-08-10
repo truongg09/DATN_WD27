@@ -28,7 +28,11 @@ interface RoomType {
   typeName: string;
   description: string;
   capacity: number;
+  adultCapacity?: number;
+  childCapacity?: number;
   maxOccupancy?: number;
+  extraAdultFee?: number | string;
+  extraChildFee?: number | string;
   defaultPrice: string | number;
   roomCount?: number;
   availableCount?: number;
@@ -137,11 +141,14 @@ function RoomTypeManagement() {
       const updatedValues = {
         typeName: record.typeName,
         capacity: record.capacity,
+        adultCapacity: record.adultCapacity,
+        childCapacity: record.childCapacity,
+        maxOccupancy: record.maxOccupancy,
+        extraAdultFee: typeof record.extraAdultFee === 'number' ? record.extraAdultFee : parseFloat(record.extraAdultFee as string) || 0,
+        extraChildFee: typeof record.extraChildFee === 'number' ? record.extraChildFee : parseFloat(record.extraChildFee as string) || 0,
         defaultPrice: typeof record.defaultPrice === 'number' ? record.defaultPrice : parseFloat(record.defaultPrice) || 0,
         description: record.description,
         status: newStatus,
-        // Backend xóa sạch tiện nghi rồi ghi lại theo amenityIds. Không gửi kèm
-        // danh sách hiện tại thì chỉ đổi trạng thái cũng làm mất hết tiện nghi.
         amenityIds: record.amenityIds ? record.amenityIds.split(',').map(Number) : []
       };
       await api.put(`/rooms/types/${id}`, updatedValues);
@@ -171,14 +178,35 @@ function RoomTypeManagement() {
   const handleAdd = () => {
     setEditingType(null);
     form.resetFields();
+    form.setFieldsValue({
+      typeName: '',
+      capacity: 2,
+      adultCapacity: 2,
+      childCapacity: 1,
+      maxOccupancy: 3,
+      extraAdultFee: 200000,
+      extraChildFee: 100000,
+      defaultPrice: 500000,
+      status: 'active',
+      description: '',
+      amenityIds: []
+    });
     setModalVisible(true);
   };
 
   const handleEdit = (type: RoomType) => {
     setEditingType(type);
+    const parsedExtraAdult = typeof type.extraAdultFee === 'number' ? type.extraAdultFee : parseFloat(type.extraAdultFee as string);
+    const parsedExtraChild = typeof type.extraChildFee === 'number' ? type.extraChildFee : parseFloat(type.extraChildFee as string);
+
     form.setFieldsValue({
       typeName: type.typeName,
       capacity: type.capacity,
+      adultCapacity: type.adultCapacity ?? type.capacity ?? 2,
+      childCapacity: type.childCapacity ?? 1,
+      maxOccupancy: type.maxOccupancy ?? (type.adultCapacity ? (type.adultCapacity + (type.childCapacity || 0)) : type.capacity) ?? 3,
+      extraAdultFee: !isNaN(parsedExtraAdult) ? parsedExtraAdult : 200000,
+      extraChildFee: !isNaN(parsedExtraChild) ? parsedExtraChild : 100000,
       defaultPrice: typeof type.defaultPrice === 'number' ? type.defaultPrice : parseFloat(type.defaultPrice) || 0,
       description: type.description,
       status: type.status || 'active',
@@ -207,13 +235,17 @@ function RoomTypeManagement() {
   const handleModalSubmit = async () => {
     try {
       const values = await form.validateFields();
+      const payload = {
+        ...values,
+        capacity: values.maxOccupancy ?? values.capacity ?? values.adultCapacity ?? 2,
+      };
       if (editingType) {
         // Update
-        await api.put(`/rooms/types/${editingType.id}`, values);
+        await api.put(`/rooms/types/${editingType.id}`, payload);
         message.success('Cập nhật hạng phòng thành công');
       } else {
         // Create
-        await api.post('/rooms/types', values);
+        await api.post('/rooms/types', payload);
         message.success('Thêm hạng phòng mới thành công');
       }
       setModalVisible(false);
@@ -240,10 +272,42 @@ function RoomTypeManagement() {
     },
     {
       title: 'Sức chứa',
-      dataIndex: 'capacity',
       key: 'capacity',
-      sorter: (a: RoomType, b: RoomType) => a.capacity - b.capacity,
-      render: (capacity: number, record: RoomType) => `${record.maxOccupancy ?? capacity} người`
+      sorter: (a: RoomType, b: RoomType) => (a.maxOccupancy ?? a.capacity) - (b.maxOccupancy ?? b.capacity),
+      render: (_: unknown, record: RoomType) => {
+        const adult = record.adultCapacity ?? record.capacity ?? 2;
+        const child = record.childCapacity ?? 0;
+        const max = record.maxOccupancy ?? record.capacity ?? (adult + child);
+        return (
+          <div style={{ lineHeight: '1.4' }}>
+            <div>
+              <span style={{ color: '#64748b', fontSize: '12px' }}>Tiêu chuẩn: </span>
+              <strong>{adult} NL{child > 0 ? ` + ${child} TE` : ''}</strong>
+            </div>
+            <div>
+              <span style={{ color: '#64748b', fontSize: '12px' }}>Tối đa: </span>
+              <Tag color="blue" style={{ margin: 0, fontSize: '11px', padding: '0 4px' }}>
+                {max} khách
+              </Tag>
+            </div>
+          </div>
+        );
+      }
+    },
+    {
+      title: 'Phụ thu phát sinh',
+      key: 'extraFees',
+      render: (_: unknown, record: RoomType) => {
+        const adultFee = typeof record.extraAdultFee === 'number' ? record.extraAdultFee : parseFloat(record.extraAdultFee as string) || 0;
+        const childFee = typeof record.extraChildFee === 'number' ? record.extraChildFee : parseFloat(record.extraChildFee as string) || 0;
+        return (
+          <div style={{ fontSize: '12px', lineHeight: '1.4' }}>
+            <div><span style={{ color: '#475569' }}>NL:</span> <strong>{new Intl.NumberFormat('vi-VN').format(adultFee)}đ</strong></div>
+            <div><span style={{ color: '#475569' }}>TE:</span> <strong>{new Intl.NumberFormat('vi-VN').format(childFee)}đ</strong></div>
+            <div style={{ color: '#94a3b8', fontSize: '10px' }}>/người/đêm</div>
+          </div>
+        );
+      }
     },
     {
       title: 'Số lượng phòng',
@@ -417,6 +481,7 @@ function RoomTypeManagement() {
         onCancel={() => setModalVisible(false)}
         footer={null}
         destroyOnHidden
+        width={650}
       >
         <Form
           form={form}
@@ -424,42 +489,131 @@ function RoomTypeManagement() {
           style={{ marginTop: 16 }}
           onFinish={handleModalSubmit}
         >
-          <Form.Item
-            name="typeName"
-            label="Tên hạng phòng"
-            rules={[{ required: true, message: 'Vui lòng nhập tên hạng phòng!' }]}
-          >
-            <Input placeholder="Ví dụ: Standard, Deluxe, Suite..." />
-          </Form.Item>
+          <Row gutter={16}>
+            <Col span={14}>
+              <Form.Item
+                name="typeName"
+                label="Tên hạng phòng"
+                rules={[{ required: true, message: 'Vui lòng nhập tên hạng phòng!' }]}
+              >
+                <Input placeholder="Ví dụ: Standard, Deluxe, Suite..." />
+              </Form.Item>
+            </Col>
+            <Col span={10}>
+              <Form.Item
+                name="defaultPrice"
+                label="Giá mặc định / đêm (VNĐ)"
+                rules={[{ required: true, message: 'Vui lòng nhập giá mặc định!' }]}
+              >
+                <InputNumber
+                  min={0}
+                  style={{ width: '100%' }}
+                  formatter={(value) => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                  parser={(value) => (value ? value.replace(/\$\s?|(,*)/g, '') : '') as any}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
 
-          <Form.Item
-            name="capacity"
-            label="Sức chứa (người)"
-            rules={[{ required: true, message: 'Vui lòng nhập sức chứa!' }]}
-            initialValue={2}
-          >
-            <InputNumber min={1} style={{ width: '100%' }} />
-          </Form.Item>
+          <Card type="inner" title="Thiết lập Sức chứa phòng" style={{ marginBottom: 16, backgroundColor: '#f8fafc' }}>
+            <Row gutter={16}>
+              <Col span={8}>
+                <Form.Item
+                  name="adultCapacity"
+                  label="NL tiêu chuẩn"
+                  tooltip="Số người lớn mặc định cho 1 phòng"
+                  rules={[
+                    { required: true, message: 'Nhập số NL tiêu chuẩn!' },
+                    { type: 'number', min: 1, message: 'Tối thiểu 1 người lớn!' }
+                  ]}
+                >
+                  <InputNumber min={1} style={{ width: '100%' }} placeholder="2" />
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item
+                  name="childCapacity"
+                  label="TE tiêu chuẩn"
+                  tooltip="Số trẻ em mặc định cho 1 phòng"
+                  rules={[
+                    { required: true, message: 'Nhập số TE tiêu chuẩn!' },
+                    { type: 'number', min: 0, message: 'Không được nhỏ hơn 0!' }
+                  ]}
+                >
+                  <InputNumber min={0} style={{ width: '100%' }} placeholder="1" />
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item
+                  name="maxOccupancy"
+                  label="Sức chứa tối đa"
+                  tooltip="Tổng số khách tối đa (NL+TE) cho 1 phòng"
+                  rules={[
+                    { required: true, message: 'Nhập tổng sức chứa tối đa!' },
+                    ({ getFieldValue }) => ({
+                      validator(_, value) {
+                        const adult = getFieldValue('adultCapacity') || 0;
+                        const child = getFieldValue('childCapacity') || 0;
+                        if (value !== undefined && value < adult + child) {
+                          return Promise.reject(new Error(`Sức chứa tối đa (${value}) phải lớn hơn hoặc bằng tổng sức chứa tiêu chuẩn (${adult + child})`));
+                        }
+                        return Promise.resolve();
+                      }
+                    })
+                  ]}
+                >
+                  <InputNumber min={1} style={{ width: '100%' }} placeholder="3" />
+                </Form.Item>
+              </Col>
+            </Row>
+          </Card>
 
-          <Form.Item
-            name="defaultPrice"
-            label="Giá mặc định / đêm (VNĐ)"
-            rules={[{ required: true, message: 'Vui lòng nhập giá mặc định!' }]}
-            initialValue={500000}
-          >
-            <InputNumber
-              min={0}
-              style={{ width: '100%' }}
-              formatter={(value) => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-              parser={(value) => (value ? value.replace(/\$\s?|(,*)/g, '') : '') as any}
-            />
-          </Form.Item>
+          <Card type="inner" title="Đơn giá Phụ thu Khách phát sinh (/người/đêm)" style={{ marginBottom: 16, backgroundColor: '#f8fafc' }}>
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item
+                  name="extraAdultFee"
+                  label="Phụ thu Người lớn"
+                  rules={[
+                    { required: true, message: 'Vui lòng nhập phụ thu người lớn!' },
+                    { type: 'number', min: 0, message: 'Không được nhỏ hơn 0!' }
+                  ]}
+                >
+                  <InputNumber
+                    min={0}
+                    style={{ width: '100%' }}
+                    formatter={(value) => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                    parser={(value) => (value ? value.replace(/\$\s?|(,*)/g, '') : '') as any}
+                    addonAfter="VNĐ"
+                  />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  name="extraChildFee"
+                  label="Phụ thu Trẻ em"
+                  rules={[
+                    { required: true, message: 'Vui lòng nhập phụ thu trẻ em!' },
+                    { type: 'number', min: 0, message: 'Không được nhỏ hơn 0!' }
+                  ]}
+                >
+                  <InputNumber
+                    min={0}
+                    style={{ width: '100%' }}
+                    formatter={(value) => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                    parser={(value) => (value ? value.replace(/\$\s?|(,*)/g, '') : '') as any}
+                    addonAfter="VNĐ"
+                  />
+                </Form.Item>
+              </Col>
+            </Row>
+          </Card>
 
           <Form.Item
             name="description"
             label="Mô tả hạng phòng"
           >
-            <TextArea rows={4} placeholder="Nhập mô tả chi tiết về dịch vụ, tiện nghi của hạng phòng..." />
+            <TextArea rows={3} placeholder="Nhập mô tả chi tiết về dịch vụ, tiện nghi của hạng phòng..." />
           </Form.Item>
 
           <Form.Item
@@ -485,8 +639,6 @@ function RoomTypeManagement() {
             </Select>
           </Form.Item>
 
-
-
           <Form.Item
             name="status"
             label="Trạng thái"
@@ -499,12 +651,12 @@ function RoomTypeManagement() {
             </Select>
           </Form.Item>
           <Form.Item>
-            <Space>
-              <Button type="primary" htmlType="submit" block>
-                {editingType ? 'Cập nhật' : 'Thêm mới'}
-              </Button>
-              <Button onClick={() => setModalVisible(false)} block>
+            <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
+              <Button onClick={() => setModalVisible(false)}>
                 Hủy
+              </Button>
+              <Button type="primary" htmlType="submit">
+                {editingType ? 'Cập nhật' : 'Thêm mới'}
               </Button>
             </Space>
           </Form.Item>
@@ -523,7 +675,19 @@ function RoomTypeManagement() {
           <Descriptions bordered column={1}>
             <Descriptions.Item label="ID">{selectedType.id}</Descriptions.Item>
             <Descriptions.Item label="Tên hạng phòng">{selectedType.typeName}</Descriptions.Item>
-            <Descriptions.Item label="Sức chứa">{selectedType.maxOccupancy ?? selectedType.capacity} người</Descriptions.Item>
+            <Descriptions.Item label="Sức chứa tiêu chuẩn">
+              {(selectedType.adultCapacity ?? selectedType.capacity ?? 2)} người lớn, {(selectedType.childCapacity ?? 0)} trẻ em
+              {` (Tổng tiêu chuẩn: ${(selectedType.adultCapacity ?? selectedType.capacity ?? 2) + (selectedType.childCapacity ?? 0)} người)`}
+            </Descriptions.Item>
+            <Descriptions.Item label="Sức chứa tối đa">
+              <Tag color="blue">{selectedType.maxOccupancy ?? selectedType.capacity} người / phòng</Tag>
+            </Descriptions.Item>
+            <Descriptions.Item label="Phụ thu người lớn">
+              {formatPrice(selectedType.extraAdultFee ?? 0)} / người / đêm
+            </Descriptions.Item>
+            <Descriptions.Item label="Phụ thu trẻ em">
+              {formatPrice(selectedType.extraChildFee ?? 0)} / người / đêm
+            </Descriptions.Item>
             <Descriptions.Item label="Số lượng phòng">{selectedType.roomCount || 0} phòng</Descriptions.Item>
             <Descriptions.Item label="Danh sách số phòng">
               {selectedType.roomNumbers ? (

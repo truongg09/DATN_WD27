@@ -379,11 +379,12 @@ const RoomList: React.FC = () => {
                     <div className="type-specs">
                       <span>
                         <FontAwesomeIcon icon={faUserGroup} /> Tiêu chuẩn:{" "}
-                        {adultCapacity} NL
-                        {childCapacity > 0 ? ` + ${childCapacity} TE(NL)` : ""}
+                        <strong>{adultCapacity} NL + {childCapacity} TE</strong>
                       </span>
 
-                      <span>Tối đa {maxOcc} khách/phòng</span>
+                      <span>
+                        <strong>Tối đa:</strong> {maxOcc} khách/phòng
+                      </span>
                       {type.minArea !== null && (
                         <span>
                           <FontAwesomeIcon icon={faExpandArrowsAlt} />{" "}
@@ -392,6 +393,13 @@ const RoomList: React.FC = () => {
                             : `${type.minArea}–${type.maxArea}m²`}
                         </span>
                       )}
+                    </div>
+
+                    <div className="type-extra-fee-info">
+                      <span className="fee-label">Phụ thu phát sinh:</span>{" "}
+                      <span>NL: <strong>{formatPrice(extraAdultFee)}</strong>/người/đêm</span>
+                      {" · "}
+                      <span>TE: <strong>{formatPrice(extraChildFee)}</strong>/người/đêm</span>
                     </div>
 
                     {type.amenities.length > 0 && (
@@ -416,15 +424,19 @@ const RoomList: React.FC = () => {
 
                     {overCapacity && (
                       <p className="capacity-warning">
-                        Hạng phòng này không đủ tổng sức chứa cho số khách đã
-                        chọn.
+                        Với {guestCount} khách vượt quá tổng sức chứa tối đa của số phòng hiện có (tối đa {maxOcc} khách/phòng).
                       </p>
                     )}
 
                     {needMoreRooms && (
                       <p className="capacity-warning">
-                        Hạng phòng này ở tối đa {maxOcc} khách/phòng — cần tối
-                        thiểu {minRooms} phòng cho số khách của bạn.
+                        Hạng phòng này ở tối đa {maxOcc} khách/phòng — với {guestCount} khách cần tối thiểu {minRooms} phòng (Tiêu chuẩn: {adultCapacity} NL + {childCapacity} TE/phòng). Khách vượt sức chứa tiêu chuẩn có thể phát sinh phụ thu.
+                      </p>
+                    )}
+
+                    {!overCapacity && !needMoreRooms && guestCount > (adultCapacity + childCapacity) && (
+                      <p className="capacity-notice">
+                        Số khách chọn ({guestCount} người) vượt sức chứa tiêu chuẩn ({adultCapacity + childCapacity} người/phòng) → Có thể phát sinh phụ thu khách phát sinh.
                       </p>
                     )}
                   </div>
@@ -445,12 +457,13 @@ const RoomList: React.FC = () => {
                       {hasDates && totalStay > 0 ? (
                         <>
                           <span className="price-main">
-                            {formatPrice(totalStay)}
+                            {formatPrice(totalStay * minRooms)}
                           </span>
-                          <span className="price-unit">cho {nights} đêm</span>
+                          <span className="price-unit">
+                            {minRooms > 1 ? `cho ${minRooms} phòng / ${nights} đêm` : `cho 1 phòng / ${nights} đêm`}
+                          </span>
                           <span className="price-sub">
-                            {formatPrice(Math.round(totalStay / nights))}/đêm ·
-                            chưa gồm phụ thu
+                            {formatPrice(Math.round(totalStay / nights))}/phòng/đêm · Chưa gồm phụ thu khách phát sinh
                           </span>
                         </>
                       ) : (
@@ -459,7 +472,8 @@ const RoomList: React.FC = () => {
                           <span className="price-main">
                             {formatPrice(type.defaultPrice)}
                           </span>
-                          <span className="price-unit">/đêm</span>
+                          <span className="price-unit">/ phòng / đêm</span>
+                          <span className="price-sub">Chưa gồm phụ thu khách phát sinh</span>
                         </>
                       )}
                     </div>

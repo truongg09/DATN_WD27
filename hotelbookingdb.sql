@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: localhost:3306
--- Generation Time: Aug 10, 2026 at 07:18 AM
+-- Generation Time: Aug 10, 2026 at 08:13 AM
 -- Server version: 8.4.3
 -- PHP Version: 8.3.26
 
@@ -147,44 +147,45 @@ CREATE TABLE `bookings` (
 -- Dumping data for table `bookings`
 --
 
-INSERT INTO `bookings` (`id`, `user_id`, `room_id`, `check_in`, `check_out`, `actualCheckOutTime`, `requestedCheckInTime`, `requestedCheckInDayOffset`, `requestedCheckOutTime`, `actualCheckInTime`, `total_price`, `status`, `notes`, `cancellation_reason`, `cancelInitiator`, `guest_name`, `guest_email`, `guest_phone`, `customerId`, `voucherId`, `bookingCode`, `bookingStatus`, `totalAmount`, `createdAt`, `created_at`) VALUES
-(1, NULL, NULL, NULL, NULL, NULL, NULL, 0, NULL, NULL, 900000.00, 'no_show', NULL, NULL, NULL, NULL, NULL, NULL, 1, 1, 'BK001', 'no_show', 900000.00, '2026-06-10 23:26:20', '2026-06-23 18:33:42'),
-(2, NULL, NULL, NULL, NULL, NULL, NULL, 0, NULL, NULL, 1350000.00, 'cancelled', NULL, NULL, NULL, NULL, NULL, NULL, 2, 2, 'BK002', 'cancelled', 1350000.00, '2026-06-10 23:26:20', '2026-06-23 18:33:42'),
-(3, NULL, NULL, NULL, NULL, NULL, NULL, 0, NULL, NULL, 2600000.00, 'pending', NULL, NULL, NULL, NULL, NULL, NULL, 3, 3, 'BK003', 'checkout', 2600000.00, '2026-06-10 23:26:20', '2026-06-23 18:33:42'),
-(4, NULL, NULL, NULL, NULL, NULL, NULL, 0, NULL, NULL, 1200000.00, 'cancelled', NULL, NULL, NULL, NULL, NULL, NULL, 4, NULL, 'BK004', 'cancelled', 1200000.00, '2026-06-10 23:26:20', '2026-06-23 18:33:42'),
-(5, NULL, NULL, NULL, NULL, NULL, NULL, 0, NULL, NULL, 1800000.00, 'no_show', NULL, NULL, NULL, NULL, NULL, NULL, 5, 1, 'BK005', 'no_show', 1800000.00, '2026-06-10 23:26:20', '2026-06-23 18:33:42'),
-(7, 12, 1, '2026-06-24', '2026-07-25', NULL, NULL, 0, NULL, NULL, 15500000.00, 'cancelled', NULL, NULL, NULL, 'Hà Phương Thúy', 'tranphuhuong1802@gmail.com', '0909999999', 7, NULL, NULL, 'cancelled', 15500000.00, '2026-06-24 01:37:20', '2026-06-23 18:37:20'),
-(8, 12, 3, '2026-06-24', '2026-07-22', NULL, NULL, 0, NULL, NULL, 14000000.00, 'cancelled', NULL, NULL, NULL, 'Hà Phương Thúy', 'tranphuhuong1802@gmail.com', '0909999999', 7, NULL, NULL, 'cancelled', 14000000.00, '2026-06-24 01:47:03', '2026-06-23 18:47:03'),
-(9, 12, 2, '2026-06-25', '2026-07-01', NULL, NULL, 0, NULL, NULL, 3000000.00, 'cancelled', NULL, NULL, NULL, 'Hà Phương Thúy', 'tranphuhuong1802@gmail.com', '0909999999', 7, NULL, NULL, 'cancelled', 3000000.00, '2026-06-24 01:52:06', '2026-06-23 18:52:06'),
-(10, 12, 8, '2026-06-25', '2026-07-01', NULL, NULL, 0, NULL, NULL, 4200000.00, 'cancelled', NULL, NULL, NULL, 'Minh Tài', 'tranphuhuong1802@gmail.com', '0909999999', 7, NULL, NULL, 'cancelled', 4200000.00, '2026-06-24 02:05:29', '2026-06-23 19:05:29'),
-(11, 12, 2, '2026-06-24', '2026-07-01', NULL, NULL, 0, NULL, NULL, 3500000.00, 'cancelled', NULL, NULL, NULL, 'Hà Phương Thúy', 'tranphuhuong1802@gmail.com', '0909999999', 7, NULL, NULL, 'cancelled', 3500000.00, '2026-06-24 02:33:25', '2026-06-23 19:33:25'),
-(12, 12, 1, '2026-06-24', '2026-07-01', NULL, NULL, 0, NULL, NULL, 3500000.00, 'cancelled', NULL, NULL, NULL, 'Hà Phương Thúy', 'tranphuhuong1802@gmail.com', '0909999999', 7, NULL, NULL, 'cancelled', 3500000.00, '2026-06-24 07:28:47', '2026-06-24 00:28:47'),
-(13, 12, 1, '2026-06-24', '2026-07-01', NULL, NULL, 0, NULL, NULL, 3500000.00, 'cancelled', NULL, NULL, NULL, 'Hà Phương Thúy', 'tranphuhuong1802@gmail.com', '0909999999', 7, NULL, NULL, 'cancelled', 3500000.00, '2026-06-24 14:52:37', '2026-06-24 07:52:37'),
-(14, 13, 4, '2026-06-24', '2026-07-31', NULL, NULL, 0, NULL, NULL, 18500000.00, 'cancelled', NULL, NULL, NULL, 'dsfsdfsdf', 'hieumon482@gmail.com', '0349154051', 8, NULL, NULL, 'cancelled', 18500000.00, '2026-06-24 15:20:24', '2026-06-24 08:20:24'),
-(16, 12, 5, '2026-07-11', '2026-08-04', NULL, NULL, 0, NULL, NULL, 16800000.00, 'no_show', NULL, NULL, NULL, 'Hà Phương Thúy', 'tranphuhuong1802@gmail.com', '0909999999', 7, NULL, NULL, 'no_show', 16800000.00, '2026-07-11 10:56:51', '2026-07-11 03:56:51'),
-(17, 14, 1, '2026-07-26', '2026-07-28', NULL, NULL, 0, NULL, NULL, 1000000.00, 'cancelled', NULL, NULL, NULL, 'Nguyễn Văn Minh', 'minhdz@gmail.com', '0123456789', 9, NULL, NULL, 'cancelled', 1000000.00, '2026-07-25 14:57:43', '2026-07-25 07:57:43'),
-(18, 14, 1, '2026-07-28', '2026-07-30', NULL, NULL, 0, NULL, NULL, 1000000.00, 'cancelled', NULL, NULL, NULL, 'Nguyễn Văn Minh', 'minhdz@gmail.com', '0123456789', 9, NULL, NULL, 'cancelled', 1000000.00, '2026-07-25 15:01:53', '2026-07-25 08:01:53'),
-(101, 12, 1, '2026-07-05', '2026-07-07', NULL, NULL, 0, NULL, NULL, 1200000.00, 'completed', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'checkout', 1200000.00, '2026-07-26 16:42:10', '2026-07-26 09:42:10'),
-(102, 12, 2, '2026-07-10', '2026-07-12', NULL, NULL, 0, NULL, NULL, 1800000.00, 'completed', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'checkout', 1800000.00, '2026-07-26 16:42:10', '2026-07-26 09:42:10'),
-(103, 12, 3, '2026-07-15', '2026-07-18', NULL, NULL, 0, NULL, NULL, 2700000.00, 'completed', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'checkout', 2700000.00, '2026-07-26 16:42:10', '2026-07-26 09:42:10'),
-(200, NULL, NULL, NULL, NULL, NULL, NULL, 0, NULL, NULL, 5700000.00, 'no_show', 'Booking test 2 phong khac loai - dung de kiem tra fan-out', NULL, NULL, 'Nguyen Van Test', 'test@example.com', '0900000000', 7, NULL, 'BK-TEST-200', 'no_show', 5700000.00, '2026-07-20 09:00:00', '2026-07-20 02:00:00'),
-(201, NULL, 5, NULL, NULL, NULL, NULL, 0, NULL, NULL, NULL, 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'BK201', 'confirmed', NULL, '2026-07-26 16:48:09', '2026-07-15 03:00:00'),
-(202, NULL, 6, NULL, NULL, NULL, NULL, 0, NULL, NULL, NULL, 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'BK202', 'confirmed', NULL, '2026-07-26 16:48:09', '2026-07-18 03:00:00'),
-(203, NULL, 7, NULL, NULL, NULL, NULL, 0, NULL, NULL, NULL, 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'BK203', 'confirmed', NULL, '2026-07-26 16:48:09', '2026-07-20 03:00:00'),
-(204, NULL, 8, NULL, NULL, NULL, NULL, 0, NULL, NULL, NULL, 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'BK204', 'confirmed', NULL, '2026-07-26 16:48:09', '2026-07-22 03:00:00'),
-(301, NULL, 9, NULL, NULL, NULL, NULL, 0, NULL, NULL, NULL, 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'BK301', 'confirmed', NULL, '2026-07-26 16:54:29', '2026-07-20 03:00:00'),
-(302, NULL, 13, NULL, NULL, NULL, NULL, 0, NULL, NULL, NULL, 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'BK302', 'confirmed', NULL, '2026-07-26 16:54:29', '2026-07-21 03:00:00'),
-(303, NULL, 17, NULL, NULL, NULL, NULL, 0, NULL, NULL, NULL, 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'BK303', 'confirmed', NULL, '2026-07-26 16:54:29', '2026-07-22 03:00:00'),
-(304, 14, 1, '2026-07-10', '2026-07-15', NULL, NULL, 0, NULL, NULL, 2500000.00, 'checked_out', NULL, NULL, NULL, 'Nguyễn Văn Minh', 'minhdz@gmail.com', '0123456789', 9, NULL, NULL, 'checked_out', 2500000.00, '2026-07-27 08:47:00', '2026-07-27 01:47:00'),
-(305, 14, 13, '2026-07-30', '2026-08-02', NULL, NULL, 0, NULL, NULL, 4200000.00, 'checked_out', NULL, NULL, NULL, 'minhdz', 'minhdz@gmail.com', '0123456789', 9, NULL, NULL, 'checked_out', 4700000.00, '2026-07-30 11:07:56', '2026-07-30 04:07:56'),
-(306, 14, 1, '2026-08-04', '2026-08-05', NULL, NULL, 0, NULL, NULL, 900000.00, 'cancelled', NULL, NULL, NULL, 'minhdz', 'minhdz@gmail.com', '0123456789', 9, NULL, NULL, 'cancelled', 900000.00, '2026-08-01 17:19:10', '2026-08-01 10:19:10'),
-(307, 14, 17, '2026-08-03', '2026-08-05', NULL, NULL, 0, NULL, NULL, 4000000.00, 'cancelled', NULL, 'vấn đề về sức khỏe', NULL, 'minhdz', 'minhdz@gmail.com', '01234567890', 9, NULL, NULL, 'cancelled', 4550000.00, '2026-08-02 11:39:31', '2026-08-02 04:39:31'),
-(308, 14, 13, '2026-08-02', '2026-08-04', NULL, NULL, 0, NULL, NULL, 2800000.00, 'checked_out', NULL, NULL, NULL, 'minhdz', 'minhdz@gmail.com', '01234567890', 9, NULL, NULL, 'checked_out', 3700000.00, '2026-08-02 11:40:38', '2026-08-02 04:40:38'),
-(309, 14, 9, '2026-08-02', '2026-08-03', NULL, NULL, 0, NULL, NULL, 900000.00, 'checked_out', NULL, NULL, NULL, 'minhdz', 'minhdz@gmail.com', '01234567890', 9, NULL, NULL, 'checked_out', 900000.00, '2026-08-02 12:33:52', '2026-08-02 05:33:52'),
-(310, 14, 1, '2026-08-11', '2026-08-12', NULL, NULL, 0, NULL, NULL, 500000.00, 'cancelled', NULL, NULL, NULL, 'minhdz', 'minhdz@gmail.com', '01234567890', 9, NULL, NULL, 'cancelled', 500000.00, '2026-08-09 10:05:23', '2026-08-09 03:05:23'),
-(311, 14, 5, '2026-08-09', '2026-08-10', NULL, NULL, 0, NULL, NULL, 700000.00, 'checked_in', NULL, NULL, NULL, 'minhdz', 'minhdz@gmail.com', '01234567890', 9, NULL, NULL, 'checked_in', 700000.00, '2026-08-09 11:21:12', '2026-08-09 04:21:12'),
-(312, 15, 5, '2026-08-10', '2026-08-11', NULL, NULL, 0, NULL, NULL, 700000.00, 'confirmed', NULL, NULL, NULL, 'minhdeptry', 'minhdeptry@gmail.com', '0123456789', 10, NULL, NULL, 'confirmed', 700000.00, '2026-08-09 11:24:50', '2026-08-09 04:24:50'),
-(313, 15, 6, '2026-08-10', '2026-08-11', NULL, '17:45:00', 0, '12:00:00', NULL, 700000.00, 'confirmed', NULL, NULL, NULL, 'minhdeptry', 'minhdeptry@gmail.com', '0123456789', 10, NULL, NULL, 'confirmed', 700000.00, '2026-08-09 13:28:40', '2026-08-09 06:28:40');
+INSERT INTO `bookings` (`id`, `user_id`, `room_id`, `check_in`, `check_out`, `actualCheckOutTime`, `requestedCheckInTime`, `requestedCheckInDayOffset`, `requestedCheckOutTime`, `actualCheckInTime`, `total_price`, `status`, `notes`, `extraGuestSnapshot`, `cancellation_reason`, `cancelInitiator`, `guest_name`, `guest_email`, `guest_phone`, `customerId`, `voucherId`, `bookingCode`, `bookingStatus`, `totalAmount`, `createdAt`, `created_at`) VALUES
+(1, NULL, NULL, NULL, NULL, NULL, NULL, 0, NULL, NULL, 900000.00, 'no_show', NULL, NULL, NULL, NULL, NULL, NULL, NULL, 1, 1, 'BK001', 'no_show', 900000.00, '2026-06-10 23:26:20', '2026-06-23 18:33:42'),
+(2, NULL, NULL, NULL, NULL, NULL, NULL, 0, NULL, NULL, 1350000.00, 'cancelled', NULL, NULL, NULL, NULL, NULL, NULL, NULL, 2, 2, 'BK002', 'cancelled', 1350000.00, '2026-06-10 23:26:20', '2026-06-23 18:33:42'),
+(3, NULL, NULL, NULL, NULL, NULL, NULL, 0, NULL, NULL, 2600000.00, 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, 3, 3, 'BK003', 'checkout', 2600000.00, '2026-06-10 23:26:20', '2026-06-23 18:33:42'),
+(4, NULL, NULL, NULL, NULL, NULL, NULL, 0, NULL, NULL, 1200000.00, 'cancelled', NULL, NULL, NULL, NULL, NULL, NULL, NULL, 4, NULL, 'BK004', 'cancelled', 1200000.00, '2026-06-10 23:26:20', '2026-06-23 18:33:42'),
+(5, NULL, NULL, NULL, NULL, NULL, NULL, 0, NULL, NULL, 1800000.00, 'no_show', NULL, NULL, NULL, NULL, NULL, NULL, NULL, 5, 1, 'BK005', 'no_show', 1800000.00, '2026-06-10 23:26:20', '2026-06-23 18:33:42'),
+(7, 12, 1, '2026-06-24', '2026-07-25', NULL, NULL, 0, NULL, NULL, 15500000.00, 'cancelled', NULL, NULL, NULL, NULL, 'Hà Phương Thúy', 'tranphuhuong1802@gmail.com', '0909999999', 7, NULL, NULL, 'cancelled', 15500000.00, '2026-06-24 01:37:20', '2026-06-23 18:37:20'),
+(8, 12, 3, '2026-06-24', '2026-07-22', NULL, NULL, 0, NULL, NULL, 14000000.00, 'cancelled', NULL, NULL, NULL, NULL, 'Hà Phương Thúy', 'tranphuhuong1802@gmail.com', '0909999999', 7, NULL, NULL, 'cancelled', 14000000.00, '2026-06-24 01:47:03', '2026-06-23 18:47:03'),
+(9, 12, 2, '2026-06-25', '2026-07-01', NULL, NULL, 0, NULL, NULL, 3000000.00, 'cancelled', NULL, NULL, NULL, NULL, 'Hà Phương Thúy', 'tranphuhuong1802@gmail.com', '0909999999', 7, NULL, NULL, 'cancelled', 3000000.00, '2026-06-24 01:52:06', '2026-06-23 18:52:06'),
+(10, 12, 8, '2026-06-25', '2026-07-01', NULL, NULL, 0, NULL, NULL, 4200000.00, 'cancelled', NULL, NULL, NULL, NULL, 'Minh Tài', 'tranphuhuong1802@gmail.com', '0909999999', 7, NULL, NULL, 'cancelled', 4200000.00, '2026-06-24 02:05:29', '2026-06-23 19:05:29'),
+(11, 12, 2, '2026-06-24', '2026-07-01', NULL, NULL, 0, NULL, NULL, 3500000.00, 'cancelled', NULL, NULL, NULL, NULL, 'Hà Phương Thúy', 'tranphuhuong1802@gmail.com', '0909999999', 7, NULL, NULL, 'cancelled', 3500000.00, '2026-06-24 02:33:25', '2026-06-23 19:33:25'),
+(12, 12, 1, '2026-06-24', '2026-07-01', NULL, NULL, 0, NULL, NULL, 3500000.00, 'cancelled', NULL, NULL, NULL, NULL, 'Hà Phương Thúy', 'tranphuhuong1802@gmail.com', '0909999999', 7, NULL, NULL, 'cancelled', 3500000.00, '2026-06-24 07:28:47', '2026-06-24 00:28:47'),
+(13, 12, 1, '2026-06-24', '2026-07-01', NULL, NULL, 0, NULL, NULL, 3500000.00, 'cancelled', NULL, NULL, NULL, NULL, 'Hà Phương Thúy', 'tranphuhuong1802@gmail.com', '0909999999', 7, NULL, NULL, 'cancelled', 3500000.00, '2026-06-24 14:52:37', '2026-06-24 07:52:37'),
+(14, 13, 4, '2026-06-24', '2026-07-31', NULL, NULL, 0, NULL, NULL, 18500000.00, 'cancelled', NULL, NULL, NULL, NULL, 'dsfsdfsdf', 'hieumon482@gmail.com', '0349154051', 8, NULL, NULL, 'cancelled', 18500000.00, '2026-06-24 15:20:24', '2026-06-24 08:20:24'),
+(16, 12, 5, '2026-07-11', '2026-08-04', NULL, NULL, 0, NULL, NULL, 16800000.00, 'no_show', NULL, NULL, NULL, NULL, 'Hà Phương Thúy', 'tranphuhuong1802@gmail.com', '0909999999', 7, NULL, NULL, 'no_show', 16800000.00, '2026-07-11 10:56:51', '2026-07-11 03:56:51'),
+(17, 14, 1, '2026-07-26', '2026-07-28', NULL, NULL, 0, NULL, NULL, 1000000.00, 'cancelled', NULL, NULL, NULL, NULL, 'Nguyễn Văn Minh', 'minhdz@gmail.com', '0123456789', 9, NULL, NULL, 'cancelled', 1000000.00, '2026-07-25 14:57:43', '2026-07-25 07:57:43'),
+(18, 14, 1, '2026-07-28', '2026-07-30', NULL, NULL, 0, NULL, NULL, 1000000.00, 'cancelled', NULL, NULL, NULL, NULL, 'Nguyễn Văn Minh', 'minhdz@gmail.com', '0123456789', 9, NULL, NULL, 'cancelled', 1000000.00, '2026-07-25 15:01:53', '2026-07-25 08:01:53'),
+(101, 12, 1, '2026-07-05', '2026-07-07', NULL, NULL, 0, NULL, NULL, 1200000.00, 'completed', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'checkout', 1200000.00, '2026-07-26 16:42:10', '2026-07-26 09:42:10'),
+(102, 12, 2, '2026-07-10', '2026-07-12', NULL, NULL, 0, NULL, NULL, 1800000.00, 'completed', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'checkout', 1800000.00, '2026-07-26 16:42:10', '2026-07-26 09:42:10'),
+(103, 12, 3, '2026-07-15', '2026-07-18', NULL, NULL, 0, NULL, NULL, 2700000.00, 'completed', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'checkout', 2700000.00, '2026-07-26 16:42:10', '2026-07-26 09:42:10'),
+(200, NULL, NULL, NULL, NULL, NULL, NULL, 0, NULL, NULL, 5700000.00, 'no_show', 'Booking test 2 phong khac loai - dung de kiem tra fan-out', NULL, NULL, NULL, 'Nguyen Van Test', 'test@example.com', '0900000000', 7, NULL, 'BK-TEST-200', 'no_show', 5700000.00, '2026-07-20 09:00:00', '2026-07-20 02:00:00'),
+(201, NULL, 5, NULL, NULL, NULL, NULL, 0, NULL, NULL, NULL, 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'BK201', 'confirmed', NULL, '2026-07-26 16:48:09', '2026-07-15 03:00:00'),
+(202, NULL, 6, NULL, NULL, NULL, NULL, 0, NULL, NULL, NULL, 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'BK202', 'confirmed', NULL, '2026-07-26 16:48:09', '2026-07-18 03:00:00'),
+(203, NULL, 7, NULL, NULL, NULL, NULL, 0, NULL, NULL, NULL, 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'BK203', 'confirmed', NULL, '2026-07-26 16:48:09', '2026-07-20 03:00:00'),
+(204, NULL, 8, NULL, NULL, NULL, NULL, 0, NULL, NULL, NULL, 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'BK204', 'confirmed', NULL, '2026-07-26 16:48:09', '2026-07-22 03:00:00'),
+(301, NULL, 9, NULL, NULL, NULL, NULL, 0, NULL, NULL, NULL, 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'BK301', 'confirmed', NULL, '2026-07-26 16:54:29', '2026-07-20 03:00:00'),
+(302, NULL, 13, NULL, NULL, NULL, NULL, 0, NULL, NULL, NULL, 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'BK302', 'confirmed', NULL, '2026-07-26 16:54:29', '2026-07-21 03:00:00'),
+(303, NULL, 17, NULL, NULL, NULL, NULL, 0, NULL, NULL, NULL, 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'BK303', 'confirmed', NULL, '2026-07-26 16:54:29', '2026-07-22 03:00:00'),
+(304, 14, 1, '2026-07-10', '2026-07-15', NULL, NULL, 0, NULL, NULL, 2500000.00, 'checked_out', NULL, NULL, NULL, NULL, 'Nguyễn Văn Minh', 'minhdz@gmail.com', '0123456789', 9, NULL, NULL, 'checked_out', 2500000.00, '2026-07-27 08:47:00', '2026-07-27 01:47:00'),
+(305, 14, 13, '2026-07-30', '2026-08-02', NULL, NULL, 0, NULL, NULL, 4200000.00, 'checked_out', NULL, NULL, NULL, NULL, 'minhdz', 'minhdz@gmail.com', '0123456789', 9, NULL, NULL, 'checked_out', 4700000.00, '2026-07-30 11:07:56', '2026-07-30 04:07:56'),
+(306, 14, 1, '2026-08-04', '2026-08-05', NULL, NULL, 0, NULL, NULL, 900000.00, 'cancelled', NULL, NULL, NULL, NULL, 'minhdz', 'minhdz@gmail.com', '0123456789', 9, NULL, NULL, 'cancelled', 900000.00, '2026-08-01 17:19:10', '2026-08-01 10:19:10'),
+(307, 14, 17, '2026-08-03', '2026-08-05', NULL, NULL, 0, NULL, NULL, 4000000.00, 'cancelled', NULL, NULL, 'vấn đề về sức khỏe', NULL, 'minhdz', 'minhdz@gmail.com', '01234567890', 9, NULL, NULL, 'cancelled', 4550000.00, '2026-08-02 11:39:31', '2026-08-02 04:39:31'),
+(308, 14, 13, '2026-08-02', '2026-08-04', NULL, NULL, 0, NULL, NULL, 2800000.00, 'checked_out', NULL, NULL, NULL, NULL, 'minhdz', 'minhdz@gmail.com', '01234567890', 9, NULL, NULL, 'checked_out', 3700000.00, '2026-08-02 11:40:38', '2026-08-02 04:40:38'),
+(309, 14, 9, '2026-08-02', '2026-08-03', NULL, NULL, 0, NULL, NULL, 900000.00, 'checked_out', NULL, NULL, NULL, NULL, 'minhdz', 'minhdz@gmail.com', '01234567890', 9, NULL, NULL, 'checked_out', 900000.00, '2026-08-02 12:33:52', '2026-08-02 05:33:52'),
+(310, 14, 1, '2026-08-11', '2026-08-12', NULL, NULL, 0, NULL, NULL, 500000.00, 'cancelled', NULL, NULL, NULL, NULL, 'minhdz', 'minhdz@gmail.com', '01234567890', 9, NULL, NULL, 'cancelled', 500000.00, '2026-08-09 10:05:23', '2026-08-09 03:05:23'),
+(311, 14, 5, '2026-08-09', '2026-08-10', NULL, NULL, 0, NULL, NULL, 700000.00, 'checked_in', NULL, NULL, NULL, NULL, 'minhdz', 'minhdz@gmail.com', '01234567890', 9, NULL, NULL, 'checked_in', 700000.00, '2026-08-09 11:21:12', '2026-08-09 04:21:12'),
+(312, 15, 5, '2026-08-10', '2026-08-11', NULL, NULL, 0, NULL, NULL, 700000.00, 'confirmed', NULL, NULL, NULL, NULL, 'minhdeptry', 'minhdeptry@gmail.com', '0123456789', 10, NULL, NULL, 'confirmed', 700000.00, '2026-08-09 11:24:50', '2026-08-09 04:24:50'),
+(313, 15, 6, '2026-08-10', '2026-08-11', NULL, '17:45:00', 0, '12:00:00', NULL, 700000.00, 'confirmed', NULL, NULL, NULL, NULL, 'minhdeptry', 'minhdeptry@gmail.com', '0123456789', 10, NULL, NULL, 'confirmed', 700000.00, '2026-08-09 13:28:40', '2026-08-09 06:28:40'),
+(314, 1, 1, '2026-09-01', '2026-09-03', NULL, NULL, 0, NULL, NULL, 2000000.00, 'confirmed', NULL, '{\"adults\": 3, \"nights\": 2, \"children\": 1, \"extraAdults\": 0, \"childrenAges\": [7], \"maxOccupancy\": 3, \"roomQuantity\": 2, \"adultCapacity\": 2, \"childCapacity\": 1, \"extraAdultFee\": 200000, \"extraChildFee\": 100000, \"extraChildren\": 0, \"effectiveAdults\": 3, \"extraAdultAmount\": 0, \"extraChildAmount\": 0, \"effectiveChildren\": 1, \"totalMaxOccupancy\": 6, \"totalAdultCapacity\": 4, \"totalChildCapacity\": 2, \"totalExtraGuestFee\": 0}', NULL, NULL, NULL, NULL, NULL, 6, NULL, NULL, 'confirmed', 2000000.00, '2026-08-10 14:39:47', '2026-08-10 07:39:47');
 
 -- --------------------------------------------------------
 
@@ -256,7 +257,9 @@ INSERT INTO `booking_details` (`id`, `bookingId`, `roomId`, `checkInDate`, `chec
 (208, 310, 1, '2026-08-11', '2026-08-12', NULL, NULL, 0, 2, 0, 5000.00, 0.00),
 (209, 311, 5, '2026-08-09', '2026-08-10', NULL, NULL, 0, 2, 0, 700000.00, 0.00),
 (210, 312, 5, '2026-08-10', '2026-08-11', NULL, NULL, 0, 2, 0, 700000.00, 0.00),
-(211, 313, 6, '2026-08-10', '2026-08-11', '17:45:00', '12:00:00', 0, 2, 0, 700000.00, 0.00);
+(211, 313, 6, '2026-08-10', '2026-08-11', '17:45:00', '12:00:00', 0, 2, 0, 700000.00, 0.00),
+(212, 314, 1, '2026-09-01', '2026-09-03', NULL, NULL, 0, 2, 0, 500000.00, 0.00),
+(213, 314, 2, '2026-09-01', '2026-09-03', NULL, NULL, 0, 1, 1, 500000.00, 0.00);
 
 -- --------------------------------------------------------
 
@@ -333,7 +336,8 @@ INSERT INTO `booking_history` (`id`, `bookingId`, `action`, `description`, `oldV
 (22, 1, 'no_show', 'Khách đã thanh toán 100% nhưng không đến trong suốt thời gian đặt phòng (đã qua thời gian checkout). Đặt phòng được chuyển sang No-show.', '{\"status\":\"pending\"}', '{\"status\":\"no_show\"}', NULL, NULL, NULL, 'system', '2026-08-10 13:27:04'),
 (23, 5, 'no_show', 'Khách đã thanh toán 100% nhưng không đến trong suốt thời gian đặt phòng (đã qua thời gian checkout). Đặt phòng được chuyển sang No-show.', '{\"status\":\"pending\"}', '{\"status\":\"no_show\"}', NULL, NULL, NULL, 'system', '2026-08-10 13:27:04'),
 (24, 200, 'no_show', 'Khách đã thanh toán 100% nhưng không đến trong suốt thời gian đặt phòng (đã qua thời gian checkout). Đặt phòng được chuyển sang No-show.', '{\"status\":\"pending\"}', '{\"status\":\"no_show\"}', NULL, NULL, NULL, 'system', '2026-08-10 13:27:04'),
-(25, 200, 'no_show', 'Khách đã thanh toán 100% nhưng không đến trong suốt thời gian đặt phòng (đã qua thời gian checkout). Đặt phòng được chuyển sang No-show.', '{\"status\":\"pending\"}', '{\"status\":\"no_show\"}', NULL, NULL, NULL, 'system', '2026-08-10 13:27:04');
+(25, 200, 'no_show', 'Khách đã thanh toán 100% nhưng không đến trong suốt thời gian đặt phòng (đã qua thời gian checkout). Đặt phòng được chuyển sang No-show.', '{\"status\":\"pending\"}', '{\"status\":\"no_show\"}', NULL, NULL, NULL, 'system', '2026-08-10 13:27:04'),
+(26, 314, 'created', 'Tạo đặt phòng phòng 101 từ 01/09/2026 đến 03/09/2026 (2 đêm), tổng tiền 2.000.000₫', NULL, '{\"roomId\":1,\"checkIn\":\"2026-09-01\",\"checkOut\":\"2026-09-03\",\"totalPrice\":2000000}', 2000000.00, NULL, NULL, 'system', '2026-08-10 14:39:47');
 
 -- --------------------------------------------------------
 
@@ -375,7 +379,9 @@ INSERT INTO `booking_nightly_prices` (`id`, `bookingId`, `stayDate`, `price`, `c
 (2, 310, '2026-08-11', 500000.00, '2026-08-09 10:05:23'),
 (3, 311, '2026-08-09', 700000.00, '2026-08-09 11:21:12'),
 (4, 312, '2026-08-10', 700000.00, '2026-08-09 11:24:50'),
-(5, 313, '2026-08-10', 700000.00, '2026-08-09 13:28:40');
+(5, 313, '2026-08-10', 700000.00, '2026-08-09 13:28:40'),
+(6, 314, '2026-09-01', 500000.00, '2026-08-10 14:39:47'),
+(7, 314, '2026-09-02', 500000.00, '2026-08-10 14:39:47');
 
 -- --------------------------------------------------------
 
@@ -1034,11 +1040,11 @@ CREATE TABLE `room_types` (
 --
 
 INSERT INTO `room_types` (`id`, `typeName`, `description`, `capacity`, `adultCapacity`, `childCapacity`, `maxOccupancy`, `extraAdultFee`, `extraChildFee`, `defaultPrice`, `status`, `isDeleted`) VALUES
-(1, 'Standard', 'Phong tieu chuan', 2, 2, 0, 3, 200000.00, 100000.00, 500000.00, 'active', 0),
+(1, 'Standard', 'Phong tieu chuan', 2, 2, 1, 3, 200000.00, 100000.00, 500000.00, 'active', 0),
 (2, 'Superior', 'Phong superior', 2, 2, 1, 4, 200000.00, 100000.00, 700000.00, 'active', 0),
 (3, 'Deluxe', 'Phong deluxe', 3, 2, 1, 4, 250000.00, 120000.00, 900000.00, 'active', 0),
-(4, 'Family', 'Phong gia dinh', 4, 4, 2, 6, 300000.00, 150000.00, 1200000.00, 'active', 0),
-(5, 'Suite', 'Phong tong thong', 4, 4, 2, 6, 400000.00, 200000.00, 2000000.00, 'active', 0);
+(4, 'Family', 'Phong gia dinh', 4, 2, 2, 5, 300000.00, 150000.00, 1200000.00, 'active', 0),
+(5, 'Suite', 'Phong tong thong', 4, 2, 2, 5, 400000.00, 200000.00, 2000000.00, 'active', 0);
 
 -- --------------------------------------------------------
 
@@ -1474,7 +1480,7 @@ ALTER TABLE `amenities`
 -- AUTO_INCREMENT for table `bookings`
 --
 ALTER TABLE `bookings`
-  MODIFY `id` int NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=314;
+  MODIFY `id` int NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=316;
 
 --
 -- AUTO_INCREMENT for table `booking_damage_charges`
@@ -1486,7 +1492,7 @@ ALTER TABLE `booking_damage_charges`
 -- AUTO_INCREMENT for table `booking_details`
 --
 ALTER TABLE `booking_details`
-  MODIFY `id` int NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=212;
+  MODIFY `id` int NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=216;
 
 --
 -- AUTO_INCREMENT for table `booking_guests`
@@ -1498,7 +1504,7 @@ ALTER TABLE `booking_guests`
 -- AUTO_INCREMENT for table `booking_history`
 --
 ALTER TABLE `booking_history`
-  MODIFY `id` int NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=26;
+  MODIFY `id` int NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=28;
 
 --
 -- AUTO_INCREMENT for table `booking_late_checkout_charges`
@@ -1510,7 +1516,7 @@ ALTER TABLE `booking_late_checkout_charges`
 -- AUTO_INCREMENT for table `booking_nightly_prices`
 --
 ALTER TABLE `booking_nightly_prices`
-  MODIFY `id` int NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
+  MODIFY `id` int NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=10;
 
 --
 -- AUTO_INCREMENT for table `booking_room_transfers`
@@ -1570,7 +1576,7 @@ ALTER TABLE `notifications`
 -- AUTO_INCREMENT for table `payments`
 --
 ALTER TABLE `payments`
-  MODIFY `id` int NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=210;
+  MODIFY `id` int NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=212;
 
 --
 -- AUTO_INCREMENT for table `payment_confirmation_requests`
@@ -1827,3 +1833,7 @@ ALTER TABLE `room_type_amenities`
 ALTER TABLE `wallet_transactions`
   ADD CONSTRAINT `wallet_transactions_ibfk_1` FOREIGN KEY (`customerId`) REFERENCES `customers` (`id`) ON DELETE CASCADE;
 COMMIT;
+
+/*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
+/*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
+/*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
