@@ -277,6 +277,31 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
   const remainingAmount = Number(mainPayment?.remainingAmount || 0);
   const discountAmount = Number(mainPayment?.discountAmount || 0);
 
+  const getBookingDisplayTag = (b: any) => {
+    if (!b) return { label: '—', color: 'default' };
+    const normStatus = String(b.status || 'pending').toLowerCase();
+    if (
+      ['pending', 'confirmed'].includes(normStatus) &&
+      !b.actual_check_in_time &&
+      b.check_in
+    ) {
+      const checkInStr = dayjs(b.check_in).format('YYYY-MM-DD');
+      const reqTime = b.requested_check_in_time || '14:00:00';
+      const offset = Number(b.requested_check_in_day_offset || 0);
+      const requestedDateTime = dayjs(`${checkInStr} ${reqTime}`).add(offset, 'day');
+      const lateDeadline = requestedDateTime.add(6, 'hour');
+      const now = dayjs();
+
+      if (now.isAfter(requestedDateTime) && (now.isBefore(lateDeadline) || now.isSame(lateDeadline))) {
+        return { label: 'Check-in muộn', color: 'orange' };
+      }
+    }
+    return {
+      label: statusText[normStatus] || normStatus,
+      color: statusColor[normStatus] || 'default'
+    };
+  };
+
   const overviewTab = detail && (
     <>
       <Descriptions bordered size="small" column={2} style={{ marginBottom: 16 }} title="Thông tin khách và phòng">
@@ -285,7 +310,10 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
           {detail.booking_code ? ` (${detail.booking_code})` : ''}
         </Descriptions.Item>
         <Descriptions.Item label="Trạng thái">
-          <Tag color={statusColor[detail.status] || 'default'}>{statusText[detail.status] || detail.status}</Tag>
+          {(() => {
+            const tag = getBookingDisplayTag(detail);
+            return <Tag color={tag.color}>{tag.label}</Tag>;
+          })()}
         </Descriptions.Item>
         <Descriptions.Item label="Khách hàng">{detail.customer_name || '—'}</Descriptions.Item>
         <Descriptions.Item label="Số điện thoại">{detail.customer_phone || '—'}</Descriptions.Item>
@@ -299,6 +327,11 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
           {detail.room_capacity ? `${detail.room_capacity} khách` : '—'}
         </Descriptions.Item>
         <Descriptions.Item label="Ngày nhận phòng">{day(detail.check_in)}</Descriptions.Item>
+        <Descriptions.Item label="Giờ check-in dự kiến">
+          {detail.requested_check_in_time
+            ? `${String(detail.requested_check_in_time).slice(0, 5)}${Number(detail.requested_check_in_day_offset || 0) === 1 ? ' (ngày hôm sau)' : ''}`
+            : '14:00 (Chuẩn)'}
+        </Descriptions.Item>
         <Descriptions.Item label="Ngày trả phòng">{day(detail.check_out)}</Descriptions.Item>
         <Descriptions.Item label="Số đêm lưu trú">{nights} đêm</Descriptions.Item>
         <Descriptions.Item label="Số khách">

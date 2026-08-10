@@ -120,3 +120,16 @@ export const checkIn = async (
 export const checkOut = async (id: number, actualCheckOutTime?: string) => {
   return api.patch(`/bookings/${id}/check-out`, { actualCheckOutTime });
 };
+
+export const updateRequestedArrivalTime = async (
+  id: number,
+  requestedCheckInTime: string,
+  dayOffset: number = 0,
+  notes?: string
+) => {
+  return api.patch(`/bookings/${id}/arrival-time`, {
+    requestedCheckInTime,
+    dayOffset,
+    notes
+  });
+};

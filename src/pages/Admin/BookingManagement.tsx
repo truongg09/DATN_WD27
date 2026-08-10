@@ -39,6 +39,8 @@ interface Booking {
   notes?: string | null;
   created_at: string | null;
   requested_check_in_time?: string | null;
+  requested_check_in_day_offset?: number | null;
+  actual_check_in_time?: string | null;
 }
 
 interface ServiceItem {
@@ -61,7 +63,7 @@ const statusText: Record<string, string> = {
   pending: 'Chờ xác nhận',
   confirmed: 'Đã xác nhận',
   checked_in: 'Đã check-in',
-  checked_out: 'Đã check-out',
+  checked_out: 'Đã trả phòng',
   cancelled: 'Đã hủy',
   no_show: 'Không đến (No-show)',
 };
@@ -81,6 +83,30 @@ const normalizeStatus = (status: string | null) => {
   if (['checkin', 'check_in', 'checkedin'].includes(value)) return 'checked_in';
   if (['no-show', 'noshow'].includes(value)) return 'no_show';
   return value || 'pending';
+};
+
+const getBookingDisplayTag = (booking: Booking) => {
+  const normStatus = normalizeStatus(booking.status);
+  if (
+    ['pending', 'confirmed'].includes(normStatus) &&
+    !booking.actual_check_in_time &&
+    booking.check_in
+  ) {
+    const checkInStr = dayjs(booking.check_in).format('YYYY-MM-DD');
+    const reqTime = booking.requested_check_in_time || '14:00:00';
+    const offset = Number(booking.requested_check_in_day_offset || 0);
+    const requestedDateTime = dayjs(`${checkInStr} ${reqTime}`).add(offset, 'day');
+    const lateDeadline = requestedDateTime.add(6, 'hour');
+    const now = dayjs();
+
+    if (now.isAfter(requestedDateTime) && (now.isBefore(lateDeadline) || now.isSame(lateDeadline))) {
+      return { label: 'Check-in muộn', color: 'orange' };
+    }
+  }
+  return {
+    label: statusText[normStatus] || normStatus,
+    color: statusColor[normStatus] || 'default'
+  };
 };
 
 const formatDate = (date?: string | null) => {
@@ -731,7 +757,10 @@ const handleCheckIn = (booking: Booking) => {
                     <td style={tdStyle}>{booking.adults ?? 0} người lớn, {booking.children ?? 0} trẻ em</td>
                     <td style={tdStyle}>{formatPrice(booking.payable_total ?? booking.total_price)}</td>
                     <td style={tdStyle}>
-                      <Tag color={statusColor[booking.status] || 'default'}>{statusText[booking.status] || booking.status}</Tag>
+                      {(() => {
+                        const tag = getBookingDisplayTag(booking);
+                        return <Tag color={tag.color}>{tag.label}</Tag>;
+                      })()}
                     </td>
                     <td style={tdStyle}>
                       <Space size="small" wrap>

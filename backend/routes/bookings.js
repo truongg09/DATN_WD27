@@ -28,7 +28,8 @@ router.patch('/:id/update-stay', requireAuth, bookingController.updateStay);
 router.patch('/:id/transfer-room', requireAuth, requireStaff, bookingController.transferRoom);
 router.patch('/:id/check-in', requireAuth, requireStaff, bookingController.checkIn);
 router.patch('/:id/check-out', requireAuth, requireStaff, bookingController.checkOut);
-router.patch('/:id/no-show', requireAuth, requireStaff, bookingController.markNoShow);
+router.patch('/:id/arrival-time', requireAuth, bookingController.updateArrivalTime);
+router.post('/process-overdue', requireAuth, bookingController.processOverdue);
 router.patch('/:id/reassign-room', requireAuth, requireStaff, bookingController.reassignRoom);
 
 module.exports = router;

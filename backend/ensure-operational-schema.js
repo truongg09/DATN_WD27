@@ -54,6 +54,11 @@ const ensureOperationalSchema = async () => {
       'ALTER TABLE bookings ADD COLUMN actualCheckInTime DATETIME NULL DEFAULT NULL AFTER requestedCheckOutTime'
     );
   }
+  if (!bookingColumns.some((column) => column.Field === 'requestedCheckInDayOffset')) {
+    await db.query(
+      'ALTER TABLE bookings ADD COLUMN requestedCheckInDayOffset INT NOT NULL DEFAULT 0 AFTER requestedCheckInTime'
+    );
+  }
 
   await db.query(
     `UPDATE vouchers SET discountType = 'percentage' WHERE discountType = 'percent'`
@@ -158,6 +163,11 @@ const ensureOperationalSchema = async () => {
     if (!bookingDetailColumns.some((column) => column.Field === 'requestedCheckOutTime')) {
       await db.query(
         'ALTER TABLE booking_details ADD COLUMN requestedCheckOutTime TIME NULL DEFAULT NULL AFTER requestedCheckInTime'
+      );
+    }
+    if (!bookingDetailColumns.some((column) => column.Field === 'requestedCheckInDayOffset')) {
+      await db.query(
+        'ALTER TABLE booking_details ADD COLUMN requestedCheckInDayOffset INT NOT NULL DEFAULT 0 AFTER requestedCheckOutTime'
       );
     }
   }
