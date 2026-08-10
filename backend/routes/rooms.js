@@ -34,6 +34,11 @@ const ROOM_SELECT = `
     rt.defaultPrice AS price_per_night,
     rt.defaultPrice AS defaultPrice,
     rt.capacity,
+    rt.adultCapacity,
+    rt.childCapacity,
+    rt.maxOccupancy,
+    rt.extraAdultFee,
+    rt.extraChildFee,
     rt.description AS room_type_description,
     rt.description AS description
   FROM rooms r 
@@ -145,13 +150,58 @@ router.get('/types/:id', async (req, res) => {
   }
 });
 
+const validateCapacityFields = (body) => {
+  const adultCap = Number(body.adultCapacity);
+  const childCap = Number(body.childCapacity);
+  const maxOcc = Number(body.maxOccupancy);
+  const exAdultFee = Number(body.extraAdultFee);
+  const exChildFee = Number(body.extraChildFee);
+
+  if (!Number.isInteger(adultCap) || adultCap < 1) {
+    return 'Sức chứa người lớn tiêu chuẩn (adultCapacity) phải là số nguyên lớn hơn hoặc bằng 1';
+  }
+  if (!Number.isInteger(childCap) || childCap < 0) {
+    return 'Sức chứa trẻ em tiêu chuẩn (childCapacity) phải là số nguyên lớn hơn hoặc bằng 0';
+  }
+  if (!Number.isInteger(maxOcc) || maxOcc < (adultCap + childCap)) {
+    return `Tổng sức chứa tối đa (${maxOcc}) phải lớn hơn hoặc bằng sức chứa tiêu chuẩn (${adultCap + childCap})`;
+  }
+  if (!Number.isFinite(exAdultFee) || exAdultFee < 0) {
+    return 'Đơn giá phụ thu người lớn (extraAdultFee) phải lớn hơn hoặc bằng 0';
+  }
+  if (!Number.isFinite(exChildFee) || exChildFee < 0) {
+    return 'Đơn giá phụ thu trẻ em (extraChildFee) phải lớn hơn hoặc bằng 0';
+  }
+  return null;
+};
+
 // Create new room type
 router.post('/types', requireAuth, requireStaff, async (req, res) => {
   try {
-    const { typeName, capacity, defaultPrice, description, status, amenityIds } = req.body;
+    const { typeName, defaultPrice, description, status, amenityIds } = req.body;
+
+    const adultCap = req.body.adultCapacity !== undefined ? Number(req.body.adultCapacity) : 2;
+    const childCap = req.body.childCapacity !== undefined ? Number(req.body.childCapacity) : 1;
+    const maxOcc = req.body.maxOccupancy !== undefined ? Number(req.body.maxOccupancy) : (adultCap + childCap);
+    const exAdultFee = req.body.extraAdultFee !== undefined ? Number(req.body.extraAdultFee) : 200000;
+    const exChildFee = req.body.extraChildFee !== undefined ? Number(req.body.extraChildFee) : 100000;
+    const cap = req.body.capacity !== undefined ? Number(req.body.capacity) : maxOcc;
+
+    const validationError = validateCapacityFields({
+      adultCapacity: adultCap,
+      childCapacity: childCap,
+      maxOccupancy: maxOcc,
+      extraAdultFee: exAdultFee,
+      extraChildFee: exChildFee
+    });
+    if (validationError) {
+      return res.status(400).json({ message: validationError });
+    }
+
     const [result] = await db.query(
-      'INSERT INTO room_types (typeName, capacity, defaultPrice, description, status) VALUES (?, ?, ?, ?, ?)',
-      [typeName, capacity, defaultPrice, description, status || 'active']
+      `INSERT INTO room_types (typeName, capacity, adultCapacity, childCapacity, maxOccupancy, extraAdultFee, extraChildFee, defaultPrice, description, status) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [typeName, cap, adultCap, childCap, maxOcc, exAdultFee, exChildFee, defaultPrice, description, status || 'active']
     );
 
     // Save amenities
@@ -171,10 +221,31 @@ router.post('/types', requireAuth, requireStaff, async (req, res) => {
 router.put('/types/:id', requireAuth, requireStaff, async (req, res) => {
   try {
     const { id } = req.params;
-    const { typeName, capacity, defaultPrice, description, status, amenityIds } = req.body;
+    const { typeName, defaultPrice, description, status, amenityIds } = req.body;
+
+    const adultCap = req.body.adultCapacity !== undefined ? Number(req.body.adultCapacity) : 2;
+    const childCap = req.body.childCapacity !== undefined ? Number(req.body.childCapacity) : 1;
+    const maxOcc = req.body.maxOccupancy !== undefined ? Number(req.body.maxOccupancy) : (adultCap + childCap);
+    const exAdultFee = req.body.extraAdultFee !== undefined ? Number(req.body.extraAdultFee) : 200000;
+    const exChildFee = req.body.extraChildFee !== undefined ? Number(req.body.extraChildFee) : 100000;
+    const cap = req.body.capacity !== undefined ? Number(req.body.capacity) : maxOcc;
+
+    const validationError = validateCapacityFields({
+      adultCapacity: adultCap,
+      childCapacity: childCap,
+      maxOccupancy: maxOcc,
+      extraAdultFee: exAdultFee,
+      extraChildFee: exChildFee
+    });
+    if (validationError) {
+      return res.status(400).json({ message: validationError });
+    }
+
     await db.query(
-      'UPDATE room_types SET typeName = ?, capacity = ?, defaultPrice = ?, description = ?, status = ? WHERE id = ?',
-      [typeName, capacity, defaultPrice, description, status, id]
+      `UPDATE room_types 
+       SET typeName = ?, capacity = ?, adultCapacity = ?, childCapacity = ?, maxOccupancy = ?, extraAdultFee = ?, extraChildFee = ?, defaultPrice = ?, description = ?, status = ? 
+       WHERE id = ?`,
+      [typeName, cap, adultCap, childCap, maxOcc, exAdultFee, exChildFee, defaultPrice, description, status, id]
     );
 
     // Update amenities
@@ -222,7 +293,7 @@ router.get('/:id', async (req, res) => {
     const [rooms] = await db.query(`
       SELECT r.id, r.roomNumber, r.floor, r.area, r.status, r.roomTypeId,
              rt.typeName as room_type_name, rt.description as room_type_description, 
-             rt.capacity, rt.defaultPrice as price_per_night,
+             rt.capacity, rt.adultCapacity, rt.childCapacity, rt.maxOccupancy, rt.extraAdultFee, rt.extraChildFee, rt.defaultPrice as price_per_night,
              (SELECT imageUrl FROM room_images WHERE roomTypeId = rt.id LIMIT 1) AS imageUrl
       FROM rooms r
       JOIN room_types rt ON r.roomTypeId = rt.id

@@ -9,6 +9,11 @@ const TYPE_SELECT = `
     rt.typeName,
     rt.description,
     rt.capacity,
+    rt.adultCapacity,
+    rt.childCapacity,
+    rt.maxOccupancy,
+    rt.extraAdultFee,
+    rt.extraChildFee,
     rt.defaultPrice,
     COUNT(r.id) AS totalRooms,
     MIN(r.area) AS minArea,
@@ -65,11 +70,19 @@ const loadTypeExtras = async (roomTypeIds) => {
 
 const buildTypeEntry = (type, extras) => {
   const rating = extras.ratingsByType.get(Number(type.id));
+  const adultCap = Number(type.adultCapacity ?? 2);
+  const childCap = Number(type.childCapacity ?? 1);
+  const maxOcc = Number(type.maxOccupancy ?? (type.capacity || (adultCap + childCap)));
   return {
     id: type.id,
     typeName: type.typeName,
     description: type.description,
-    capacity: Number(type.capacity || 0),
+    capacity: Number(type.capacity || maxOcc),
+    adultCapacity: adultCap,
+    childCapacity: childCap,
+    maxOccupancy: maxOcc,
+    extraAdultFee: Number(type.extraAdultFee || 0),
+    extraChildFee: Number(type.extraChildFee || 0),
     defaultPrice: Number(type.defaultPrice || 0),
     totalRooms: Number(type.totalRooms || 0),
     minArea: type.minArea === null ? null : Number(type.minArea),
@@ -100,7 +113,7 @@ const searchRoomTypes = async ({ checkIn, checkOut, guests } = {}) => {
   const result = [];
   for (const type of types) {
     const entry = buildTypeEntry(type, extras);
-    entry.fitsGuests = guestCount <= 0 || entry.capacity >= guestCount;
+    entry.fitsGuests = guestCount <= 0 || (entry.maxOccupancy || entry.capacity) >= guestCount;
 
     if (availabilityByType) {
       const availability = availabilityByType.get(Number(type.id));
