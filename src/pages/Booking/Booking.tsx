@@ -28,7 +28,6 @@ import {
 import { useAuth } from "../../contexts/AuthContext";
 import {
   checkAvailability,
-  checkTypeAvailability,
   createBooking,
   getBookings,
 } from "../../services/bookingService";
@@ -62,15 +61,20 @@ interface BookingFormData {
   adults: number;
   children: number;
   specialRequests: string;
-  // Giờ khách MONG MUỐN nhận/trả phòng (tùy chọn) - chỉ để lễ tân chủ động
-  // chuẩn bị, không ảnh hưởng đến giờ chuẩn 14:00/12:00 hay việc tính phí.
   requestedCheckInTime: string | null;
   requestedCheckOutTime: string | null;
 }
 
+interface RoomTypeOption {
+  id: number;
+  typeName: string;
+  defaultPrice?: number | string;
+  adultCapacity?: number;
+  childCapacity?: number;
+  maxOccupancy?: number;
+}
+
 interface SelectedRoom {
-  // mode 'type': khách đặt theo hạng phòng, hệ thống tự xếp phòng (luồng chính).
-  // mode 'room': đặt đích danh một phòng (luồng cũ ?id=, dành cho lễ tân/link cũ).
   mode: "type" | "room";
   id: number | null;
   roomTypeId: number;
@@ -80,6 +84,11 @@ interface SelectedRoom {
   beds: string;
   area: string;
   capacity: number;
+  adultCapacity?: number;
+  childCapacity?: number;
+  maxOccupancy?: number;
+  extraAdultFee?: number;
+  extraChildFee?: number;
   status: string;
   roomNumber?: string;
   availableRooms?: number;
@@ -116,45 +125,6 @@ interface DateAvailability {
   totalAmount?: number;
 }
 
-interface RoomTypeOption {
-  id: number;
-  typeName?: string;
-  room_type_name?: string;
-  defaultPrice?: number | string;
-  price_per_night?: number | string;
-  capacity?: number | string;
-}
-
-interface MultiRoomRequest {
-  roomTypeId: number;
-  quantity: number;
-}
-
-interface TypeAvailabilityRequested {
-  roomTypeId: number;
-  roomTypeName: string;
-  requestedQuantity: number;
-  availableRooms: number;
-  canBookQuantity: number;
-  shortage: number;
-  enough: boolean;
-}
-
-interface TypeAvailabilitySuggestion {
-  roomTypeId: number;
-  roomTypeName: string;
-  availableRooms: number;
-  pricePerNight: number;
-  capacity: number;
-}
-
-interface TypeAvailabilityResult {
-  available: boolean;
-  message: string;
-  requested: TypeAvailabilityRequested[];
-  suggestions: TypeAvailabilitySuggestion[];
-}
-
 const bookingStatusMap: Record<string, { label: string; className: string }> = {
   pending: { label: "Chờ xác nhận", className: "pending" },
   confirmed: { label: "Đã xác nhận", className: "confirmed" },
@@ -170,6 +140,7 @@ const roomStatusMap: Record<string, { label: string; className: string }> = {
 };
 
 const Booking: React.FC = () => {
+  const [roomTypes, setRoomTypes] = useState<RoomTypeOption[]>([]);
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { user, isAuthenticated } = useAuth();
@@ -185,19 +156,12 @@ const Booking: React.FC = () => {
   const [dateAvailability, setDateAvailability] =
     useState<DateAvailability | null>(null);
   const [availabilityChecking, setAvailabilityChecking] = useState(false);
-  const [roomTypes, setRoomTypes] = useState<RoomTypeOption[]>([]);
-  const [multiRooms, setMultiRooms] = useState<MultiRoomRequest[]>([
-    { roomTypeId: 0, quantity: 1 },
-  ]);
-  const [typeAvailability, setTypeAvailability] =
-    useState<TypeAvailabilityResult | null>(null);
-  const [typeAvailabilityChecking, setTypeAvailabilityChecking] =
-    useState(false);
+  const [roomQuantity, setRoomQuantity] = useState<number>(1);
   const [services, setServices] = useState<Service[]>([]);
   const [serviceRequests, setServiceRequests] = useState<
     { serviceId: number; quantity: number }[]
   >([]);
-  const [childrenAges, setChildrenAges] = useState<number[]>([]);
+  const [childrenAges, setChildrenAges] = useState<(number | null)[]>([]);
   const [policies, setPolicies] = useState<PoliciesInfo | null>(null);
 
   const {
@@ -220,26 +184,6 @@ const Booking: React.FC = () => {
     },
   });
 
-  const adults = watch("adults");
-  const children = watch("children");
-
-  // Đồng bộ danh sách tuổi trẻ em theo số lượng đã chọn (mặc định 5 tuổi - miễn phí)
-  useEffect(() => {
-    setChildrenAges((prev) => {
-      if (children === prev.length) return prev;
-      if (children < prev.length) return prev.slice(0, children);
-      return [...prev, ...Array(children - prev.length).fill(5)];
-    });
-  }, [children]);
-
-  useEffect(() => {
-    if (user) {
-      setValue("guestName", user.fullName || user.email?.split("@")[0] || "");
-      setValue("guestEmail", user.email || "");
-      setValue("guestPhone", user.phone || "");
-    }
-  }, [user, setValue]);
-
   useEffect(() => {
     const loadRoomTypes = async () => {
       try {
@@ -252,6 +196,27 @@ const Booking: React.FC = () => {
 
     loadRoomTypes();
   }, []);
+
+  const adults = watch("adults");
+  const children = watch("children");
+
+  // Fix Item 6: Không tự mặc định 5 tuổi cho trẻ mới thêm.
+  // Gán -1 (unselected) để ép người dùng phải chọn tuổi thật trước khi đặt phòng.
+  useEffect(() => {
+    setChildrenAges((prev) => {
+      if (children === prev.length) return prev;
+      if (children < prev.length) return prev.slice(0, children);
+      return [...prev, ...Array(children - prev.length).fill(null)];
+    });
+  }, [children]);
+
+  useEffect(() => {
+    if (user) {
+      setValue("guestName", user.fullName || user.email?.split("@")[0] || "");
+      setValue("guestEmail", user.email || "");
+      setValue("guestPhone", user.phone || "");
+    }
+  }, [user, setValue]);
 
   useEffect(() => {
     const loadServices = async () => {
@@ -278,7 +243,6 @@ const Booking: React.FC = () => {
     loadPolicies();
   }, []);
 
-  // Helper hiển thị giờ HH:mm, đặt cạnh formatDate/formatMoney
   const shortTime = (time?: string) => (time ? time.slice(0, 5) : "");
 
   const handleServiceSelectChange = (ids: number[]) => {
@@ -325,7 +289,7 @@ const Booking: React.FC = () => {
     loadRecentBookings();
   }, [isAuthenticated, user?.id]);
 
-  // Prefill ngày + số khách từ query string (trang tìm kiếm/chi tiết truyền sang)
+  // Prefill ngày + số khách từ query string (Fix Item 2: Bỏ max 4 NL / 3 TE)
   useEffect(() => {
     const paramCheckIn = searchParams.get("checkIn");
     const paramCheckOut = searchParams.get("checkOut");
@@ -343,9 +307,18 @@ const Booking: React.FC = () => {
     }
 
     const paramAdults = parseInt(searchParams.get("adults") || "", 10);
-    if (paramAdults >= 1) setValue("adults", Math.min(paramAdults, 4));
+    if (paramAdults >= 1) setValue("adults", Math.min(paramAdults, 30));
     const paramChildren = parseInt(searchParams.get("children") || "", 10);
-    if (paramChildren >= 0) setValue("children", Math.min(paramChildren, 3));
+    if (paramChildren >= 0) setValue("children", Math.min(paramChildren, 20));
+
+    const paramQuantity = parseInt(
+      searchParams.get("roomQuantity") ||
+        searchParams.get("quantity") ||
+        searchParams.get("rooms") ||
+        "1",
+      10,
+    );
+    if (paramQuantity >= 1) setRoomQuantity(paramQuantity);
 
     const paramAges = (searchParams.get("childAges") || "")
       .split(",")
@@ -361,7 +334,6 @@ const Booking: React.FC = () => {
     const paramCheckIn = searchParams.get("checkIn") || undefined;
     const paramCheckOut = searchParams.get("checkOut") || undefined;
 
-    // Luồng chính: đặt theo HẠNG PHÒNG - hệ thống tự xếp phòng khi đặt thành công
     const loadRoomType = async (parsedTypeId: number) => {
       try {
         const response = await getRoomTypeDetail(parsedTypeId, {
@@ -372,7 +344,19 @@ const Booking: React.FC = () => {
         while (detail && typeof detail === "object" && "data" in detail) {
           detail = detail.data as Record<string, unknown>;
         }
-        const roomType = detail as unknown as RoomTypeSearchResult;
+        const roomType = detail as unknown as RoomTypeSearchResult & {
+          adultCapacity?: number;
+          childCapacity?: number;
+          maxOccupancy?: number;
+          extraAdultFee?: number;
+          extraChildFee?: number;
+        };
+        const adultCap = Number(roomType.adultCapacity ?? 2);
+        const childCap = Number(roomType.childCapacity ?? 1);
+        const maxOcc = Number(
+          roomType.maxOccupancy ?? (roomType.capacity || adultCap + childCap),
+        );
+
         setSelectedRoom({
           mode: "type",
           id: null,
@@ -380,7 +364,7 @@ const Booking: React.FC = () => {
           name: roomType.typeName,
           image: getRoomTypeCardImage(roomType.typeName, roomType.images),
           price: Number(roomType.defaultPrice),
-          beds: `${roomType.capacity} khách`,
+          beds: `${adultCap} NL + ${childCap} TE (Tối đa ${maxOcc} khách)`,
           area:
             roomType.minArea !== null
               ? roomType.minArea === roomType.maxArea
@@ -388,10 +372,14 @@ const Booking: React.FC = () => {
                 : `${roomType.minArea}–${roomType.maxArea}m²`
               : "Đang cập nhật",
           capacity: Number(roomType.capacity),
+          adultCapacity: adultCap,
+          childCapacity: childCap,
+          maxOccupancy: maxOcc,
+          extraAdultFee: Number(roomType.extraAdultFee ?? 200000),
+          extraChildFee: Number(roomType.extraChildFee ?? 100000),
           status: "available",
           availableRooms: roomType.availableRooms,
         });
-        setMultiRooms([{ roomTypeId: roomType.id, quantity: 1 }]);
       } catch (error: unknown) {
         const err = error as {
           response?: { status?: number; data?: { message?: string } };
@@ -408,7 +396,6 @@ const Booking: React.FC = () => {
       }
     };
 
-    // Luồng cũ (?id=): đặt đích danh một phòng - giữ cho link cũ và nghiệp vụ lễ tân
     const loadRoom = async (parsedId: number) => {
       try {
         const response = await getRoomById(parsedId);
@@ -418,11 +405,22 @@ const Booking: React.FC = () => {
           room_type_name: string;
           price_per_night: number;
           capacity: number;
+          adultCapacity?: number;
+          childCapacity?: number;
+          maxOccupancy?: number;
+          extraAdultFee?: number;
+          extraChildFee?: number;
           area?: number;
           room_number?: string;
           roomNumber?: string;
           status?: string;
         };
+        const adultCap = Number(room.adultCapacity ?? 2);
+        const childCap = Number(room.childCapacity ?? 1);
+        const maxOcc = Number(
+          room.maxOccupancy ?? (room.capacity || adultCap + childCap),
+        );
+
         setSelectedRoom({
           mode: "room",
           id: room.id,
@@ -430,15 +428,19 @@ const Booking: React.FC = () => {
           name: room.room_type_name,
           image: getRoomTypeCardImage(room.room_type_name),
           price: Number(room.price_per_night),
-          beds: `${room.capacity} khách`,
+          beds: `${adultCap} NL + ${childCap} TE (Tối đa ${maxOcc} khách)`,
           area: room.area
             ? `${room.area}m²`
             : `Phòng ${room.room_number || room.id}`,
           capacity: room.capacity,
+          adultCapacity: adultCap,
+          childCapacity: childCap,
+          maxOccupancy: maxOcc,
+          extraAdultFee: Number(room.extraAdultFee ?? 200000),
+          extraChildFee: Number(room.extraChildFee ?? 100000),
           status: room.status || "available",
           roomNumber: room.room_number || room.roomNumber,
         });
-        setMultiRooms([{ roomTypeId: Number(room.roomTypeId), quantity: 1 }]);
       } catch (error: unknown) {
         const err = error as {
           response?: { status?: number; data?: { message?: string } };
@@ -473,7 +475,6 @@ const Booking: React.FC = () => {
       }
     }
 
-    window.scrollTo(0, 0);
   }, [searchParams, setValue, navigate]);
 
   const calculateNights = () => {
@@ -482,19 +483,109 @@ const Booking: React.FC = () => {
   };
 
   const nights = calculateNights();
+
+  // Fix Item 5: Đặt phòng đích danh (mode === "room") ép roomQuantity = 1
+  const isSpecificRoomMode = selectedRoom?.mode === "room";
+  const activeRoomQuantity = isSpecificRoomMode ? 1 : roomQuantity;
+
+  // Fix Item 7: Tính toán sức chứa & phụ thu khách phát sinh chuẩn hóa theo children_policy
+  const adultCap = selectedRoom?.adultCapacity ?? selectedRoom?.capacity ?? 2;
+  const childCap = selectedRoom?.childCapacity ?? 1;
+  const maxOcc = selectedRoom?.maxOccupancy ?? adultCap + childCap;
+  const extraAdultFee = selectedRoom?.extraAdultFee ?? 200000;
+  const extraChildFee = selectedRoom?.extraChildFee ?? 100000;
+
+  const validChildrenAges = childrenAges.filter(
+    (age): age is number => typeof age === "number" && age >= 0,
+  );
+  // Fix Item 6: Kiểm tra nếu chưa chọn đủ tuổi cho tất cả trẻ em
+  const hasUnselectedChildAge =
+    children > 0 &&
+    (childrenAges.length < children ||
+      childrenAges.some((age) => age === null || age === undefined || age < 0));
+
+  const freeMaxAge = dateAvailability?.childrenPolicy?.freeMaxAge ?? 5;
+
+  const childMaxAge = dateAvailability?.childrenPolicy?.childMaxAge ?? 11;
+
+  const adultsFromChildren = validChildrenAges.filter(
+    (age) => age > childMaxAge,
+  ).length;
+  const chargeableChildrenCount = validChildrenAges.filter(
+    (age) => age > freeMaxAge && age <= childMaxAge,
+  ).length;
+
+  const effectiveAdults = adults + adultsFromChildren;
+  const effectiveChildren = Math.max(0, children - adultsFromChildren);
+  const totalGuests = effectiveAdults + effectiveChildren;
+
+  const minRequiredRooms =
+    maxOcc > 0 ? Math.max(1, Math.ceil(totalGuests / maxOcc)) : 1;
+
+  // Tự động nâng roomQuantity nếu số khách hiện tại vượt quá sức chứa tối đa của số phòng cũ (chế độ hạng phòng)
+  useEffect(() => {
+    if (selectedRoom && !isSpecificRoomMode && totalGuests > 0) {
+      setRoomQuantity((prev) => Math.max(prev, minRequiredRooms));
+    }
+  }, [selectedRoom, isSpecificRoomMode, totalGuests, minRequiredRooms]);
+
+  const totalAdultCapacity = adultCap * activeRoomQuantity;
+  const totalChildCapacity = childCap * activeRoomQuantity;
+  const totalMaxOccupancy = maxOcc * activeRoomQuantity;
+
+  const extraAdults = Math.max(0, effectiveAdults - totalAdultCapacity);
+  const rawExtraChildren = Math.max(0, effectiveChildren - totalChildCapacity);
+  const extraChildren =
+    validChildrenAges.length > 0
+      ? Math.min(rawExtraChildren, chargeableChildrenCount)
+      : rawExtraChildren;
+
+  const extraAdultAmount = extraAdults * extraAdultFee * nights;
+  const extraChildAmount = extraChildren * extraChildFee * nights;
+  const totalExtraGuestFee = extraAdultAmount + extraChildAmount;
+
+  const availableRoomsCount =
+    dateAvailability?.availableRooms ?? selectedRoom?.availableRooms;
+
+  // Fix Item 3: Sửa max={availableRoomsCount || 20} để khi availableRoomsCount = 0 không bị fallback thành 20
+  const maxSelectableRooms =
+    availableRoomsCount !== undefined && availableRoomsCount !== null
+      ? Math.max(1, availableRoomsCount)
+      : 20;
+
+  // Fix Item 4: Kiểm tra nếu minRequiredRooms > availableRoomsCount (Hạng phòng không đủ phòng trống cho số khách)
+  const isTypeNotEnoughForGuests =
+    !isSpecificRoomMode &&
+    availableRoomsCount !== undefined &&
+    minRequiredRooms > availableRoomsCount;
+
+  const isUserSelectedMoreThanAvailable =
+    !isSpecificRoomMode &&
+    availableRoomsCount !== undefined &&
+    activeRoomQuantity > availableRoomsCount;
+
+  const isGuestExceedingMax = totalGuests > totalMaxOccupancy;
+
   const isRoomDateUnavailable = dateAvailability?.available === false;
   const isRoomBlockedByStatus = selectedRoom?.status === "maintenance";
+
   const canSubmitBooking =
     Boolean(selectedRoom) &&
     !isRoomBlockedByStatus &&
     !isRoomDateUnavailable &&
+    !isGuestExceedingMax &&
+    !isTypeNotEnoughForGuests &&
+    !isUserSelectedMoreThanAvailable &&
+    !hasUnselectedChildAge &&
     nights > 0 &&
     !submitting &&
     !availabilityChecking;
 
-  const calculateTotal = () => {
+  const calculateBaseTotal = () => {
     if (!selectedRoom || nights === 0) return 0;
-    return selectedRoom.price * nights;
+    const unitPrice =
+      dateAvailability?.stayAmount ?? selectedRoom.price * nights;
+    return unitPrice * activeRoomQuantity;
   };
 
   const serviceAmount = serviceRequests.reduce((total, request) => {
@@ -538,76 +629,6 @@ const Booking: React.FC = () => {
     return dayjs(date).format("DD/MM/YYYY");
   };
 
-  const getRoomTypeName = (roomTypeId: number) => {
-    const roomType = roomTypes.find(
-      (item) => Number(item.id) === Number(roomTypeId),
-    );
-    return (
-      roomType?.typeName ||
-      roomType?.room_type_name ||
-      `Loại phòng #${roomTypeId}`
-    );
-  };
-
-  const updateMultiRoom = (index: number, patch: Partial<MultiRoomRequest>) => {
-    setMultiRooms((items) =>
-      items.map((item, itemIndex) =>
-        itemIndex === index ? { ...item, ...patch } : item,
-      ),
-    );
-    setTypeAvailability(null);
-  };
-
-  const addMultiRoom = () => {
-    setMultiRooms((items) => [...items, { roomTypeId: 0, quantity: 1 }]);
-    setTypeAvailability(null);
-  };
-
-  const removeMultiRoom = (index: number) => {
-    setMultiRooms((items) =>
-      items.filter((_, itemIndex) => itemIndex !== index),
-    );
-    setTypeAvailability(null);
-  };
-
-  const handleCheckTypeAvailability = async () => {
-    if (!dateRange[0] || !dateRange[1]) {
-      message.warning("Vui lòng chọn ngày nhận và trả phòng trước");
-      return;
-    }
-
-    const rooms = multiRooms
-      .filter((item) => item.roomTypeId > 0 && item.quantity > 0)
-      .map((item) => ({
-        roomTypeId: item.roomTypeId,
-        quantity: item.quantity,
-      }));
-
-    if (rooms.length === 0) {
-      message.warning("Vui lòng chọn ít nhất một hạng phòng cần kiểm tra");
-      return;
-    }
-
-    setTypeAvailabilityChecking(true);
-    try {
-      const response = await checkTypeAvailability({
-        checkIn: dateRange[0].format("YYYY-MM-DD"),
-        checkOut: dateRange[1].format("YYYY-MM-DD"),
-        rooms,
-      });
-      setTypeAvailability(response.data as TypeAvailabilityResult);
-    } catch (error: unknown) {
-      const err = error as { response?: { data?: { message?: string } } };
-      message.error(
-        err.response?.data?.message ||
-          "Không thể kiểm tra số lượng phòng lúc này",
-      );
-      setTypeAvailability(null);
-    } finally {
-      setTypeAvailabilityChecking(false);
-    }
-  };
-
   useEffect(() => {
     let cancelled = false;
 
@@ -630,7 +651,7 @@ const Booking: React.FC = () => {
             : { roomId: selectedRoom.id }),
           checkIn: dateRange[0].format("YYYY-MM-DD"),
           checkOut: dateRange[1].format("YYYY-MM-DD"),
-          childrenAges,
+          childrenAges: validChildrenAges,
         });
 
         if (!cancelled) {
@@ -701,24 +722,45 @@ const Booking: React.FC = () => {
       return;
     }
 
-    const checkIn = dateRange[0].format("YYYY-MM-DD");
-    const checkOut = dateRange[1].format("YYYY-MM-DD");
-    // Đặt theo hạng phòng: backend tự xếp phòng trống; đặt theo phòng: giữ nguyên roomId
-    const roomSelector =
-      selectedRoom.mode === "type"
-        ? { roomTypeId: selectedRoom.roomTypeId }
-        : { roomId: selectedRoom.id };
-
-    const childMaxAge = dateAvailability?.childrenPolicy?.childMaxAge ?? 12;
-    const adultsFromChildren = childrenAges.filter(
-      (age) => age > childMaxAge,
-    ).length;
-    if (data.adults + adultsFromChildren > selectedRoom.capacity) {
+    if (hasUnselectedChildAge) {
       message.error(
-        `Số khách vượt quá sức chứa phòng (${selectedRoom.capacity} người)`,
+        "Vui lòng chọn tuổi cho tất cả trẻ em đi cùng trước khi đặt phòng.",
       );
       return;
     }
+
+    if (isTypeNotEnoughForGuests) {
+      message.error(
+        `Hạng phòng này không đủ phòng cho đoàn khách (${totalGuests} người cần ít nhất ${minRequiredRooms} phòng, hiện chỉ còn ${availableRoomsCount} phòng trống).`,
+      );
+      return;
+    }
+
+    if (isGuestExceedingMax) {
+      message.error(
+        `Tổng số khách (${totalGuests}) vượt quá sức chứa tối đa của ${activeRoomQuantity} phòng (${totalMaxOccupancy} người). Vui lòng chọn ít nhất ${minRequiredRooms} phòng.`,
+      );
+      return;
+    }
+
+    if (isUserSelectedMoreThanAvailable) {
+      message.error(
+        `Hạng phòng này chỉ còn ${availableRoomsCount} phòng trống trong khoảng ngày đã chọn.`,
+      );
+      return;
+    }
+
+    const checkIn = dateRange[0].format("YYYY-MM-DD");
+    const checkOut = dateRange[1].format("YYYY-MM-DD");
+
+    // Fix Item 5: Đặt phòng đích danh (mode === "room") chỉ gửi roomId, KHÔNG gửi roomQuantity > 1
+    const roomSelector =
+      selectedRoom.mode === "type"
+        ? {
+            roomTypeId: selectedRoom.roomTypeId,
+            roomQuantity: activeRoomQuantity,
+          }
+        : { roomId: selectedRoom.id, roomQuantity: 1 };
 
     setSubmitting(true);
     try {
@@ -726,6 +768,7 @@ const Booking: React.FC = () => {
         ...roomSelector,
         checkIn,
         checkOut,
+        childrenAges: validChildrenAges,
       });
 
       if (!availability.data.available) {
@@ -745,11 +788,9 @@ const Booking: React.FC = () => {
         guestPhone: data.guestPhone,
         adults: data.adults,
         children: data.children,
-        childrenAges,
+        childrenAges: validChildrenAges,
         notes: data.specialRequests || null,
         serviceRequests,
-        // Tùy chọn - lễ tân dùng để chủ động chuẩn bị phòng, không ảnh hưởng
-        // đến giờ chuẩn nhận/trả phòng hay việc tính phí sớm/muộn.
         requestedCheckInTime: data.requestedCheckInTime || null,
         requestedCheckOutTime: data.requestedCheckOutTime || null,
         status: "confirmed",
@@ -798,6 +839,7 @@ const Booking: React.FC = () => {
                   <HistoryOutlined />
                   Lịch sử đặt phòng của bạn
                 </span>
+                <h2>Các chuyến đi gần đây</h2>
               </div>
               <Link to="/booking/history" className="history-view-all">
                 Xem tất cả <ArrowRightOutlined />
@@ -865,6 +907,7 @@ const Booking: React.FC = () => {
           className="booking-form-wrapper"
         >
           <div className="booking-main">
+            {/* Section 1: Thông tin khách hàng */}
             <div className="booking-section">
               <h2>Thông tin khách hàng</h2>
 
@@ -956,8 +999,9 @@ const Booking: React.FC = () => {
               </div>
             </div>
 
+            {/* Section 2: Ngày lưu trú & Số lượng khách (UX Item 10) */}
             <div className="booking-section">
-              <h2>Ngày lưu trú</h2>
+              <h2>Ngày lưu trú & Số lượng khách</h2>
 
               <div className="form-group">
                 <label>
@@ -975,7 +1019,6 @@ const Booking: React.FC = () => {
                     setDateRange(
                       dates as [dayjs.Dayjs | null, dayjs.Dayjs | null],
                     );
-                    setTypeAvailability(null);
                     if (dates) {
                       setValue("checkIn", dates[0]?.format("YYYY-MM-DD") || "");
                       setValue(
@@ -1067,144 +1110,74 @@ const Booking: React.FC = () => {
                 </div>
               </div>
               <p className="service-request-note">
-                * Giờ nhận phòng chỉ để lễ tân chủ động chuẩn bị, không phát
-                sinh phụ phí. Giờ trả phòng chỉ chọn được từ giờ chuẩn trở về
-                trước — nếu cần trả phòng muộn hơn, vui lòng liên hệ khách sạn
-                gần ngày ở để được báo phí trước.
+                * Giờ nhận phòng chỉ để lễ tân chủ động chuẩn bị. Giờ trả phòng
+                chỉ chọn được từ giờ chuẩn trở về trước.
               </p>
 
-              <div className="multi-room-checker">
-                <div className="multi-room-header">
-                  <div>
-                    <strong>Kiểm tra nhiều hạng phòng</strong>
-                    <p>
-                      Chọn số lượng theo từng hạng phòng để biết còn đủ phòng
-                      hay cần chọn thêm loại khác.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    className="btn-add-room-type"
-                    onClick={addMultiRoom}
-                  >
-                    Thêm hạng phòng
-                  </button>
-                </div>
+              <div className="form-group">
+                <label>
+                  Hạng phòng <span className="required">*</span>
+                </label>
 
-                <div className="multi-room-list">
-                  {multiRooms.map((item, index) => (
-                    <div
-                      className="multi-room-row"
-                      key={`${item.roomTypeId}-${index}`}
-                    >
-                      <Select
-                        value={item.roomTypeId || undefined}
-                        placeholder="Chọn hạng phòng"
-                        onChange={(value) =>
-                          updateMultiRoom(index, { roomTypeId: Number(value) })
-                        }
-                        options={roomTypes.map((roomType) => ({
-                          value: roomType.id,
-                          label: `${roomType.typeName || roomType.room_type_name || `Loại phòng #${roomType.id}`} - ${formatMoney(roomType.defaultPrice || roomType.price_per_night || 0)}/đêm`,
-                        }))}
-                        size="large"
-                        style={{ width: "100%" }}
-                      />
-                      <InputNumber
-                        min={1}
-                        max={20}
-                        value={item.quantity}
-                        onChange={(value) =>
-                          updateMultiRoom(index, {
-                            quantity: Number(value || 1),
-                          })
-                        }
-                        size="large"
-                        className="multi-room-quantity"
-                      />
-                      <button
-                        type="button"
-                        className="btn-remove-room-type"
-                        onClick={() => removeMultiRoom(index)}
-                        disabled={multiRooms.length === 1}
-                      >
-                        Xóa
-                      </button>
-                    </div>
-                  ))}
-                </div>
+                <Select
+                  value={selectedRoom?.roomTypeId}
+                  placeholder="Chọn hạng phòng"
+                  size="large"
+                  style={{ width: "100%" }}
+                  options={roomTypes.map((type) => ({
+                    value: type.id,
+                    label: type.typeName,
+                  }))}
+                  onChange={(roomTypeId) => {
+                    const params = new URLSearchParams(searchParams);
 
-                <button
-                  type="button"
-                  className="btn-check-room-types"
-                  onClick={handleCheckTypeAvailability}
-                  disabled={typeAvailabilityChecking || roomTypes.length === 0}
-                >
-                  {typeAvailabilityChecking
-                    ? "Đang kiểm tra..."
-                    : "Kiểm tra số phòng trống"}
-                </button>
+                    params.delete("id");
+                    params.set("type", String(roomTypeId));
 
-                {typeAvailability && (
-                  <div
-                    className={`multi-room-result ${typeAvailability.available ? "success" : "warning"}`}
-                  >
-                    <strong>
-                      {typeAvailability.available
-                        ? "Đủ phòng cho yêu cầu của bạn"
-                        : "Chưa đủ phòng cho toàn bộ yêu cầu"}
-                    </strong>
-                    <div className="multi-room-result-list">
-                      {typeAvailability.requested.map((item) => (
-                        <div
-                          className="multi-room-result-item"
-                          key={item.roomTypeId}
-                        >
-                          <span>
-                            {item.roomTypeName ||
-                              getRoomTypeName(item.roomTypeId)}
-                          </span>
-                          <em>
-                            Yêu cầu {item.requestedQuantity}, còn{" "}
-                            {item.availableRooms}
-                            {item.shortage > 0
-                              ? `, thiếu ${item.shortage}. Có thể đặt tạm ${item.canBookQuantity} phòng.`
-                              : ", đủ số lượng."}
-                          </em>
-                        </div>
-                      ))}
-                    </div>
+                    if (dateRange[0]) {
+                      params.set("checkIn", dateRange[0].format("YYYY-MM-DD"));
+                    }
 
-                    {!typeAvailability.available &&
-                      typeAvailability.suggestions.length > 0 && (
-                        <div className="multi-room-suggestions">
-                          <span>Gợi ý hạng phòng còn trống:</span>
-                          {typeAvailability.suggestions
-                            .slice(0, 3)
-                            .map((item) => (
-                              <em key={item.roomTypeId}>
-                                {item.roomTypeName}: còn {item.availableRooms}{" "}
-                                phòng, {formatMoney(item.pricePerNight)}/đêm
-                              </em>
-                            ))}
-                        </div>
-                      )}
-                  </div>
-                )}
+                    if (dateRange[1]) {
+                      params.set("checkOut", dateRange[1].format("YYYY-MM-DD"));
+                    }
+
+                    params.set("adults", String(adults));
+                    params.set("children", String(children));
+
+                    const validAges = childrenAges.filter(
+                      (age): age is number =>
+                        typeof age === "number" && age >= 0,
+                    );
+
+                    if (validAges.length > 0) {
+                      params.set("childAges", validAges.join(","));
+                    } else {
+                      params.delete("childAges");
+                    }
+
+                    // Hạng mới tự tính lại số phòng cần thiết
+                    params.delete("roomQuantity");
+
+                    setRoomQuantity(1);
+                    setDateAvailability(null);
+
+                    navigate(`/booking?${params.toString()}`);
+                  }}
+                />
               </div>
 
-              <div className="form-row two-col">
+              {/* UX Item 10: Người lớn / Trẻ em / Tuổi trẻ em hiển thị TRƯỚC Số lượng phòng */}
+              <div className="form-row two-col" style={{ marginTop: 24 }}>
                 <div className="form-group">
                   <label>Người lớn</label>
                   <Select
                     value={adults}
                     onChange={(value) => setValue("adults", value)}
-                    options={[
-                      { value: 1, label: "1 người lớn" },
-                      { value: 2, label: "2 người lớn" },
-                      { value: 3, label: "3 người lớn" },
-                      { value: 4, label: "4 người lớn" },
-                    ]}
+                    options={Array.from({ length: 5 }, (_, i) => ({
+                      value: i + 1,
+                      label: `${i + 1} người lớn`,
+                    }))}
                     size="large"
                     style={{ width: "100%" }}
                   />
@@ -1214,12 +1187,10 @@ const Booking: React.FC = () => {
                   <Select
                     value={children}
                     onChange={(value) => setValue("children", value)}
-                    options={[
-                      { value: 0, label: "Không có trẻ em" },
-                      { value: 1, label: "1 trẻ em" },
-                      { value: 2, label: "2 trẻ em" },
-                      { value: 3, label: "3 trẻ em" },
-                    ]}
+                    options={Array.from({ length: 5 }, (_, i) => ({
+                      value: i,
+                      label: i === 0 ? "Không có trẻ em" : `${i} trẻ em`,
+                    }))}
                     size="large"
                     style={{ width: "100%" }}
                   />
@@ -1230,9 +1201,15 @@ const Booking: React.FC = () => {
                 <div className="form-row two-col" style={{ flexWrap: "wrap" }}>
                   {childrenAges.map((age, index) => (
                     <div className="form-group" key={index}>
-                      <label>Tuổi trẻ em {index + 1}</label>
+                      <label>
+                        Tuổi trẻ em {index + 1}{" "}
+                        <span className="required">*</span>
+                      </label>
                       <Select
-                        value={age}
+                        value={
+                          typeof age === "number" && age >= 0 ? age : undefined
+                        }
+                        placeholder="-- Chọn tuổi trẻ em --"
                         onChange={(value) =>
                           setChildrenAges((prev) =>
                             prev.map((item, i) => (i === index ? value : item)),
@@ -1263,6 +1240,89 @@ const Booking: React.FC = () => {
                       tính như người lớn
                     </p>
                   )}
+                </div>
+              )}
+
+              {/* Fix Item 5: Đặt phòng đích danh (mode === "room") ẩn bộ chọn số lượng phòng */}
+              {!isSpecificRoomMode ? (
+                <div className="room-quantity-wrapper">
+                  <div className="form-group">
+                    <label>
+                      Số lượng phòng <span className="required">*</span>
+                    </label>
+                    <div className="room-quantity-row">
+                      <InputNumber
+                        min={1}
+                        max={maxSelectableRooms}
+                        disabled={availableRoomsCount === 0}
+                        value={roomQuantity}
+                        onChange={(value) =>
+                          setRoomQuantity(Math.max(1, Number(value || 1)))
+                        }
+                        size="large"
+                        className="room-quantity-input"
+                      />
+                      <span className="room-quantity-unit">phòng</span>
+                      {/* Fix Item 1: Xóa chữ technical Q */}
+                      {minRequiredRooms > 1 &&
+                        activeRoomQuantity < minRequiredRooms && (
+                          <span className="suggested-q-tag">
+                            Cần ít nhất {minRequiredRooms} phòng
+                          </span>
+                        )}
+                    </div>
+                  </div>
+
+                  {/* Fix Item 4: Phân biệt rõ "Hạng phòng không đủ phòng" vs "Số phòng đang chọn chưa đủ sức chứa" */}
+                  {isTypeNotEnoughForGuests ? (
+                    <div className="capacity-alert-box danger">
+                      <strong>Hạng phòng không đủ phòng trống!</strong>
+                      <p>
+                        Số khách của bạn ({totalGuests} người) cần ít nhất{" "}
+                        {minRequiredRooms} phòng, nhưng hạng phòng này hiện chỉ
+                        còn {availableRoomsCount} phòng trống. Vui lòng giảm số
+                        khách hoặc chọn hạng phòng khác.
+                      </p>
+                    </div>
+                  ) : isGuestExceedingMax ? (
+                    <div className="capacity-alert-box danger">
+                      <strong>Vượt quá sức chứa tối đa!</strong>
+                      <p>
+                        Tổng {totalGuests} khách ({effectiveAdults} NL +{" "}
+                        {effectiveChildren} TE) vượt quá sức chứa tối đa của{" "}
+                        {activeRoomQuantity} phòng ({totalMaxOccupancy} người).
+                        Vui lòng chọn ít nhất {minRequiredRooms} phòng hoặc giảm
+                        số khách.
+                      </p>
+                    </div>
+                  ) : isUserSelectedMoreThanAvailable ? (
+                    <div className="capacity-alert-box warning">
+                      <strong>Không đủ phòng trống!</strong>
+                      <p>
+                        Hạng phòng này chỉ còn {availableRoomsCount} phòng trống
+                        trong khoảng ngày đã chọn. Vui lòng chọn tối đa{" "}
+                        {availableRoomsCount} phòng.
+                      </p>
+                    </div>
+                  ) : hasUnselectedChildAge ? (
+                    <div className="capacity-alert-box warning">
+                      <strong>Vui lòng chọn tuổi trẻ em!</strong>
+                      <p>
+                        Vui lòng chọn đầy đủ tuổi của từng trẻ em đi cùng để hệ
+                        thống áp dụng đúng chính sách phụ thu.
+                      </p>
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="specific-room-notice">
+                  <p>
+                    * Đang đặt phòng đích danh{" "}
+                    <strong>
+                      Phòng #{selectedRoom?.roomNumber || selectedRoom?.id}
+                    </strong>{" "}
+                    (Số lượng cố định: 1 phòng).
+                  </p>
                 </div>
               )}
             </div>
@@ -1372,7 +1432,9 @@ const Booking: React.FC = () => {
                     />
                     <div className="room-summary-info">
                       <div className="room-summary-heading">
-                        <h4>Phòng {selectedRoom.name}</h4>
+                        <h4>
+                          {activeRoomQuantity} phòng {selectedRoom.name}
+                        </h4>
                         {selectedRoom.mode === "room" && (
                           <span
                             className={`room-status-badge ${roomStatusMap[selectedRoom.status]?.className || "default"}`}
@@ -1389,7 +1451,7 @@ const Booking: React.FC = () => {
                           </p>
                         )}
                       <p>
-                        <FontAwesomeIcon icon={faBed} /> Tối đa{" "}
+                        <FontAwesomeIcon icon={faBed} /> Sức chứa:{" "}
                         {selectedRoom.beds}
                       </p>
                       <p>
@@ -1398,6 +1460,62 @@ const Booking: React.FC = () => {
                       </p>
                     </div>
                   </div>
+
+                  <div className="capacity-preview-box">
+                    <div className="capacity-spec-row">
+                      <span className="spec-label">Tiêu chuẩn:</span>
+                      <span className="spec-val">
+                        {totalAdultCapacity} NL + {totalChildCapacity} TE
+                      </span>
+                    </div>
+                    <div className="capacity-spec-row">
+                      <span className="spec-label">Tối đa:</span>
+                      <span className="spec-val">
+                        {totalMaxOccupancy} khách
+                      </span>
+                    </div>
+                    <div className="capacity-spec-row">
+                      <span className="spec-label">Khách của bạn:</span>
+                      <span className="spec-val">
+                        {effectiveAdults} NL + {effectiveChildren} TE
+                      </span>
+                    </div>
+                    {(extraAdults > 0 || extraChildren > 0) && (
+                      <div className="capacity-spec-row extra">
+                        <span className="spec-label">Khách phát sinh:</span>
+                        <span className="spec-val highlight">
+                          {extraAdults} NL + {extraChildren} TE
+                        </span>
+                      </div>
+                    )}
+
+                    {(extraAdults > 0 || extraChildren > 0) && nights > 0 && (
+                      <div className="extra-fee-box">
+                        <span className="extra-fee-title">
+                          Phụ thu phát sinh:
+                        </span>
+                        {extraAdults > 0 && (
+                          <div className="extra-fee-item">
+                            {extraAdults} NL × {formatMoney(extraAdultFee)} ×{" "}
+                            {nights} đêm ={" "}
+                            <strong>{formatMoney(extraAdultAmount)}</strong>
+                          </div>
+                        )}
+                        {extraChildren > 0 && (
+                          <div className="extra-fee-item">
+                            {extraChildren} TE × {formatMoney(extraChildFee)} ×{" "}
+                            {nights} đêm ={" "}
+                            <strong>{formatMoney(extraChildAmount)}</strong>
+                          </div>
+                        )}
+                        <div className="extra-fee-total">
+                          <span>Tổng phụ thu:</span>
+                          <strong>{formatMoney(totalExtraGuestFee)}</strong>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
                   {selectedRoom.mode === "type" && (
                     <p
                       className="service-request-note"
@@ -1407,10 +1525,17 @@ const Booking: React.FC = () => {
                       khi nhận phòng.
                     </p>
                   )}
+
                   <div className="summary-details">
                     <div className="summary-row">
                       <span>Giá phòng</span>
-                      <span>{formatPrice(selectedRoom.price)}/đêm</span>
+                      <span>
+                        {formatPrice(selectedRoom.price)} / phòng / đêm
+                      </span>
+                    </div>
+                    <div className="summary-row">
+                      <span>Số lượng phòng</span>
+                      <span>{activeRoomQuantity} phòng</span>
                     </div>
                     <div className="summary-row">
                       <span>Số đêm</span>
@@ -1419,34 +1544,13 @@ const Booking: React.FC = () => {
                     {nights > 0 && (
                       <>
                         <div className="summary-row">
-                          <span>
-                            Tiền phòng{" "}
-                            {dateAvailability?.stayAmount !== undefined
-                              ? "(theo giá từng đêm)"
-                              : ""}
-                          </span>
-                          <span>
-                            {formatPrice(
-                              dateAvailability?.stayAmount ?? calculateTotal(),
-                            )}
-                          </span>
+                          <span>Tiền phòng ({activeRoomQuantity} phòng)</span>
+                          <span>{formatPrice(calculateBaseTotal())}</span>
                         </div>
-                        {(dateAvailability?.childSurcharge?.amount ?? 0) >
-                          0 && (
-                          <div className="summary-row">
-                            <span>
-                              Phụ thu trẻ em (
-                              {
-                                dateAvailability?.childSurcharge
-                                  ?.chargeableChildren
-                              }{" "}
-                              bé)
-                            </span>
-                            <span>
-                              {formatPrice(
-                                dateAvailability?.childSurcharge?.amount ?? 0,
-                              )}
-                            </span>
+                        {totalExtraGuestFee > 0 && (
+                          <div className="summary-row extra-row">
+                            <span>Phụ thu khách phát sinh</span>
+                            <span>{formatPrice(totalExtraGuestFee)}</span>
                           </div>
                         )}
                         {serviceAmount > 0 && (
@@ -1456,11 +1560,12 @@ const Booking: React.FC = () => {
                           </div>
                         )}
                         <div className="summary-row total">
-                          <span>Tổng cộng</span>
+                          <span>Tổng cộng (tạm tính)</span>
                           <span className="total-price">
                             {formatPrice(
-                              (dateAvailability?.totalAmount ??
-                                calculateTotal()) + serviceAmount,
+                              calculateBaseTotal() +
+                                totalExtraGuestFee +
+                                serviceAmount,
                             )}
                           </span>
                         </div>
@@ -1499,7 +1604,6 @@ const Booking: React.FC = () => {
                       phòng để chọn phòng còn trống.
                     </div>
                   )}
-                  {/* Thay đoạn JSX hardcode */}
                   <div className="booking-policies">
                     <h4>Chính sách</h4>
                     <ul>
