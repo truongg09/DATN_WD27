@@ -1,11 +1,11 @@
 .booking-page {
   min-height: 100vh;
   background: #fafafa;
-  padding-top: 130px;
+  padding-top: 92px;
 }
 
 .booking-hero {
-  height: 350px;
+  height: 220px;
   background: linear-gradient(rgba(0,0,0,0.6), rgba(0,0,0,0.6)), 
               url('https://images.unsplash.com/photo-1566073771259-6a8506099945?w=1920') center/cover;
   display: flex;
@@ -27,14 +27,14 @@
 }
 
 .booking-container {
-  max-width: 1200px;
+  max-width: 1320px;
   margin: 0 auto;
-  padding: 60px 20px;
+  padding: 32px 20px 56px;
 }
 
 .booking-history-panel {
-  margin-bottom: 32px;
-  padding: 28px;
+  margin-bottom: 24px;
+  padding: 20px 24px;
   background: #fff;
   border: 1px solid #e9ecef;
   border-radius: 16px;
@@ -219,8 +219,8 @@
 
 .booking-form-wrapper {
   display: grid;
-  grid-template-columns: 1fr 380px;
-  gap: 40px;
+  grid-template-columns: minmax(0, 1fr) 400px;
+  gap: 28px;
 }
 
 .booking-main {
@@ -232,7 +232,7 @@
 .booking-section {
   background: #fff;
   border-radius: 16px;
-  padding: 32px;
+  padding: 24px;
 }
 
 .booking-section h2 {
@@ -436,14 +436,15 @@
 
 .booking-sidebar {
   position: sticky;
-  top: 160px;
+  top: 92px;
   height: fit-content;
+  align-self: start;
 }
 
 .booking-summary {
   background: #fff;
   border-radius: 16px;
-  padding: 28px;
+  padding: 22px;
   border: 1px solid #eee;
 }
 
@@ -541,6 +542,64 @@
 .summary-details {
   margin-bottom: 24px;
 }
+
+.summary-group-title {
+  margin: 0 0 8px;
+  color: #475467;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.summary-room-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  color: #344054;
+  background: #f8fafc;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.summary-room-line strong { white-space: nowrap; }
+
+.summary-voucher {
+  margin: 14px 0 4px;
+  padding: 12px;
+  background: #faf7f2;
+  border: 1px dashed #d8c2a8;
+  border-radius: 10px;
+}
+
+.summary-voucher > label,
+.summary-payment-method label {
+  display: block;
+  margin-bottom: 7px;
+  color: #475467;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.summary-voucher > div { display: flex; gap: 8px; }
+.summary-voucher button {
+  border: 0;
+  padding: 0 12px;
+  border-radius: 7px;
+  color: #fff;
+  background: #2f465f;
+  font-weight: 700;
+  cursor: pointer;
+}
+.summary-voucher small { display: block; margin-top: 7px; color: #b42318; line-height: 1.4; }
+.summary-voucher small.success { color: #047857; }
+.summary-row.discount span { color: #047857; }
+.summary-row.deposit { color: #7c5f3d; }
+.summary-row.remaining { border-bottom: 0; color: #b42318; }
+.summary-payment-method { margin-top: 12px; }
+.summary-payment-method .ant-select { width: 100%; }
 
 .summary-row {
   display: flex;

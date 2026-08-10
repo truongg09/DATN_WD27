@@ -398,15 +398,34 @@ const Booking: React.FC = () => {
     !submitting &&
     !availabilityChecking;
 
-  const calculateTotal = () => {
-    if (!selectedRoom || nights === 0) return 0;
-    return selectedRoom.price * nights;
-  };
-
   const serviceAmount = serviceRequests.reduce((total, request) => {
     const service = services.find((item) => item.id === request.serviceId);
     return total + Number(service?.price || 0) * request.quantity;
   }, 0);
+
+  const summaryRooms = multiRooms
+    .filter((item) => item.roomTypeId > 0 && item.quantity > 0)
+    .map((item) => {
+      const type = roomTypes.find((roomType) => Number(roomType.id) === Number(item.roomTypeId));
+      return {
+        id: item.roomTypeId,
+        name: type?.typeName || type?.room_type_name || selectedRoom?.name || `Loại phòng #${item.roomTypeId}`,
+        quantity: item.quantity,
+        capacity: Number(type?.capacity || selectedRoom?.capacity || 0),
+        price: Number(type?.defaultPrice || type?.price_per_night || selectedRoom?.price || 0),
+      };
+    });
+  const totalRoomQuantity = summaryRooms.reduce((sum, room) => sum + room.quantity, 0) || (selectedRoom ? 1 : 0);
+  const totalCapacity = summaryRooms.reduce((sum, room) => sum + room.capacity * room.quantity, 0) || Number(selectedRoom?.capacity || 0);
+  const estimatedRoomAmount = summaryRooms.reduce((sum, room) => sum + room.price * room.quantity * nights, 0);
+  const roomAmount = summaryRooms.length === 1 && summaryRooms[0].id === selectedRoom?.roomTypeId
+    ? (dateAvailability?.stayAmount ?? estimatedRoomAmount)
+    : estimatedRoomAmount;
+  const childSurcharge = Number(dateAvailability?.childSurcharge?.amount || 0);
+  const subtotal = roomAmount + childSurcharge + serviceAmount;
+  const bookingTotal = subtotal;
+  const depositAmount = Math.round(bookingTotal * 0.3);
+  const remainingAmount = bookingTotal - depositAmount;
 
   const getServiceUsageRule = (service: Service) => {
     const name = service.serviceName.toLocaleLowerCase('vi');
@@ -1059,9 +1078,20 @@ const Booking: React.FC = () => {
                   )}
 
                   <div className="summary-details">
+                    <div className="summary-group-title">Chi tiết lưu trú</div>
+                    {summaryRooms.map((room) => (
+                      <div className="summary-room-line" key={room.id}>
+                        <span>{room.name} × {room.quantity}</span>
+                        <strong>{formatPrice(room.price)}/đêm</strong>
+                      </div>
+                    ))}
                     <div className="summary-row">
-                      <span>Giá phòng</span>
-                      <span>{formatPrice(selectedRoom.price)}/đêm</span>
+                      <span>Số lượng phòng</span>
+                      <span>{totalRoomQuantity} phòng</span>
+                    </div>
+                    <div className="summary-row">
+                      <span>Khách & sức chứa</span>
+                      <span>{adults} NL · {children} TE / {totalCapacity || '—'} khách</span>
                     </div>
                     <div className="summary-row">
                       <span>Số đêm</span>
@@ -1070,15 +1100,15 @@ const Booking: React.FC = () => {
                     {nights > 0 && (
                       <>
                         <div className="summary-row">
-                          <span>Tiền phòng {dateAvailability?.stayAmount !== undefined ? '(theo giá từng đêm)' : ''}</span>
-                          <span>{formatPrice(dateAvailability?.stayAmount ?? calculateTotal())}</span>
+                          <span>Tiền phòng</span>
+                          <span>{formatPrice(roomAmount)}</span>
                         </div>
-                        {(dateAvailability?.childSurcharge?.amount ?? 0) > 0 && (
+                        {childSurcharge > 0 && (
                           <div className="summary-row">
                             <span>
                               Phụ thu trẻ em ({dateAvailability?.childSurcharge?.chargeableChildren} bé)
                             </span>
-                            <span>{formatPrice(dateAvailability?.childSurcharge?.amount ?? 0)}</span>
+                            <span>{formatPrice(childSurcharge)}</span>
                           </div>
                         )}
                         {serviceAmount > 0 && (
@@ -1090,8 +1120,16 @@ const Booking: React.FC = () => {
                         <div className="summary-row total">
                           <span>Tổng cộng</span>
                           <span className="total-price">
-                            {formatPrice((dateAvailability?.totalAmount ?? calculateTotal()) + serviceAmount)}
+                            {formatPrice(bookingTotal)}
                           </span>
+                        </div>
+                        <div className="summary-row deposit">
+                          <span>Tiền cọc dự kiến (30%)</span>
+                          <strong>{formatPrice(depositAmount)}</strong>
+                        </div>
+                        <div className="summary-row remaining">
+                          <span>Còn phải thanh toán</span>
+                          <strong>{formatPrice(remainingAmount)}</strong>
                         </div>
                       </>
                     )}
