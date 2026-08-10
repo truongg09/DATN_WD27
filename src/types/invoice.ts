@@ -29,6 +29,9 @@ export interface Invoice {
   occupancySurcharge?: number;
   childrenCount?: number;
   discountAmount: number;
+  depositAmount?: number;
+  paidAmount?: number;
+  remainingAmount?: number;
   totalAmount: number;
   status: InvoiceStatus;
   issuedAt: string;
