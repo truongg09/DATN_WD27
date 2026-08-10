@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: localhost:3306
--- Generation Time: Aug 10, 2026 at 06:27 AM
+-- Generation Time: Aug 10, 2026 at 07:18 AM
 -- Server version: 8.4.3
 -- PHP Version: 8.3.26
 
@@ -1033,10 +1033,10 @@ CREATE TABLE `room_types` (
 --
 
 INSERT INTO `room_types` (`id`, `typeName`, `description`, `capacity`, `adultCapacity`, `childCapacity`, `maxOccupancy`, `extraAdultFee`, `extraChildFee`, `defaultPrice`, `status`, `isDeleted`) VALUES
-(1, 'Standard', 'Phong tieu chuan', 2, 2, 0, 2, 200000.00, 100000.00, 5000.00, 'active', 0),
-(2, 'Superior', 'Phong superior', 2, 2, 1, 3, 200000.00, 100000.00, 700000.00, 'active', 0),
+(1, 'Standard', 'Phong tieu chuan', 2, 2, 0, 3, 200000.00, 100000.00, 500000.00, 'active', 0),
+(2, 'Superior', 'Phong superior', 2, 2, 1, 4, 200000.00, 100000.00, 700000.00, 'active', 0),
 (3, 'Deluxe', 'Phong deluxe', 3, 2, 1, 4, 250000.00, 120000.00, 900000.00, 'active', 0),
-(4, 'Family', 'Phong gia dinh', 4, 4, 2, 6, 300000.00, 150000.00, 120000.00, 'active', 0),
+(4, 'Family', 'Phong gia dinh', 4, 4, 2, 6, 300000.00, 150000.00, 1200000.00, 'active', 0),
 (5, 'Suite', 'Phong tong thong', 4, 4, 2, 6, 400000.00, 200000.00, 2000000.00, 'active', 0);
 
 -- --------------------------------------------------------
@@ -1623,7 +1623,7 @@ ALTER TABLE `room_prices`
 -- AUTO_INCREMENT for table `room_types`
 --
 ALTER TABLE `room_types`
-  MODIFY `id` int NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
+  MODIFY `id` int NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=7;
 
 --
 -- AUTO_INCREMENT for table `room_type_amenities`
@@ -1826,7 +1826,3 @@ ALTER TABLE `room_type_amenities`
 ALTER TABLE `wallet_transactions`
   ADD CONSTRAINT `wallet_transactions_ibfk_1` FOREIGN KEY (`customerId`) REFERENCES `customers` (`id`) ON DELETE CASCADE;
 COMMIT;
-
-/*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
-/*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
-/*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;

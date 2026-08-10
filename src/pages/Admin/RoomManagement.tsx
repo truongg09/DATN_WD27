@@ -44,6 +44,7 @@ interface RoomType {
   typeName: string;
   description: string;
   capacity: number;
+  maxOccupancy?: number;
   defaultPrice: string | number;
 }
 
@@ -57,6 +58,7 @@ interface Room {
   room_type_name: string;
   room_type_description: string;
   capacity: number;
+  maxOccupancy?: number;
   price_per_night: string | number;
   imageUrl?: string;
   maintenanceNote?: string | null;
@@ -684,7 +686,7 @@ function RoomManagement() {
       title: 'Sức chứa',
       dataIndex: 'capacity',
       key: 'capacity',
-      render: (capacity: number) => `${capacity} người`
+      render: (capacity: number, record: Room) => `${record.maxOccupancy ?? capacity} người`
     },
     {
       title: 'Trạng thái',
@@ -1386,7 +1388,7 @@ function RoomManagement() {
             <Descriptions.Item label="Tầng">{selectedRoom.floor}</Descriptions.Item>
             <Descriptions.Item label="Diện tích">{selectedRoom.area} m²</Descriptions.Item>
             <Descriptions.Item label="Giá/đêm">{formatPrice(selectedRoom.price_per_night)}</Descriptions.Item>
-            <Descriptions.Item label="Sức chứa">{selectedRoom.capacity} người</Descriptions.Item>
+            <Descriptions.Item label="Sức chứa">{selectedRoom.maxOccupancy ?? selectedRoom.capacity} người</Descriptions.Item>
             <Descriptions.Item label="Trạng thái">
               {(() => {
                 let color = 'default';

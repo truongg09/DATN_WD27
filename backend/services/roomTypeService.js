@@ -113,7 +113,6 @@ const searchRoomTypes = async ({ checkIn, checkOut, guests } = {}) => {
   const result = [];
   for (const type of types) {
     const entry = buildTypeEntry(type, extras);
-    entry.fitsGuests = guestCount <= 0 || (entry.maxOccupancy || entry.capacity) >= guestCount;
 
     if (availabilityByType) {
       const availability = availabilityByType.get(Number(type.id));
@@ -127,6 +126,17 @@ const searchRoomTypes = async ({ checkIn, checkOut, guests } = {}) => {
       entry.nights = nightly.nights;
       entry.stayAmount = nightly.total;
       entry.nightlyPrices = nightly.prices;
+    }
+
+    const maxOcc = entry.maxOccupancy || entry.capacity || 1;
+    entry.fitsOneRoom = guestCount <= 0 || maxOcc >= guestCount;
+    entry.minimumRooms = guestCount > 0 ? Math.ceil(guestCount / maxOcc) : 1;
+
+    if (guestCount <= 0) {
+      entry.fitsGuests = true;
+    } else {
+      const maxCapacityRooms = availabilityByType ? entry.availableRooms : entry.totalRooms;
+      entry.fitsGuests = (maxCapacityRooms * maxOcc) >= guestCount;
     }
 
     result.push(entry);

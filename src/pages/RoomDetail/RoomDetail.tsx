@@ -272,7 +272,7 @@ const RoomDetail: React.FC = () => {
               </div>
               <div className="spec-item">
                 <FontAwesomeIcon icon={faUser} />
-                <span>Tối đa {room.capacity} người</span>
+                <span>Tối đa {room.maxOccupancy ?? room.capacity} người</span>
               </div>
             </div>
 

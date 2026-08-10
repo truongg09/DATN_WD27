@@ -155,10 +155,18 @@ const RoomTypeDetail: React.FC = () => {
   }
 
   const nights = hasDates ? dateRange[1]!.diff(dateRange[0]!, 'day') : 0;
-  const totalStay = roomType.stayAmount ?? (nights > 0 ? roomType.defaultPrice * nights : 0);
+  const totalStay =
+  nights > 0
+    ? Number(roomType.defaultPrice || 0) * nights
+    : 0;
   const soldOut = hasDates && (roomType.availableRooms ?? 0) === 0;
   const lowStock = hasDates && !soldOut && (roomType.availableRooms ?? 0) <= 3;
-  const overCapacity = guests.adults + guests.children > roomType.capacity;
+  const maxOcc = roomType.maxOccupancy ?? roomType.capacity;
+  const totalGuests = guests.adults + guests.children;
+  const fitsOneRoom = totalGuests <= maxOcc;
+  const minimumRooms = totalGuests > 0 ? Math.ceil(totalGuests / maxOcc) : 1;
+  const overCapacity = roomType.fitsGuests === false || (roomType.availableRooms ? (roomType.availableRooms * maxOcc < totalGuests) : false);
+  const needMoreRooms = !overCapacity && !fitsOneRoom;
   const reviews = roomType.reviews || [];
 
   const guestContent = (
@@ -247,7 +255,7 @@ const RoomTypeDetail: React.FC = () => {
             </div>
 
             <div className="type-specs">
-              <span><FontAwesomeIcon icon={faUserGroup} /> Tối đa {roomType.capacity} khách</span>
+              <span><FontAwesomeIcon icon={faUserGroup} /> Tối đa {maxOcc} khách</span>
               {roomType.minArea !== null && (
                 <span>
                   <FontAwesomeIcon icon={faExpandArrowsAlt} />{' '}
@@ -353,9 +361,15 @@ const RoomTypeDetail: React.FC = () => {
               )
             )}
 
+            {needMoreRooms && (
+              <p className="widget-stock low" style={{ color: '#d35400' }}>
+                Hạng phòng này ở tối đa {maxOcc} khách/phòng — cần tối thiểu {minimumRooms} phòng cho số khách của bạn.
+              </p>
+            )}
+
             {overCapacity && (
               <p className="widget-stock sold">
-                Hạng phòng này ở tối đa {roomType.capacity} khách/phòng.
+                Số khách vượt quá tổng sức chứa của hạng phòng này.
               </p>
             )}
 
