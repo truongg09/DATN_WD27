@@ -80,6 +80,10 @@ const createBooking = async (req, res) => {
 
 const listBookings = async (req, res) => {
   try {
+    await bookingService.processOverdueCheckIns().catch((err) => {
+      console.error('Error processing overdue check-ins in listBookings:', err);
+    });
+
     const filters = {};
     if (req.query.userId || req.query.customerId) {
       filters.userId = normalizeIdParam(req.query.userId || req.query.customerId, 'userId');
@@ -93,6 +97,44 @@ const listBookings = async (req, res) => {
 
     const bookings = await bookingService.listBookings(filters);
     res.json({ data: bookings });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
+const updateArrivalTime = async (req, res) => {
+  try {
+    const bookingId = normalizeIdParam(req.params.id);
+    const booking = await bookingService.getBookingById(bookingId);
+    ensureBookingAccess(req.user, booking, 'cập nhật giờ đến');
+
+    const { requestedCheckInTime, requestedCheckInDayOffset, dayOffset, notes } = req.body;
+    if (!requestedCheckInTime) {
+      throw new HttpError(400, 'Vui lòng cung cấp giờ đến dự kiến mới');
+    }
+
+    const result = await bookingService.updateBookingRequestedCheckInTime(
+      bookingId,
+      { requestedCheckInTime, requestedCheckInDayOffset, dayOffset, notes },
+      req.user || null
+    );
+
+    res.json({
+      message: 'Đã cập nhật giờ đến dự kiến thành công',
+      data: result
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
+const processOverdue = async (req, res) => {
+  try {
+    const results = await bookingService.processOverdueCheckIns();
+    res.json({
+      message: 'Xử lý các đặt phòng quá hạn check-in thành công',
+      data: results
+    });
   } catch (error) {
     sendError(res, error);
   }
@@ -535,6 +577,8 @@ module.exports = {
   checkIn,
   checkOut,
   markNoShow,
+  updateArrivalTime,
+  processOverdue,
   listServiceRequests,
   confirmServiceRequest,
   rejectServiceRequest,

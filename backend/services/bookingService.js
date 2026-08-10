@@ -10,6 +10,7 @@ const {
   isLateCheckIn,
   isPastNoShowDeadline,
   getLateCheckInDeadline,
+  getCheckOutDeadline,
   combineDateTime,
   computeLateCheckoutFee,
   getMaxLateCheckoutTime,
@@ -2474,37 +2475,159 @@ const markNoShow = async (
   }
 };
 
-const processNoShows = async () => {
+const processOverdueCheckIns = async () => {
   const connection = await db.getConnection();
   const results = [];
+  const now = new Date();
 
   try {
     await connection.beginTransaction();
-    const candidates =
-      await bookingModel.listEligibleNoShowBookings(connection);
+    const candidates = await bookingModel.getOverdueCheckInCandidates(connection);
 
     for (const candidate of candidates) {
-      try {
-        const result = await markNoShow(candidate.id, {
-          allowBeforeDeadline: true,
-          connection,
-        });
-        results.push({
-          bookingId: candidate.id,
-          status: "processed",
-          voucherCode: result.voucher.code,
-        });
-      } catch (error) {
-        results.push({
-          bookingId: candidate.id,
-          status: "skipped",
-          reason: error.message,
-        });
+      if (candidate.actual_check_in_time) {
+        continue;
+      }
+
+      const checkInDate = candidate.check_in;
+      const requestedCheckInTime = candidate.requested_check_in_time || '14:00:00';
+      const requestedCheckInDayOffset = Number(candidate.requested_check_in_day_offset || 0);
+      const checkOutDate = candidate.check_out;
+      const requestedCheckOutTime = candidate.requested_check_out_time || '12:00:00';
+
+      const lateCheckInDeadline = getLateCheckInDeadline(checkInDate, requestedCheckInTime, 6, requestedCheckInDayOffset);
+      const checkOutDeadline = getCheckOutDeadline(checkOutDate, requestedCheckOutTime);
+
+      const totalAmount = Number(candidate.payment_total_amount || candidate.total_amount || 0);
+      const paidAmount = Number(candidate.paid_amount || 0);
+      const remainingAmount = Number(candidate.remaining_amount || 0);
+      const paymentStatus = candidate.payment_status;
+
+      const isFullyPaid =
+        paymentStatus === 'paid' ||
+        (remainingAmount <= 0 && paidAmount > 0) ||
+        (totalAmount > 0 && paidAmount / totalAmount >= 0.999);
+
+      if (isFullyPaid) {
+        if (now > checkOutDeadline) {
+          await bookingModel.updateBookingStatus(candidate.id, 'no_show', connection);
+          if (candidate.room_id) {
+            await bookingModel.updateRoomStatus(candidate.room_id, 'available', connection);
+          }
+          await logHistory(
+            candidate.id,
+            'no_show',
+            'Khách đã thanh toán 100% nhưng không đến trong suốt thời gian đặt phòng (đã qua thời gian checkout). Đặt phòng được chuyển sang No-show.',
+            { oldValue: { status: candidate.status }, newValue: { status: 'no_show' } },
+            { role: 'system' },
+            connection
+          );
+          results.push({ bookingId: candidate.id, status: 'no_show', reason: '100% paid - past checkout deadline' });
+        } else {
+          results.push({ bookingId: candidate.id, status: 'held', reason: '100% paid - holding room' });
+        }
+      } else {
+        if (now > lateCheckInDeadline) {
+          await bookingModel.updateBookingStatus(candidate.id, 'no_show', connection);
+          if (candidate.room_id) {
+            await bookingModel.updateRoomStatus(candidate.room_id, 'available', connection);
+          }
+          await logHistory(
+            candidate.id,
+            'no_show',
+            'Khách không đến trong thời hạn check-in cho phép. Booking được chuyển sang No-show. Tiền cọc không hoàn lại theo chính sách.',
+            { oldValue: { status: candidate.status }, newValue: { status: 'no_show' } },
+            { role: 'system' },
+            connection
+          );
+          results.push({ bookingId: candidate.id, status: 'no_show', reason: '30% deposit - past check-in deadline' });
+        } else {
+          results.push({ bookingId: candidate.id, status: 'held', reason: 'Within late check-in window' });
+        }
       }
     }
 
     await connection.commit();
     return results;
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
+const updateBookingRequestedCheckInTime = async (
+  bookingId,
+  { requestedCheckInTime, requestedCheckInDayOffset, dayOffset, notes },
+  actor = null
+) => {
+  const connection = await db.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    const booking = await bookingModel.getBookingById(bookingId, connection, true);
+    if (!booking) {
+      throw new HttpError(404, 'Không tìm thấy đặt phòng');
+    }
+
+    if (booking.actual_check_in_time) {
+      throw new HttpError(400, 'Đặt phòng đã check-in, không thể cập nhật giờ đến');
+    }
+
+    const currentStatus = (booking.status || '').toLowerCase();
+    if (['cancelled', 'no_show', 'checked_out'].includes(currentStatus)) {
+      throw new HttpError(400, 'Chỉ có thể cập nhật giờ đến khi đặt phòng chưa check-in và chưa bị hủy/No-show');
+    }
+
+    let timeStr = requestedCheckInTime;
+    let offset = Number(dayOffset !== undefined ? dayOffset : (requestedCheckInDayOffset || 0));
+
+    if (timeStr && String(timeStr).includes('+1')) {
+      timeStr = String(timeStr).replace('+1', '');
+      offset = 1;
+    }
+
+    if (timeStr && timeStr.length === 5) {
+      timeStr += ':00';
+    }
+
+    await bookingModel.updateRequestedCheckInTime(bookingId, timeStr, offset, connection);
+
+    const offsetText = offset === 1 ? ' (ngày hôm sau)' : '';
+    const descNote = notes ? `. Ghi chú: ${notes}` : '';
+    await logHistory(
+      bookingId,
+      'update_arrival_time',
+      `Cập nhật giờ check-in dự kiến mới: ${timeStr.slice(0, 5)}${offsetText}${descNote}`,
+      {
+        oldValue: {
+          requestedCheckInTime: booking.requested_check_in_time,
+          requestedCheckInDayOffset: booking.requested_check_in_day_offset
+        },
+        newValue: {
+          requestedCheckInTime: timeStr,
+          requestedCheckInDayOffset: offset,
+          notes
+        }
+      },
+      actor,
+      connection
+    );
+
+    await connection.commit();
+    const updated = await bookingModel.getBookingById(bookingId);
+    const deadline = getLateCheckInDeadline(
+      updated.check_in,
+      updated.requested_check_in_time,
+      6,
+      updated.requested_check_in_day_offset || 0
+    );
+    return {
+      booking: updated,
+      lateCheckInDeadline: deadline
+    };
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -2749,6 +2872,7 @@ module.exports = {
   checkIn,
   checkOut,
   markNoShow,
-  processNoShows,
+  processOverdueCheckIns,
+  updateBookingRequestedCheckInTime,
   reassignConflictingBooking,
 };

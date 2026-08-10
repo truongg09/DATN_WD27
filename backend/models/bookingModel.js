@@ -37,6 +37,7 @@ const BOOKING_SELECT = `
     COALESCE(bd.occupancySurcharge, 0) AS occupancy_surcharge,
     COALESCE(bd.requestedCheckInTime, b.requestedCheckInTime) AS requested_check_in_time,
     COALESCE(bd.requestedCheckOutTime, b.requestedCheckOutTime) AS requested_check_out_time,
+    COALESCE(bd.requestedCheckInDayOffset, b.requestedCheckInDayOffset, 0) AS requested_check_in_day_offset,
     b.actualCheckInTime AS actual_check_in_time,
     b.actualCheckOutTime AS actual_check_out_time,
     COALESCE(b.guest_name, c.fullName) AS customer_name,
@@ -770,25 +771,60 @@ const getActorDisplayName = async (accountId, connection) => {
 };
 
 const listEligibleNoShowBookings = async (connection) => {
+  return getOverdueCheckInCandidates(connection);
+};
+
+const getOverdueCheckInCandidates = async (connection) => {
   const [rows] = await run(connection).query(
     `
       SELECT
         b.id,
         b.user_id,
-        b.room_id,
+        COALESCE(bd.roomId, b.room_id) AS room_id,
         b.status,
+        b.bookingStatus,
         DATE(COALESCE(bd.checkInDate, b.check_in)) AS check_in,
+        DATE(COALESCE(bd.checkOutDate, b.check_out)) AS check_out,
+        COALESCE(bd.requestedCheckInTime, b.requestedCheckInTime) AS requested_check_in_time,
+        COALESCE(bd.requestedCheckOutTime, b.requestedCheckOutTime) AS requested_check_out_time,
+        COALESCE(bd.requestedCheckInDayOffset, b.requestedCheckInDayOffset, 0) AS requested_check_in_day_offset,
+        b.actualCheckInTime AS actual_check_in_time,
+        COALESCE(b.totalAmount, b.total_price, 0) AS total_amount,
         COALESCE(p.paidAmount, 0) AS paid_amount,
+        COALESCE(p.remainingAmount, 0) AS remaining_amount,
+        COALESCE(p.totalAmount, b.totalAmount, b.total_price, 0) AS payment_total_amount,
         COALESCE(p.paymentStatus, 'unpaid') AS payment_status
       FROM bookings b
       LEFT JOIN booking_details bd ON bd.bookingId = b.id
-      JOIN payments p ON p.bookingId = b.id
-      WHERE b.status = 'confirmed'
-        AND COALESCE(p.paidAmount, 0) > 0
-        AND NOW() > DATE_ADD(DATE(COALESCE(bd.checkInDate, b.check_in)), INTERVAL 1 DAY) + INTERVAL ${LATE_CHECKIN_GRACE_HOUR} HOUR
+      LEFT JOIN payments p ON p.id = (
+        SELECT p2.id
+        FROM payments p2
+        WHERE p2.bookingId = b.id
+        ORDER BY p2.id DESC
+        LIMIT 1
+      )
+      WHERE b.actualCheckInTime IS NULL
+        AND COALESCE(b.bookingStatus, b.status) IN ('pending', 'confirmed')
     `
   );
   return rows;
+};
+
+const updateRequestedCheckInTime = async (bookingId, requestedCheckInTime, dayOffset = 0, connection) => {
+  await run(connection).query(
+    'UPDATE bookings SET requestedCheckInTime = ?, requestedCheckInDayOffset = ? WHERE id = ?',
+    [requestedCheckInTime, dayOffset, bookingId]
+  );
+  const [bd] = await run(connection).query(
+    'SELECT id FROM booking_details WHERE bookingId = ?',
+    [bookingId]
+  );
+  if (bd.length > 0) {
+    await run(connection).query(
+      'UPDATE booking_details SET requestedCheckInTime = ?, requestedCheckInDayOffset = ? WHERE bookingId = ?',
+      [requestedCheckInTime, dayOffset, bookingId]
+    );
+  }
 };
 
 const DEFAULT_CHECKOUT_LATE_FEE_TIERS = {
@@ -967,6 +1003,8 @@ module.exports = {
   releaseAvailabilityByBooking,
   updateRoomStatus,
   listEligibleNoShowBookings,
+  getOverdueCheckInCandidates,
+  updateRequestedCheckInTime,
   getCheckoutLateFeeTiers,
   findNextBookingForRoom,
   findAdjacentBookingsForRoom,

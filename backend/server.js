@@ -81,13 +81,13 @@ setInterval(() => {
 }, 60 * 1000);
 
 setInterval(() => {
-  bookingService.processNoShows().catch((error) => {
-    console.error('Process no-show bookings error:', error);
+  bookingService.processOverdueCheckIns().catch((error) => {
+    console.error('Process overdue check-ins error:', error);
   });
-}, 60 * 60 * 1000);
+}, 30 * 60 * 1000);
 
-bookingService.processNoShows().catch((error) => {
-  console.error('Initial no-show processing error:', error);
+bookingService.processOverdueCheckIns().catch((error) => {
+  console.error('Initial overdue check-ins processing error:', error);
 });
 
 // Start server

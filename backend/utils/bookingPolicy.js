@@ -9,38 +9,45 @@ const dayString = (value) => {
 };
 
 // Chuyển lên trước isLateCheckIn vì giờ được dùng làm nền tính giờ chuẩn check-in.
-const combineDateTime = (dateInput, timeStr) => {
+const combineDateTime = (dateInput, timeStr, dayOffset = 0) => {
   const day = dayString(dateInput);
-  return new Date(`${day}T${timeStr}+07:00`);
+  const baseDate = new Date(`${day}T${timeStr}+07:00`);
+  if (dayOffset) {
+    baseDate.setDate(baseDate.getDate() + Number(dayOffset));
+  }
+  return baseDate;
 };
 
 const DEFAULT_STANDARD_CHECKIN_TIME = '14:00:00';
 
-const getLateCheckInDeadline = (checkInDate) => {
-  const deadline = new Date(`${dayString(checkInDate)}T00:00:00`);
-  deadline.setDate(deadline.getDate() + 1);
-  deadline.setHours(LATE_CHECKIN_GRACE_HOUR, 0, 0, 0);
-  return deadline;
+const getLateCheckInDeadline = (checkInDate, requestedCheckInTime = DEFAULT_STANDARD_CHECKIN_TIME, graceHours = LATE_CHECKIN_GRACE_HOUR, dayOffset = 0) => {
+  const timeStr = requestedCheckInTime || DEFAULT_STANDARD_CHECKIN_TIME;
+  const baseDateTime = combineDateTime(checkInDate, timeStr, dayOffset);
+  return new Date(baseDateTime.getTime() + Number(graceHours) * 3600000);
+};
+
+const getCheckOutDeadline = (checkOutDate, requestedCheckOutTime = '12:00:00') => {
+  const timeStr = requestedCheckOutTime || '12:00:00';
+  return combineDateTime(checkOutDate, timeStr, 0);
 };
 
 const getCheckInDayStart = (checkInDate) =>
   new Date(`${dayString(checkInDate)}T00:00:00`);
 
-const isWithinLateCheckInWindow = (checkInDate, now = new Date()) => {
-  const start = getCheckInDayStart(checkInDate);
-  const deadline = getLateCheckInDeadline(checkInDate);
+const isWithinLateCheckInWindow = (checkInDate, requestedCheckInTime = DEFAULT_STANDARD_CHECKIN_TIME, now = new Date(), dayOffset = 0) => {
+  const start = combineDateTime(checkInDate, requestedCheckInTime || DEFAULT_STANDARD_CHECKIN_TIME, dayOffset);
+  const deadline = getLateCheckInDeadline(checkInDate, requestedCheckInTime, LATE_CHECKIN_GRACE_HOUR, dayOffset);
   return now >= start && now <= deadline;
 };
 
-// standardCheckInTime giờ lấy từ checkout_late_fee_tiers (DB), không hardcode nữa.
-// Vẫn có default '14:00:00' để tương thích ngược nếu nơi gọi cũ chưa truyền.
-const isLateCheckIn = (checkInDate, now = new Date(), standardCheckInTime = DEFAULT_STANDARD_CHECKIN_TIME) => {
-  const standardCheckIn = combineDateTime(checkInDate, standardCheckInTime);
-  return now > standardCheckIn && isWithinLateCheckInWindow(checkInDate, now);
+const isLateCheckIn = (checkInDate, requestedCheckInTime = DEFAULT_STANDARD_CHECKIN_TIME, now = new Date(), dayOffset = 0) => {
+  const requestedCheckIn = combineDateTime(checkInDate, requestedCheckInTime || DEFAULT_STANDARD_CHECKIN_TIME, dayOffset);
+  const deadline = getLateCheckInDeadline(checkInDate, requestedCheckInTime, LATE_CHECKIN_GRACE_HOUR, dayOffset);
+  return now > requestedCheckIn && now <= deadline;
 };
 
-const isPastNoShowDeadline = (checkInDate, now = new Date()) =>
-  now > getLateCheckInDeadline(checkInDate);
+const isPastNoShowDeadline = (checkInDate, requestedCheckInTime = DEFAULT_STANDARD_CHECKIN_TIME, now = new Date(), dayOffset = 0) =>
+  now > getLateCheckInDeadline(checkInDate, requestedCheckInTime, LATE_CHECKIN_GRACE_HOUR, dayOffset);
 
 // Tính phí trễ giờ theo 3 tier. Trả về status để nơi gọi biết cần làm gì tiếp.
 const computeLateCheckoutFee = (tiers, standardCheckOut, actualCheckOutTime, nightlyRate) => {
@@ -80,6 +87,7 @@ module.exports = {
   LATE_CHECKIN_GRACE_HOUR,
   dayString,
   getLateCheckInDeadline,
+  getCheckOutDeadline,
   isWithinLateCheckInWindow,
   isLateCheckIn,
   isPastNoShowDeadline,
