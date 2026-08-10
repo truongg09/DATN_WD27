@@ -233,9 +233,12 @@ const RoomList: React.FC = () => {
         ) : (
           <div className="type-results-list">
             {sortedTypes.map((type) => {
+              const maxOcc = type.maxOccupancy ?? type.capacity;
               const soldOut = hasDates && (type.availableRooms ?? 0) === 0;
               const lowStock = hasDates && !soldOut && (type.availableRooms ?? 0) <= 3;
               const overCapacity = type.fitsGuests === false;
+              const needMoreRooms = !overCapacity && type.fitsOneRoom === false;
+              const minRooms = type.minimumRooms ?? (guests > 0 ? Math.ceil(guests / maxOcc) : 1);
               const gallery = getRoomTypeGallery(type.typeName, type.images);
               const totalStay = type.stayAmount ?? (nights > 0 ? type.defaultPrice * nights : 0);
 
@@ -266,7 +269,7 @@ const RoomList: React.FC = () => {
                     </div>
 
                     <div className="type-specs">
-                      <span><FontAwesomeIcon icon={faUserGroup} /> Tối đa {type.capacity} khách</span>
+                      <span><FontAwesomeIcon icon={faUserGroup} /> Tối đa {maxOcc} khách</span>
                       {type.minArea !== null && (
                         <span>
                           <FontAwesomeIcon icon={faExpandArrowsAlt} />{' '}
@@ -294,7 +297,13 @@ const RoomList: React.FC = () => {
 
                     {overCapacity && (
                       <p className="capacity-warning">
-                        Hạng phòng này ở tối đa {type.capacity} khách/phòng — bạn có thể cần đặt thêm phòng.
+                        Hạng phòng này không đủ tổng sức chứa cho số khách đã chọn.
+                      </p>
+                    )}
+
+                    {needMoreRooms && (
+                      <p className="capacity-warning">
+                        Hạng phòng này ở tối đa {maxOcc} khách/phòng — cần tối thiểu {minRooms} phòng cho số khách của bạn.
                       </p>
                     )}
                   </div>

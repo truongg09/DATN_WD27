@@ -28,6 +28,7 @@ interface RoomType {
   typeName: string;
   description: string;
   capacity: number;
+  maxOccupancy?: number;
   defaultPrice: string | number;
   roomCount?: number;
   availableCount?: number;
@@ -242,7 +243,7 @@ function RoomTypeManagement() {
       dataIndex: 'capacity',
       key: 'capacity',
       sorter: (a: RoomType, b: RoomType) => a.capacity - b.capacity,
-      render: (capacity: number) => `${capacity} người`
+      render: (capacity: number, record: RoomType) => `${record.maxOccupancy ?? capacity} người`
     },
     {
       title: 'Số lượng phòng',
@@ -522,7 +523,7 @@ function RoomTypeManagement() {
           <Descriptions bordered column={1}>
             <Descriptions.Item label="ID">{selectedType.id}</Descriptions.Item>
             <Descriptions.Item label="Tên hạng phòng">{selectedType.typeName}</Descriptions.Item>
-            <Descriptions.Item label="Sức chứa">{selectedType.capacity} người</Descriptions.Item>
+            <Descriptions.Item label="Sức chứa">{selectedType.maxOccupancy ?? selectedType.capacity} người</Descriptions.Item>
             <Descriptions.Item label="Số lượng phòng">{selectedType.roomCount || 0} phòng</Descriptions.Item>
             <Descriptions.Item label="Danh sách số phòng">
               {selectedType.roomNumbers ? (
