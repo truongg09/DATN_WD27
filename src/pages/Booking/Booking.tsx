@@ -1000,10 +1000,22 @@ const Booking: React.FC = () => {
             </div>
 
             {/* Section 2: Ngày lưu trú & Số lượng khách (UX Item 10) */}
-            <div className="booking-section">
-              <h2>Ngày lưu trú & Số lượng khách</h2>
+            <div className="booking-section stay-guests-section">
+              <div className="stay-guests-heading">
+                <div>
+                  <h2>Ngày lưu trú & Số lượng khách</h2>
+                  <p>Chọn thời gian ở, hạng phòng và số khách đi cùng.</p>
+                </div>
+                {nights > 0 && (
+                  <div className="nights-summary" aria-live="polite">
+                    <strong>{nights}</strong>
+                    <span>đêm lưu trú</span>
+                  </div>
+                )}
+              </div>
 
-              <div className="form-group">
+              <div className="stay-dates-card">
+              <div className="form-group stay-range-field">
                 <label>
                   Ngày nhận và trả phòng <span className="required">*</span>
                 </label>
@@ -1030,90 +1042,14 @@ const Booking: React.FC = () => {
                 />
               </div>
 
-              {nights > 0 && (
-                <div className="nights-info">
-                  <span className="nights-count">
-                    Số đêm: <strong>{nights}</strong> đêm
-                  </span>
-                </div>
-              )}
-
-              <div className="form-row two-col">
-                <div className="form-group">
-                  <label>
-                    Giờ nhận phòng mong muốn{" "}
-                    <span className="optional-hint">(tùy chọn)</span>
-                  </label>
-                  <Controller
-                    name="requestedCheckInTime"
-                    control={control}
-                    render={({ field }) => (
-                      <TimePicker
-                        style={{ width: "100%" }}
-                        size="large"
-                        format="HH:mm"
-                        minuteStep={15}
-                        placeholder={`Mặc định ${shortTime(policies?.checkInTime) || "14:00"}`}
-                        suffixIcon={<ClockCircleOutlined />}
-                        value={field.value ? dayjs(field.value, "HH:mm") : null}
-                        onChange={(time) =>
-                          field.onChange(time ? time.format("HH:mm") : null)
-                        }
-                      />
-                    )}
-                  />
-                </div>
-                <div className="form-group">
-                  <label>
-                    Giờ trả phòng mong muốn{" "}
-                    <span className="optional-hint">(tùy chọn)</span>
-                  </label>
-                  <Controller
-                    name="requestedCheckOutTime"
-                    control={control}
-                    render={({ field }) => {
-                      const standard = dayjs(
-                        policies?.checkOutTime || "12:00:00",
-                        "HH:mm:ss",
-                      );
-                      return (
-                        <TimePicker
-                          style={{ width: "100%" }}
-                          size="large"
-                          format="HH:mm"
-                          minuteStep={15}
-                          placeholder={`Mặc định ${shortTime(policies?.checkOutTime) || "12:00"}`}
-                          suffixIcon={<ClockCircleOutlined />}
-                          value={
-                            field.value ? dayjs(field.value, "HH:mm") : null
-                          }
-                          disabledTime={() => ({
-                            disabledHours: () =>
-                              Array.from({ length: 24 }, (_, h) => h).filter(
-                                (h) => h > standard.hour(),
-                              ),
-                            disabledMinutes: (selectedHour) =>
-                              selectedHour === standard.hour()
-                                ? Array.from(
-                                    { length: 60 },
-                                    (_, m) => m,
-                                  ).filter((m) => m > standard.minute())
-                                : [],
-                          })}
-                          onChange={(time) =>
-                            field.onChange(time ? time.format("HH:mm") : null)
-                          }
-                        />
-                      );
-                    }}
-                  />
-                </div>
               </div>
-              <p className="service-request-note">
-                * Giờ nhận phòng chỉ để lễ tân chủ động chuẩn bị. Giờ trả phòng
-                chỉ chọn được từ giờ chuẩn trở về trước.
-              </p>
 
+              <div className="guest-configuration-card">
+                <div className="configuration-card-heading">
+                  <span>Thông tin phòng và khách</span>
+                  <small>Hệ thống sẽ kiểm tra sức chứa ngay khi bạn chọn.</small>
+                </div>
+              <div className="form-row two-col room-selection-grid">
               <div className="form-group">
                 <label>
                   Hạng phòng <span className="required">*</span>
@@ -1156,19 +1092,91 @@ const Booking: React.FC = () => {
                       params.delete("childAges");
                     }
 
-                    // Hạng mới tự tính lại số phòng cần thiết
-                    params.delete("roomQuantity");
-
-                    setRoomQuantity(1);
+                    params.set("roomQuantity", String(roomQuantity));
                     setDateAvailability(null);
 
-                    navigate(`/booking?${params.toString()}`);
+                    const scrollPosition = window.scrollY;
+                    navigate(`/booking?${params.toString()}`, { replace: true });
+                    window.requestAnimationFrame(() => {
+                      window.requestAnimationFrame(() =>
+                        window.scrollTo({ top: scrollPosition }),
+                      );
+                    });
                   }}
                 />
               </div>
 
+              {!isSpecificRoomMode ? (
+                <div className="form-group room-quantity-field">
+                  <label>
+                    Số lượng phòng <span className="required">*</span>
+                  </label>
+                  <div className="room-quantity-row">
+                    <button
+                      type="button"
+                      className="quantity-stepper-button"
+                      aria-label="Giảm số lượng phòng"
+                      disabled={roomQuantity <= 1 || availableRoomsCount === 0}
+                      onClick={() => setRoomQuantity((value) => Math.max(1, value - 1))}
+                    >
+                      −
+                    </button>
+                    <InputNumber
+                      min={1}
+                      max={maxSelectableRooms}
+                      disabled={availableRoomsCount === 0}
+                      value={roomQuantity}
+                      onChange={(value) =>
+                        setRoomQuantity(Math.max(1, Number(value || 1)))
+                      }
+                      controls={false}
+                      className="room-quantity-input"
+                    />
+                    <span className="room-quantity-unit">phòng</span>
+                    <button
+                      type="button"
+                      className="quantity-stepper-button"
+                      aria-label="Tăng số lượng phòng"
+                      disabled={
+                        availableRoomsCount === 0 ||
+                        roomQuantity >= maxSelectableRooms
+                      }
+                      onClick={() =>
+                        setRoomQuantity((value) =>
+                          Math.min(maxSelectableRooms, value + 1),
+                        )
+                      }
+                    >
+                      +
+                    </button>
+                  </div>
+                  {dateRange[0] && dateRange[1] && availableRoomsCount !== undefined && (
+                    <span className="room-availability-helper">
+                      Còn {availableRoomsCount} phòng trong thời gian đã chọn
+                    </span>
+                  )}
+                  {minRequiredRooms > 1 &&
+                    activeRoomQuantity < minRequiredRooms && (
+                      <span className="suggested-q-tag">
+                        Với số khách hiện tại, cần ít nhất {minRequiredRooms} phòng.
+                      </span>
+                    )}
+                </div>
+              ) : (
+                <div className="specific-room-notice">
+                  <p>
+                    Đang đặt đích danh phòng{" "}
+                    <strong>
+                      #{selectedRoom?.roomNumber || selectedRoom?.id}
+                    </strong>
+                    . Số lượng cố định: 1 phòng.
+                  </p>
+                </div>
+              )}
+              </div>
+
               {/* UX Item 10: Người lớn / Trẻ em / Tuổi trẻ em hiển thị TRƯỚC Số lượng phòng */}
-              <div className="form-row two-col" style={{ marginTop: 24 }}>
+              <div className="form-row two-col guest-count-grid">
                 <div className="form-group">
                   <label>Người lớn</label>
                   <Select
@@ -1198,7 +1206,7 @@ const Booking: React.FC = () => {
               </div>
 
               {children > 0 && (
-                <div className="form-row two-col" style={{ flexWrap: "wrap" }}>
+                <div className="child-age-grid">
                   {childrenAges.map((age, index) => (
                     <div className="form-group" key={index}>
                       <label>
@@ -1243,37 +1251,79 @@ const Booking: React.FC = () => {
                 </div>
               )}
 
-              {/* Fix Item 5: Đặt phòng đích danh (mode === "room") ẩn bộ chọn số lượng phòng */}
-              {!isSpecificRoomMode ? (
-                <div className="room-quantity-wrapper">
+              <div className="secondary-time-options">
+                <div className="secondary-options-heading">
+                  <span>Tùy chọn thời gian</span>
+                  <small>Không bắt buộc</small>
+                </div>
+                <div className="form-row two-col stay-time-grid">
                   <div className="form-group">
-                    <label>
-                      Số lượng phòng <span className="required">*</span>
-                    </label>
-                    <div className="room-quantity-row">
-                      <InputNumber
-                        min={1}
-                        max={maxSelectableRooms}
-                        disabled={availableRoomsCount === 0}
-                        value={roomQuantity}
-                        onChange={(value) =>
-                          setRoomQuantity(Math.max(1, Number(value || 1)))
-                        }
-                        size="large"
-                        className="room-quantity-input"
-                      />
-                      <span className="room-quantity-unit">phòng</span>
-                      {/* Fix Item 1: Xóa chữ technical Q */}
-                      {minRequiredRooms > 1 &&
-                        activeRoomQuantity < minRequiredRooms && (
-                          <span className="suggested-q-tag">
-                            Cần ít nhất {minRequiredRooms} phòng
-                          </span>
-                        )}
-                    </div>
+                    <label>Giờ nhận phòng mong muốn</label>
+                    <Controller
+                      name="requestedCheckInTime"
+                      control={control}
+                      render={({ field }) => (
+                        <TimePicker
+                          style={{ width: "100%" }}
+                          size="large"
+                          format="HH:mm"
+                          minuteStep={15}
+                          placeholder={`Mặc định ${shortTime(policies?.checkInTime) || "14:00"}`}
+                          suffixIcon={<ClockCircleOutlined />}
+                          value={field.value ? dayjs(field.value, "HH:mm") : null}
+                          onChange={(time) =>
+                            field.onChange(time ? time.format("HH:mm") : null)
+                          }
+                        />
+                      )}
+                    />
                   </div>
+                  <div className="form-group">
+                    <label>Giờ trả phòng mong muốn</label>
+                    <Controller
+                      name="requestedCheckOutTime"
+                      control={control}
+                      render={({ field }) => {
+                        const standard = dayjs(
+                          policies?.checkOutTime || "12:00:00",
+                          "HH:mm:ss",
+                        );
+                        return (
+                          <TimePicker
+                            style={{ width: "100%" }}
+                            size="large"
+                            format="HH:mm"
+                            minuteStep={15}
+                            placeholder={`Mặc định ${shortTime(policies?.checkOutTime) || "12:00"}`}
+                            suffixIcon={<ClockCircleOutlined />}
+                            value={field.value ? dayjs(field.value, "HH:mm") : null}
+                            disabledTime={() => ({
+                              disabledHours: () =>
+                                Array.from({ length: 24 }, (_, h) => h).filter(
+                                  (h) => h > standard.hour(),
+                                ),
+                              disabledMinutes: (selectedHour) =>
+                                selectedHour === standard.hour()
+                                  ? Array.from({ length: 60 }, (_, m) => m).filter(
+                                      (m) => m > standard.minute(),
+                                    )
+                                  : [],
+                            })}
+                            onChange={(time) =>
+                              field.onChange(time ? time.format("HH:mm") : null)
+                            }
+                          />
+                        );
+                      }}
+                    />
+                  </div>
+                </div>
+                <p className="secondary-options-note">
+                  Lễ tân sẽ chuẩn bị theo giờ bạn chọn; giờ trả chỉ nhận đến giờ chuẩn.
+                </p>
+              </div>
 
-                  {/* Fix Item 4: Phân biệt rõ "Hạng phòng không đủ phòng" vs "Số phòng đang chọn chưa đủ sức chứa" */}
+              <div className="capacity-alert-wrapper">
                   {isTypeNotEnoughForGuests ? (
                     <div className="capacity-alert-box danger">
                       <strong>Hạng phòng không đủ phòng trống!</strong>
@@ -1313,18 +1363,8 @@ const Booking: React.FC = () => {
                       </p>
                     </div>
                   ) : null}
-                </div>
-              ) : (
-                <div className="specific-room-notice">
-                  <p>
-                    * Đang đặt phòng đích danh{" "}
-                    <strong>
-                      Phòng #{selectedRoom?.roomNumber || selectedRoom?.id}
-                    </strong>{" "}
-                    (Số lượng cố định: 1 phòng).
-                  </p>
-                </div>
-              )}
+              </div>
+              </div>
             </div>
 
             <div className="booking-section">
@@ -1420,6 +1460,7 @@ const Booking: React.FC = () => {
             <div className="booking-summary">
               <h3>Tóm tắt đặt phòng</h3>
 
+              <div className="booking-summary-scroll">
               {selectedRoom ? (
                 <>
                   <div className="selected-room">
@@ -1432,9 +1473,7 @@ const Booking: React.FC = () => {
                     />
                     <div className="room-summary-info">
                       <div className="room-summary-heading">
-                        <h4>
-                          {activeRoomQuantity} phòng {selectedRoom.name}
-                        </h4>
+                        <h4>{selectedRoom.name}</h4>
                         {selectedRoom.mode === "room" && (
                           <span
                             className={`room-status-badge ${roomStatusMap[selectedRoom.status]?.className || "default"}`}
@@ -1450,6 +1489,9 @@ const Booking: React.FC = () => {
                             Phòng {selectedRoom.roomNumber}
                           </p>
                         )}
+                      <p className="room-summary-meta">
+                        {activeRoomQuantity} phòng đã chọn
+                      </p>
                       <p>
                         <FontAwesomeIcon icon={faBed} /> Sức chứa:{" "}
                         {selectedRoom.beds}
@@ -1462,6 +1504,7 @@ const Booking: React.FC = () => {
                   </div>
 
                   <div className="capacity-preview-box">
+                    <span className="capacity-preview-title">Sức chứa</span>
                     <div className="capacity-spec-row">
                       <span className="spec-label">Tiêu chuẩn:</span>
                       <span className="spec-val">
@@ -1482,34 +1525,38 @@ const Booking: React.FC = () => {
                     </div>
                     {(extraAdults > 0 || extraChildren > 0) && (
                       <div className="capacity-spec-row extra">
-                        <span className="spec-label">Khách phát sinh:</span>
+                        <span className="spec-label">Phát sinh</span>
                         <span className="spec-val highlight">
                           {extraAdults} NL + {extraChildren} TE
                         </span>
                       </div>
                     )}
 
-                    {(extraAdults > 0 || extraChildren > 0) && nights > 0 && (
+                    {totalExtraGuestFee > 0 && (
                       <div className="extra-fee-box">
                         <span className="extra-fee-title">
-                          Phụ thu phát sinh:
+                          Phụ thu khách phát sinh
                         </span>
                         {extraAdults > 0 && (
                           <div className="extra-fee-item">
-                            {extraAdults} NL × {formatMoney(extraAdultFee)} ×{" "}
-                            {nights} đêm ={" "}
-                            <strong>{formatMoney(extraAdultAmount)}</strong>
+                            <span>{extraAdults} người lớn</span>
+                            <small>
+                              {extraAdults} × {formatMoney(extraAdultFee)} × {nights} đêm
+                            </small>
+                            <strong>= {formatMoney(extraAdultAmount)}</strong>
                           </div>
                         )}
                         {extraChildren > 0 && (
                           <div className="extra-fee-item">
-                            {extraChildren} TE × {formatMoney(extraChildFee)} ×{" "}
-                            {nights} đêm ={" "}
-                            <strong>{formatMoney(extraChildAmount)}</strong>
+                            <span>{extraChildren} trẻ em</span>
+                            <small>
+                              {extraChildren} × {formatMoney(extraChildFee)} × {nights} đêm
+                            </small>
+                            <strong>= {formatMoney(extraChildAmount)}</strong>
                           </div>
                         )}
                         <div className="extra-fee-total">
-                          <span>Tổng phụ thu:</span>
+                          <span>Tổng phụ thu</span>
                           <strong>{formatMoney(totalExtraGuestFee)}</strong>
                         </div>
                       </div>
@@ -1528,18 +1575,18 @@ const Booking: React.FC = () => {
 
                   <div className="summary-details">
                     <div className="summary-row">
-                      <span>Giá phòng</span>
-                      <span>
-                        {formatPrice(selectedRoom.price)} / phòng / đêm
-                      </span>
-                    </div>
-                    <div className="summary-row">
                       <span>Số lượng phòng</span>
                       <span>{activeRoomQuantity} phòng</span>
                     </div>
                     <div className="summary-row">
                       <span>Số đêm</span>
                       <span>{nights > 0 ? `${nights} đêm` : "-"}</span>
+                    </div>
+                    <div className="summary-row">
+                      <span>Giá phòng</span>
+                      <span>
+                        {formatPrice(selectedRoom.price)} / phòng / đêm
+                      </span>
                     </div>
                     {nights > 0 && (
                       <>
@@ -1634,6 +1681,7 @@ const Booking: React.FC = () => {
                   </Link>
                 </div>
               )}
+              </div>
 
               <button
                 type="submit"
