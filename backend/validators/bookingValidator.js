@@ -105,10 +105,20 @@ const normalizeBookingPayload = (body, userFromToken) => {
     throw new HttpError(400, 'Vui lòng chọn phòng hoặc hạng phòng');
   }
 
+  if (Array.isArray(body.rooms) && body.rooms.length > 1) {
+    const uniqueTypeIds = new Set(
+      body.rooms.map((r) => r.roomTypeId ?? r.room_type_id).filter(Boolean)
+    );
+    if (uniqueTypeIds.size > 1) {
+      throw new HttpError(400, 'Một booking chỉ được đặt các phòng thuộc cùng một hạng phòng');
+    }
+  }
+
   const payload = {
     userId: toPositiveInt(userId, 'userId'),
     roomId: roomId ? toPositiveInt(roomId, 'roomId') : null,
     roomTypeId: roomTypeId ? toPositiveInt(roomTypeId, 'roomTypeId') : null,
+    roomQuantity: toPositiveInt(body.roomQuantity ?? body.room_quantity ?? 1, 'roomQuantity'),
     checkIn: normalizeDate(checkIn, 'checkIn'),
     checkOut: normalizeDate(checkOut, 'checkOut'),
     adults: toNonNegativeInt(body.adults, 'adults', 1),

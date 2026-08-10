@@ -26,6 +26,7 @@ const BOOKING_SELECT = `
     ) AS payable_total,
     b.created_at,
     b.notes,
+    b.extraGuestSnapshot AS extra_guest_snapshot,
     b.cancellation_reason,
     bd.id AS detail_id,
     bd.roomId AS room_id,
@@ -101,7 +102,12 @@ const getRoomWithType = async (roomId, connection, lock = false) => {
         r.status,
         rt.typeName AS room_type_name,
         rt.defaultPrice AS price_per_night,
-        rt.capacity
+        rt.capacity,
+        rt.adultCapacity,
+        rt.childCapacity,
+        rt.maxOccupancy,
+        rt.extraAdultFee,
+        rt.extraChildFee
       FROM rooms r
       JOIN room_types rt ON rt.id = r.roomTypeId
       WHERE r.id = ?
@@ -328,7 +334,7 @@ const listRoomTypeAvailability = async (checkIn, checkOut, connection) => {
 
 const getBookedAvailabilityRows = async () => [];
 
-const createBooking = async (payload, totalPrice, connection) => {
+const createBooking = async (payload, totalPrice, connection, extraGuestSnapshot = null) => {
   const account = await getAccountById(payload.userId, connection);
   if (!account) {
     throw new Error('Customer not found');
@@ -337,15 +343,18 @@ const createBooking = async (payload, totalPrice, connection) => {
   const customerId = await getOrCreateCustomerId(payload.userId, connection);
 
   const bookingStatus = payload.status === 'pending' ? 'pending' : 'confirmed';
+  const snapshotJson = (extraGuestSnapshot || payload.extraGuestSnapshot)
+    ? JSON.stringify(extraGuestSnapshot || payload.extraGuestSnapshot)
+    : null;
 
   const [result] = await run(connection).query(
     `
       INSERT INTO bookings (
         user_id, customerId, room_id, check_in, check_out, total_price, totalAmount,
-        status, bookingStatus, notes, guest_name, guest_email, guest_phone,
+        status, bookingStatus, notes, extraGuestSnapshot, guest_name, guest_email, guest_phone,
         requestedCheckInTime, requestedCheckOutTime
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       payload.userId,
@@ -358,6 +367,7 @@ const createBooking = async (payload, totalPrice, connection) => {
       bookingStatus,
       bookingStatus,
       payload.notes || null,
+      snapshotJson,
       payload.guestName || null,
       payload.guestEmail || null,
       payload.guestPhone || null,
@@ -549,16 +559,18 @@ const updateBookingStayFull = async (bookingId, payload, connection) => {
   const serviceAmount = await sumBookingServices(bookingId, connection);
   const totalAmount = Number(payload.totalPrice || 0) + Number(serviceAmount || 0);
 
-  // 1) bookings table (schema thật: user_id, customerId, room_id, check_in, check_out,
-  //    total_price, status, notes, cancellation_reason, guest_name, guest_email,
-  //    guest_phone, voucherId, bookingCode, bookingStatus, totalAmount, createdAt, created_at)
+  const snapshotJson = payload.extraGuestSnapshot
+    ? JSON.stringify(payload.extraGuestSnapshot)
+    : null;
+
   await run(connection).query(
     `UPDATE bookings
      SET check_in = ?,
          check_out = ?,
          room_id = ?,
          total_price = ?,
-         totalAmount = ?
+         totalAmount = ?,
+         extraGuestSnapshot = COALESCE(?, extraGuestSnapshot)
      WHERE id = ?`,
     [
       payload.checkIn,
@@ -566,29 +578,47 @@ const updateBookingStayFull = async (bookingId, payload, connection) => {
       payload.roomId,
       payload.totalPrice,
       totalAmount,
+      snapshotJson,
       bookingId,
     ]
   );
 
-  // 2) booking_details table (schema thật: bookingId, roomId, checkInDate, checkOutDate,
-  //    adults, children, roomPrice, occupancySurcharge)
+  // Update checkInDate, checkOutDate, roomId for all details of this booking
   await run(connection).query(
     `UPDATE booking_details
      SET checkInDate = ?,
          checkOutDate = ?,
          roomId = ?,
-         roomPrice = ?,
-         occupancySurcharge = ?
+         roomPrice = ?
      WHERE bookingId = ?`,
     [
       payload.checkIn,
       payload.checkOut,
       payload.roomId,
       payload.roomPrice,
-      payload.occupancySurcharge ?? 0,
       bookingId,
     ]
   );
+
+  // Reset occupancySurcharge = 0 for all details of this booking
+  await run(connection).query(
+    `UPDATE booking_details SET occupancySurcharge = 0 WHERE bookingId = ?`,
+    [bookingId]
+  );
+
+  // Set occupancySurcharge only on the first detail row
+  if (payload.occupancySurcharge != null && payload.occupancySurcharge > 0) {
+    const [details] = await run(connection).query(
+      `SELECT id FROM booking_details WHERE bookingId = ? ORDER BY id ASC LIMIT 1`,
+      [bookingId]
+    );
+    if (details.length > 0) {
+      await run(connection).query(
+        `UPDATE booking_details SET occupancySurcharge = ? WHERE id = ?`,
+        [payload.occupancySurcharge, details[0].id]
+      );
+    }
+  }
 };
 
 const transferBookingRoom = async (booking, toRoom, payload, connection) => {
