@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, Button, DatePicker, Form, Input, InputNumber, message, Modal, Select, Space, Tag, Tooltip } from 'antd';
+import { useSearchParams } from 'react-router-dom';
+import { Alert, Button, DatePicker, Form, Input, InputNumber, message, Modal, Pagination, Select, Space, Tag, Tooltip } from 'antd';
 import {
   CheckOutlined,
   CloseOutlined,
@@ -19,6 +20,11 @@ import CheckoutPaymentModal from './CheckoutPaymentModal';
 import { getPolicies } from '../../services/settingsService';
 import type { PoliciesInfo } from '../../services/settingsService';
 
+interface BookingRoomItem {
+  id?: number | null;
+  number: string;
+}
+
 interface Booking {
   id: number;
   customer_name: string | null;
@@ -28,6 +34,8 @@ interface Booking {
   room_number: string | null;
   room_type_name: string | null;
   room_status?: string | null;
+  room_quantity?: number | null;
+  booking_rooms?: BookingRoomItem[];
   check_in: string | null;
   check_out: string | null;
   status: string;
@@ -121,6 +129,7 @@ const formatPrice = (price?: string | number | null) => {
 };
 
 function BookingManagement() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [services, setServices] = useState<ServiceItem[]>([]);
   const [rooms, setRooms] = useState<RoomItem[]>([]);
@@ -136,27 +145,83 @@ function BookingManagement() {
   const [reassignLoading, setReassignLoading] = useState<Record<number, boolean>>({});
   const [extendingAfterConflict, setExtendingAfterConflict] = useState(false);
 
+  const [filterStatus, setFilterStatus] = useState<string>(
+    searchParams.get('status') || 'all'
+  );
+  const [filterSearch, setFilterSearch] = useState<string>(
+    searchParams.get('search') || ''
+  );
+  const [currentPage, setCurrentPage] = useState<number>(
+    Number(searchParams.get('page')) || 1
+  );
+  const [pageSize, setPageSize] = useState<number>(
+    Number(searchParams.get('limit')) || 8
+  );
+  const [totalCount, setTotalCount] = useState<number>(0);
+
+  useEffect(() => {
+    const statusFromUrl = searchParams.get('status');
+    const searchFromUrl = searchParams.get('search');
+    const pageFromUrl = searchParams.get('page');
+    const limitFromUrl = searchParams.get('limit');
+
+    if (statusFromUrl !== null) setFilterStatus(statusFromUrl);
+    if (searchFromUrl !== null) setFilterSearch(searchFromUrl);
+    if (pageFromUrl !== null) setCurrentPage(Number(pageFromUrl) || 1);
+    if (limitFromUrl !== null) setPageSize(Number(limitFromUrl) || 8);
+  }, [searchParams]);
+
   // Trả về mảng booking vừa tải để nơi gọi (VD: sau khi chuyển phòng) có thể
   // lấy ngay bản ghi mới nhất mà không cần đọc lại state bất đồng bộ.
-  const fetchBookings = async (): Promise<Booking[]> => {
+  const fetchBookings = async (
+    page = currentPage,
+    limit = pageSize,
+    status = filterStatus,
+    search = filterSearch
+  ): Promise<Booking[]> => {
     setLoading(true);
     try {
-      const response = await api.get('/bookings');
-      const data = Array.isArray(response.data) ? response.data : [];
-      const mapped = data
-        .map((booking: Booking) => ({
-          ...booking,
-          status: normalizeStatus(booking.status),
-          adults: booking.adults ?? 0,
-          children: booking.children ?? 0,
-        }))
-        .filter((booking: Booking) => booking.check_in && booking.check_out);
+      const params: Record<string, any> = {
+        page,
+        limit,
+      };
+      if (status && status !== 'all') {
+        params.status = status;
+      }
+      if (search && search.trim()) {
+        params.search = search.trim();
+      }
+
+      const response: any = await api.get('/bookings', { params });
+      const dataArray = Array.isArray(response?.data)
+        ? response.data
+        : Array.isArray(response)
+          ? response
+          : [];
+
+      const total =
+        typeof response?.total === 'number'
+          ? response.total
+          : typeof response?.data?.total === 'number'
+            ? response.data.total
+            : dataArray.length;
+
+      const mapped = dataArray.map((booking: Booking) => ({
+        ...booking,
+        status: normalizeStatus(booking.status),
+        adults: booking.adults ?? 0,
+        children: booking.children ?? 0,
+      }));
+
       setBookings(mapped);
+      setTotalCount(total);
+
       return mapped;
     } catch (error) {
       console.error('Error fetching bookings:', error);
       message.error('Lỗi khi tải danh sách đặt phòng');
       setBookings([]);
+      setTotalCount(0);
       return [];
     } finally {
       setLoading(false);
@@ -175,14 +240,12 @@ function BookingManagement() {
   };
 
   useEffect(() => {
-    fetchBookings();
+    fetchBookings(currentPage, pageSize, filterStatus, filterSearch);
     fetchSupportData();
-    // Chỉ dùng để phát hiện khách đến sớm hơn giờ chuẩn -> hỏi xác nhận
-    // trước khi check-in, không hiển thị note nào khác trong màn hình này.
     getPolicies()
       .then((res) => setPolicies(res.data))
       .catch(() => setPolicies(null));
-  }, []);
+  }, [currentPage, pageSize, filterStatus, filterSearch]);
 
   // Có phải khách đang đến SỚM hơn giờ nhận phòng chuẩn không (so trên đúng
   // ngày check_in của booking). Chỉ true khi hôm nay là ngày nhận phòng và
@@ -767,14 +830,62 @@ const handleCheckIn = (booking: Booking) => {
     transfer: 'Chuyển phòng giữa chừng',
   };
 
+  const filteredBookings = bookings;
+
   return (
     <div style={{ padding: 24 }}>
       <div style={{ background: '#fff', borderRadius: 16, padding: 24, boxShadow: '0 8px 24px rgba(0,0,0,0.08)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
           <h2 style={{ margin: 0 }}>Quản lý đặt phòng</h2>
-          <Button icon={<ReloadOutlined />} onClick={fetchBookings} loading={loading}>
-            Làm mới
-          </Button>
+          <Space wrap>
+            <Select
+              style={{ width: 220 }}
+              value={filterStatus}
+              onChange={(val) => {
+                setFilterStatus(val);
+                setCurrentPage(1);
+                setSearchParams({ status: val, search: filterSearch, page: '1', limit: String(pageSize) });
+              }}
+              options={[
+                { value: 'all', label: 'Tất cả trạng thái' },
+                { value: 'pending', label: 'Booking chờ xác nhận' },
+                { value: 'checkin_today', label: 'Khách check-in hôm nay' },
+                { value: 'checkout_today', label: 'Khách check-out hôm nay' },
+                { value: 'confirmed', label: 'Đã xác nhận' },
+                { value: 'checked_in', label: 'Đã check-in' },
+                { value: 'checked_out', label: 'Đã trả phòng' },
+                { value: 'cancelled', label: 'Đã hủy' },
+                { value: 'no_show', label: 'No-show' },
+              ]}
+            />
+            <Input.Search
+              placeholder="Tìm theo tên, SĐT, số phòng, #ID..."
+              allowClear
+              value={filterSearch}
+              onChange={(e) => {
+                const val = e.target.value;
+                setFilterSearch(val);
+                setCurrentPage(1);
+                setSearchParams({ status: filterStatus, search: val, page: '1', limit: String(pageSize) });
+              }}
+              style={{ width: 260 }}
+            />
+            {(filterStatus !== 'all' || filterSearch) && (
+              <Button
+                onClick={() => {
+                  setFilterStatus('all');
+                  setFilterSearch('');
+                  setCurrentPage(1);
+                  setSearchParams({ page: '1', limit: String(pageSize) });
+                }}
+              >
+                Xóa bộ lọc
+              </Button>
+            )}
+            <Button icon={<ReloadOutlined />} onClick={() => fetchBookings(currentPage, pageSize, filterStatus, filterSearch)} loading={loading}>
+              Làm mới
+            </Button>
+          </Space>
         </div>
 
         <div style={{ overflowX: 'auto' }}>
@@ -794,89 +905,144 @@ const handleCheckIn = (booking: Booking) => {
             <tbody>
               {loading ? (
                 <tr><td colSpan={8} style={emptyStyle}>Đang tải dữ liệu...</td></tr>
-              ) : bookings.length === 0 ? (
-                <tr><td colSpan={8} style={emptyStyle}>Không có dữ liệu đặt phòng</td></tr>
+              ) : filteredBookings.length === 0 ? (
+                <tr><td colSpan={8} style={emptyStyle}>Không có dữ liệu đặt phòng phù hợp</td></tr>
               ) : (
-                bookings.map((booking) => (
-                  <tr key={booking.id}>
-                    <td style={tdStyle}>#{booking.id}</td>
-                    <td style={tdStyle}>
-                      <strong>{booking.customer_name || 'N/A'}</strong>
-                      <div style={smallText}>{booking.customer_phone || ''}</div>
-                    </td>
-                    <td style={tdStyle}>
-                      <strong>{booking.room_number ? `Phòng ${booking.room_number}` : 'N/A'}</strong>
-                      <div style={smallText}>{booking.room_type_name || ''}</div>
-                    </td>
-                    <td style={tdStyle}>
-                      <div>Nhận: {formatDate(booking.check_in)}</div>
-                      <div>Trả: {formatDate(booking.check_out)}</div>
-                    </td>
-                    <td style={tdStyle}>{booking.adults ?? 0} người lớn, {booking.children ?? 0} trẻ em</td>
-                    <td style={tdStyle}>{formatPrice(booking.payable_total ?? booking.total_price)}</td>
-                    <td style={tdStyle}>
-                      {(() => {
-                        const tag = getBookingDisplayTag(booking);
-                        return <Tag color={tag.color}>{tag.label}</Tag>;
-                      })()}
-                    </td>
-                    <td style={tdStyle}>
-                      <Space size="small" wrap>
-                        <Tooltip title="Xem chi tiết đặt phòng">
-                          <Button type="primary" icon={<EyeOutlined style={{ color: 'white' }} />} size="small" onClick={() => { setSelectedBooking(booking); setViewModalVisible(true); }}></Button>
-                        </Tooltip>
-                        {['pending', 'confirmed'].includes(booking.status) && (
-                          <Tooltip title="Hủy đặt phòng">
-                            <Button type="primary" icon={<CloseOutlined />} size="small" danger onClick={() => handleCancel(booking.id)}></Button>
-                          </Tooltip>
+                filteredBookings.map((booking) => {
+                  const roomList =
+                    booking.booking_rooms && booking.booking_rooms.length > 0
+                      ? booking.booking_rooms
+                      : booking.room_number
+                        ? [{ id: booking.room_id, number: booking.room_number }]
+                        : [];
+                  const roomCount =
+                    booking.room_quantity || roomList.length || 1;
+
+                  return (
+                    <tr key={booking.id}>
+                      <td style={{ ...tdStyle, fontWeight: 700 }}>#{booking.id}</td>
+                      <td style={tdStyle}>
+                        <strong style={{ color: '#262626' }}>{booking.customer_name || 'N/A'}</strong>
+                        <div style={{ ...smallText, marginTop: 2 }}>{booking.customer_phone || ''}</div>
+                      </td>
+                      <td style={tdStyle}>
+                        {roomList.length > 0 ? (
+                          <div>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 4 }}>
+                              {roomList.map((r, idx) => (
+                                <Tag key={r.id || idx} color="blue" style={{ margin: 0, fontWeight: 600, borderRadius: 4 }}>
+                                  {r.number}
+                                </Tag>
+                              ))}
+                            </div>
+                            <div style={{ fontSize: 12, color: '#666' }}>
+                              {booking.room_type_name || 'Standard'}
+                              {roomCount > 1 ? ` · ${roomCount} phòng` : ''}
+                            </div>
+                          </div>
+                        ) : (
+                          <div>
+                            <Tag color="default" style={{ margin: 0 }}>N/A</Tag>
+                            <div style={{ fontSize: 12, color: '#666', marginTop: 2 }}>{booking.room_type_name || ''}</div>
+                          </div>
                         )}
-                        {['pending', 'confirmed'].includes(booking.status) && (
-                          <Tooltip title="Check-in (nhận phòng)">
-                            <Button type="primary" icon={<CheckOutlined />} size="small" onClick={() => handleCheckIn(booking)}></Button>
+                      </td>
+                      <td style={tdStyle}>
+                        <div style={{ whiteSpace: 'nowrap', fontSize: 13 }}>Nhận: {formatDate(booking.check_in)}</div>
+                        <div style={{ whiteSpace: 'nowrap', fontSize: 12, color: '#666', marginTop: 2 }}>Trả: {formatDate(booking.check_out)}</div>
+                      </td>
+                      <td style={tdStyle}>
+                        <div style={{ whiteSpace: 'nowrap', fontSize: 13 }}>{booking.adults ?? 0} người lớn</div>
+                        <div style={{ whiteSpace: 'nowrap', fontSize: 12, color: '#666', marginTop: 2 }}>{booking.children ?? 0} trẻ em</div>
+                      </td>
+                      <td style={{ ...tdStyle, whiteSpace: 'nowrap', fontWeight: 600, color: '#1f1f1f' }}>
+                        {formatPrice(booking.payable_total ?? booking.total_price)}
+                      </td>
+                      <td style={tdStyle}>
+                        {(() => {
+                          const tag = getBookingDisplayTag(booking);
+                          return <Tag color={tag.color}>{tag.label}</Tag>;
+                        })()}
+                      </td>
+                      <td style={tdStyle}>
+                        <Space size={[4, 4]} wrap style={{ maxWidth: 210 }}>
+                          <Tooltip title="Xem chi tiết đặt phòng">
+                            <Button type="primary" icon={<EyeOutlined style={{ color: 'white' }} />} size="small" onClick={() => { setSelectedBooking(booking); setViewModalVisible(true); }}></Button>
                           </Tooltip>
-                        )}
-                        {['pending', 'confirmed'].includes(booking.status) && (
-                          <Tooltip title="Đánh dấu khách không đến (không hoàn tiền, tặng voucher 10%)">
-                            <Button type="primary" danger size="small" onClick={() => handleNoShow(booking)}>No-show</Button>
-                          </Tooltip>
-                        )}
-                        {booking.status === 'checked_in' && (
-                          <Tooltip title="Check-out (trả phòng)">
-                            <Button type="primary" icon={<LogoutOutlined />} size="small" onClick={() => handleCheckOut(booking.id)}></Button>
-                          </Tooltip>
-                        )}
-                        {booking.status === 'checked_in' && (
-                          <Tooltip title="Thêm dịch vụ cho khách">
-                            <Button type="primary" icon={<PlusOutlined />} size="small" onClick={() => openOperation('service', booking)}></Button>
-                          </Tooltip>
-                        )}
-                        {booking.status === 'checked_in' && (
-                          <Tooltip title="Ghi nhận hỏng hóc / đền bù">
-                            <Button type="primary" icon={<ToolOutlined />} size="small" onClick={() => openOperation('damage', booking)}></Button>
-                          </Tooltip>
-                        )}
-                        {['confirmed', 'checked_in'].includes(booking.status) && (
-                          <Tooltip title="Gia hạn thời gian ở">
-                            <Button type="primary" icon={<HomeOutlined />} size="small" onClick={() => openOperation('extend', booking)}></Button>
-                          </Tooltip>
-                        )}
-                        {booking.status === 'checked_in' && (
-                          <Tooltip title="Chuyển phòng">
-                            <Button type="primary" icon={<SwapOutlined />} size="small" onClick={() => openOperation('transfer', booking)}></Button>
-                          </Tooltip>
-                        )}
-                        {booking.status === 'checked_in' && (
-                          <Tooltip title="Khai báo khách ở cùng">
-                            <Button type="primary" icon={<UserAddOutlined />} size="small" onClick={() => openOperation('declareGuests', booking)}></Button>
-                          </Tooltip>
-                        )}
-                      </Space>
-                    </td>
-                  </tr>
-                ))
+                          {['pending', 'confirmed'].includes(booking.status) && (
+                            <Tooltip title="Hủy đặt phòng">
+                              <Button type="primary" icon={<CloseOutlined />} size="small" danger onClick={() => handleCancel(booking.id)}></Button>
+                            </Tooltip>
+                          )}
+                          {['pending', 'confirmed'].includes(booking.status) && (
+                            <Tooltip title="Check-in (nhận phòng)">
+                              <Button type="primary" icon={<CheckOutlined />} size="small" onClick={() => handleCheckIn(booking)}></Button>
+                            </Tooltip>
+                          )}
+                          {['pending', 'confirmed'].includes(booking.status) && (
+                            <Tooltip title="Đánh dấu khách không đến (không hoàn tiền, tặng voucher 10%)">
+                              <Button type="primary" danger size="small" onClick={() => handleNoShow(booking)}>No-show</Button>
+                            </Tooltip>
+                          )}
+                          {booking.status === 'checked_in' && (
+                            <Tooltip title="Check-out (trả phòng)">
+                              <Button type="primary" icon={<LogoutOutlined />} size="small" onClick={() => handleCheckOut(booking.id)}></Button>
+                            </Tooltip>
+                          )}
+                          {booking.status === 'checked_in' && (
+                            <Tooltip title="Thêm dịch vụ cho khách">
+                              <Button type="primary" icon={<PlusOutlined />} size="small" onClick={() => openOperation('service', booking)}></Button>
+                            </Tooltip>
+                          )}
+                          {booking.status === 'checked_in' && (
+                            <Tooltip title="Ghi nhận hỏng hóc / đền bù">
+                              <Button type="primary" icon={<ToolOutlined />} size="small" onClick={() => openOperation('damage', booking)}></Button>
+                            </Tooltip>
+                          )}
+                          {['confirmed', 'checked_in'].includes(booking.status) && (
+                            <Tooltip title="Gia hạn thời gian ở">
+                              <Button type="primary" icon={<HomeOutlined />} size="small" onClick={() => openOperation('extend', booking)}></Button>
+                            </Tooltip>
+                          )}
+                          {booking.status === 'checked_in' && (
+                            <Tooltip title="Chuyển phòng">
+                              <Button type="primary" icon={<SwapOutlined />} size="small" onClick={() => openOperation('transfer', booking)}></Button>
+                            </Tooltip>
+                          )}
+                          {booking.status === 'checked_in' && (
+                            <Tooltip title="Khai báo khách ở cùng">
+                              <Button type="primary" icon={<UserAddOutlined />} size="small" onClick={() => openOperation('declareGuests', booking)}></Button>
+                            </Tooltip>
+                          )}
+                        </Space>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 20, flexWrap: 'wrap', gap: 12 }}>
+          <div style={{ fontSize: 13, color: '#666' }}>
+            Hiển thị {totalCount > 0 ? (currentPage - 1) * pageSize + 1 : 0} – {totalCount > 0 ? Math.min((currentPage - 1) * pageSize + bookings.length, totalCount) : 0} / {totalCount} đặt phòng
+          </div>
+          <Pagination
+            current={currentPage}
+            pageSize={pageSize}
+            total={totalCount}
+            showSizeChanger={false}
+            onChange={(page) => {
+              setCurrentPage(page);
+              setSearchParams({
+                status: filterStatus,
+                search: filterSearch,
+                page: String(page),
+                limit: String(pageSize),
+              });
+            }}
+          />
         </div>
       </div>
 

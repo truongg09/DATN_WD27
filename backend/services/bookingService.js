@@ -1066,7 +1066,80 @@ const createBooking = async (payload, actor) => {
   }
 };
 
-const listBookings = (filters) => bookingModel.listBookings(filters);
+const listBookings = async (filters) => {
+  const result = await bookingModel.listBookings(filters);
+
+  if (result && typeof result === 'object' && !Array.isArray(result) && Array.isArray(result.data)) {
+    const bookings = result.data;
+    if (bookings.length === 0) return { ...result, data: [] };
+
+    const bookingIds = bookings.map((b) => b.id);
+    const [details] = await db.query(
+      `SELECT bd.bookingId, bd.roomId, r.roomNumber
+       FROM booking_details bd
+       INNER JOIN rooms r ON r.id = bd.roomId
+       WHERE bd.bookingId IN (?)
+       ORDER BY bd.id ASC`,
+      [bookingIds]
+    );
+
+    const roomMap = {};
+    for (const d of details) {
+      if (!roomMap[d.bookingId]) roomMap[d.bookingId] = [];
+      roomMap[d.bookingId].push({ id: d.roomId, number: d.roomNumber });
+    }
+
+    const enriched = bookings.map((b) => {
+      const roomsForBooking =
+        roomMap[b.id] && roomMap[b.id].length > 0
+          ? roomMap[b.id]
+          : b.room_id && b.room_number
+            ? [{ id: b.room_id, number: b.room_number }]
+            : [];
+      return {
+        ...b,
+        booking_rooms: roomsForBooking,
+      };
+    });
+
+    return {
+      ...result,
+      data: enriched,
+    };
+  }
+
+  const bookings = Array.isArray(result) ? result : [];
+  if (bookings.length === 0) return [];
+
+  const bookingIds = bookings.map((b) => b.id);
+  const [details] = await db.query(
+    `SELECT bd.bookingId, bd.roomId, r.roomNumber
+     FROM booking_details bd
+     INNER JOIN rooms r ON r.id = bd.roomId
+     WHERE bd.bookingId IN (?)
+     ORDER BY bd.id ASC`,
+    [bookingIds]
+  );
+
+  const roomMap = {};
+  for (const d of details) {
+    if (!roomMap[d.bookingId]) roomMap[d.bookingId] = [];
+    roomMap[d.bookingId].push({ id: d.roomId, number: d.roomNumber });
+  }
+
+  return bookings.map((b) => {
+    const roomsForBooking =
+      roomMap[b.id] && roomMap[b.id].length > 0
+        ? roomMap[b.id]
+        : b.room_id && b.room_number
+          ? [{ id: b.room_id, number: b.room_number }]
+          : [];
+    return {
+      ...b,
+      booking_rooms: roomsForBooking,
+    };
+  });
+};
 // So giờ khách khai báo với booking liền kề cùng phòng để cảnh báo lễ tân.
 // Chỉ tính khi booking chưa/đang lưu trú - booking đã checked_out/cancelled
 // không còn ý nghĩa để cảnh báo bàn giao nữa.
@@ -1160,6 +1233,7 @@ const computeHandoverWarning = async (booking) => {
   return { hasWarning: warnings.length > 0, warnings };
 };
 const getBookingById = async (bookingId) => {
+  await bookingModel.expireUnpaidBookingHolds();
   const booking = await bookingModel.getBookingById(bookingId);
   if (!booking) {
     throw new HttpError(404, "Không tìm thấy đặt phòng");
@@ -1232,8 +1306,15 @@ const getBookingById = async (bookingId) => {
   const handoverWarning = await computeHandoverWarning(booking);
 
   // ── Multi-room source of truth: booking_details ──────────────────
-  // Lấy tất cả phòng thuộc booking từ booking_details.
-  // Fallback bookings.room_id cho legacy single-room booking.
+  // Lấy tất cả phòng thuộc booking từ booking_details (thứ tự gán phòng bd.id ASC).
+  const [details] = await db.query(
+    `SELECT bd.id, bd.roomId, r.roomNumber
+     FROM booking_details bd
+     LEFT JOIN rooms r ON r.id = bd.roomId
+     WHERE bd.bookingId = ?
+     ORDER BY bd.id ASC`,
+    [bookingId],
+  );
   const [bdRooms] = await db.query(
     `SELECT DISTINCT bd.roomId AS id, r.roomNumber AS number
      FROM booking_details bd
@@ -1252,8 +1333,11 @@ const getBookingById = async (bookingId) => {
     bookingRooms = fallback;
   }
 
+  const lateCheckoutSurcharge = await bookingModel.sumLateCheckoutCharges(bookingId);
+
   return {
     ...booking,
+    details,
     services,
     guests,
     voucher: vouchers[0] || null,
@@ -1263,6 +1347,7 @@ const getBookingById = async (bookingId) => {
     transfers,
     payments,
     payment: payments[0] || null,
+    late_checkout_surcharge: lateCheckoutSurcharge,
     history,
     handoverWarning,
     booking_rooms: bookingRooms,
@@ -1349,17 +1434,16 @@ const getPaymentSummary = async (bookingId) => {
     discountAmount: Number(payment?.discountAmount || 0),
     voucherCode,
     occupancySurcharge: Number(booking.occupancy_surcharge || 0),
+    lateCheckoutSurcharge: await bookingModel.sumLateCheckoutCharges(bookingId),
     surchargeAmount: Number(
       payment?.surchargeAmount || booking.occupancy_surcharge || 0,
     ),
-    serviceAmount: services.reduce(
-      (sum, item) => sum + Number(item.totalPrice || 0),
-      0,
-    ),
-    damageAmount: damages.reduce(
-      (sum, item) => sum + Number(item.totalPrice || 0),
-      0,
-    ),
+    serviceAmount: services
+      .filter(item => (item.status || 'used') === 'used')
+      .reduce((sum, item) => sum + Number(item.totalPrice || 0), 0),
+    damageAmount: damages
+      .filter(item => (item.status || 'used') === 'used')
+      .reduce((sum, item) => sum + Number(item.totalPrice || 0), 0),
     services,
     damages,
     canCheckOut: remainingAmount <= 0,
@@ -3457,14 +3541,21 @@ const checkOut = async (bookingId, actualCheckOutTimeInput, actor = null) => {
             );
           lateCheckout = { ...result };
 
-          await logHistory(
-            bookingId,
-            "late_checkout_fee",
-            `Phí trả phòng muộn: trễ ${result.lateMinutes} phút (${result.percent}% giá đêm) = ${displayMoney(result.feeAmount)}`,
-            { amount: result.feeAmount },
-            actor,
-            connection,
+          const existingHistory = await bookingModel.listBookingHistory(bookingId, connection);
+          const hasIdenticalLateFeeLog = existingHistory.some(
+            (h) => h.action === 'late_checkout_fee' && Number(h.amount) === Number(result.feeAmount)
           );
+
+          if (!hasIdenticalLateFeeLog) {
+            await logHistory(
+              bookingId,
+              "late_checkout_fee",
+              `Phí trả phòng muộn: trễ ${result.lateMinutes} phút (${result.percent}% giá đêm) = ${displayMoney(result.feeAmount)}`,
+              { amount: result.feeAmount },
+              actor,
+              connection,
+            );
+          }
         }
       }
     }
