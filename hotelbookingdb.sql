@@ -451,6 +451,7 @@ INSERT INTO `booking_services` (`id`, `bookingId`, `roomId`, `serviceId`, `unitP
 CREATE TABLE `booking_service_requests` (
   `id` int NOT NULL,
   `bookingId` int NOT NULL,
+  `bookingDetailId` int DEFAULT NULL,
   `roomId` int DEFAULT NULL,
   `serviceId` int NOT NULL,
   `quantity` int NOT NULL DEFAULT '1',
@@ -1047,7 +1048,7 @@ CREATE TABLE `room_types` (
 --
 
 INSERT INTO `room_types` (`id`, `typeName`, `description`, `capacity`, `adultCapacity`, `childCapacity`, `maxOccupancy`, `extraAdultFee`, `extraChildFee`, `defaultPrice`, `status`, `isDeleted`) VALUES
-(1, 'Standard', 'Phong tieu chuan', 2, 2, 1, 3, 200000.00, 100000.00, 500000.00, 'active', 0),
+(1, 'Standard', 'Phong tieu chuan', 2, 2, 0, 3, 200000.00, 100000.00, 500000.00, 'active', 0),
 (2, 'Superior', 'Phong superior', 2, 2, 1, 4, 200000.00, 100000.00, 700000.00, 'active', 0),
 (3, 'Deluxe', 'Phong deluxe', 3, 2, 1, 4, 250000.00, 120000.00, 900000.00, 'active', 0),
 (4, 'Family', 'Phong gia dinh', 4, 2, 2, 5, 300000.00, 150000.00, 1200000.00, 'active', 0),
@@ -1728,7 +1729,8 @@ ALTER TABLE `booking_services`
 ALTER TABLE `booking_service_requests`
   ADD CONSTRAINT `booking_service_requests_ibfk_1` FOREIGN KEY (`bookingId`) REFERENCES `bookings` (`id`) ON DELETE CASCADE,
   ADD CONSTRAINT `booking_service_requests_ibfk_2` FOREIGN KEY (`serviceId`) REFERENCES `services` (`id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `booking_service_requests_ibfk_3` FOREIGN KEY (`roomId`) REFERENCES `rooms` (`id`) ON DELETE SET NULL;
+  ADD CONSTRAINT `booking_service_requests_ibfk_3` FOREIGN KEY (`roomId`) REFERENCES `rooms` (`id`) ON DELETE SET NULL,
+  ADD CONSTRAINT `fk_booking_service_requests_detail` FOREIGN KEY (`bookingDetailId`) REFERENCES `booking_details` (`id`) ON DELETE SET NULL;
 
 --
 -- Constraints for table `booking_status_logs`

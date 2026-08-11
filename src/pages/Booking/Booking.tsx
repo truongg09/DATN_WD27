@@ -6,6 +6,7 @@ import {
   Input,
   InputNumber,
   Select,
+  Space,
   TimePicker,
   message,
 } from "antd";
@@ -159,7 +160,7 @@ const Booking: React.FC = () => {
   const [roomQuantity, setRoomQuantity] = useState<number>(1);
   const [services, setServices] = useState<Service[]>([]);
   const [serviceRequests, setServiceRequests] = useState<
-    { serviceId: number; quantity: number }[]
+    { serviceId: number; quantity: number; roomIndex?: number }[]
   >([]);
   const [childrenAges, setChildrenAges] = useState<(number | null)[]>([]);
   const [policies, setPolicies] = useState<PoliciesInfo | null>(null);
@@ -252,6 +253,7 @@ const Booking: React.FC = () => {
           prev.find((s) => s.serviceId === id) || {
             serviceId: id,
             quantity: 1,
+            roomIndex: 1,
           },
       ),
     );
@@ -264,6 +266,17 @@ const Booking: React.FC = () => {
     setServiceRequests((prev) =>
       prev.map((s) =>
         s.serviceId === serviceId ? { ...s, quantity: quantity || 1 } : s,
+      ),
+    );
+  };
+
+  const updateServiceRoomIndex = (
+    serviceId: number,
+    roomIndex: number,
+  ) => {
+    setServiceRequests((prev) =>
+      prev.map((s) =>
+        s.serviceId === serviceId ? { ...s, roomIndex } : s,
       ),
     );
   };
@@ -431,7 +444,7 @@ const Booking: React.FC = () => {
           beds: `${adultCap} NL + ${childCap} TE (Tối đa ${maxOcc} khách)`,
           area: room.area
             ? `${room.area}m²`
-            : `Phòng ${room.room_number || room.id}`,
+            : `${room.room_type_name || 'Phòng chuẩn'}`,
           capacity: room.capacity,
           adultCapacity: adultCap,
           childCapacity: childCap,
@@ -867,8 +880,9 @@ const Booking: React.FC = () => {
                         </span>
                       </div>
                       <h3>
-                        {booking.room_number || "Phòng"} -{" "}
-                        {booking.room_type_name || "Đặt phòng"}
+                        {booking.status === 'checked_in' && booking.room_number
+                          ? `Phòng ${booking.room_number} - ${booking.room_type_name || ''}`
+                          : booking.room_type_name || 'Đặt phòng'}
                       </h3>
                       <div className="history-date">
                         <CalendarOutlined />
@@ -1223,7 +1237,7 @@ const Booking: React.FC = () => {
                             prev.map((item, i) => (i === index ? value : item)),
                           )
                         }
-                        options={Array.from({ length: 18 }, (_, ageOption) => ({
+                        options={Array.from({ length: 12 }, (_, ageOption) => ({
                           value: ageOption,
                           label: `${ageOption} tuổi`,
                         }))}
@@ -1245,7 +1259,7 @@ const Booking: React.FC = () => {
                       )}
                       /đêm · từ{" "}
                       {dateAvailability.childrenPolicy.childMaxAge + 1} tuổi
-                      tính như người lớn
+                      được tính là người lớn
                     </p>
                   )}
                 </div>
@@ -1424,25 +1438,41 @@ const Booking: React.FC = () => {
                               </>
                             )}
                           </span>
-                          <InputNumber
-                            min={1}
-                            max={
-                              svc &&
-                              (svc.serviceName
-                                .toLocaleLowerCase("vi")
-                                .includes("extra bed") ||
-                                svc.serviceName
+                          <Space align="center">
+                            {activeRoomQuantity > 1 && (
+                              <Select
+                                size="middle"
+                                value={sel.roomIndex || 1}
+                                onChange={(v) =>
+                                  updateServiceRoomIndex(sel.serviceId, v)
+                                }
+                                style={{ width: 110 }}
+                                options={Array.from({ length: activeRoomQuantity }, (_, idx) => ({
+                                  value: idx + 1,
+                                  label: `Phòng ${idx + 1}`,
+                                }))}
+                              />
+                            )}
+                            <InputNumber
+                              min={1}
+                              max={
+                                svc &&
+                                (svc.serviceName
                                   .toLocaleLowerCase("vi")
-                                  .includes("giường"))
-                                ? 1
-                                : 20
-                            }
-                            value={sel.quantity}
-                            onChange={(v) =>
-                              updateServiceQuantity(sel.serviceId, v)
-                            }
-                            addonBefore="SL"
-                          />
+                                  .includes("extra bed") ||
+                                  svc.serviceName
+                                    .toLocaleLowerCase("vi")
+                                    .includes("giường"))
+                                  ? 1
+                                  : 20
+                              }
+                              value={sel.quantity}
+                              onChange={(v) =>
+                                updateServiceQuantity(sel.serviceId, v)
+                              }
+                              addonBefore="SL"
+                            />
+                          </Space>
                         </div>
                       );
                     })}

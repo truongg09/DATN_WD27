@@ -798,12 +798,9 @@ function Profile() {
                       title: "Đặt phòng",
                       dataIndex: "bookingId",
                       key: "bookingId",
-                      render: (id: number, record: RefundRow) => (
+                      render: (id: number) => (
                         <div>
                           <strong>#{id}</strong>
-                          {record.room_number && (
-                            <div style={{ fontSize: 12, color: "#999" }}>Phòng {record.room_number}</div>
-                          )}
                         </div>
                       )
                     },

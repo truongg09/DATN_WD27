@@ -144,8 +144,8 @@ const PaymentSandbox: React.FC = () => {
               <Descriptions column={1} size="small" bordered>
                 <Descriptions.Item label="Đơn vị chấp nhận">HotelHub Booking</Descriptions.Item>
                 <Descriptions.Item label="Mã đặt phòng">#{bookingId}</Descriptions.Item>
-                <Descriptions.Item label="Phòng">
-                  {String(booking.room_number)} ({String(booking.room_type_name)})
+                <Descriptions.Item label="Hạng phòng">
+                  {String(booking.room_type_name || 'Đặt phòng')}
                 </Descriptions.Item>
                 <Descriptions.Item label="Khách hàng">{String(booking.customer_name)}</Descriptions.Item>
                 <Descriptions.Item label="Thời gian nhận">{formatDate(String(booking.check_in))}</Descriptions.Item>

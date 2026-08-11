@@ -728,6 +728,7 @@ const createBooking = async (payload, actor) => {
       extraSurcharge.snapshot
     );
 
+    const createdBookingDetails = [];
     for (let i = 0; i < assignedRooms.length; i++) {
       const roomItem = assignedRooms[i];
       const dist = extraSurcharge.distributedRooms[i] || { adults: payload.adults, children: payload.children };
@@ -738,13 +739,14 @@ const createBooking = async (payload, actor) => {
         children: dist.children
       };
       const detailSurcharge = i === 0 ? extraSurcharge.totalExtraGuestFee : 0;
-      await bookingModel.createBookingDetail(
+      const detail = await bookingModel.createBookingDetail(
         bookingId,
         detailPayload,
         roomPrice,
         detailSurcharge,
         connection
       );
+      createdBookingDetails.push(detail);
       await bookingModel.upsertAvailabilityRows(
         roomItem.id,
         bookingId,
@@ -762,6 +764,38 @@ const createBooking = async (payload, actor) => {
       payload.serviceRequests.length > 0
     ) {
       for (const request of payload.serviceRequests) {
+        let reqBookingDetailId = request.bookingDetailId || null;
+        let reqRoomId = request.roomId || null;
+
+        if (request.roomIndex) {
+          if (request.roomIndex < 1 || request.roomIndex > roomQuantity) {
+            throw new HttpError(400, `Phòng được chọn (${request.roomIndex}) không hợp lệ`);
+          }
+          const targetDetail = createdBookingDetails[request.roomIndex - 1];
+          if (targetDetail) {
+            reqBookingDetailId = targetDetail.id;
+            reqRoomId = targetDetail.roomId;
+          }
+        } else if (reqBookingDetailId) {
+          const isValidDetail = createdBookingDetails.some((d) => d.id === reqBookingDetailId);
+          if (!isValidDetail) {
+            throw new HttpError(400, "Phòng không thuộc đặt phòng này");
+          }
+        } else if (reqRoomId) {
+          const isValidRoom = await bookingModel.validateRoomInBooking(
+            bookingId,
+            reqRoomId,
+            connection,
+          );
+          if (!isValidRoom) {
+            throw new HttpError(400, "Phòng không thuộc đặt phòng này");
+          }
+          const matchedDetail = createdBookingDetails.find((d) => d.roomId === reqRoomId);
+          if (matchedDetail) {
+            reqBookingDetailId = matchedDetail.id;
+          }
+        }
+
         const service = await bookingModel.getServiceById(
           request.serviceId,
           connection,
@@ -784,11 +818,12 @@ const createBooking = async (payload, actor) => {
           service,
           request.quantity,
           connection,
+          { roomId: reqRoomId, bookingDetailId: reqBookingDetailId },
         );
         serviceAmount += Number(service.price) * request.quantity;
         await connection.query(
-          `INSERT INTO booking_service_requests (bookingId, serviceId, quantity, status) VALUES (?, ?, ?, 'confirmed')`,
-          [bookingId, request.serviceId, request.quantity],
+          `INSERT INTO booking_service_requests (bookingId, bookingDetailId, roomId, serviceId, quantity, status) VALUES (?, ?, ?, ?, ?, 'confirmed')`,
+          [bookingId, reqBookingDetailId, reqRoomId, request.serviceId, request.quantity],
         );
       }
     }
@@ -932,10 +967,14 @@ const getBookingById = async (bookingId) => {
     throw new HttpError(404, "Không tìm thấy đặt phòng");
   }
   const [services] = await db.query(
-    `SELECT bs.id, bs.serviceId, bs.quantity, bs.totalPrice, bs.createdAt,
-            s.serviceName, s.description, s.price AS unitPrice
+    `SELECT bs.id, bs.bookingId, bs.bookingDetailId, bs.roomId, r.roomNumber, bs.serviceId,
+            s.serviceName, s.description,
+            COALESCE(bs.unitPrice, s.price) AS unitPrice, bs.quantity, bs.totalPrice,
+            COALESCE(bs.status, 'used') AS status, bs.usedAt, bs.createdAt
      FROM booking_services bs
-     JOIN services s ON s.id = bs.serviceId
+     LEFT JOIN services s ON s.id = bs.serviceId
+     LEFT JOIN bookings b ON b.id = bs.bookingId
+     LEFT JOIN rooms r ON r.id = COALESCE(bs.roomId, b.room_id)
      WHERE bs.bookingId = ?
      ORDER BY bs.id ASC`,
     [bookingId],
@@ -962,10 +1001,14 @@ const getBookingById = async (bookingId) => {
     [bookingId],
   );
   const [damages] = await db.query(
-    `SELECT id, itemName, quantity, unitPrice, totalPrice, note, createdAt
-     FROM booking_damage_charges
-     WHERE bookingId = ?
-     ORDER BY id ASC`,
+    `SELECT bdc.id, bdc.bookingId, bdc.bookingDetailId, bdc.roomId, r.roomNumber,
+            COALESCE(bdc.chargeType, 'damage') AS chargeType,
+            bdc.itemName, bdc.quantity, bdc.unitPrice, bdc.totalPrice,
+            COALESCE(bdc.status, 'used') AS status, bdc.note, bdc.createdAt
+     FROM booking_damage_charges bdc
+     LEFT JOIN rooms r ON r.id = bdc.roomId
+     WHERE bdc.bookingId = ?
+     ORDER BY bdc.id ASC`,
     [bookingId],
   );
   const [transfers] = await db.query(
@@ -989,6 +1032,28 @@ const getBookingById = async (bookingId) => {
   );
   const history = await bookingModel.listBookingHistory(bookingId);
   const handoverWarning = await computeHandoverWarning(booking);
+
+  // ── Multi-room source of truth: booking_details ──────────────────
+  // Lấy tất cả phòng thuộc booking từ booking_details.
+  // Fallback bookings.room_id cho legacy single-room booking.
+  const [bdRooms] = await db.query(
+    `SELECT DISTINCT bd.roomId AS id, r.roomNumber AS number
+     FROM booking_details bd
+     INNER JOIN rooms r ON r.id = bd.roomId
+     WHERE bd.bookingId = ?
+     ORDER BY r.roomNumber ASC`,
+    [bookingId],
+  );
+  let bookingRooms = bdRooms;
+  if (bookingRooms.length === 0 && booking.room_id) {
+    // Legacy fallback: booking chỉ có room_id trên bảng bookings
+    const [fallback] = await db.query(
+      `SELECT r.id, r.roomNumber AS number FROM rooms r WHERE r.id = ?`,
+      [booking.room_id],
+    );
+    bookingRooms = fallback;
+  }
+
   return {
     ...booking,
     services,
@@ -1002,6 +1067,7 @@ const getBookingById = async (bookingId) => {
     payment: payments[0] || null,
     history,
     handoverWarning,
+    booking_rooms: bookingRooms,
   };
 };
 
@@ -1046,18 +1112,25 @@ const getPaymentSummary = async (bookingId) => {
   }
 
   const [services] = await db.query(
-    `SELECT bs.quantity, bs.totalPrice, bs.createdAt, s.serviceName
+    `SELECT bs.id, bs.roomId, r.roomNumber, bs.quantity, bs.totalPrice, bs.createdAt,
+            COALESCE(bs.status, 'used') AS status, s.serviceName
      FROM booking_services bs
-     JOIN services s ON s.id = bs.serviceId
+     LEFT JOIN services s ON s.id = bs.serviceId
+     LEFT JOIN bookings b ON b.id = bs.bookingId
+     LEFT JOIN rooms r ON r.id = COALESCE(bs.roomId, b.room_id)
      WHERE bs.bookingId = ?
      ORDER BY bs.id ASC`,
     [bookingId],
   );
   const [damages] = await db.query(
-    `SELECT itemName, quantity, totalPrice, note, createdAt
-     FROM booking_damage_charges
-     WHERE bookingId = ?
-     ORDER BY id ASC`,
+    `SELECT bdc.id, bdc.roomId, r.roomNumber,
+            COALESCE(bdc.chargeType, 'damage') AS chargeType,
+            bdc.itemName, bdc.quantity, bdc.totalPrice,
+            COALESCE(bdc.status, 'used') AS status, bdc.note, bdc.createdAt
+     FROM booking_damage_charges bdc
+     LEFT JOIN rooms r ON r.id = bdc.roomId
+     WHERE bdc.bookingId = ?
+     ORDER BY bdc.id ASC`,
     [bookingId],
   );
 
@@ -1445,9 +1518,7 @@ const addServiceCharge = async (bookingId, payload, actor = null) => {
     await logHistory(
       bookingId,
       "service_added",
-      `Thêm dịch vụ: ${service.serviceName} x${payload.quantity} = ${displayMoney(addedAmount)}${created.status !== "used" ? ` (trạng thái: ${created.status})` : ""}`,
-      "service_added",
-      `Thêm dịch vụ phát sinh: ${service.serviceName} x${payload.quantity} = ${displayMoney(addedAmount)}`,
+      `Thêm dịch vụ phát sinh: ${service.serviceName} x${payload.quantity} = ${displayMoney(addedAmount)}${created.status !== "used" ? ` (trạng thái: ${created.status})` : ""}`,
       {
         newValue: {
           id: created.id,

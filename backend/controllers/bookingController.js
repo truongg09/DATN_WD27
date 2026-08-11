@@ -516,9 +516,12 @@ const listServiceRequests = async (req, res) => {
       SELECT 
         sr.id,
         sr.bookingId,
+        sr.bookingDetailId,
+        COALESCE(bd.roomId, sr.roomId) AS roomId,
         sr.serviceId,
         sr.quantity,
         sr.status,
+        sr.note,
         sr.createdAt,
         b.status as bookingStatus,
         r.roomNumber,
@@ -526,7 +529,8 @@ const listServiceRequests = async (req, res) => {
         c.phone as bookingPhone
       FROM booking_service_requests sr
       LEFT JOIN bookings b ON sr.bookingId = b.id
-      LEFT JOIN rooms r ON b.room_id = r.id
+      LEFT JOIN booking_details bd ON bd.id = sr.bookingDetailId
+      LEFT JOIN rooms r ON r.id = COALESCE(bd.roomId, sr.roomId, b.room_id)
       LEFT JOIN customers c ON b.customerId = c.id
     `;
     
@@ -596,10 +600,25 @@ const confirmServiceRequest = async (req, res) => {
       return res.status(409).json({ message: 'Yêu cầu dịch vụ này đã được xử lý' });
     }
 
+    let targetRoomId = request.roomId || null;
+    let targetBookingDetailId = request.bookingDetailId || null;
+
+    if (targetBookingDetailId) {
+      const [bdRows] = await db.query(
+        'SELECT roomId FROM booking_details WHERE id = ? AND bookingId = ?',
+        [targetBookingDetailId, request.bookingId]
+      );
+      if (bdRows.length > 0 && bdRows[0].roomId) {
+        targetRoomId = bdRows[0].roomId;
+      }
+    }
+
     // Ghi dịch vụ vào booking_services + tính lại hóa đơn/payment (serviceAmount)
     const result = await bookingService.addServiceCharge(request.bookingId, {
       serviceId: request.serviceId,
-      quantity: request.quantity
+      quantity: request.quantity,
+      roomId: targetRoomId,
+      bookingDetailId: targetBookingDetailId
     }, req.user || null);
 
     // Update request status
