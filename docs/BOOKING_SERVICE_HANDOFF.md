@@ -1282,11 +1282,11 @@ node --check pass, tsc pass
 Admin room display + confirm verification: listServiceRequests joins booking_details & rooms to prioritize current physical room (resolves room 305 after Admin reassign); displays "Không xác định phòng / Dữ liệu cũ" when roomNumber is NULL; confirmServiceRequest resolves current physical roomId from booking_details via bookingDetailId and creates booking_services with current roomId & bookingDetailId; maintained pending/confirmed/rejected workflow status.
 
 2026-08-11
-Step 5C Full Audit
+Step 5 Customer Presentation Fix (History Modal & Booking Detail Multi-room Display)
 DONE
-src/pages/Booking/BookingDetail.tsx, src/pages/Booking/BookingHistory.tsx, src/pages/Booking/Payment.tsx, src/pages/Booking/PaymentSandbox.tsx, src/pages/Profile/Profile.tsx, src/pages/Booking/Booking.tsx, src/pages/RoomDetail/RoomDetail.tsx
-npx tsc pass, full src/ re-search pass
-Full frontend physical room audit: searched all of src/ and eliminated physical room leaks before check-in across all Customer surfaces (Booking, BookingHistory, BookingDetail, Payment, PaymentSandbox, Profile, RoomDetail). All remaining roomNumber occurrences are verified Admin-only, checked-in/out only, or internal types/state.
+src/pages/Admin/BookingDetailModal.tsx, src/pages/Booking/BookingHistory.tsx, src/pages/Booking/BookingDetail.tsx
+npx tsc PASS
+Customer presentation fix: Added isCustomer prop to BookingDetailModal.tsx; in Customer context before check-in, hidden physical room number (101) and internal room status (available), rendering logical room quantity (Standard × 2); in Customer BookingDetail.tsx, displayed Standard × 2 and "Số phòng đã đặt: 2 phòng"; preserved physical room display post check-in (Phòng 1 — 101) and Admin view.
 
 ---
 

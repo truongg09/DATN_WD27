@@ -1034,8 +1034,15 @@ const getBookingById = async (bookingId) => {
   const handoverWarning = await computeHandoverWarning(booking);
 
   // ── Multi-room source of truth: booking_details ──────────────────
-  // Lấy tất cả phòng thuộc booking từ booking_details.
-  // Fallback bookings.room_id cho legacy single-room booking.
+  // Lấy tất cả phòng thuộc booking từ booking_details (thứ tự gán phòng bd.id ASC).
+  const [details] = await db.query(
+    `SELECT bd.id, bd.roomId, r.roomNumber
+     FROM booking_details bd
+     LEFT JOIN rooms r ON r.id = bd.roomId
+     WHERE bd.bookingId = ?
+     ORDER BY bd.id ASC`,
+    [bookingId],
+  );
   const [bdRooms] = await db.query(
     `SELECT DISTINCT bd.roomId AS id, r.roomNumber AS number
      FROM booking_details bd
@@ -1056,6 +1063,7 @@ const getBookingById = async (bookingId) => {
 
   return {
     ...booking,
+    details,
     services,
     guests,
     voucher: vouchers[0] || null,

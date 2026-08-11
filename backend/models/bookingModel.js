@@ -11,8 +11,8 @@ const BOOKING_SELECT = `
     b.voucherId AS voucher_id,
     b.user_id,
     b.status,
-    b.total_price,
-    b.totalAmount AS booking_total_amount,
+    COALESCE(b.totalAmount, b.total_price, 0) AS total_price,
+    COALESCE(b.totalAmount, b.total_price, 0) AS booking_total_amount,
     COALESCE(
       (
         SELECT p.totalAmount
@@ -21,6 +21,7 @@ const BOOKING_SELECT = `
         ORDER BY p.id DESC
         LIMIT 1
       ),
+      b.totalAmount,
       b.total_price,
       0
     ) AS payable_total,
@@ -28,29 +29,30 @@ const BOOKING_SELECT = `
     b.notes,
     b.extraGuestSnapshot AS extra_guest_snapshot,
     b.cancellation_reason,
-    bd.id AS detail_id,
-    bd.roomId AS room_id,
-    DATE(COALESCE(bd.checkInDate, b.check_in)) AS check_in,
-    DATE(COALESCE(bd.checkOutDate, b.check_out)) AS check_out,
-    bd.adults,
-    bd.children,
-    bd.roomPrice AS room_price,
-    COALESCE(bd.occupancySurcharge, 0) AS occupancy_surcharge,
-    COALESCE(bd.requestedCheckInTime, b.requestedCheckInTime) AS requested_check_in_time,
-    COALESCE(bd.requestedCheckOutTime, b.requestedCheckOutTime) AS requested_check_out_time,
-    COALESCE(bd.requestedCheckInDayOffset, b.requestedCheckInDayOffset, 0) AS requested_check_in_day_offset,
+    MIN(bd.id) AS detail_id,
+    COALESCE(MIN(bd.roomId), b.room_id) AS room_id,
+    DATE(COALESCE(MIN(bd.checkInDate), b.check_in)) AS check_in,
+    DATE(COALESCE(MIN(bd.checkOutDate), b.check_out)) AS check_out,
+    SUM(COALESCE(bd.adults, 0)) AS adults,
+    SUM(COALESCE(bd.children, 0)) AS children,
+    GREATEST(COUNT(DISTINCT bd.id), 1) AS room_quantity,
+    MIN(bd.roomPrice) AS room_price,
+    SUM(COALESCE(bd.occupancySurcharge, 0)) AS occupancy_surcharge,
+    COALESCE(MIN(bd.requestedCheckInTime), b.requestedCheckInTime) AS requested_check_in_time,
+    COALESCE(MIN(bd.requestedCheckOutTime), b.requestedCheckOutTime) AS requested_check_out_time,
+    COALESCE(MIN(bd.requestedCheckInDayOffset), b.requestedCheckInDayOffset, 0) AS requested_check_in_day_offset,
     b.actualCheckInTime AS actual_check_in_time,
     b.actualCheckOutTime AS actual_check_out_time,
-    COALESCE(b.guest_name, c.fullName) AS customer_name,
-    COALESCE(b.guest_email, a.email) AS customer_email,
-    COALESCE(b.guest_phone, c.phone, a.phone) AS customer_phone,
-    r.roomNumber AS room_number,
-    r.floor AS room_floor,
-    r.area AS room_area,
-    r.status AS room_status,
-    rt.typeName AS room_type_name,
-    rt.defaultPrice AS price_per_night,
-    rt.capacity AS room_capacity
+    COALESCE(b.guest_name, MAX(c.fullName)) AS customer_name,
+    COALESCE(b.guest_email, MAX(a.email)) AS customer_email,
+    COALESCE(b.guest_phone, MAX(c.phone), MAX(a.phone)) AS customer_phone,
+    MIN(r.roomNumber) AS room_number,
+    MIN(r.floor) AS room_floor,
+    MIN(r.area) AS room_area,
+    MIN(r.status) AS room_status,
+    COALESCE(MIN(rt.typeName), 'Đặt phòng') AS room_type_name,
+    MIN(rt.defaultPrice) AS price_per_night,
+    MIN(rt.capacity) AS room_capacity
   FROM bookings b
   LEFT JOIN booking_details bd ON bd.bookingId = b.id
   LEFT JOIN customers c ON c.accountId = b.user_id
@@ -859,7 +861,7 @@ const listRoomPriceRanges = async (roomTypeId, connection) => {
 
 const getBookingById = async (bookingId, connection, lock = false) => {
   const [rows] = await run(connection).query(
-    `${BOOKING_SELECT} WHERE b.id = ? ${lock ? 'FOR UPDATE' : ''}`,
+    `${BOOKING_SELECT} WHERE b.id = ? GROUP BY b.id ${lock ? 'FOR UPDATE' : ''}`,
     [bookingId]
   );
   return rows[0] || null;
@@ -883,6 +885,7 @@ const listBookings = async ({ userId, status } = {}) => {
     `
       ${BOOKING_SELECT}
       ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}
+      GROUP BY b.id
       ORDER BY b.created_at DESC
     `,
     values

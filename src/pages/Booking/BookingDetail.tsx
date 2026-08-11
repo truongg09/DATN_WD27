@@ -394,9 +394,54 @@ const BookingDetail: React.FC = () => {
     dayjs(String(booking.check_out)).diff(dayjs(String(booking.check_in)), 'day'),
     0
   );
+  const bookingDetails = Array.isArray(booking.details)
+    ? (booking.details as Array<{ id: number; roomId?: number | null; roomNumber?: string | null }>)
+    : [];
+  const roomQuantity = bookingDetails.length > 0
+    ? bookingDetails.length
+    : ((booking as unknown as { extra_guest_snapshot?: { roomQuantity?: number } })?.extra_guest_snapshot?.roomQuantity || Number(booking.room_quantity || 1));
   const bookingServices = Array.isArray(booking.services)
     ? booking.services as Array<Record<string, unknown>>
     : [];
+
+  const getServiceRoomTag = (service: Record<string, unknown>) => {
+    const serviceDetailId = Number(service.bookingDetailId || service.booking_detail_id || 0);
+    const serviceRoomId = Number(service.roomId || service.room_id || 0);
+    const serviceRoomNumber = service.roomNumber ? String(service.roomNumber) : '';
+
+    if (bookingDetails.length > 0) {
+      if (serviceDetailId > 0) {
+        const idx = bookingDetails.findIndex((d) => Number(d.id) === serviceDetailId);
+        if (idx >= 0) {
+          const logicalLabel = `Phòng ${idx + 1}`;
+          const roomNum = serviceRoomNumber || bookingDetails[idx]?.roomNumber;
+          if (['checked_in', 'checked_out'].includes(status) && roomNum) {
+            return `${logicalLabel} — ${roomNum}`;
+          }
+          return logicalLabel;
+        }
+      }
+
+      if (serviceRoomId > 0) {
+        const idx = bookingDetails.findIndex((d) => Number(d.roomId) === serviceRoomId);
+        if (idx >= 0) {
+          const logicalLabel = `Phòng ${idx + 1}`;
+          const roomNum = serviceRoomNumber || bookingDetails[idx]?.roomNumber;
+          if (['checked_in', 'checked_out'].includes(status) && roomNum) {
+            return `${logicalLabel} — ${roomNum}`;
+          }
+          return logicalLabel;
+        }
+      }
+    }
+
+    if (['checked_in', 'checked_out'].includes(status) && serviceRoomNumber) {
+      return `Phòng ${serviceRoomNumber}`;
+    }
+
+    return 'Không xác định phòng / Dữ liệu cũ';
+  };
+
   const bookingServiceAmount = bookingServices.reduce(
     (sum, service) => sum + Number(service.totalPrice || 0),
     0
@@ -458,9 +503,12 @@ const BookingDetail: React.FC = () => {
             <Descriptions.Item label="Email">{String(booking.customer_email)}</Descriptions.Item>
             <Descriptions.Item label="SĐT">{String(booking.customer_phone || '-')}</Descriptions.Item>
             <Descriptions.Item label="Hạng phòng">
-              {booking.status === 'checked_in' && booking.room_number
-                ? `Phòng ${booking.room_number} - ${booking.room_type_name || ''}`
-                : `${booking.room_type_name || 'Đặt phòng'} (Số phòng phân bố khi nhận phòng)`}
+              {typeof booking.room_type_name === 'string'
+                ? booking.room_type_name
+                : 'Đặt phòng'}
+            </Descriptions.Item>
+            <Descriptions.Item label="Số phòng đã đặt">
+              {roomQuantity} phòng
             </Descriptions.Item>
             {booking.status === 'checked_in' && (
               <Descriptions.Item label="Tầng">{String(booking.room_floor ?? '-')}</Descriptions.Item>
@@ -473,6 +521,15 @@ const BookingDetail: React.FC = () => {
             </Descriptions.Item>
             <Descriptions.Item label="Ngày đặt">{formatDate(String(booking.created_at))}</Descriptions.Item>
             <Descriptions.Item label="Nhận phòng">{formatDate(String(booking.check_in))}</Descriptions.Item>
+            
+            <Descriptions.Item label="Trả phòng">{formatDate(String(booking.check_out))}</Descriptions.Item>
+            <Descriptions.Item label="Người lớn">{String(booking.adults || '-')}</Descriptions.Item>
+            <Descriptions.Item label="Trẻ em">{String(booking.children || 0)}</Descriptions.Item>
+            <Descriptions.Item label="Số đêm">{nights}</Descriptions.Item>
+            <Descriptions.Item label="Giá phòng/đêm">
+              {formatPrice(Number(booking.room_price || booking.price_per_night || 0))}
+            </Descriptions.Item>
+
             <Descriptions.Item label="Giờ check-in dự kiến">
               <Space wrap>
                 <span>
@@ -500,13 +557,6 @@ const BookingDetail: React.FC = () => {
                   )}
               </Space>
             </Descriptions.Item>
-            <Descriptions.Item label="Trả phòng">{formatDate(String(booking.check_out))}</Descriptions.Item>
-            <Descriptions.Item label="Số đêm">{nights}</Descriptions.Item>
-            <Descriptions.Item label="Giá phòng/đêm">
-              {formatPrice(Number(booking.room_price || booking.price_per_night || 0))}
-            </Descriptions.Item>
-            <Descriptions.Item label="Người lớn">{String(booking.adults || '-')}</Descriptions.Item>
-            <Descriptions.Item label="Trẻ em">{String(booking.children || 0)}</Descriptions.Item>
             <Descriptions.Item label="Tổng tiền" span={{ xs: 1, sm: 2 }}>
               <strong>{formatPrice(payment?.totalAmount ?? Number(booking.booking_total_amount || booking.total_price))}</strong>
             </Descriptions.Item>
@@ -534,10 +584,15 @@ const BookingDetail: React.FC = () => {
         <Card title={`Dịch vụ đã chọn (${bookingServices.length})`}>
           {bookingServices.length > 0 ? (
             <Descriptions column={1} bordered>
-              {bookingServices.map((service) => (
+              {bookingServices.map((service, index) => (
                 <Descriptions.Item
-                  key={String(service.serviceId)}
-                  label={String(service.serviceName)}
+                  key={String(service.id || service.serviceId || index)}
+                  label={
+                    <Space wrap align="center">
+                      <span>{String(service.serviceName)}</span>
+                      <Tag color="blue">{getServiceRoomTag(service)}</Tag>
+                    </Space>
+                  }
                 >
                   {String(service.quantity)} × {formatPrice(Number(service.unitPrice || 0))}
                   {' = '}
