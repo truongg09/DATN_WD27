@@ -113,6 +113,8 @@ interface BookingDetail {
   occupancy_surcharge?: string | number | null;
   notes?: string | null;
   cancellation_reason?: string | null;
+  requested_check_in_time?: string | null;
+  requested_check_in_day_offset?: number | null;
   created_at?: string | null;
   voucher?: { id: number; code: string; discountType: string; discountValue: string | number } | null;
   services?: ServiceRow[];

@@ -132,6 +132,9 @@ function BookingManagement() {
   const [reassigning, setReassigning] = useState(false);
   const [policies, setPolicies] = useState<PoliciesInfo | null>(null);
   const [form] = Form.useForm();
+  const [conflictData, setConflictData] = useState<any>(null);
+  const [reassignLoading, setReassignLoading] = useState<Record<number, boolean>>({});
+  const [extendingAfterConflict, setExtendingAfterConflict] = useState(false);
 
   // Trả về mảng booking vừa tải để nơi gọi (VD: sau khi chuyển phòng) có thể
   // lấy ngay bản ghi mới nhất mà không cần đọc lại state bất đồng bộ.
@@ -343,10 +346,22 @@ function BookingManagement() {
       }
 
       if (operation === 'extend') {
-        await api.patch(`/bookings/${selectedBooking.id}/extend`, {
-          checkOut: values.checkOut.format('YYYY-MM-DD'),
-        });
-        message.success('Đã gia hạn thời gian ở');
+        try {
+          await api.patch(`/bookings/${selectedBooking.id}/extend`, {
+            checkOut: values.checkOut.format('YYYY-MM-DD'),
+          });
+          message.success('Đã gia hạn thời gian ở');
+        } catch (err: any) {
+          if (err.response?.status === 409 && err.response?.data?.details?.conflicts) {
+            setConflictData({
+              bookingId: selectedBooking.id,
+              checkOutDate: values.checkOut.format('YYYY-MM-DD'),
+              conflicts: err.response.data.details.conflicts,
+            });
+            return;
+          }
+          throw err;
+        }
       }
 
       if (operation === 'transfer') {
@@ -397,6 +412,49 @@ function BookingManagement() {
       fetchBookings();
     } catch (error: any) {
       message.error(error.response?.data?.message || 'Không thể xử lý thao tác này');
+    }
+  };
+
+  const handleResolveConflict = async (conflictingBookingId: number, newRoomId: number, targetRoomNum: string) => {
+    setReassignLoading(prev => ({ ...prev, [conflictingBookingId]: true }));
+    try {
+      await api.patch(`/bookings/${conflictingBookingId}/reassign-room`, {
+        newRoomId,
+      });
+      message.success(`Đã chuyển đặt phòng #${conflictingBookingId} sang phòng ${targetRoomNum}`);
+      
+      setConflictData((prev: any) => {
+        if (!prev) return null;
+        const updatedConflicts = prev.conflicts.map((c: any) => {
+          if (c.bookingId === conflictingBookingId) {
+            return { ...c, isResolved: true, resolvedRoomNum: targetRoomNum };
+          }
+          return c;
+        });
+        return { ...prev, conflicts: updatedConflicts };
+      });
+    } catch (err: any) {
+      message.error(err.response?.data?.message || `Không thể chuyển phòng cho đặt phòng #${conflictingBookingId}`);
+    } finally {
+      setReassignLoading(prev => ({ ...prev, [conflictingBookingId]: false }));
+    }
+  };
+
+  const handleRetryExtendAfterConflict = async () => {
+    if (!conflictData) return;
+    setExtendingAfterConflict(true);
+    try {
+      await api.patch(`/bookings/${conflictData.bookingId}/extend`, {
+        checkOut: conflictData.checkOutDate,
+      });
+      message.success('Đã gia hạn thời gian ở thành công!');
+      setConflictData(null);
+      closeOperation();
+      fetchBookings();
+    } catch (err: any) {
+      message.error(err.response?.data?.message || 'Không thể gia hạn. Vui lòng kiểm tra các xung đột chưa giải quyết.');
+    } finally {
+      setExtendingAfterConflict(false);
     }
   };
 
@@ -514,7 +572,7 @@ const handleCheckIn = (booking: Booking) => {
           type="warning"
           showIcon
           style={{ marginBottom: 16 }}
-          message="Phòng đang dọn dẹp / bảo trì"
+          title="Phòng đang dọn dẹp / bảo trì"
           description={
             <div>
               <p style={{ marginBottom: 8 }}>
@@ -552,7 +610,7 @@ const handleCheckIn = (booking: Booking) => {
           type="success"
           showIcon
           style={{ marginBottom: 16 }}
-          message={`Phòng ${selectedBooking.room_number || ''} đã sẵn sàng đón khách`}
+          title={`Phòng ${selectedBooking.room_number || ''} đã sẵn sàng đón khách`}
         />
       );
     }
@@ -564,7 +622,7 @@ const handleCheckIn = (booking: Booking) => {
         type="info"
         showIcon
         style={{ marginBottom: 16 }}
-        message={`Trạng thái phòng hiện tại: ${status}`}
+        title={`Trạng thái phòng hiện tại: ${status}`}
       />
     );
   };
@@ -848,6 +906,87 @@ const handleCheckIn = (booking: Booking) => {
         <Form form={form} layout="vertical">
           {renderOperationForm()}
         </Form>
+      </Modal>
+
+      <Modal
+        title="Giải quyết xung đột gia hạn phòng"
+        open={Boolean(conflictData)}
+        onCancel={() => setConflictData(null)}
+        footer={[
+          <Button key="cancel" onClick={() => setConflictData(null)}>
+            Hủy bỏ
+          </Button>,
+          <Button
+            key="retry"
+            type="primary"
+            loading={extendingAfterConflict}
+            onClick={handleRetryExtendAfterConflict}
+            disabled={conflictData?.conflicts?.some((c: any) => !c.isResolved)}
+          >
+            Hoàn tất gia hạn
+          </Button>
+        ]}
+        width={650}
+      >
+        <Alert
+          title="Xung đột lịch đặt phòng"
+          description="Khách lưu trú muốn gia hạn thời gian ở, nhưng phòng này đã có các đặt phòng của khách khác trong khoảng thời gian gia hạn. Bạn có thể giải quyết nhanh bằng cách chuyển các đặt phòng đó sang phòng trống cùng hạng dưới đây:"
+          type="warning"
+          showIcon
+          style={{ marginBottom: 20 }}
+        />
+        
+        <div style={{ maxHeight: 400, overflowY: 'auto' }}>
+          {conflictData?.conflicts?.map((conflict: any) => (
+            <div
+              key={conflict.bookingId}
+              style={{
+                padding: 16,
+                border: '1px solid #f0f0f0',
+                borderRadius: 8,
+                marginBottom: 16,
+                background: conflict.isResolved ? '#f6ffed' : '#fff',
+                borderColor: conflict.isResolved ? '#b7eb8f' : '#f0f0f0'
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                <strong>Đặt phòng #{conflict.bookingId}</strong>
+                <Tag color="blue">{formatDate(conflict.checkIn)} - {formatDate(conflict.checkOut)}</Tag>
+              </div>
+              
+              {conflict.isResolved ? (
+                <div style={{ color: '#52c41a', fontWeight: '500' }}>
+                  ✓ Đã chuyển sang phòng {conflict.resolvedRoomNum} thành công.
+                </div>
+              ) : (
+                <div>
+                  <div style={{ marginBottom: 8, fontSize: 13, color: '#666' }}>
+                    Chọn phòng cùng hạng còn trống để chuyển sang:
+                  </div>
+                  {conflict.suggestedRooms && conflict.suggestedRooms.length > 0 ? (
+                    <Space wrap>
+                      {conflict.suggestedRooms.map((room: any) => (
+                        <Button
+                          key={room.id}
+                          size="small"
+                          icon={<SwapOutlined />}
+                          loading={reassignLoading[conflict.bookingId]}
+                          onClick={() => handleResolveConflict(conflict.bookingId, room.id, room.roomNumber)}
+                        >
+                          Phòng {room.roomNumber} ({formatPrice(room.pricePerNight)}/đêm)
+                        </Button>
+                      ))}
+                    </Space>
+                  ) : (
+                    <div style={{ color: '#ff4d4f', fontSize: 13 }}>
+                      Không có phòng cùng hạng nào trống trong khoảng thời gian này. Cần xử lý thủ công.
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
       </Modal>
     </div>
   );
