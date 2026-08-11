@@ -380,7 +380,7 @@ const createBooking = async (payload, totalPrice, connection, extraGuestSnapshot
 };
 
 const createBookingDetail = async (bookingId, payload, roomPrice, occupancySurcharge = 0, connection) => {
-  await run(connection).query(
+  const [result] = await run(connection).query(
     `
       INSERT INTO booking_details
         (bookingId, roomId, checkInDate, checkOutDate, adults, children, roomPrice, occupancySurcharge,
@@ -400,6 +400,7 @@ const createBookingDetail = async (bookingId, payload, roomPrice, occupancySurch
       payload.requestedCheckOutTime || null
     ]
   );
+  return { id: result.insertId, roomId: payload.roomId };
 };
 
 const upsertAvailabilityRows = async () => {};
@@ -425,6 +426,7 @@ const validateRoomInBooking = async (bookingId, roomId, connection) => {
 
 const addBookingService = async (bookingId, service, quantity, connection, options = {}) => {
   const roomId = options.roomId ? Number(options.roomId) : null;
+  const bookingDetailId = options.bookingDetailId ? Number(options.bookingDetailId) : null;
   const status = options.status || 'used';
   const unitPrice = Number(service.price || 0);
   const totalPrice = unitPrice * Number(quantity);
@@ -432,15 +434,16 @@ const addBookingService = async (bookingId, service, quantity, connection, optio
 
   const [result] = await run(connection).query(
     `
-      INSERT INTO booking_services (bookingId, roomId, serviceId, unitPrice, quantity, status, usedAt, totalPrice)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO booking_services (bookingId, bookingDetailId, roomId, serviceId, unitPrice, quantity, status, usedAt, totalPrice)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
-    [bookingId, roomId, service.id, unitPrice, quantity, status, usedAt, totalPrice]
+    [bookingId, bookingDetailId, roomId, service.id, unitPrice, quantity, status, usedAt, totalPrice]
   );
 
   return {
     id: result.insertId,
     bookingId,
+    bookingDetailId,
     roomId,
     serviceId: service.id,
     serviceName: service.serviceName,

@@ -1,8 +1,14 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, Descriptions, Empty, Modal, Spin, Table, Tabs, Tag, Timeline, Tooltip } from 'antd';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Alert, Button, Descriptions, Divider, Dropdown, Empty, Form, Input, InputNumber,
+  message, Modal, Popconfirm, Select, Space, Spin, Table, Tabs, Tag, Timeline, Tooltip,
+} from 'antd';
 import {
   ClockCircleOutlined,
+  DeleteOutlined,
   DollarOutlined,
+  DownOutlined,
+  EditOutlined,
   HomeOutlined,
   IdcardOutlined,
   PlusCircleOutlined,
@@ -13,6 +19,18 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../../services/api';
+import {
+  addBookingServiceCharge,
+  addBookingDamageCharge,
+  updateBookingServiceCharge,
+  updateBookingServiceChargeStatus,
+  deleteBookingServiceCharge,
+  updateBookingDamageCharge,
+  updateBookingDamageChargeStatus,
+  deleteBookingDamageCharge,
+} from '../../services/bookingService';
+import { getServices } from '../../services/serviceService';
+import type { Service } from '../../types/service';
 
 export interface BookingHistoryEntry {
   id: number;
@@ -26,20 +44,31 @@ export interface BookingHistoryEntry {
 
 interface ServiceRow {
   id: number;
+  bookingId?: number;
+  roomId?: number | null;
+  roomNumber?: string | null;
+  serviceId?: number;
   serviceName: string;
   description?: string | null;
   unitPrice: string | number;
   quantity: number;
   totalPrice: string | number;
+  status?: string | null;
+  usedAt?: string | null;
   createdAt?: string | null;
 }
 
 interface DamageRow {
   id: number;
+  bookingId?: number;
+  roomId?: number | null;
+  roomNumber?: string | null;
+  chargeType?: string | null;
   itemName: string;
   quantity: number;
   unitPrice: string | number;
   totalPrice: string | number;
+  status?: string | null;
   note?: string | null;
   createdAt?: string | null;
 }
@@ -54,6 +83,8 @@ interface GuestRow {
 
 interface TransferRow {
   id: number;
+  fromRoomId?: number | null;
+  toRoomId?: number | null;
   fromRoomNumber?: string | null;
   toRoomNumber?: string | null;
   fromDate: string;
@@ -96,6 +127,7 @@ interface BookingDetail {
   customer_name: string | null;
   customer_email: string | null;
   customer_phone: string | null;
+  room_id?: number | null;
   room_number: string | null;
   room_type_name: string | null;
   room_floor?: number | null;
@@ -114,6 +146,9 @@ interface BookingDetail {
   notes?: string | null;
   cancellation_reason?: string | null;
   created_at?: string | null;
+  requested_check_in_time?: string | null;
+  requested_check_in_day_offset?: number | null;
+  actual_check_in_time?: string | null;
   voucher?: { id: number; code: string; discountType: string; discountValue: string | number } | null;
   services?: ServiceRow[];
   damages?: DamageRow[];
@@ -122,6 +157,7 @@ interface BookingDetail {
   payments?: PaymentRow[];
   refunds?: RefundRow[];
   history?: BookingHistoryEntry[];
+  booking_rooms?: { id: number; number: string }[];
 }
 
 const money = (value?: string | number | null) =>
@@ -232,9 +268,9 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
       setDetail((response as unknown as { data: BookingDetail }).data);
       setError(null);
     } catch (err: unknown) {
-      const message = (err as { response?: { data?: { message?: string } } }).response?.data?.message;
+      const errMsg = (err as { response?: { data?: { message?: string } } }).response?.data?.message;
       if (!silent) {
-        setError(message || 'Không thể tải chi tiết đặt phòng');
+        setError(errMsg || 'Không thể tải chi tiết đặt phòng');
         setDetail(null);
       }
     } finally {
@@ -265,7 +301,9 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
   const history = detail?.history || [];
 
   const serviceTotal = services.reduce((sum, item) => sum + Number(item.totalPrice || 0), 0);
-  const damageTotal = damages.reduce((sum, item) => sum + Number(item.totalPrice || 0), 0);
+  const damageTotal = damages
+    .filter((d) => (d.status || 'used') === 'used')
+    .reduce((sum, item) => sum + Number(item.totalPrice || 0), 0);
 
   const mainPayment = payments[0];
   const nights =
@@ -276,6 +314,256 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
   const paidAmount = Number(mainPayment?.paidAmount || 0);
   const remainingAmount = Number(mainPayment?.remainingAmount || 0);
   const discountAmount = Number(mainPayment?.discountAmount || 0);
+
+  // ─── Service tab: state & helpers ───────────────────────────────
+  const [addServiceForm] = Form.useForm();
+  const [editServiceForm] = Form.useForm();
+  const [allServices, setAllServices] = useState<Service[]>([]);
+  const [addingService, setAddingService] = useState(false);
+  const [editingService, setEditingService] = useState<ServiceRow | null>(null);
+  const [savingService, setSavingService] = useState(false);
+
+  // ─── Damage tab: state & helpers ────────────────────────────────
+  const [addDamageForm] = Form.useForm();
+  const [editDamageForm] = Form.useForm();
+  const [addingDamage, setAddingDamage] = useState(false);
+  const [editingDamage, setEditingDamage] = useState<DamageRow | null>(null);
+  const [savingDamage, setSavingDamage] = useState(false);
+
+  // Load danh sách dịch vụ khách sạn 1 lần khi modal mở.
+  useEffect(() => {
+    if (!open) return;
+    getServices()
+      .then(setAllServices)
+      .catch(() => setAllServices([]));
+  }, [open]);
+
+  // Danh sách phòng thuộc booking: source of truth = booking_details (API trả booking_rooms).
+  // Fallback bookings.room_id cho legacy single-room booking.
+  const bookingRooms = useMemo(() => {
+    if (detail?.booking_rooms && detail.booking_rooms.length > 0) {
+      return detail.booking_rooms;
+    }
+    // Legacy fallback: booking chỉ có room_id trên bảng bookings
+    if (detail?.room_id && detail?.room_number) {
+      return [{ id: detail.room_id, number: detail.room_number }];
+    }
+    return [];
+  }, [detail]);
+
+  const svcStatusLabel: Record<string, string> = {
+    used: 'Đã sử dụng',
+    unused: 'Chưa sử dụng',
+    cancelled: 'Đã hủy',
+  };
+  const svcStatusColor: Record<string, string> = {
+    used: 'green',
+    unused: 'orange',
+    cancelled: 'default',
+  };
+
+  // Charge type / status mappings for damages tab
+  const chargeTypeLabel: Record<string, string> = {
+    damage: 'Hư hỏng',
+    extra_fee: 'Phí phát sinh',
+    other: 'Khoản thu khác',
+  };
+  const chargeTypeColor: Record<string, string> = {
+    damage: 'red',
+    extra_fee: 'orange',
+    other: 'blue',
+  };
+  const chargeStatusLabel: Record<string, string> = {
+    used: 'Đã xác nhận',
+    unused: 'Chưa xác nhận',
+    cancelled: 'Đã hủy',
+  };
+  const chargeStatusColor: Record<string, string> = {
+    used: 'green',
+    unused: 'orange',
+    cancelled: 'default',
+  };
+
+  // Group services theo roomNumber.
+  const servicesByRoom = useMemo(() => {
+    const groups = new Map<string, ServiceRow[]>();
+    for (const svc of services) {
+      const key = svc.roomNumber || '__unknown__';
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(svc);
+    }
+    return groups;
+  }, [services]);
+
+  // Group damages/charges theo roomNumber.
+  const damagesByRoom = useMemo(() => {
+    const groups = new Map<string, DamageRow[]>();
+    for (const dmg of damages) {
+      const key = dmg.roomNumber || '__unknown__';
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(dmg);
+    }
+    return groups;
+  }, [damages]);
+
+  const handleAddService = async () => {
+    try {
+      const values = await addServiceForm.validateFields();
+      if (!bookingId) return;
+      setAddingService(true);
+      await addBookingServiceCharge(bookingId, {
+        serviceId: values.serviceId,
+        quantity: values.quantity,
+        roomId: values.roomId ?? null,
+        status: values.status || 'used',
+      });
+      message.success('Đã thêm dịch vụ');
+      addServiceForm.resetFields();
+      fetchDetail();
+    } catch (err: unknown) {
+      const errMsg = (err as { response?: { data?: { message?: string } } }).response?.data?.message;
+      if (errMsg) message.error(errMsg);
+    } finally {
+      setAddingService(false);
+    }
+  };
+
+  const openEditService = (row: ServiceRow) => {
+    setEditingService(row);
+    editServiceForm.setFieldsValue({
+      roomId: row.roomId ?? undefined,
+      quantity: row.quantity,
+    });
+  };
+
+  const handleEditService = async () => {
+    if (!bookingId || !editingService) return;
+    try {
+      const values = await editServiceForm.validateFields();
+      setSavingService(true);
+      await updateBookingServiceCharge(bookingId, editingService.id, {
+        quantity: values.quantity,
+        roomId: values.roomId ?? null,
+      });
+      message.success('Đã cập nhật dịch vụ');
+      setEditingService(null);
+      fetchDetail();
+    } catch (err: unknown) {
+      const errMsg = (err as { response?: { data?: { message?: string } } }).response?.data?.message;
+      if (errMsg) message.error(errMsg);
+    } finally {
+      setSavingService(false);
+    }
+  };
+
+  const handleStatusChange = async (row: ServiceRow, newStatus: string) => {
+    if (!bookingId) return;
+    try {
+      await updateBookingServiceChargeStatus(bookingId, row.id, newStatus);
+      message.success(`Đã chuyển trạng thái → ${svcStatusLabel[newStatus] || newStatus}`);
+      fetchDetail();
+    } catch (err: unknown) {
+      const errMsg = (err as { response?: { data?: { message?: string } } }).response?.data?.message;
+      if (errMsg) message.error(errMsg);
+    }
+  };
+
+  const handleCancelService = async (row: ServiceRow) => {
+    if (!bookingId) return;
+    try {
+      await deleteBookingServiceCharge(bookingId, row.id);
+      message.success('Đã hủy dịch vụ');
+      fetchDetail();
+    } catch (err: unknown) {
+      const errMsg = (err as { response?: { data?: { message?: string } } }).response?.data?.message;
+      if (errMsg) message.error(errMsg);
+    }
+  };
+
+  const handleAddDamage = async () => {
+    try {
+      const values = await addDamageForm.validateFields();
+      if (!bookingId) return;
+      setAddingDamage(true);
+      await addBookingDamageCharge(bookingId, {
+        roomId: values.roomId ?? null,
+        chargeType: values.chargeType || 'damage',
+        itemName: values.itemName,
+        quantity: values.quantity,
+        unitPrice: values.unitPrice,
+        status: values.status || 'used',
+        note: values.note || null,
+      });
+      message.success('Đã thêm khoản phát sinh');
+      addDamageForm.resetFields();
+      fetchDetail();
+    } catch (err: unknown) {
+      const errMsg = (err as { response?: { data?: { message?: string } } }).response?.data?.message;
+      if (errMsg) message.error(errMsg);
+    } finally {
+      setAddingDamage(false);
+    }
+  };
+
+  const openEditDamage = (row: DamageRow) => {
+    setEditingDamage(row);
+    editDamageForm.setFieldsValue({
+      roomId: row.roomId ?? undefined,
+      chargeType: row.chargeType || 'damage',
+      itemName: row.itemName,
+      quantity: row.quantity,
+      unitPrice: Number(row.unitPrice || 0),
+      note: row.note || '',
+    });
+  };
+
+  const handleEditDamage = async () => {
+    if (!bookingId || !editingDamage) return;
+    try {
+      const values = await editDamageForm.validateFields();
+      setSavingDamage(true);
+      await updateBookingDamageCharge(bookingId, editingDamage.id, {
+        roomId: values.roomId ?? null,
+        chargeType: values.chargeType,
+        itemName: values.itemName,
+        quantity: values.quantity,
+        unitPrice: values.unitPrice,
+        note: values.note || null,
+      });
+      message.success('Đã cập nhật khoản phát sinh');
+      setEditingDamage(null);
+      fetchDetail();
+    } catch (err: unknown) {
+      const errMsg = (err as { response?: { data?: { message?: string } } }).response?.data?.message;
+      if (errMsg) message.error(errMsg);
+    } finally {
+      setSavingDamage(false);
+    }
+  };
+
+  const handleDamageStatusChange = async (row: DamageRow, newStatus: string) => {
+    if (!bookingId) return;
+    try {
+      await updateBookingDamageChargeStatus(bookingId, row.id, newStatus);
+      message.success(`Đã chuyển trạng thái → ${chargeStatusLabel[newStatus] || newStatus}`);
+      fetchDetail();
+    } catch (err: unknown) {
+      const errMsg = (err as { response?: { data?: { message?: string } } }).response?.data?.message;
+      if (errMsg) message.error(errMsg);
+    }
+  };
+
+  const handleCancelDamage = async (row: DamageRow) => {
+    if (!bookingId) return;
+    try {
+      await deleteBookingDamageCharge(bookingId, row.id);
+      message.success('Đã hủy khoản');
+      fetchDetail();
+    } catch (err: unknown) {
+      const errMsg = (err as { response?: { data?: { message?: string } } }).response?.data?.message;
+      if (errMsg) message.error(errMsg);
+    }
+  };
 
   const getBookingDisplayTag = (b: any) => {
     if (!b) return { label: '—', color: 'default' };
@@ -402,62 +690,374 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
     </>
   );
 
+  const svcColumns = [
+    {
+      title: 'Dịch vụ', dataIndex: 'serviceName', render: (value: string, row: ServiceRow) => (
+        <div>
+          <strong>{value}</strong>
+          {row.description && <div style={{ fontSize: 12, color: '#888' }}>{row.description}</div>}
+        </div>
+      ),
+    },
+    { title: 'Đơn giá', dataIndex: 'unitPrice', align: 'right' as const, render: money },
+    { title: 'SL', dataIndex: 'quantity', align: 'center' as const, width: 60 },
+    { title: 'Thành tiền', dataIndex: 'totalPrice', align: 'right' as const, render: (v: string | number) => <strong>{money(v)}</strong> },
+    {
+      title: 'Trạng thái', dataIndex: 'status', width: 130,
+      render: (v?: string | null) => {
+        const s = v || 'used';
+        return <Tag color={svcStatusColor[s] || 'default'}>{svcStatusLabel[s] || s}</Tag>;
+      },
+    },
+    { title: 'Thời điểm', dataIndex: 'createdAt', render: dateTime },
+    {
+      title: 'Thao tác', width: 180, align: 'center' as const,
+      render: (_: unknown, row: ServiceRow) => {
+        const s = (row.status || 'used').toLowerCase();
+        if (s === 'cancelled') return <Tag>Đã hủy</Tag>;
+
+        // Status transition actions
+        const statusItems: { key: string; label: string }[] = [];
+        if (s === 'unused') {
+          statusItems.push({ key: 'used', label: 'Xác nhận đã sử dụng' });
+        }
+        if (s === 'used') {
+          statusItems.push({ key: 'unused', label: 'Chuyển về chưa sử dụng' });
+        }
+
+        return (
+          <Space size={4}>
+            <Tooltip title="Sửa">
+              <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEditService(row)} />
+            </Tooltip>
+            {statusItems.length > 0 && (
+              <Dropdown
+                menu={{
+                  items: statusItems,
+                  onClick: ({ key }) => handleStatusChange(row, key),
+                }}
+              >
+                <Button type="link" size="small">
+                  Trạng thái <DownOutlined />
+                </Button>
+              </Dropdown>
+            )}
+            <Popconfirm
+              title="Hủy dịch vụ này?"
+              description="Dịch vụ sẽ chuyển sang trạng thái Đã hủy và không tính tiền."
+              onConfirm={() => handleCancelService(row)}
+              okText="Hủy dịch vụ"
+              cancelText="Không"
+            >
+              <Tooltip title="Hủy dịch vụ">
+                <Button type="link" size="small" danger icon={<DeleteOutlined />} />
+              </Tooltip>
+            </Popconfirm>
+          </Space>
+        );
+      },
+    },
+  ];
+
   const servicesTab = (
-    <Table<ServiceRow>
-      rowKey="id"
-      size="small"
-      pagination={false}
-      dataSource={services}
-      locale={emptyBox('Chưa có dịch vụ phát sinh nào')}
-      columns={[
-        { title: 'Dịch vụ', dataIndex: 'serviceName', render: (value: string, row) => (
-          <div>
-            <strong>{value}</strong>
-            {row.description && <div style={{ fontSize: 12, color: '#888' }}>{row.description}</div>}
-          </div>
-        ) },
-        { title: 'Đơn giá', dataIndex: 'unitPrice', align: 'right', render: money },
-        { title: 'Số lượng', dataIndex: 'quantity', align: 'center' },
-        { title: 'Thành tiền', dataIndex: 'totalPrice', align: 'right', render: (value: string | number) => <strong>{money(value)}</strong> },
-        { title: 'Thời điểm phát sinh', dataIndex: 'createdAt', render: dateTime },
-      ]}
-      summary={() =>
-        services.length > 0 ? (
-          <Table.Summary.Row>
-            <Table.Summary.Cell index={0} colSpan={3}><strong>Tổng dịch vụ</strong></Table.Summary.Cell>
-            <Table.Summary.Cell index={3} align="right"><strong>{money(serviceTotal)}</strong></Table.Summary.Cell>
-            <Table.Summary.Cell index={4} />
-          </Table.Summary.Row>
-        ) : null
-      }
-    />
+    <>
+      {/* ── Danh sách theo phòng ── */}
+      {services.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Chưa có dịch vụ phát sinh nào" />}
+
+      {Array.from(servicesByRoom.entries()).map(([roomKey, rows]) => (
+        <div key={roomKey} style={{ marginBottom: 16 }}>
+          <Divider titlePlacement="left" style={{ margin: '8px 0' }}>
+            {roomKey === '__unknown__' ? 'Dữ liệu cũ / Không xác định phòng' : `Phòng ${roomKey}`}
+          </Divider>
+          <Table<ServiceRow>
+            rowKey="id"
+            size="small"
+            pagination={false}
+            dataSource={rows}
+            columns={svcColumns}
+          />
+        </div>
+      ))}
+
+      {/* Tổng cộng */}
+      {services.length > 0 && (
+        <div style={{ textAlign: 'right', padding: '8px 0', fontWeight: 600 }}>
+          Tổng dịch vụ: {money(serviceTotal)}
+        </div>
+      )}
+
+      {/* ── Form thêm dịch vụ ── */}
+      <Divider titlePlacement="left" style={{ margin: '16px 0 8px' }}>Thêm dịch vụ</Divider>
+      <Form form={addServiceForm} layout="inline" style={{ flexWrap: 'wrap', gap: 8 }}>
+        <Form.Item name="roomId" label="Phòng">
+          <Select
+            placeholder="Chọn phòng"
+            allowClear
+            style={{ width: 130 }}
+            options={bookingRooms.map((r) => ({ value: r.id, label: `P.${r.number}` }))}
+          />
+        </Form.Item>
+        <Form.Item name="serviceId" label="Dịch vụ" rules={[{ required: true, message: 'Chọn dịch vụ' }]}>
+          <Select
+            placeholder="Chọn dịch vụ"
+            showSearch
+            optionFilterProp="label"
+            style={{ width: 200 }}
+            options={allServices.map((s) => ({ value: s.id, label: `${s.serviceName} (${money(s.price)})` }))}
+          />
+        </Form.Item>
+        <Form.Item name="quantity" label="SL" initialValue={1} rules={[{ required: true, message: 'Nhập SL' }]}>
+          <InputNumber min={1} max={100} style={{ width: 70 }} />
+        </Form.Item>
+        <Form.Item name="status" label="Trạng thái" initialValue="used">
+          <Select style={{ width: 150 }} options={[
+            { value: 'used', label: 'Đã sử dụng' },
+            { value: 'unused', label: 'Chưa sử dụng' },
+          ]} />
+        </Form.Item>
+        <Form.Item>
+          <Button type="primary" loading={addingService} onClick={handleAddService}>
+            Thêm
+          </Button>
+        </Form.Item>
+      </Form>
+      {/* ── Modal sửa dịch vụ ── */}
+      <Modal
+        title={editingService ? `Sửa: ${editingService.serviceName}` : 'Sửa dịch vụ'}
+        open={!!editingService}
+        onCancel={() => setEditingService(null)}
+        onOk={handleEditService}
+        confirmLoading={savingService}
+        okText="Lưu"
+        cancelText="Hủy"
+        destroyOnHidden
+        width={420}
+      >
+        <Form form={editServiceForm} layout="vertical">
+          <Form.Item name="roomId" label="Phòng">
+            <Select
+              placeholder="Chọn phòng"
+              allowClear
+              options={bookingRooms.map((r) => ({ value: r.id, label: `P.${r.number}` }))}
+            />
+          </Form.Item>
+          <Form.Item name="quantity" label="Số lượng" rules={[{ required: true, message: 'Nhập số lượng' }]}>
+            <InputNumber min={1} max={100} style={{ width: '100%' }} />
+          </Form.Item>
+          {editingService && (
+            <div style={{ color: '#888', fontSize: 12 }}>
+              Đơn giá snapshot: {money(editingService.unitPrice)} — Thành tiền sẽ được backend tính lại.
+            </div>
+          )}
+        </Form>
+      </Modal>
+    </>
   );
 
+  const dmgColumns = [
+    {
+      title: 'Loại', dataIndex: 'chargeType', width: 130,
+      render: (v?: string | null) => {
+        const t = v || 'damage';
+        return <Tag color={chargeTypeColor[t] || 'default'}>{chargeTypeLabel[t] || t}</Tag>;
+      },
+    },
+    { title: 'Nội dung', dataIndex: 'itemName' },
+    { title: 'SL', dataIndex: 'quantity', align: 'center' as const, width: 60 },
+    { title: 'Đơn giá', dataIndex: 'unitPrice', align: 'right' as const, render: money },
+    { title: 'Thành tiền', dataIndex: 'totalPrice', align: 'right' as const, render: (v: string | number) => <strong>{money(v)}</strong> },
+    {
+      title: 'Trạng thái', dataIndex: 'status', width: 130,
+      render: (v?: string | null) => {
+        const s = v || 'used';
+        return <Tag color={chargeStatusColor[s] || 'default'}>{chargeStatusLabel[s] || s}</Tag>;
+      },
+    },
+    { title: 'Ghi chú', dataIndex: 'note', render: (v?: string | null) => v || '—' },
+    { title: 'Thời điểm', dataIndex: 'createdAt', render: dateTime },
+    {
+      title: 'Thao tác', width: 180, align: 'center' as const,
+      render: (_: unknown, row: DamageRow) => {
+        const s = (row.status || 'used').toLowerCase();
+        if (s === 'cancelled') return <Tag>Đã hủy</Tag>;
+
+        const statusItems: { key: string; label: string }[] = [];
+        if (s === 'unused') {
+          statusItems.push({ key: 'used', label: 'Xác nhận' });
+          statusItems.push({ key: 'cancelled', label: 'Hủy' });
+        }
+        if (s === 'used') {
+          statusItems.push({ key: 'unused', label: 'Chuyển về chưa xác nhận' });
+          statusItems.push({ key: 'cancelled', label: 'Hủy' });
+        }
+
+        return (
+          <Space size={4}>
+            <Tooltip title="Sửa">
+              <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEditDamage(row)} />
+            </Tooltip>
+            {statusItems.length > 0 && (
+              <Dropdown
+                menu={{
+                  items: statusItems,
+                  onClick: ({ key }) => handleDamageStatusChange(row, key),
+                }}
+              >
+                <Button type="link" size="small">
+                  Trạng thái <DownOutlined />
+                </Button>
+              </Dropdown>
+            )}
+            <Popconfirm
+              title="Hủy khoản này?"
+              description="Khoản phát sinh sẽ chuyển sang trạng thái Đã hủy và không tính tiền."
+              onConfirm={() => handleCancelDamage(row)}
+              okText="Hủy khoản"
+              cancelText="Không"
+            >
+              <Tooltip title="Hủy khoản">
+                <Button type="link" size="small" danger icon={<DeleteOutlined />} />
+              </Tooltip>
+            </Popconfirm>
+          </Space>
+        );
+      },
+    },
+  ];
+
   const damagesTab = (
-    <Table<DamageRow>
-      rowKey="id"
-      size="small"
-      pagination={false}
-      dataSource={damages}
-      locale={emptyBox('Không có phí hư hỏng nào')}
-      columns={[
-        { title: 'Vật dụng', dataIndex: 'itemName' },
-        { title: 'Đơn giá', dataIndex: 'unitPrice', align: 'right', render: money },
-        { title: 'Số lượng', dataIndex: 'quantity', align: 'center' },
-        { title: 'Thành tiền', dataIndex: 'totalPrice', align: 'right', render: (value: string | number) => <strong>{money(value)}</strong> },
-        { title: 'Ghi chú', dataIndex: 'note', render: (value?: string | null) => value || '—' },
-        { title: 'Thời điểm ghi nhận', dataIndex: 'createdAt', render: dateTime },
-      ]}
-      summary={() =>
-        damages.length > 0 ? (
-          <Table.Summary.Row>
-            <Table.Summary.Cell index={0} colSpan={3}><strong>Tổng phí hư hỏng</strong></Table.Summary.Cell>
-            <Table.Summary.Cell index={3} align="right"><strong>{money(damageTotal)}</strong></Table.Summary.Cell>
-            <Table.Summary.Cell index={4} colSpan={2} />
-          </Table.Summary.Row>
-        ) : null
-      }
-    />
+    <>
+      {damages.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Chưa có phí hư hỏng / phát sinh nào" />}
+
+      {Array.from(damagesByRoom.entries()).map(([roomKey, rows]) => (
+        <div key={roomKey} style={{ marginBottom: 16 }}>
+          <Divider titlePlacement="left" style={{ margin: '8px 0' }}>
+            {roomKey === '__unknown__' ? 'Không xác định phòng / Dữ liệu cũ' : `Phòng ${roomKey}`}
+          </Divider>
+          <Table<DamageRow>
+            rowKey="id"
+            size="small"
+            pagination={false}
+            dataSource={rows}
+            columns={dmgColumns}
+          />
+        </div>
+      ))}
+
+      {damages.length > 0 && (
+        <div style={{ textAlign: 'right', padding: '8px 0', fontWeight: 600 }}>
+          Tổng (đã xác nhận): {money(damageTotal)}
+        </div>
+      )}
+
+      {/* ── Form thêm khoản phát sinh ── */}
+      <Divider titlePlacement="left" style={{ margin: '16px 0 8px' }}>Thêm khoản phát sinh</Divider>
+      <Form form={addDamageForm} layout="inline" style={{ flexWrap: 'wrap', gap: 8 }}>
+        <Form.Item name="roomId" label="Phòng">
+          <Select
+            placeholder="Chọn phòng"
+            allowClear
+            style={{ width: 130 }}
+            options={bookingRooms.map((r) => ({ value: r.id, label: `P.${r.number}` }))}
+          />
+        </Form.Item>
+        <Form.Item name="chargeType" label="Loại" initialValue="damage" rules={[{ required: true, message: 'Chọn loại' }]}>
+          <Select style={{ width: 150 }} options={[
+            { value: 'damage', label: 'Hư hỏng' },
+            { value: 'extra_fee', label: 'Phí phát sinh' },
+            { value: 'other', label: 'Khoản thu khác' },
+          ]} />
+        </Form.Item>
+        <Form.Item name="itemName" label="Nội dung" rules={[{ required: true, message: 'Nhập nội dung' }]}>
+          <Input placeholder="Ví dụ: Vỡ bình hoa" style={{ width: 180 }} />
+        </Form.Item>
+        <Form.Item name="quantity" label="SL" initialValue={1} rules={[{ required: true, message: 'Nhập SL' }]}>
+          <InputNumber min={1} max={100} style={{ width: 70 }} />
+        </Form.Item>
+        <Form.Item name="unitPrice" label="Đơn giá" initialValue={0} rules={[{ required: true, message: 'Nhập giá' }]}>
+          <InputNumber min={0} style={{ width: 130 }} formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')} parser={(v) => Number((v || '').replace(/,/g, '')) as unknown as 0} />
+        </Form.Item>
+        <Form.Item name="note" label="Ghi chú">
+          <Input placeholder="Tùy chọn" style={{ width: 150 }} />
+        </Form.Item>
+        <Form.Item name="status" label="Trạng thái" initialValue="used">
+          <Select style={{ width: 150 }} options={[
+            { value: 'used', label: 'Đã xác nhận' },
+            { value: 'unused', label: 'Chưa xác nhận' },
+          ]} />
+        </Form.Item>
+        <Form.Item>
+          <Button type="primary" loading={addingDamage} onClick={handleAddDamage}>
+            Thêm
+          </Button>
+        </Form.Item>
+        <Form.Item noStyle shouldUpdate={(prev, cur) => prev.quantity !== cur.quantity || prev.unitPrice !== cur.unitPrice}>
+          {() => {
+            const qty = addDamageForm.getFieldValue('quantity') || 0;
+            const price = addDamageForm.getFieldValue('unitPrice') || 0;
+            const preview = qty * price;
+            return preview > 0 ? (
+              <div style={{ lineHeight: '32px', color: '#888', fontSize: 13 }}>
+                Preview: <strong>{money(preview)}</strong>
+              </div>
+            ) : null;
+          }}
+        </Form.Item>
+      </Form>
+      {/* ── Modal sửa khoản phát sinh ── */}
+      <Modal
+        title={editingDamage ? `Sửa: ${editingDamage.itemName}` : 'Sửa khoản phát sinh'}
+        open={!!editingDamage}
+        onCancel={() => setEditingDamage(null)}
+        onOk={handleEditDamage}
+        confirmLoading={savingDamage}
+        okText="Lưu"
+        cancelText="Hủy"
+        destroyOnHidden
+        width={480}
+      >
+        <Form form={editDamageForm} layout="vertical">
+          <Form.Item name="roomId" label="Phòng">
+            <Select
+              placeholder="Chọn phòng"
+              allowClear
+              options={bookingRooms.map((r) => ({ value: r.id, label: `P.${r.number}` }))}
+            />
+          </Form.Item>
+          <Form.Item name="chargeType" label="Loại" rules={[{ required: true, message: 'Chọn loại' }]}>
+            <Select options={[
+              { value: 'damage', label: 'Hư hỏng' },
+              { value: 'extra_fee', label: 'Phí phát sinh' },
+              { value: 'other', label: 'Khoản thu khác' },
+            ]} />
+          </Form.Item>
+          <Form.Item name="itemName" label="Nội dung" rules={[{ required: true, message: 'Nhập nội dung' }]}>
+            <Input placeholder="Ví dụ: Vỡ bình hoa" />
+          </Form.Item>
+          <Form.Item name="quantity" label="Số lượng" rules={[{ required: true, message: 'Nhập số lượng' }]}>
+            <InputNumber min={1} max={100} style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item name="unitPrice" label="Đơn giá" rules={[{ required: true, message: 'Nhập đơn giá' }]}>
+            <InputNumber min={0} style={{ width: '100%' }} formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')} parser={(v) => Number((v || '').replace(/,/g, '')) as unknown as 0} />
+          </Form.Item>
+          <Form.Item name="note" label="Ghi chú">
+            <Input placeholder="Tùy chọn" />
+          </Form.Item>
+          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.quantity !== cur.quantity || prev.unitPrice !== cur.unitPrice}>
+            {() => {
+              const qty = editDamageForm.getFieldValue('quantity') || 0;
+              const price = editDamageForm.getFieldValue('unitPrice') || 0;
+              const preview = qty * price;
+              return preview > 0 ? (
+                <div style={{ color: '#888', fontSize: 12 }}>
+                  Thành tiền (preview): <strong>{money(preview)}</strong> — Backend sẽ tính lại.
+                </div>
+              ) : null;
+            }}
+          </Form.Item>
+        </Form>
+      </Modal>
+    </>
   );
 
   const guestsTab = (
@@ -636,7 +1236,7 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
           items={[
             { key: 'overview', label: 'Tổng quan', children: overviewTab },
             { key: 'services', label: `Dịch vụ phát sinh (${services.length})`, children: servicesTab },
-            { key: 'damages', label: `Phí hư hỏng (${damages.length})`, children: damagesTab },
+            { key: 'damages', label: `Phí phát sinh / Hư hỏng (${damages.length})`, children: damagesTab },
             { key: 'guests', label: `Khách lưu trú (${guests.length})`, children: guestsTab },
             { key: 'transfers', label: `Chuyển phòng (${transfers.length})`, children: transfersTab },
             { key: 'payments', label: 'Thanh toán & hoàn tiền', children: paymentsTab },

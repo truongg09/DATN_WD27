@@ -271,6 +271,11 @@ const ensureOperationalSchema = async () => {
   `);
 
   const [bdcColumns] = await db.query('DESCRIBE booking_damage_charges');
+  if (!bdcColumns.some((column) => column.Field === 'bookingDetailId')) {
+    await db.query(
+      'ALTER TABLE booking_damage_charges ADD COLUMN bookingDetailId INT NULL AFTER bookingId'
+    );
+  }
   if (!bdcColumns.some((column) => column.Field === 'chargeType')) {
     await db.query(
       "ALTER TABLE booking_damage_charges ADD COLUMN chargeType ENUM('damage', 'extra_fee', 'other') NOT NULL DEFAULT 'damage' AFTER roomId"
@@ -280,6 +285,19 @@ const ensureOperationalSchema = async () => {
     await db.query(
       "ALTER TABLE booking_damage_charges ADD COLUMN status ENUM('unused', 'used', 'cancelled') NOT NULL DEFAULT 'used' AFTER totalPrice"
     );
+  }
+  const [bdcDetailFkRows] = await db.query(
+    `SELECT CONSTRAINT_NAME FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'booking_damage_charges' AND COLUMN_NAME = 'bookingDetailId' AND REFERENCED_TABLE_NAME = 'booking_details'`
+  );
+  if (bdcDetailFkRows.length === 0) {
+    try {
+      await db.query(
+        'ALTER TABLE booking_damage_charges ADD CONSTRAINT fk_booking_damage_charges_detail FOREIGN KEY (bookingDetailId) REFERENCES booking_details(id) ON DELETE SET NULL'
+      );
+    } catch (err) {
+      console.warn('Không thể thêm FK fk_booking_damage_charges_detail:', err.message);
+    }
   }
   await db.query(`
     UPDATE booking_damage_charges
@@ -293,13 +311,14 @@ const ensureOperationalSchema = async () => {
   `);
 
   // Service requests made by the customer at booking time.
-  // These are NOT charged until an admin confirms them (status -> confirmed),
+  // When a request is confirmed by an admin, its status changes to 'confirmed',
   // at which point the service is copied into booking_services and the bill
-  // is recalculated. Kept separate so pending requests never affect payments.
+  // is updated.
   await db.query(`
     CREATE TABLE IF NOT EXISTS booking_service_requests (
       id INT AUTO_INCREMENT PRIMARY KEY,
       bookingId INT NOT NULL,
+      bookingDetailId INT NULL,
       roomId INT NULL,
       serviceId INT NOT NULL,
       quantity INT NOT NULL DEFAULT 1,
@@ -307,16 +326,35 @@ const ensureOperationalSchema = async () => {
       note TEXT NULL,
       createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (bookingId) REFERENCES bookings(id) ON DELETE CASCADE,
+      FOREIGN KEY (bookingDetailId) REFERENCES booking_details(id) ON DELETE SET NULL,
       FOREIGN KEY (serviceId) REFERENCES services(id) ON DELETE CASCADE,
       FOREIGN KEY (roomId) REFERENCES rooms(id) ON DELETE SET NULL
     )
   `);
 
   const [bsrColumns] = await db.query('DESCRIBE booking_service_requests');
+  if (!bsrColumns.some((column) => column.Field === 'bookingDetailId')) {
+    await db.query(
+      'ALTER TABLE booking_service_requests ADD COLUMN bookingDetailId INT NULL AFTER bookingId'
+    );
+  }
   if (!bsrColumns.some((column) => column.Field === 'roomId')) {
     await db.query(
       'ALTER TABLE booking_service_requests ADD COLUMN roomId INT NULL AFTER bookingId'
     );
+  }
+  const [bsrDetailFkRows] = await db.query(
+    `SELECT CONSTRAINT_NAME FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'booking_service_requests' AND COLUMN_NAME = 'bookingDetailId' AND REFERENCED_TABLE_NAME = 'booking_details'`
+  );
+  if (bsrDetailFkRows.length === 0) {
+    try {
+      await db.query(
+        'ALTER TABLE booking_service_requests ADD CONSTRAINT fk_booking_service_requests_detail FOREIGN KEY (bookingDetailId) REFERENCES booking_details(id) ON DELETE SET NULL'
+      );
+    } catch (err) {
+      console.warn('Không thể thêm FK fk_booking_service_requests_detail:', err.message);
+    }
   }
   const [bsrFkRows] = await db.query(
     `SELECT CONSTRAINT_NAME FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
@@ -511,6 +549,11 @@ const ensureOperationalSchema = async () => {
 
   // Dịch vụ phát sinh cần biết phòng nào dùng, đơn giá lúc gọi, trạng thái sử dụng, thời gian dùng.
   const [bookingServiceColumns] = await db.query('DESCRIBE booking_services');
+  if (!bookingServiceColumns.some((column) => column.Field === 'bookingDetailId')) {
+    await db.query(
+      'ALTER TABLE booking_services ADD COLUMN bookingDetailId INT NULL AFTER bookingId'
+    );
+  }
   if (!bookingServiceColumns.some((column) => column.Field === 'roomId')) {
     await db.query(
       'ALTER TABLE booking_services ADD COLUMN roomId INT NULL AFTER bookingId'
@@ -542,6 +585,20 @@ const ensureOperationalSchema = async () => {
     );
   }
 
+  const [bsDetailFkRows] = await db.query(
+    `SELECT CONSTRAINT_NAME FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'booking_services' AND COLUMN_NAME = 'bookingDetailId' AND REFERENCED_TABLE_NAME = 'booking_details'`
+  );
+  if (bsDetailFkRows.length === 0) {
+    try {
+      await db.query(
+        'ALTER TABLE booking_services ADD CONSTRAINT fk_booking_services_detail FOREIGN KEY (bookingDetailId) REFERENCES booking_details(id) ON DELETE SET NULL'
+      );
+    } catch (err) {
+      console.warn('Không thể thêm FK fk_booking_services_detail:', err.message);
+    }
+  }
+
   const [bsFkRows] = await db.query(
     `SELECT CONSTRAINT_NAME FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'booking_services' AND COLUMN_NAME = 'roomId' AND REFERENCED_TABLE_NAME = 'rooms'`
@@ -554,6 +611,45 @@ const ensureOperationalSchema = async () => {
     } catch (err) {
       console.warn('Không thể thêm FK fk_booking_services_room:', err.message);
     }
+  }
+
+  // Backfill dữ liệu lịch sử an toàn cho bookingDetailId khi match không bị nhầm lẫn
+  try {
+    await db.query(`
+      UPDATE booking_service_requests bsr
+      INNER JOIN (
+        SELECT bookingId, roomId, MIN(id) AS detailId, COUNT(*) AS cnt
+        FROM booking_details
+        GROUP BY bookingId, roomId
+        HAVING cnt = 1
+      ) bd ON bd.bookingId = bsr.bookingId AND bd.roomId = bsr.roomId
+      SET bsr.bookingDetailId = bd.detailId
+      WHERE bsr.bookingDetailId IS NULL AND bsr.roomId IS NOT NULL
+    `);
+    await db.query(`
+      UPDATE booking_services bs
+      INNER JOIN (
+        SELECT bookingId, roomId, MIN(id) AS detailId, COUNT(*) AS cnt
+        FROM booking_details
+        GROUP BY bookingId, roomId
+        HAVING cnt = 1
+      ) bd ON bd.bookingId = bs.bookingId AND bd.roomId = bs.roomId
+      SET bs.bookingDetailId = bd.detailId
+      WHERE bs.bookingDetailId IS NULL AND bs.roomId IS NOT NULL
+    `);
+    await db.query(`
+      UPDATE booking_damage_charges bdc
+      INNER JOIN (
+        SELECT bookingId, roomId, MIN(id) AS detailId, COUNT(*) AS cnt
+        FROM booking_details
+        GROUP BY bookingId, roomId
+        HAVING cnt = 1
+      ) bd ON bd.bookingId = bdc.bookingId AND bd.roomId = bdc.roomId
+      SET bdc.bookingDetailId = bd.detailId
+      WHERE bdc.bookingDetailId IS NULL AND bdc.roomId IS NOT NULL
+    `);
+  } catch (err) {
+    console.warn('Backfill bookingDetailId warning:', err.message);
   }
 
   // Backfill dữ liệu lịch sử an toàn cho booking_services

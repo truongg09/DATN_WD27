@@ -33,12 +33,17 @@ import {
 } from "../../utils/vietqr";
 
 interface ChargeRow {
+  id?: number;
   serviceName?: string;
   itemName?: string;
   quantity: number;
   totalPrice: string | number;
   note?: string | null;
   createdAt?: string | null;
+  roomId?: number | null;
+  roomNumber?: string | null;
+  status?: string;
+  chargeType?: string;
 }
 
 interface PaymentSummary {
@@ -295,7 +300,35 @@ const CheckoutPaymentModal: React.FC<Props> = ({
     }
   };
 
+  const statusLabel: Record<string, string> = {
+    used: 'Đã sử dụng',
+    unused: 'Chưa sử dụng',
+    cancelled: 'Đã hủy',
+  };
+  const statusColor: Record<string, string> = {
+    used: 'green',
+    unused: 'orange',
+    cancelled: 'default',
+  };
+  const chargeTypeLabel: Record<string, string> = {
+    damage: 'Hư hỏng',
+    extra_fee: 'Phí phát sinh',
+    other: 'Khoản thu khác',
+  };
+  const chargeTypeColor: Record<string, string> = {
+    damage: 'red',
+    extra_fee: 'orange',
+    other: 'blue',
+  };
+
   const chargeColumns = [
+    {
+      title: "Phòng",
+      key: "room",
+      width: 90,
+      render: (_: unknown, row: ChargeRow) =>
+        row.roomNumber ? `P.${row.roomNumber}` : <span style={{ color: '#aaa' }}>—</span>,
+    },
     {
       title: "Khoản mục",
       key: "name",
@@ -308,6 +341,14 @@ const CheckoutPaymentModal: React.FC<Props> = ({
       dataIndex: "totalPrice",
       align: "right" as const,
       render: (value: string | number) => <strong>{money(value)}</strong>,
+    },
+    {
+      title: "Trạng thái",
+      dataIndex: "status",
+      width: 130,
+      render: (value?: string) => value ? (
+        <Tag color={statusColor[value] || 'default'}>{statusLabel[value] || value}</Tag>
+      ) : null,
     },
     { title: "Thời điểm", dataIndex: "createdAt", render: dateTime },
   ];
@@ -599,10 +640,10 @@ const CheckoutPaymentModal: React.FC<Props> = ({
           {summary.services.length > 0 && (
             <>
               <Divider style={{ margin: "12px 0" }}>
-                Dịch vụ đã dùng ({summary.services.length})
+                Dịch vụ ({summary.services.filter(s => s.status !== 'cancelled').length})
               </Divider>
               <Table
-                rowKey={(row, index) => `${row.serviceName}-${index}`}
+                rowKey={(row, index) => `svc-${row.id || index}`}
                 size="small"
                 pagination={false}
                 dataSource={summary.services}
@@ -614,25 +655,32 @@ const CheckoutPaymentModal: React.FC<Props> = ({
           {summary.damages.length > 0 && (
             <>
               <Divider style={{ margin: "12px 0" }}>
-                Phí hư hỏng ({summary.damages.length})
+                Phí hư hỏng / Phát sinh ({summary.damages.filter(d => d.status !== 'cancelled').length})
               </Divider>
               <Table
-                rowKey={(row, index) => `${row.itemName}-${index}`}
+                rowKey={(row, index) => `dmg-${row.id || index}`}
                 size="small"
                 pagination={false}
                 dataSource={summary.damages}
                 columns={[
-                  ...chargeColumns.slice(0, 3),
+                  chargeColumns[0],
+                  {
+                    title: "Loại",
+                    dataIndex: "chargeType",
+                    width: 120,
+                    render: (v?: string) => v ? (
+                      <Tag color={chargeTypeColor[v] || 'default'}>{chargeTypeLabel[v] || v}</Tag>
+                    ) : null,
+                  },
+                  ...chargeColumns.slice(1, 3),
+                  chargeColumns[3],
                   {
                     title: "Ghi chú",
                     dataIndex: "note",
                     render: (v?: string | null) => v || "—",
                   },
-                  {
-                    title: "Thời điểm",
-                    dataIndex: "createdAt",
-                    render: dateTime,
-                  },
+                  chargeColumns[4],
+                  chargeColumns[5],
                 ]}
               />
             </>

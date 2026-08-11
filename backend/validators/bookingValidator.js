@@ -77,10 +77,34 @@ const normalizeServiceRequestsPayload = (value) => {
   }
 
   return value
-    .map((item, index) => ({
-      serviceId: toPositiveInt(item.serviceId ?? item.service_id, `serviceRequests[${index}].serviceId`),
-      quantity: toPositiveInt(item.quantity ?? 1, `serviceRequests[${index}].quantity`)
-    }))
+    .map((item, index) => {
+      const rawRoomId = item.roomId ?? item.room_id;
+      const rawRoomIndex = item.roomIndex ?? item.room_index;
+      const rawBookingDetailId = item.bookingDetailId ?? item.booking_detail_id;
+
+      let roomId = null;
+      if (rawRoomId !== undefined && rawRoomId !== null && rawRoomId !== '') {
+        roomId = toPositiveInt(rawRoomId, `serviceRequests[${index}].roomId`);
+      }
+
+      let roomIndex = null;
+      if (rawRoomIndex !== undefined && rawRoomIndex !== null && rawRoomIndex !== '') {
+        roomIndex = toPositiveInt(rawRoomIndex, `serviceRequests[${index}].roomIndex`);
+      }
+
+      let bookingDetailId = null;
+      if (rawBookingDetailId !== undefined && rawBookingDetailId !== null && rawBookingDetailId !== '') {
+        bookingDetailId = toPositiveInt(rawBookingDetailId, `serviceRequests[${index}].bookingDetailId`);
+      }
+
+      return {
+        serviceId: toPositiveInt(item.serviceId ?? item.service_id, `serviceRequests[${index}].serviceId`),
+        quantity: toPositiveInt(item.quantity ?? 1, `serviceRequests[${index}].quantity`),
+        roomId,
+        roomIndex,
+        bookingDetailId
+      };
+    })
     .filter((item) => item.quantity > 0);
 };
 

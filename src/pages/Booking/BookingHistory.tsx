@@ -911,7 +911,9 @@ const BookingHistory: React.FC = () => {
             <span className="history-booking-code">#{record.id}</span>
             <span className="history-room-line">
               <HomeOutlined />
-              {record.room_number || '-'} · {record.room_type_name || 'Chưa có loại phòng'}
+              {record.status === 'checked_in' && record.room_number
+                ? `Phòng ${record.room_number} · ${record.room_type_name || ''}`
+                : record.room_type_name || 'Đặt phòng'}
             </span>
           </div>
         ),
@@ -1377,10 +1379,10 @@ const BookingHistory: React.FC = () => {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
                     <Descriptions bordered size="small" column={2} title="Thông tin hiện tại">
                       <Descriptions.Item label="Mã đặt phòng">#{editDetail.id}</Descriptions.Item>
-                      <Descriptions.Item label="Phòng hiện tại">
-                        {editDetail.room_number
+                      <Descriptions.Item label="Hạng phòng">
+                        {editDetail.status === 'checked_in' && editDetail.room_number
                           ? `Phòng ${editDetail.room_number} (${editDetail.room_type_name || '?'})`
-                          : '—'}
+                          : `${editDetail.room_type_name || '—'} (Số phòng phân bố khi nhận phòng)`}
                       </Descriptions.Item>
                       <Descriptions.Item label="Ngày nhận (hiện tại)">
                         {dayjs(editDetail.check_in).format('DD/MM/YYYY')}
