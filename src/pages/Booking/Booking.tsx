@@ -9,6 +9,7 @@ import {
   Space,
   TimePicker,
   message,
+  Button,
 } from "antd";
 import {
   ArrowRightOutlined,
@@ -18,13 +19,13 @@ import {
   MailOutlined,
   PhoneOutlined,
   UserOutlined,
+  PlusOutlined,
+  DeleteOutlined,
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
-  faBed,
   faCheck,
-  faExpandArrowsAlt,
 } from "@fortawesome/free-solid-svg-icons";
 import { useAuth } from "../../contexts/AuthContext";
 import {
@@ -134,11 +135,6 @@ const bookingStatusMap: Record<string, { label: string; className: string }> = {
   cancelled: { label: "Đã hủy", className: "cancelled" },
 };
 
-const roomStatusMap: Record<string, { label: string; className: string }> = {
-  available: { label: "Còn trống", className: "available" },
-  occupied: { label: "Đang có khách", className: "occupied" },
-  maintenance: { label: "Đang bảo trì", className: "maintenance" },
-};
 
 const Booking: React.FC = () => {
   const [roomTypes, setRoomTypes] = useState<RoomTypeOption[]>([]);
@@ -164,6 +160,7 @@ const Booking: React.FC = () => {
   >([]);
   const [childrenAges, setChildrenAges] = useState<(number | null)[]>([]);
   const [policies, setPolicies] = useState<PoliciesInfo | null>(null);
+  const [selectedRoomsList, setSelectedRoomsList] = useState<any[]>([]);
 
   const {
     control,
@@ -497,109 +494,65 @@ const Booking: React.FC = () => {
 
   const nights = calculateNights();
 
-  // Fix Item 5: Đặt phòng đích danh (mode === "room") ép roomQuantity = 1
-  const isSpecificRoomMode = selectedRoom?.mode === "room";
-  const activeRoomQuantity = isSpecificRoomMode ? 1 : roomQuantity;
-
-  // Fix Item 7: Tính toán sức chứa & phụ thu khách phát sinh chuẩn hóa theo children_policy
-  const adultCap = selectedRoom?.adultCapacity ?? selectedRoom?.capacity ?? 2;
-  const childCap = selectedRoom?.childCapacity ?? 1;
-  const maxOcc = selectedRoom?.maxOccupancy ?? adultCap + childCap;
-  const extraAdultFee = selectedRoom?.extraAdultFee ?? 200000;
-  const extraChildFee = selectedRoom?.extraChildFee ?? 100000;
-
-  const validChildrenAges = childrenAges.filter(
-    (age): age is number => typeof age === "number" && age >= 0,
-  );
-  // Fix Item 6: Kiểm tra nếu chưa chọn đủ tuổi cho tất cả trẻ em
-  const hasUnselectedChildAge =
-    children > 0 &&
-    (childrenAges.length < children ||
-      childrenAges.some((age) => age === null || age === undefined || age < 0));
-
-  const freeMaxAge = dateAvailability?.childrenPolicy?.freeMaxAge ?? 5;
-
-  const childMaxAge = dateAvailability?.childrenPolicy?.childMaxAge ?? 11;
-
-  const adultsFromChildren = validChildrenAges.filter(
-    (age) => age > childMaxAge,
-  ).length;
-  const chargeableChildrenCount = validChildrenAges.filter(
-    (age) => age > freeMaxAge && age <= childMaxAge,
-  ).length;
-
-  const effectiveAdults = adults + adultsFromChildren;
-  const effectiveChildren = Math.max(0, children - adultsFromChildren);
-  const totalGuests = effectiveAdults + effectiveChildren;
-
-  const minRequiredRooms =
-    maxOcc > 0 ? Math.max(1, Math.ceil(totalGuests / maxOcc)) : 1;
-
-  // Tự động nâng roomQuantity nếu số khách hiện tại vượt quá sức chứa tối đa của số phòng cũ (chế độ hạng phòng)
   useEffect(() => {
-    if (selectedRoom && !isSpecificRoomMode && totalGuests > 0) {
-      setRoomQuantity((prev) => Math.max(prev, minRequiredRooms));
+    if (selectedRoom && selectedRoomsList.length === 0) {
+      setSelectedRoomsList([
+        {
+          key: selectedRoom.roomTypeId || selectedRoom.id || Date.now(),
+          mode: selectedRoom.mode,
+          roomId: selectedRoom.id,
+          roomTypeId: selectedRoom.roomTypeId,
+          name: selectedRoom.name,
+          image: selectedRoom.image,
+          price: selectedRoom.price,
+          beds: selectedRoom.beds,
+          area: selectedRoom.area,
+          capacity: selectedRoom.capacity,
+          adultCapacity: selectedRoom.adultCapacity,
+          childCapacity: selectedRoom.childCapacity,
+          maxOccupancy: selectedRoom.maxOccupancy,
+          extraAdultFee: selectedRoom.extraAdultFee,
+          extraChildFee: selectedRoom.extraChildFee,
+          status: selectedRoom.status,
+          availableRooms: selectedRoom.availableRooms,
+          quantity: roomQuantity,
+          adults: adults,
+          children: children,
+          childrenAges: childrenAges
+        }
+      ]);
     }
-  }, [selectedRoom, isSpecificRoomMode, totalGuests, minRequiredRooms]);
+  }, [selectedRoom]);
 
-  const totalAdultCapacity = adultCap * activeRoomQuantity;
-  const totalChildCapacity = childCap * activeRoomQuantity;
-  const totalMaxOccupancy = maxOcc * activeRoomQuantity;
+  const handleUpdateRoomType = async (key: any, roomTypeId: number) => {
+    const typeOpt = roomTypes.find(t => t.id === roomTypeId);
+    if (!typeOpt) return;
 
-  const extraAdults = Math.max(0, effectiveAdults - totalAdultCapacity);
-  const rawExtraChildren = Math.max(0, effectiveChildren - totalChildCapacity);
-  const extraChildren =
-    validChildrenAges.length > 0
-      ? Math.min(rawExtraChildren, chargeableChildrenCount)
-      : rawExtraChildren;
+    setSelectedRoomsList(prev => prev.map(item => {
+      if (item.key === key) {
+        return {
+          ...item,
+          roomTypeId,
+          name: typeOpt.typeName,
+          price: Number(typeOpt.defaultPrice || 0),
+          adultCapacity: typeOpt.adultCapacity || 2,
+          childCapacity: typeOpt.childCapacity || 1,
+          maxOccupancy: typeOpt.maxOccupancy || 3,
+          beds: `${typeOpt.adultCapacity || 2} NL + ${typeOpt.childCapacity || 1} TE`,
+          image: getRoomTypeCardImage(typeOpt.typeName)
+        };
+      }
+      return item;
+    }));
+  };
 
-  const extraAdultAmount = extraAdults * extraAdultFee * nights;
-  const extraChildAmount = extraChildren * extraChildFee * nights;
-  const totalExtraGuestFee = extraAdultAmount + extraChildAmount;
-
-  const availableRoomsCount =
-    dateAvailability?.availableRooms ?? selectedRoom?.availableRooms;
-
-  // Fix Item 3: Sửa max={availableRoomsCount || 20} để khi availableRoomsCount = 0 không bị fallback thành 20
-  const maxSelectableRooms =
-    availableRoomsCount !== undefined && availableRoomsCount !== null
-      ? Math.max(1, availableRoomsCount)
-      : 20;
-
-  // Fix Item 4: Kiểm tra nếu minRequiredRooms > availableRoomsCount (Hạng phòng không đủ phòng trống cho số khách)
-  const isTypeNotEnoughForGuests =
-    !isSpecificRoomMode &&
-    availableRoomsCount !== undefined &&
-    minRequiredRooms > availableRoomsCount;
-
-  const isUserSelectedMoreThanAvailable =
-    !isSpecificRoomMode &&
-    availableRoomsCount !== undefined &&
-    activeRoomQuantity > availableRoomsCount;
-
-  const isGuestExceedingMax = totalGuests > totalMaxOccupancy;
-
-  const isRoomDateUnavailable = dateAvailability?.available === false;
-  const isRoomBlockedByStatus = selectedRoom?.status === "maintenance";
-
+  // Fix Item 5: Đặt phòng đích danh (mode === "room") ép roomQuantity = 1
   const canSubmitBooking =
-    Boolean(selectedRoom) &&
-    !isRoomBlockedByStatus &&
-    !isRoomDateUnavailable &&
-    !isGuestExceedingMax &&
-    !isTypeNotEnoughForGuests &&
-    !isUserSelectedMoreThanAvailable &&
-    !hasUnselectedChildAge &&
+    selectedRoomsList.length > 0 &&
     nights > 0 &&
     !submitting &&
-    !availabilityChecking;
-
-  const calculateBaseTotal = () => {
-    if (!selectedRoom || nights === 0) return 0;
-    const unitPrice =
-      dateAvailability?.stayAmount ?? selectedRoom.price * nights;
-    return unitPrice * activeRoomQuantity;
-  };
+    !availabilityChecking &&
+    dateAvailability?.available !== false;
 
   const serviceAmount = serviceRequests.reduce((total, request) => {
     const service = services.find((item) => item.id === request.serviceId);
@@ -647,8 +600,7 @@ const Booking: React.FC = () => {
 
     const verifyDateAvailability = async () => {
       if (
-        !selectedRoom ||
-        selectedRoom.status === "maintenance" ||
+        selectedRoomsList.length === 0 ||
         !dateRange[0] ||
         !dateRange[1]
       ) {
@@ -659,12 +611,16 @@ const Booking: React.FC = () => {
       setAvailabilityChecking(true);
       try {
         const response = await checkAvailability({
-          ...(selectedRoom.mode === "type"
-            ? { roomTypeId: selectedRoom.roomTypeId }
-            : { roomId: selectedRoom.id }),
           checkIn: dateRange[0].format("YYYY-MM-DD"),
           checkOut: dateRange[1].format("YYYY-MM-DD"),
-          childrenAges: validChildrenAges,
+          rooms: selectedRoomsList.map(r => ({
+            roomTypeId: r.roomTypeId,
+            roomId: r.mode === "room" ? r.roomId : undefined,
+            quantity: r.quantity,
+            adults: r.adults,
+            children: r.children,
+            childrenAges: r.childrenAges.filter((age: any) => typeof age === "number" && age >= 0)
+          }))
         });
 
         if (!cancelled) {
@@ -700,7 +656,7 @@ const Booking: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [selectedRoom, dateRange, childrenAges]);
+  }, [selectedRoomsList, dateRange]);
 
   const onSubmit = async (data: BookingFormData) => {
     if (!isAuthenticated || !user?.id) {
@@ -709,17 +665,8 @@ const Booking: React.FC = () => {
       return;
     }
 
-    if (!selectedRoom) {
+    if (selectedRoomsList.length === 0) {
       message.error("Vui lòng chọn phòng trước khi đặt");
-      return;
-    }
-
-    if (selectedRoom.status === "maintenance") {
-      const statusLabel =
-        roomStatusMap[selectedRoom.status]?.label || "không còn trống";
-      message.error(
-        `Phòng này hiện ${statusLabel.toLowerCase()}, vui lòng chọn phòng khác`,
-      );
       return;
     }
 
@@ -728,85 +675,64 @@ const Booking: React.FC = () => {
       return;
     }
 
-    if (isRoomDateUnavailable) {
-      message.error(
-        "Phòng đã có người đặt trong khoảng thời gian này, vui lòng chọn ngày khác",
-      );
-      return;
-    }
-
-    if (hasUnselectedChildAge) {
-      message.error(
-        "Vui lòng chọn tuổi cho tất cả trẻ em đi cùng trước khi đặt phòng.",
-      );
-      return;
-    }
-
-    if (isTypeNotEnoughForGuests) {
-      message.error(
-        `Hạng phòng này không đủ phòng cho đoàn khách (${totalGuests} người cần ít nhất ${minRequiredRooms} phòng, hiện chỉ còn ${availableRoomsCount} phòng trống).`,
-      );
-      return;
-    }
-
-    if (isGuestExceedingMax) {
-      message.error(
-        `Tổng số khách (${totalGuests}) vượt quá sức chứa tối đa của ${activeRoomQuantity} phòng (${totalMaxOccupancy} người). Vui lòng chọn ít nhất ${minRequiredRooms} phòng.`,
-      );
-      return;
-    }
-
-    if (isUserSelectedMoreThanAvailable) {
-      message.error(
-        `Hạng phòng này chỉ còn ${availableRoomsCount} phòng trống trong khoảng ngày đã chọn.`,
-      );
-      return;
+    // Validate selectedRoomsList
+    for (let i = 0; i < selectedRoomsList.length; i++) {
+      const r = selectedRoomsList[i];
+      if (r.adults + r.children <= 0) {
+        message.error(`Phòng thứ ${i + 1} phải có ít nhất một khách.`);
+        return;
+      }
+      if (r.children > 0 && (r.childrenAges.length < r.children || r.childrenAges.some((age: any) => age === null || age === undefined || age < 0))) {
+        message.error(`Vui lòng chọn tuổi cho tất cả trẻ em ở phòng thứ ${i + 1}.`);
+        return;
+      }
     }
 
     const checkIn = dateRange[0].format("YYYY-MM-DD");
     const checkOut = dateRange[1].format("YYYY-MM-DD");
 
-    // Fix Item 5: Đặt phòng đích danh (mode === "room") chỉ gửi roomId, KHÔNG gửi roomQuantity > 1
-    const roomSelector =
-      selectedRoom.mode === "type"
-        ? {
-            roomTypeId: selectedRoom.roomTypeId,
-            roomQuantity: activeRoomQuantity,
-          }
-        : { roomId: selectedRoom.id, roomQuantity: 1 };
-
     setSubmitting(true);
     try {
       const availability = await checkAvailability({
-        ...roomSelector,
         checkIn,
         checkOut,
-        childrenAges: validChildrenAges,
+        rooms: selectedRoomsList.map(r => ({
+          roomTypeId: r.roomTypeId,
+          roomId: r.mode === "room" ? r.roomId : undefined,
+          quantity: r.quantity,
+          adults: r.adults,
+          children: r.children,
+          childrenAges: r.childrenAges.filter((age: any) => typeof age === "number" && age >= 0)
+        }))
       });
 
       if (!availability.data.available) {
         message.error(
-          "Rất tiếc, hạng phòng vừa hết chỗ trong khoảng ngày đã chọn. Vui lòng chọn ngày hoặc hạng phòng khác.",
+          "Rất tiếc, một số phòng bạn chọn đã hết chỗ hoặc không khả dụng trong khoảng ngày đã chọn. Vui lòng kiểm tra lại.",
         );
         return;
       }
 
       const bookingRes = await createBooking({
         userId: user.id,
-        ...roomSelector,
         checkIn,
         checkOut,
         guestName: data.guestName,
         guestEmail: data.guestEmail,
         guestPhone: data.guestPhone,
-        adults: data.adults,
-        children: data.children,
-        childrenAges: validChildrenAges,
         notes: data.specialRequests || null,
         serviceRequests,
         requestedCheckInTime: data.requestedCheckInTime || null,
         requestedCheckOutTime: data.requestedCheckOutTime || null,
         status: "confirmed",
+        rooms: selectedRoomsList.map(r => ({
+          roomTypeId: r.roomTypeId,
+          roomId: r.mode === "room" ? r.roomId : undefined,
+          quantity: r.quantity,
+          adults: r.adults,
+          children: r.children,
+          childrenAges: r.childrenAges.filter((age: any) => typeof age === "number" && age >= 0)
+        }))
       });
 
       message.success(
@@ -833,6 +759,13 @@ const Booking: React.FC = () => {
       setSubmitting(false);
     }
   };
+
+  const computedRoomsCount = selectedRoomsList.reduce((sum, r) => sum + r.quantity, 0);
+  const computedBaseTotal = dateAvailability?.stayAmount ?? selectedRoomsList.reduce((sum, r) => sum + r.price * r.quantity * (nights || 0), 0);
+  const computedExtraSurcharge = dateAvailability?.childSurcharge?.amount ?? 0;
+  const computedTotalAmount = computedBaseTotal + computedExtraSurcharge + serviceAmount;
+  const computedDeposit = computedTotalAmount * 0.3;
+  const computedRemaining = computedTotalAmount - computedDeposit;
 
   return (
     <div className="booking-page">
@@ -1060,210 +993,184 @@ const Booking: React.FC = () => {
 
               <div className="guest-configuration-card">
                 <div className="configuration-card-heading">
-                  <span>Thông tin phòng và khách</span>
-                  <small>Hệ thống sẽ kiểm tra sức chứa ngay khi bạn chọn.</small>
+                  <span>Danh sách phòng đặt</span>
+                  <small>Bạn có thể chọn nhiều hạng phòng khác nhau trong cùng một booking.</small>
                 </div>
-              <div className="form-row two-col room-selection-grid">
-              <div className="form-group">
-                <label>
-                  Hạng phòng <span className="required">*</span>
-                </label>
 
-                <Select
-                  value={selectedRoom?.roomTypeId}
-                  placeholder="Chọn hạng phòng"
-                  size="large"
-                  style={{ width: "100%" }}
-                  options={roomTypes.map((type) => ({
-                    value: type.id,
-                    label: type.typeName,
-                  }))}
-                  onChange={(roomTypeId) => {
-                    const params = new URLSearchParams(searchParams);
+                {selectedRoomsList.map((roomItem, index) => {
+                  return (
+                    <div key={roomItem.key} className="room-selection-row-item" style={{ borderBottom: "1px solid #f0f0f0", paddingBottom: "20px", marginBottom: "20px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+                        <span style={{ fontSize: "16px", fontWeight: 600, color: "#1a1a1a" }}>Phòng #{index + 1}</span>
+                        {selectedRoomsList.length > 1 && (
+                          <Button
+                            type="text"
+                            danger
+                            icon={<DeleteOutlined />}
+                            onClick={() => {
+                              setSelectedRoomsList(prev => prev.filter(r => r.key !== roomItem.key));
+                            }}
+                          >
+                            Xóa phòng
+                          </Button>
+                        )}
+                      </div>
 
-                    params.delete("id");
-                    params.set("type", String(roomTypeId));
+                      <div className="form-row two-col room-selection-grid">
+                        <div className="form-group">
+                          <label>Hạng phòng <span className="required">*</span></label>
+                          <Select
+                            value={roomItem.roomTypeId}
+                            placeholder="Chọn hạng phòng"
+                            size="large"
+                            style={{ width: "100%" }}
+                            options={roomTypes.map((type) => ({
+                              value: type.id,
+                              label: type.typeName,
+                            }))}
+                            onChange={(val) => handleUpdateRoomType(roomItem.key, val)}
+                          />
+                        </div>
 
-                    if (dateRange[0]) {
-                      params.set("checkIn", dateRange[0].format("YYYY-MM-DD"));
-                    }
+                        <div className="form-group room-quantity-field">
+                          <label>Số lượng phòng <span className="required">*</span></label>
+                          <div className="room-quantity-row">
+                            <button
+                              type="button"
+                              className="quantity-stepper-button"
+                              disabled={roomItem.quantity <= 1}
+                              onClick={() => {
+                                setSelectedRoomsList(prev => prev.map(r => r.key === roomItem.key ? { ...r, quantity: Math.max(1, r.quantity - 1) } : r));
+                              }}
+                            >
+                              −
+                            </button>
+                            <InputNumber
+                              min={1}
+                              max={20}
+                              value={roomItem.quantity}
+                              onChange={(val) => {
+                                setSelectedRoomsList(prev => prev.map(r => r.key === roomItem.key ? { ...r, quantity: Math.max(1, Number(val || 1)) } : r));
+                              }}
+                              controls={false}
+                              className="room-quantity-input"
+                            />
+                            <span className="room-quantity-unit">phòng</span>
+                            <button
+                              type="button"
+                              className="quantity-stepper-button"
+                              onClick={() => {
+                                setSelectedRoomsList(prev => prev.map(r => r.key === roomItem.key ? { ...r, quantity: r.quantity + 1 } : r));
+                              }}
+                            >
+                              +
+                            </button>
+                          </div>
+                        </div>
+                      </div>
 
-                    if (dateRange[1]) {
-                      params.set("checkOut", dateRange[1].format("YYYY-MM-DD"));
-                    }
+                      <div className="form-row two-col guest-count-grid" style={{ marginTop: "12px" }}>
+                        <div className="form-group">
+                          <label>Người lớn</label>
+                          <Select
+                            value={roomItem.adults}
+                            onChange={(val) => {
+                              setSelectedRoomsList(prev => prev.map(r => r.key === roomItem.key ? { ...r, adults: val } : r));
+                            }}
+                            options={Array.from({ length: 10 }, (_, i) => ({
+                              value: i + 1,
+                              label: `${i + 1} người lớn`,
+                            }))}
+                            size="large"
+                            style={{ width: "100%" }}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label>Trẻ em</label>
+                          <Select
+                            value={roomItem.children}
+                            onChange={(val) => {
+                              setSelectedRoomsList(prev => prev.map(r => {
+                                if (r.key === roomItem.key) {
+                                  const newAges = Array(val).fill(null);
+                                  return { ...r, children: val, childrenAges: newAges };
+                                }
+                                  return r;
+                                }));
+                              }}
+                              options={Array.from({ length: 10 }, (_, i) => ({
+                                value: i,
+                                label: i === 0 ? "Không có trẻ em" : `${i} trẻ em`,
+                              }))}
+                              size="large"
+                              style={{ width: "100%" }}
+                            />
+                          </div>
+                        </div>
 
-                    params.set("adults", String(adults));
-                    params.set("children", String(children));
-
-                    const validAges = childrenAges.filter(
-                      (age): age is number =>
-                        typeof age === "number" && age >= 0,
+                        {roomItem.children > 0 && (
+                          <div className="child-age-grid" style={{ marginTop: "12px", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: "12px" }}>
+                            {Array.from({ length: roomItem.children }).map((_, childIdx) => (
+                              <div className="form-group" key={childIdx}>
+                                <label>Tuổi trẻ {childIdx + 1} <span className="required">*</span></label>
+                                <Select
+                                  value={roomItem.childrenAges[childIdx] ?? undefined}
+                                  placeholder="Tuổi"
+                                  onChange={(val) => {
+                                    setSelectedRoomsList(prev => prev.map(r => {
+                                      if (r.key === roomItem.key) {
+                                        const newAges = [...r.childrenAges];
+                                        newAges[childIdx] = val;
+                                        return { ...r, childrenAges: newAges };
+                                      }
+                                      return r;
+                                    }));
+                                  }}
+                                  options={Array.from({ length: 12 }, (_, ageOption) => ({
+                                    value: ageOption,
+                                    label: `${ageOption} tuổi`,
+                                  }))}
+                                  size="large"
+                                  style={{ width: "100%" }}
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     );
+                  })}
 
-                    if (validAges.length > 0) {
-                      params.set("childAges", validAges.join(","));
-                    } else {
-                      params.delete("childAges");
-                    }
-
-                    params.set("roomQuantity", String(roomQuantity));
-                    setDateAvailability(null);
-
-                    const scrollPosition = window.scrollY;
-                    navigate(`/booking?${params.toString()}`, { replace: true });
-                    window.requestAnimationFrame(() => {
-                      window.requestAnimationFrame(() =>
-                        window.scrollTo({ top: scrollPosition }),
-                      );
-                    });
-                  }}
-                />
-              </div>
-
-              {!isSpecificRoomMode ? (
-                <div className="form-group room-quantity-field">
-                  <label>
-                    Số lượng phòng <span className="required">*</span>
-                  </label>
-                  <div className="room-quantity-row">
-                    <button
-                      type="button"
-                      className="quantity-stepper-button"
-                      aria-label="Giảm số lượng phòng"
-                      disabled={roomQuantity <= 1 || availableRoomsCount === 0}
-                      onClick={() => setRoomQuantity((value) => Math.max(1, value - 1))}
-                    >
-                      −
-                    </button>
-                    <InputNumber
-                      min={1}
-                      max={maxSelectableRooms}
-                      disabled={availableRoomsCount === 0}
-                      value={roomQuantity}
-                      onChange={(value) =>
-                        setRoomQuantity(Math.max(1, Number(value || 1)))
+                  <Button
+                    type="dashed"
+                    onClick={() => {
+                      if (roomTypes.length > 0) {
+                        const typeOpt = roomTypes[0];
+                        setSelectedRoomsList(prev => [
+                          ...prev,
+                          {
+                            key: Date.now(),
+                            roomTypeId: typeOpt.id,
+                            name: typeOpt.typeName,
+                            price: Number(typeOpt.defaultPrice || 0),
+                            quantity: 1,
+                            adults: 2,
+                            children: 0,
+                            childrenAges: [],
+                            beds: `${typeOpt.adultCapacity || 2} NL + ${typeOpt.childCapacity || 1} TE`,
+                            image: getRoomTypeCardImage(typeOpt.typeName)
+                          }
+                        ]);
                       }
-                      controls={false}
-                      className="room-quantity-input"
-                    />
-                    <span className="room-quantity-unit">phòng</span>
-                    <button
-                      type="button"
-                      className="quantity-stepper-button"
-                      aria-label="Tăng số lượng phòng"
-                      disabled={
-                        availableRoomsCount === 0 ||
-                        roomQuantity >= maxSelectableRooms
-                      }
-                      onClick={() =>
-                        setRoomQuantity((value) =>
-                          Math.min(maxSelectableRooms, value + 1),
-                        )
-                      }
-                    >
-                      +
-                    </button>
-                  </div>
-                  {dateRange[0] && dateRange[1] && availableRoomsCount !== undefined && (
-                    <span className="room-availability-helper">
-                      Còn {availableRoomsCount} phòng trong thời gian đã chọn
-                    </span>
-                  )}
-                  {minRequiredRooms > 1 &&
-                    activeRoomQuantity < minRequiredRooms && (
-                      <span className="suggested-q-tag">
-                        Với số khách hiện tại, cần ít nhất {minRequiredRooms} phòng.
-                      </span>
-                    )}
-                </div>
-              ) : (
-                <div className="specific-room-notice">
-                  <p>
-                    Đang đặt đích danh phòng{" "}
-                    <strong>
-                      #{selectedRoom?.roomNumber || selectedRoom?.id}
-                    </strong>
-                    . Số lượng cố định: 1 phòng.
-                  </p>
-                </div>
-              )}
-              </div>
-
-              {/* UX Item 10: Người lớn / Trẻ em / Tuổi trẻ em hiển thị TRƯỚC Số lượng phòng */}
-              <div className="form-row two-col guest-count-grid">
-                <div className="form-group">
-                  <label>Người lớn</label>
-                  <Select
-                    value={adults}
-                    onChange={(value) => setValue("adults", value)}
-                    options={Array.from({ length: 5 }, (_, i) => ({
-                      value: i + 1,
-                      label: `${i + 1} người lớn`,
-                    }))}
+                    }}
+                    block
+                    icon={<PlusOutlined />}
                     size="large"
-                    style={{ width: "100%" }}
-                  />
+                    style={{ marginTop: "12px" }}
+                  >
+                    Thêm hạng phòng khác
+                  </Button>
                 </div>
-                <div className="form-group">
-                  <label>Trẻ em</label>
-                  <Select
-                    value={children}
-                    onChange={(value) => setValue("children", value)}
-                    options={Array.from({ length: 5 }, (_, i) => ({
-                      value: i,
-                      label: i === 0 ? "Không có trẻ em" : `${i} trẻ em`,
-                    }))}
-                    size="large"
-                    style={{ width: "100%" }}
-                  />
-                </div>
-              </div>
-
-              {children > 0 && (
-                <div className="child-age-grid">
-                  {childrenAges.map((age, index) => (
-                    <div className="form-group" key={index}>
-                      <label>
-                        Tuổi trẻ em {index + 1}{" "}
-                        <span className="required">*</span>
-                      </label>
-                      <Select
-                        value={
-                          typeof age === "number" && age >= 0 ? age : undefined
-                        }
-                        placeholder="-- Chọn tuổi trẻ em --"
-                        onChange={(value) =>
-                          setChildrenAges((prev) =>
-                            prev.map((item, i) => (i === index ? value : item)),
-                          )
-                        }
-                        options={Array.from({ length: 12 }, (_, ageOption) => ({
-                          value: ageOption,
-                          label: `${ageOption} tuổi`,
-                        }))}
-                        size="large"
-                        style={{ width: "100%" }}
-                      />
-                    </div>
-                  ))}
-                  {dateAvailability?.childrenPolicy && (
-                    <p
-                      className="service-request-note"
-                      style={{ width: "100%" }}
-                    >
-                      * 0–{dateAvailability.childrenPolicy.freeMaxAge} tuổi miễn
-                      phí · {dateAvailability.childrenPolicy.freeMaxAge + 1}–
-                      {dateAvailability.childrenPolicy.childMaxAge} tuổi phụ thu{" "}
-                      {formatMoney(
-                        dateAvailability.childrenPolicy.surchargePerNight,
-                      )}
-                      /đêm · từ{" "}
-                      {dateAvailability.childrenPolicy.childMaxAge + 1} tuổi
-                      được tính là người lớn
-                    </p>
-                  )}
-                </div>
-              )}
 
               <div className="secondary-time-options">
                 <div className="secondary-options-heading">
@@ -1336,49 +1243,6 @@ const Booking: React.FC = () => {
                   Lễ tân sẽ chuẩn bị theo giờ bạn chọn; giờ trả chỉ nhận đến giờ chuẩn.
                 </p>
               </div>
-
-              <div className="capacity-alert-wrapper">
-                  {isTypeNotEnoughForGuests ? (
-                    <div className="capacity-alert-box danger">
-                      <strong>Hạng phòng không đủ phòng trống!</strong>
-                      <p>
-                        Số khách của bạn ({totalGuests} người) cần ít nhất{" "}
-                        {minRequiredRooms} phòng, nhưng hạng phòng này hiện chỉ
-                        còn {availableRoomsCount} phòng trống. Vui lòng giảm số
-                        khách hoặc chọn hạng phòng khác.
-                      </p>
-                    </div>
-                  ) : isGuestExceedingMax ? (
-                    <div className="capacity-alert-box danger">
-                      <strong>Vượt quá sức chứa tối đa!</strong>
-                      <p>
-                        Tổng {totalGuests} khách ({effectiveAdults} NL +{" "}
-                        {effectiveChildren} TE) vượt quá sức chứa tối đa của{" "}
-                        {activeRoomQuantity} phòng ({totalMaxOccupancy} người).
-                        Vui lòng chọn ít nhất {minRequiredRooms} phòng hoặc giảm
-                        số khách.
-                      </p>
-                    </div>
-                  ) : isUserSelectedMoreThanAvailable ? (
-                    <div className="capacity-alert-box warning">
-                      <strong>Không đủ phòng trống!</strong>
-                      <p>
-                        Hạng phòng này chỉ còn {availableRoomsCount} phòng trống
-                        trong khoảng ngày đã chọn. Vui lòng chọn tối đa{" "}
-                        {availableRoomsCount} phòng.
-                      </p>
-                    </div>
-                  ) : hasUnselectedChildAge ? (
-                    <div className="capacity-alert-box warning">
-                      <strong>Vui lòng chọn tuổi trẻ em!</strong>
-                      <p>
-                        Vui lòng chọn đầy đủ tuổi của từng trẻ em đi cùng để hệ
-                        thống áp dụng đúng chính sách phụ thu.
-                      </p>
-                    </div>
-                  ) : null}
-              </div>
-              </div>
             </div>
 
             <div className="booking-section">
@@ -1439,7 +1303,7 @@ const Booking: React.FC = () => {
                             )}
                           </span>
                           <Space align="center">
-                            {activeRoomQuantity > 1 && (
+                            {computedRoomsCount > 1 && (
                               <Select
                                 size="middle"
                                 value={sel.roomIndex || 1}
@@ -1447,31 +1311,33 @@ const Booking: React.FC = () => {
                                   updateServiceRoomIndex(sel.serviceId, v)
                                 }
                                 style={{ width: 110 }}
-                                options={Array.from({ length: activeRoomQuantity }, (_, idx) => ({
+                                options={Array.from({ length: computedRoomsCount }, (_, idx) => ({
                                   value: idx + 1,
                                   label: `Phòng ${idx + 1}`,
                                 }))}
                               />
                             )}
-                            <InputNumber
-                              min={1}
-                              max={
-                                svc &&
-                                (svc.serviceName
-                                  .toLocaleLowerCase("vi")
-                                  .includes("extra bed") ||
-                                  svc.serviceName
+                            <Space.Compact>
+                              <span className="ant-input-group-addon" style={{ display: 'inline-flex', alignItems: 'center', backgroundColor: '#fafafa', border: '1px solid #d9d9d9', borderRight: 0, padding: '0 11px', color: 'rgba(0, 0, 0, 0.88)' }}>SL</span>
+                              <InputNumber
+                                min={1}
+                                max={
+                                  svc &&
+                                  (svc.serviceName
                                     .toLocaleLowerCase("vi")
-                                    .includes("giường"))
-                                  ? 1
-                                  : 20
-                              }
-                              value={sel.quantity}
-                              onChange={(v) =>
-                                updateServiceQuantity(sel.serviceId, v)
-                              }
-                              addonBefore="SL"
-                            />
+                                    .includes("extra bed") ||
+                                    svc.serviceName
+                                      .toLocaleLowerCase("vi")
+                                      .includes("giường"))
+                                    ? 1
+                                    : 20
+                                }
+                                value={sel.quantity}
+                                onChange={(v) =>
+                                  updateServiceQuantity(sel.serviceId, v)
+                                }
+                              />
+                            </Space.Compact>
                           </Space>
                         </div>
                       );
@@ -1491,143 +1357,50 @@ const Booking: React.FC = () => {
               <h3>Tóm tắt đặt phòng</h3>
 
               <div className="booking-summary-scroll">
-              {selectedRoom ? (
+              {selectedRoomsList.length > 0 ? (
                 <>
-                  <div className="selected-room">
-                    <img
-                      src={selectedRoom.image}
-                      alt={selectedRoom.name}
-                      onError={(e) =>
-                        handleRoomImageError(e, selectedRoom.name)
-                      }
-                    />
-                    <div className="room-summary-info">
-                      <div className="room-summary-heading">
-                        <h4>{selectedRoom.name}</h4>
-                        {selectedRoom.mode === "room" && (
-                          <span
-                            className={`room-status-badge ${roomStatusMap[selectedRoom.status]?.className || "default"}`}
-                          >
-                            {roomStatusMap[selectedRoom.status]?.label ||
-                              selectedRoom.status}
-                          </span>
-                        )}
-                      </div>
-                      {selectedRoom.mode === "room" &&
-                        selectedRoom.roomNumber && (
-                          <p className="room-number-line">
-                            Phòng {selectedRoom.roomNumber}
-                          </p>
-                        )}
-                      <p className="room-summary-meta">
-                        {activeRoomQuantity} phòng đã chọn
-                      </p>
-                      <p>
-                        <FontAwesomeIcon icon={faBed} /> Sức chứa:{" "}
-                        {selectedRoom.beds}
-                      </p>
-                      <p>
-                        <FontAwesomeIcon icon={faExpandArrowsAlt} />{" "}
-                        {selectedRoom.area}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="capacity-preview-box">
-                    <span className="capacity-preview-title">Sức chứa</span>
-                    <div className="capacity-spec-row">
-                      <span className="spec-label">Tiêu chuẩn:</span>
-                      <span className="spec-val">
-                        {totalAdultCapacity} NL + {totalChildCapacity} TE
-                      </span>
-                    </div>
-                    <div className="capacity-spec-row">
-                      <span className="spec-label">Tối đa:</span>
-                      <span className="spec-val">
-                        {totalMaxOccupancy} khách
-                      </span>
-                    </div>
-                    <div className="capacity-spec-row">
-                      <span className="spec-label">Khách của bạn:</span>
-                      <span className="spec-val">
-                        {effectiveAdults} NL + {effectiveChildren} TE
-                      </span>
-                    </div>
-                    {(extraAdults > 0 || extraChildren > 0) && (
-                      <div className="capacity-spec-row extra">
-                        <span className="spec-label">Phát sinh</span>
-                        <span className="spec-val highlight">
-                          {extraAdults} NL + {extraChildren} TE
-                        </span>
-                      </div>
-                    )}
-
-                    {totalExtraGuestFee > 0 && (
-                      <div className="extra-fee-box">
-                        <span className="extra-fee-title">
-                          Phụ thu khách phát sinh
-                        </span>
-                        {extraAdults > 0 && (
-                          <div className="extra-fee-item">
-                            <span>{extraAdults} người lớn</span>
-                            <small>
-                              {extraAdults} × {formatMoney(extraAdultFee)} × {nights} đêm
-                            </small>
-                            <strong>= {formatMoney(extraAdultAmount)}</strong>
-                          </div>
-                        )}
-                        {extraChildren > 0 && (
-                          <div className="extra-fee-item">
-                            <span>{extraChildren} trẻ em</span>
-                            <small>
-                              {extraChildren} × {formatMoney(extraChildFee)} × {nights} đêm
-                            </small>
-                            <strong>= {formatMoney(extraChildAmount)}</strong>
-                          </div>
-                        )}
-                        <div className="extra-fee-total">
-                          <span>Tổng phụ thu</span>
-                          <strong>{formatMoney(totalExtraGuestFee)}</strong>
+                  {selectedRoomsList.map((roomItem, idx) => (
+                    <div className="selected-room" key={roomItem.key || idx} style={{ marginBottom: "16px", borderBottom: "1px dashed #eee", paddingBottom: "12px" }}>
+                      <img
+                        src={roomItem.image}
+                        alt={roomItem.name}
+                        onError={(e) =>
+                          handleRoomImageError(e, roomItem.name)
+                        }
+                      />
+                      <div className="room-summary-info">
+                        <div className="room-summary-heading">
+                          <h4>{roomItem.name}</h4>
                         </div>
+                        <p className="room-summary-meta">
+                          {roomItem.quantity} phòng · {roomItem.adults} NL {roomItem.children > 0 ? `+ ${roomItem.children} TE` : ''}
+                        </p>
+                        <p style={{ fontSize: "13px", color: "#666" }}>
+                          Sức chứa: {roomItem.beds}
+                        </p>
                       </div>
-                    )}
-                  </div>
+                    </div>
+                  ))}
 
-                  {selectedRoom.mode === "type" && (
-                    <p
-                      className="service-request-note"
-                      style={{ marginTop: 8 }}
-                    >
-                      * Số phòng cụ thể sẽ được khách sạn sắp xếp và thông báo
-                      khi nhận phòng.
-                    </p>
-                  )}
-
-                  <div className="summary-details">
+                  <div className="summary-details" style={{ marginTop: "16px" }}>
                     <div className="summary-row">
-                      <span>Số lượng phòng</span>
-                      <span>{activeRoomQuantity} phòng</span>
+                      <span>Tổng số phòng</span>
+                      <span>{computedRoomsCount} phòng</span>
                     </div>
                     <div className="summary-row">
                       <span>Số đêm</span>
                       <span>{nights > 0 ? `${nights} đêm` : "-"}</span>
                     </div>
-                    <div className="summary-row">
-                      <span>Giá phòng</span>
-                      <span>
-                        {formatPrice(selectedRoom.price)} / phòng / đêm
-                      </span>
-                    </div>
                     {nights > 0 && (
                       <>
                         <div className="summary-row">
-                          <span>Tiền phòng ({activeRoomQuantity} phòng)</span>
-                          <span>{formatPrice(calculateBaseTotal())}</span>
+                          <span>Tiền phòng (tạm tính)</span>
+                          <span>{formatPrice(computedBaseTotal)}</span>
                         </div>
-                        {totalExtraGuestFee > 0 && (
+                        {computedExtraSurcharge > 0 && (
                           <div className="summary-row extra-row">
                             <span>Phụ thu khách phát sinh</span>
-                            <span>{formatPrice(totalExtraGuestFee)}</span>
+                            <span>{formatPrice(computedExtraSurcharge)}</span>
                           </div>
                         )}
                         {serviceAmount > 0 && (
@@ -1636,15 +1409,19 @@ const Booking: React.FC = () => {
                             <span>{formatPrice(serviceAmount)}</span>
                           </div>
                         )}
-                        <div className="summary-row total">
-                          <span>Tổng cộng (tạm tính)</span>
-                          <span className="total-price">
-                            {formatPrice(
-                              calculateBaseTotal() +
-                                totalExtraGuestFee +
-                                serviceAmount,
-                            )}
+                        <div className="summary-row total" style={{ borderTop: "2px solid #eee", paddingTop: "12px" }}>
+                          <span>Tổng cộng</span>
+                          <span className="total-price" style={{ fontSize: "20px", color: "#1a1a1a" }}>
+                            {formatPrice(computedTotalAmount)}
                           </span>
+                        </div>
+                        <div className="summary-row deposit" style={{ marginTop: "8px" }}>
+                          <span style={{ fontWeight: 600, color: "#1890ff" }}>Tiền đặt cọc (30%)</span>
+                          <span style={{ fontWeight: 600, color: "#1890ff" }}>{formatPrice(computedDeposit)}</span>
+                        </div>
+                        <div className="summary-row remaining" style={{ marginTop: "4px" }}>
+                          <span style={{ color: "#888" }}>Còn lại (Thanh toán khi checkout)</span>
+                          <span style={{ color: "#888" }}>{formatPrice(computedRemaining)}</span>
                         </div>
                       </>
                     )}
@@ -1654,31 +1431,17 @@ const Booking: React.FC = () => {
                       className={`date-availability-note ${
                         availabilityChecking
                           ? "checking"
-                          : isRoomDateUnavailable
-                            ? "unavailable"
-                            : dateAvailability?.available
-                              ? "available"
-                              : ""
+                          : dateAvailability?.available
+                            ? "available"
+                            : "unavailable"
                       }`}
+                      style={{ marginTop: "12px" }}
                     >
                       {availabilityChecking
-                        ? "Đang kiểm tra phòng trống theo ngày đã chọn..."
-                        : isRoomDateUnavailable
-                          ? selectedRoom.mode === "type"
-                            ? "Rất tiếc, hạng phòng này đã hết phòng trống trong khoảng ngày bạn chọn. Vui lòng chọn ngày khác hoặc hạng phòng khác."
-                            : "Rất tiếc, phòng này đã có khách giữ chỗ trong khoảng ngày bạn chọn. Bạn vui lòng chọn ngày khác hoặc tham khảo phòng còn trống nhé."
-                          : dateAvailability?.available
-                            ? selectedRoom.mode === "type" &&
-                              dateAvailability.availableRooms !== undefined
-                              ? `Còn ${dateAvailability.availableRooms} phòng trống trong khoảng ngày đã chọn.`
-                              : "Phòng còn trống trong khoảng ngày đã chọn."
-                            : "Chọn ngày để kiểm tra phòng trống."}
-                    </div>
-                  )}
-                  {isRoomBlockedByStatus && (
-                    <div className="room-unavailable-note">
-                      Phòng này hiện không thể đặt. Vui lòng quay lại danh sách
-                      phòng để chọn phòng còn trống.
+                        ? "Đang kiểm tra phòng trống..."
+                        : dateAvailability?.available
+                          ? "Tất cả các phòng bạn chọn đều còn trống."
+                          : "Rất tiếc, một số hạng phòng bạn chọn đã hết phòng trong thời gian này."}
                     </div>
                   )}
                   <div className="booking-policies">
