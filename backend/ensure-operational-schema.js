@@ -32,6 +32,14 @@ const ensureOperationalSchema = async () => {
   }
 
   const [bookingColumns] = await db.query('DESCRIBE bookings');
+  if (!bookingColumns.some((column) => column.Field === 'actualCheckOutTime')) {
+    await db.query('ALTER TABLE bookings ADD COLUMN actualCheckOutTime DATETIME NULL DEFAULT NULL AFTER check_out');
+    // Refresh column list
+    const [updatedColumns] = await db.query('DESCRIBE bookings');
+    bookingColumns.length = 0;
+    bookingColumns.push(...updatedColumns);
+  }
+
   if (!bookingColumns.some((column) => column.Field === 'cancellation_reason')) {
     await db.query('ALTER TABLE bookings ADD COLUMN cancellation_reason TEXT NULL AFTER notes');
   }
@@ -648,6 +656,23 @@ const ensureOperationalSchema = async () => {
       AND COALESCE(remainingAmount, 0) > 0
       AND COALESCE(paymentStatus, 'unpaid') = 'unpaid'
   `);
+
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS booking_late_checkout_charges (
+        id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        bookingId INT NOT NULL,
+        lateMinutes INT NOT NULL,
+        tierPercent DECIMAL(5,2) NOT NULL,
+        nightlyRate DECIMAL(15,2) NOT NULL,
+        totalPrice DECIMAL(15,2) NOT NULL,
+        note VARCHAR(255) DEFAULT NULL,
+        createdAt TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+    `);
+  } catch (err) {
+    console.error('Lỗi khi khởi tạo booking_late_checkout_charges:', err.message);
+  }
 };
 
 module.exports = ensureOperationalSchema;
