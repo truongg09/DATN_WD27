@@ -1048,7 +1048,7 @@ CREATE TABLE `room_types` (
 --
 
 INSERT INTO `room_types` (`id`, `typeName`, `description`, `capacity`, `adultCapacity`, `childCapacity`, `maxOccupancy`, `extraAdultFee`, `extraChildFee`, `defaultPrice`, `status`, `isDeleted`) VALUES
-(1, 'Standard', 'Phong tieu chuan', 2, 2, 1, 3, 200000.00, 100000.00, 500000.00, 'active', 0),
+(1, 'Standard', 'Phong tieu chuan', 2, 2, 0, 3, 200000.00, 100000.00, 500000.00, 'active', 0),
 (2, 'Superior', 'Phong superior', 2, 2, 1, 4, 200000.00, 100000.00, 700000.00, 'active', 0),
 (3, 'Deluxe', 'Phong deluxe', 3, 2, 1, 4, 250000.00, 120000.00, 900000.00, 'active', 0),
 (4, 'Family', 'Phong gia dinh', 4, 2, 2, 5, 300000.00, 150000.00, 1200000.00, 'active', 0),
