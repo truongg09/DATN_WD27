@@ -1445,9 +1445,7 @@ const addServiceCharge = async (bookingId, payload, actor = null) => {
     await logHistory(
       bookingId,
       "service_added",
-      `Thêm dịch vụ: ${service.serviceName} x${payload.quantity} = ${displayMoney(addedAmount)}${created.status !== "used" ? ` (trạng thái: ${created.status})` : ""}`,
-      "service_added",
-      `Thêm dịch vụ phát sinh: ${service.serviceName} x${payload.quantity} = ${displayMoney(addedAmount)}`,
+      `Thêm dịch vụ phát sinh: ${service.serviceName} x${payload.quantity} = ${displayMoney(addedAmount)}${created.status !== "used" ? ` (trạng thái: ${created.status})` : ""}`,
       {
         newValue: {
           id: created.id,
