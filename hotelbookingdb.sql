@@ -451,6 +451,7 @@ INSERT INTO `booking_services` (`id`, `bookingId`, `roomId`, `serviceId`, `unitP
 CREATE TABLE `booking_service_requests` (
   `id` int NOT NULL,
   `bookingId` int NOT NULL,
+  `bookingDetailId` int DEFAULT NULL,
   `roomId` int DEFAULT NULL,
   `serviceId` int NOT NULL,
   `quantity` int NOT NULL DEFAULT '1',
@@ -1728,7 +1729,8 @@ ALTER TABLE `booking_services`
 ALTER TABLE `booking_service_requests`
   ADD CONSTRAINT `booking_service_requests_ibfk_1` FOREIGN KEY (`bookingId`) REFERENCES `bookings` (`id`) ON DELETE CASCADE,
   ADD CONSTRAINT `booking_service_requests_ibfk_2` FOREIGN KEY (`serviceId`) REFERENCES `services` (`id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `booking_service_requests_ibfk_3` FOREIGN KEY (`roomId`) REFERENCES `rooms` (`id`) ON DELETE SET NULL;
+  ADD CONSTRAINT `booking_service_requests_ibfk_3` FOREIGN KEY (`roomId`) REFERENCES `rooms` (`id`) ON DELETE SET NULL,
+  ADD CONSTRAINT `fk_booking_service_requests_detail` FOREIGN KEY (`bookingDetailId`) REFERENCES `booking_details` (`id`) ON DELETE SET NULL;
 
 --
 -- Constraints for table `booking_status_logs`
