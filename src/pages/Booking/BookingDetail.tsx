@@ -81,6 +81,9 @@ const bookingStatusMap: Record<string, { label: string; color: string }> = {
   cancelled: { label: 'Đã hủy', color: 'red' },
 };
 
+const canShowRoomNumber = (status: string | undefined) =>
+  status === 'checked_in' || status === 'checked_out';
+
 const paymentStatusMap: Record<string, { label: string; color: string }> = {
   unpaid: { label: 'Chưa thanh toán', color: 'orange' },
   deposit_paid: { label: 'Đã đặt cọc', color: 'blue' },
@@ -402,9 +405,21 @@ const BookingDetail: React.FC = () => {
             <Descriptions.Item label="Email">{String(booking.customer_email)}</Descriptions.Item>
             <Descriptions.Item label="SĐT">{String(booking.customer_phone || '-')}</Descriptions.Item>
             <Descriptions.Item label="Phòng">
-              {String(booking.room_number)} - {String(booking.room_type_name)}
+              {canShowRoomNumber(status) && booking.room_number
+                ? `${String(booking.room_number)} - `
+                : ''}
+              {String(booking.room_type_name)}
+              {!canShowRoomNumber(status) && (
+                <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>
+                  Số phòng cụ thể sẽ được sắp xếp khi bạn nhận phòng
+                </div>
+              )}
             </Descriptions.Item>
-            <Descriptions.Item label="Tầng">{String(booking.room_floor ?? '-')}</Descriptions.Item>
+            <Descriptions.Item label="Tầng">
+              {canShowRoomNumber(status) && booking.room_floor
+                ? `Tầng ${String(booking.room_floor)}`
+                : 'Sẽ sắp xếp khi nhận phòng'}
+            </Descriptions.Item>
             <Descriptions.Item label="Diện tích">
               {booking.room_area ? `${String(booking.room_area)} m²` : '-'}
             </Descriptions.Item>
@@ -610,7 +625,9 @@ const BookingDetail: React.FC = () => {
                     <td>
                       <strong>Tiền phòng lưu trú</strong>
                       <small style={{ display: 'block', color: '#888' }}>
-                        {booking.room_number ? `Phòng ${String(booking.room_number)}` : 'Chưa xếp phòng'}{' '}
+                        {canShowRoomNumber(status) && booking.room_number
+                          ? `Phòng ${String(booking.room_number)} `
+                          : 'Hạng phòng '}
                         {booking.room_type_name ? `(${String(booking.room_type_name)})` : ''}
                       </small>
                     </td>

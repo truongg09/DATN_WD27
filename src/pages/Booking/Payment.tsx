@@ -183,32 +183,56 @@ const PaymentPage: React.FC = () => {
   const isDepositMode = paymentAmountMode === 'deposit' && !hasDeposit;
   const visibleMethods = METHOD_OPTIONS;
 
-  // Chính sách hoàn tiền: <3 ngày = 100%, 3–7 ngày = 50%, >7 ngày = 0%.
+  // Chính sách hoàn tiền: >=7 ngày = 100%, 3–6 ngày = 50%, dưới 3 ngày = 0%.
   const refundInfo = useMemo(() => {
     if (!booking?.check_in) return null;
 
     const checkInDay = dayjs(String(booking.check_in)).startOf('day');
     const today = dayjs().startOf('day');
     const daysBeforeCheckIn = checkInDay.diff(today, 'day');
-    const rate = daysBeforeCheckIn < 0
-      ? 0
-      : daysBeforeCheckIn < 3
-        ? 1
-        : daysBeforeCheckIn <= 7
-          ? 0.5
-          : 0;
+    let rate;
+    let tierLabel;
+    let tier;
+
+    if (daysBeforeCheckIn < 0) {
+      rate = 0;
+      tier = 'past_checkin';
+      tierLabel = 'Hoàn 0%';
+    } else if (daysBeforeCheckIn < 3) {
+      // 0, 1, 2 ngày trước checkin
+      rate = 0;
+      tier = 'under_3_days';
+      tierLabel = 'Hoàn 0%';
+    } else if (daysBeforeCheckIn < 7) {
+      // 3, 4, 5, 6 ngày trước checkin: "từ 3 đến dưới 7 ngày"
+      rate = 0.5;
+      tier = '3_to_7_days';
+      tierLabel = 'Hoàn 50%';
+    } else {
+      // >=7 ngày
+      rate = 1;
+      tier = 'over_7_days';
+      tierLabel = 'Hoàn 100%';
+    }
     const paidAmount = payment?.paidAmount ?? 0;
 
     return {
       daysBeforeCheckIn,
       rate,
+      tierLabel,
+      tier,
       paidAmount,
       refundableNow: Math.round(paidAmount * rate),
-      // Mốc ngày cụ thể cho từng mức hoàn
-      fullRefundFrom: checkInDay.subtract(2, 'day'),
-      halfRefundFrom: checkInDay.subtract(7, 'day'),    // từ ngày này...
-      halfRefundUntil: checkInDay.subtract(3, 'day'),   // ...đến hết ngày này: hoàn 50%
-      noRefundUntil: checkInDay.subtract(8, 'day'),
+      // Mốc ngày cụ thể cho từng mức hoàn (bắt đầu mốc, kết thúc mốc)
+      // >= 7 ngày trước checkin: hoàn 100%
+      fullRefundFrom: checkInDay.subtract(10000, 'day'),  // luôn có hiệu lực từ xa
+      fullRefundUntil: checkInDay.subtract(7, 'day'),      // đến hết ngày thứ 7 trước
+      // 3 -> dưới 7 ngày (3,4,5,6 ngày trước): hoàn 50%
+      halfRefundFrom: checkInDay.subtract(6, 'day'),
+      halfRefundUntil: checkInDay.subtract(3, 'day'),
+      // <3 ngày (0,1,2 ngày trước và sau ngày checkin): 0%
+      noRefundFrom: checkInDay.subtract(2, 'day'),
+      noRefundUntil: checkInDay.add(10000, 'day'),
       checkInDay,
     };
   }, [booking?.check_in, payment?.paidAmount]);
@@ -474,14 +498,16 @@ const PaymentPage: React.FC = () => {
               <div className="policy-grid">
                 <div className="policy-item good">
                   <strong>100%</strong>
-                  <span>Hủy dưới 3 ngày</span>
+                  <span>Hủy trên 7 ngày</span>
                   {refundInfo && (
-                    <small>Từ {refundInfo.fullRefundFrom.format('DD/MM/YYYY')}</small>
+                    <small>
+                      Đến hết {refundInfo.fullRefundUntil.format('DD/MM/YYYY')}
+                    </small>
                   )}
                 </div>
                 <div className="policy-item mid">
                   <strong>50%</strong>
-                  <span>Hủy trước 3–7 ngày</span>
+                  <span>Hủy 3–7 ngày trước</span>
                   {refundInfo && (
                     <small>
                       {refundInfo.halfRefundFrom.format('DD/MM')} – {refundInfo.halfRefundUntil.format('DD/MM/YYYY')}
@@ -490,9 +516,9 @@ const PaymentPage: React.FC = () => {
                 </div>
                 <div className="policy-item bad">
                   <strong>0%</strong>
-                  <span>Hủy trên 7 ngày</span>
+                  <span>Hủy dưới 3 ngày</span>
                   {refundInfo && (
-                    <small>Đến hết {refundInfo.noRefundUntil.format('DD/MM/YYYY')}</small>
+                    <small>Từ {refundInfo.noRefundFrom.format('DD/MM/YYYY')}</small>
                   )}
                 </div>
               </div>
@@ -529,8 +555,8 @@ const PaymentPage: React.FC = () => {
                   (tiền cọc hoặc toàn bộ), không tính trên giá phòng.
                 </li>
                 <li>
-                  <strong>Ví dụ:</strong> đã cọc 300.000₫ — hủy dưới 3 ngày nhận lại 300.000₫; hủy trong
-                  khoảng 3–7 ngày nhận lại 150.000₫; hủy trên 7 ngày không được hoàn.
+                  <strong>Ví dụ:</strong> đã cọc 300.000₫ — hủy trên 7 ngày nhận lại 300.000₫; hủy trong
+                  khoảng 3–7 ngày nhận lại 150.000₫; hủy dưới 3 ngày không được hoàn.
                 </li>
                 <li>
                   <strong>Cách hủy:</strong> vào <em>Lịch sử đặt phòng</em> → bấm <em>Hủy</em> ở đơn tương ứng.

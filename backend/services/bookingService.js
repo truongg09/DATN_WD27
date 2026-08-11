@@ -397,26 +397,68 @@ const checkTypeAvailability = async (payload) => {
 
 const expireUnpaidBookingHolds = () => bookingModel.expireUnpaidBookingHolds();
 
-const getRefundPolicy = (checkIn, paidAmount = 0) => {
-  // Cả hai mốc phải cùng một hệ quy chiếu. Trước đây `today` là nửa đêm giờ địa
-  // phương còn `checkInDate` là nửa đêm UTC, nên trên máy chủ VN (UTC+7) số ngày
-  // luôn lệch: hủy 2 ngày trước khi nhận phòng bị tính thành 3 (hoàn 50% thay vì
-  // 100%), còn hủy sau ngày nhận phòng lại ra 0 ngày và được hoàn 100%.
+const getRefundPolicy = (checkIn, paidAmount = 0, options = {}) => {
   const today = dateToUtc(dayString(new Date()));
   const checkInDate = dateToUtc(dayString(checkIn));
   const daysBeforeCheckIn = Math.round((checkInDate - today) / MS_PER_DAY);
-  const rate = daysBeforeCheckIn < 0
-    ? 0
-    : daysBeforeCheckIn < 3
-      ? 1
-      : daysBeforeCheckIn <= 7
-        ? 0.5
-        : 0;
 
+  // Force 100% hoàn khi phòng không còn hợp lệ (admin override / lỗi hệ thống)
+  // bất kể còn bao nhiêu ngày trước khi nhận phòng.
+  if (options.forceFullRefund) {
+    const paid = Number(paidAmount || 0);
+    return {
+      daysBeforeCheckIn,
+      refundRate: 1,
+      refundableAmount: Math.round(paid),
+      paidAmount: paid,
+      tierLabel: 'Hoàn 100%',
+      tier: 'full_override',
+      reason: options.overrideReason || 'Phòng không còn hợp lệ, khách sạn hoàn trả 100% số tiền đã thanh toán.',
+      forceFullRefund: true,
+    };
+  }
+
+  let refundRate;
+  let tierLabel;
+  let tier;
+  let reason;
+
+  if (daysBeforeCheckIn < 0) {
+    // Đã quá ngày check-in (khách không đến / đã check-in): không hoàn
+    refundRate = 0;
+    tier = 'past_checkin';
+    tierLabel = 'Hoàn 0%';
+    reason = 'Đã qua ngày nhận phòng, theo chính sách không hoàn tiền.';
+  } else if (daysBeforeCheckIn < 3) {
+    // Dưới 3 ngày (0, 1, 2 ngày trước checkin): không hoàn
+    refundRate = 0;
+    tier = 'under_3_days';
+    tierLabel = 'Hoàn 0%';
+    reason = `Hủy phòng dưới 3 ngày trước khi nhận phòng (còn ${daysBeforeCheckIn} ngày) — theo chính sách không hoàn tiền.`;
+  } else if (daysBeforeCheckIn < 7) {
+    // Từ 3 đến dưới 7 ngày (3, 4, 5, 6 ngày): hoàn 50%
+    refundRate = 0.5;
+    tier = '3_to_7_days';
+    tierLabel = 'Hoàn 50%';
+    reason = `Hủy phòng trong khoảng 3–7 ngày trước khi nhận phòng (còn ${daysBeforeCheckIn} ngày) — hoàn 50% số tiền đã thanh toán.`;
+  } else {
+    // Từ 7 ngày trở lên (>= 7): hoàn 100%
+    refundRate = 1;
+    tier = 'over_7_days';
+    tierLabel = 'Hoàn 100%';
+    reason = `Hủy phòng trên 7 ngày trước khi nhận phòng (còn ${daysBeforeCheckIn} ngày) — hoàn 100% số tiền đã thanh toán.`;
+  }
+
+  const paid = Number(paidAmount || 0);
   return {
     daysBeforeCheckIn,
-    refundRate: rate,
-    refundableAmount: Math.round(Number(paidAmount || 0) * rate)
+    refundRate,
+    refundableAmount: Math.round(paid * refundRate),
+    paidAmount: paid,
+    tierLabel,
+    tier,
+    reason,
+    forceFullRefund: false,
   };
 };
 
@@ -730,7 +772,7 @@ const requestOutstandingPayment = async (bookingId, actor = null) => {
   return summary;
 };
 
-const getRefundPreview = async (bookingId) => {
+const getRefundPreview = async (bookingId, options = {}) => {
   const booking = await bookingModel.getBookingById(bookingId);
   if (!booking) {
     throw new HttpError(404, 'Không tìm thấy đặt phòng');
@@ -743,12 +785,32 @@ const getRefundPreview = async (bookingId) => {
     payment = null;
   }
 
+  // Phòng không hợp lệ sau khi thanh toán: đã thanh toán nhưng phòng đã bị xoá / bảo trì
+  // -> mặc định hoàn 100% (override options.forceFullRefund nếu chưa có).
+  let forceFullRefund = Boolean(options.forceFullRefund);
+  let overrideReason = options.overrideReason || null;
+
+  const paidAmount = Number(payment?.paidAmount || 0);
+  const paidSuccess = paidAmount > 0;
+
+  if (paidSuccess && !forceFullRefund) {
+    const roomStatus = booking.room_status || booking.roomStatus;
+    const roomDeleted = Boolean(booking.room_deleted || booking.isRoomDeleted);
+    if (roomStatus === 'maintenance' || roomDeleted || !booking.room_id) {
+      forceFullRefund = true;
+      overrideReason = overrideReason || 'Phòng đặt trước không còn hợp lệ (bảo trì/ngừng hoạt động), khách sạn hoàn trả 100% số tiền đã thanh toán.';
+    }
+  }
+
   return {
     bookingId,
     canCancel: ['pending', 'confirmed'].includes(booking.status),
     bookingStatus: booking.status,
     paymentId: payment?.id || null,
-    ...getRefundPolicy(booking.check_in, payment?.paidAmount || 0)
+    ...getRefundPolicy(booking.check_in, paidAmount, {
+      forceFullRefund,
+      overrideReason,
+    }),
   };
 };
 
@@ -792,7 +854,7 @@ const normalizeRefundRequest = (refundRequest) => {
   };
 };
 
-const cancelBooking = async (bookingId, refundRequest = null, reasonValue = null, actor = null) => {
+const cancelBooking = async (bookingId, refundRequest = null, reasonValue = null, actor = null, options = {}) => {
   const connection = await db.getConnection();
 
   try {
@@ -821,7 +883,25 @@ const cancelBooking = async (bookingId, refundRequest = null, reasonValue = null
       payment = null;
     }
 
-    const refundPolicy = getRefundPolicy(booking.check_in, payment?.paidAmount || 0);
+    // Tính forceFullRefund nếu admin override hoặc phòng không hợp lệ (đã thanh toán nhưng maintenance/deleted)
+    let forceFullRefund = Boolean(options.forceFullRefund);
+    let overrideReason = options.overrideReason || null;
+
+    const paidAmount = Number(payment?.paidAmount || 0);
+    const paidSuccess = paidAmount > 0;
+    if (paidSuccess && !forceFullRefund) {
+      const roomStatus = booking.room_status || booking.roomStatus;
+      const roomDeleted = Boolean(booking.room_deleted || booking.isRoomDeleted);
+      if (roomStatus === 'maintenance' || roomDeleted || !booking.room_id) {
+        forceFullRefund = true;
+        overrideReason = overrideReason || 'Phòng đặt trước không còn hợp lệ (bảo trì/ngừng hoạt động), khách sạn hoàn trả 100% số tiền đã thanh toán.';
+      }
+    }
+
+    const refundPolicy = getRefundPolicy(booking.check_in, paidAmount, {
+      forceFullRefund,
+      overrideReason,
+    });
 
     await bookingModel.updateBookingStatus(bookingId, 'cancelled', connection);
     await connection.query(

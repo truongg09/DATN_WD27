@@ -311,7 +311,7 @@ function Profile() {
   });
 
   return (
-    <div style={{ padding: "120px 20px 40px", maxWidth: "1200px", margin: "0 auto", minHeight: "80vh" }}>
+    <div style={{ padding: "120px 20px 40px", maxWidth: "1200px", margin: "0 auto", minHeight: "80vh", marginTop: "20px" }}>
       <Row gutter={[24, 24]}>
         
         {/* SIDEBAR MENU */}

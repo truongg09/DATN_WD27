@@ -900,6 +900,9 @@ const BookingHistory: React.FC = () => {
     );
   };
 
+  const canShowRoomNumber = (status: string | undefined) =>
+    status === 'checked_in' || status === 'checked_out';
+
   const columns = useMemo<ColumnsType<BookingRow>>(
     () => [
       {
@@ -911,7 +914,10 @@ const BookingHistory: React.FC = () => {
             <span className="history-booking-code">#{record.id}</span>
             <span className="history-room-line">
               <HomeOutlined />
-              {record.room_number || '-'} · {record.room_type_name || 'Chưa có loại phòng'}
+              {canShowRoomNumber(record.status) && record.room_number
+                ? `Phòng ${record.room_number} · `
+                : ''}
+              {record.room_type_name || 'Chưa có loại phòng'}
             </span>
           </div>
         ),
@@ -1148,78 +1154,166 @@ const BookingHistory: React.FC = () => {
                 style={{ marginTop: 8 }}
               />
             </div>
-            {cancelPreview.refundableAmount > 0 ? (
-              <>
-                <Alert
-                  type="info"
-                  showIcon
-                  message={
-                    <>
-                      Bạn sẽ được hoàn <strong>{formatPrice(cancelPreview.refundableAmount)}</strong>{' '}
-                      ({Math.round(Number(cancelPreview.refundRate) * 100)}% số tiền đã thanh toán) —
-                      còn {cancelPreview.daysBeforeCheckIn} ngày trước nhận phòng.
-                    </>
-                  }
-                  description="Yêu cầu hoàn tiền sẽ được gửi đến khách sạn để duyệt. Vui lòng chọn cách nhận tiền."
-                />
+            {(() => {
+              const refundable = cancelPreview.refundableAmount ?? 0;
+              const rate = Number(cancelPreview.refundRate ?? 0);
+              const paid = Number(cancelPreview.paidAmount ?? 0);
+              const hasPaid = paid > 0;
+              const tierLabel =
+                (cancelPreview as unknown as { tierLabel?: string }).tierLabel ||
+                (rate === 1 ? 'Hoàn 100%' : rate === 0.5 ? 'Hoàn 50%' : 'Hoàn 0%');
+              const forceFull = Boolean(
+                (cancelPreview as unknown as { forceFullRefund?: boolean }).forceFullRefund
+              );
+              const backendReason = (cancelPreview as unknown as { reason?: string }).reason;
+              const daysBefore = cancelPreview.daysBeforeCheckIn;
 
-                <Radio.Group
-                  value={refundMethod}
-                  onChange={(e) => setRefundMethod(e.target.value)}
-                  options={[
-                    { value: 'bank_transfer', label: 'Chuyển khoản ngân hàng' },
-                    { value: 'cash', label: 'Nhận tiền mặt tại quầy' },
-                  ]}
-                />
-
-                {refundMethod === 'bank_transfer' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    <Select
-                      showSearch
-                      placeholder="Chọn ngân hàng nhận tiền"
-                      optionFilterProp="label"
-                      value={refundBankBin}
-                      onChange={setRefundBankBin}
-                      options={VIETQR_BANKS.map((bank) => ({
-                        value: bank.bin,
-                        label: `${bank.shortName} — ${bank.name}`,
-                      }))}
-                    />
-                    <Input
-                      placeholder="Số tài khoản nhận tiền (chỉ nhập số 0-9)"
-                      maxLength={30}
-                      value={refundAccountNumber}
-                      onChange={(e) => setRefundAccountNumber(e.target.value.replace(/\D/g, ''))}
-                    />
-                    <Input
-                      placeholder="Tên chủ tài khoản (VD: NGUYEN VAN A)"
-                      maxLength={50}
-                      value={refundAccountName}
-                      onChange={(e) => setRefundAccountName(e.target.value)}
-                    />
-                  </div>
-                )}
-
-                {refundMethod === 'cash' && (
-                  <Alert
-                    type="warning"
-                    showIcon
-                    message="Bạn sẽ nhận tiền mặt trực tiếp tại quầy lễ tân, vui lòng mang theo giấy tờ tùy thân."
-                  />
-                )}
-              </>
-            ) : (
-              <Alert
-                type="warning"
-                showIcon
-                message="Hủy đặt phòng này sẽ không được hoàn tiền"
-                description={
-                  Number(cancelPreview.refundRate) === 0 && cancelPreview.daysBeforeCheckIn >= 0
-                    ? `Còn ${cancelPreview.daysBeforeCheckIn} ngày trước nhận phòng (trên 7 ngày) hoặc bạn chưa thanh toán khoản nào.`
-                    : 'Bạn chưa thanh toán khoản nào cho đặt phòng này.'
+              let reasonText = backendReason || '';
+              if (!reasonText) {
+                if (!hasPaid) {
+                  reasonText = 'Bạn chưa thanh toán khoản nào cho đặt phòng này, nên không có khoản được hoàn.';
+                } else if (forceFull) {
+                  reasonText = 'Phòng không còn hợp lệ (bảo trì/ngừng hoạt động), khách sạn hoàn trả 100% số tiền đã thanh toán.';
+                } else if (daysBefore < 0) {
+                  reasonText = 'Đã qua ngày nhận phòng, theo chính sách không hoàn tiền.';
+                } else if (daysBefore < 3) {
+                  reasonText = `Hủy phòng dưới 3 ngày trước khi nhận phòng (còn ${daysBefore} ngày) — theo chính sách không hoàn tiền.`;
+                } else if (daysBefore < 7) {
+                  reasonText = `Hủy phòng trong khoảng 3–7 ngày trước khi nhận phòng (còn ${daysBefore} ngày) — hoàn 50% số tiền đã thanh toán.`;
+                } else {
+                  reasonText = `Hủy phòng trên 7 ngày trước khi nhận phòng (còn ${daysBefore} ngày) — hoàn 100% số tiền đã thanh toán.`;
                 }
-              />
-            )}
+              }
+
+              const refundColor =
+                rate === 1 ? '#16a34a' : rate === 0.5 ? '#d97706' : '#dc2626';
+              const refundBg =
+                rate === 1
+                  ? 'rgba(22,163,74,0.08)'
+                  : rate === 0.5
+                    ? 'rgba(217,119,6,0.08)'
+                    : 'rgba(220,38,38,0.06)';
+              const refundBorder =
+                rate === 1
+                  ? '1px solid #86efac'
+                  : rate === 0.5
+                    ? '1px solid #fdba74'
+                    : '1px solid #fecaca';
+
+              return (
+                <>
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 10,
+                      padding: 14,
+                      borderRadius: 10,
+                      background: refundBg,
+                      border: refundBorder,
+                    }}
+                  >
+                    <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr', rowGap: 6 }}>
+                      <div style={{ fontWeight: 500, color: '#374151' }}>Mức hoàn</div>
+                      <div style={{ fontWeight: 700, color: refundColor, fontSize: 15 }}>
+                        {tierLabel} ({Math.round(rate * 100)}%)
+                      </div>
+                      <div style={{ fontWeight: 500, color: '#374151' }}>Số tiền hoàn</div>
+                      <div style={{ fontWeight: 700, color: '#111827', fontSize: 15 }}>
+                        {formatPrice(Math.max(refundable, 0))}
+                        {hasPaid && (
+                          <span style={{ color: '#6b7280', fontWeight: 400, fontSize: 13, marginLeft: 6 }}>
+                            / {formatPrice(paid)} đã thanh toán
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontWeight: 500, color: '#374151' }}>Lý do</div>
+                      <div style={{ color: '#374151', lineHeight: 1.55 }}>
+                        {forceFull && (
+                          <Tag color="gold" style={{ marginBottom: 6 }}>Khách sạn hoàn đặc biệt</Tag>
+                        )}
+                        {reasonText}
+                      </div>
+                    </div>
+                  </div>
+
+                  {refundable > 0 ? (
+                    <>
+                      <Alert
+                        type={forceFull ? 'success' : 'info'}
+                        showIcon
+                        message={
+                          <>
+                            Bạn sẽ được hoàn <strong>{formatPrice(refundable)}</strong>{' '}
+                            ({Math.round(rate * 100)}% số tiền đã thanh toán)
+                            {daysBefore >= 0 && !forceFull
+                              ? ` — còn ${daysBefore} ngày trước nhận phòng.`
+                              : '.'}
+                          </>
+                        }
+                        description="Yêu cầu hoàn tiền sẽ được gửi đến khách sạn để duyệt. Vui lòng chọn cách nhận tiền bên dưới."
+                      />
+
+                      <Radio.Group
+                        value={refundMethod}
+                        onChange={(e) => setRefundMethod(e.target.value)}
+                        options={[
+                          { value: 'bank_transfer', label: 'Chuyển khoản ngân hàng' },
+                          { value: 'cash', label: 'Nhận tiền mặt tại quầy' },
+                        ]}
+                      />
+
+                      {refundMethod === 'bank_transfer' && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                          <Select
+                            showSearch
+                            placeholder="Chọn ngân hàng nhận tiền"
+                            optionFilterProp="label"
+                            value={refundBankBin}
+                            onChange={setRefundBankBin}
+                            options={VIETQR_BANKS.map((bank) => ({
+                              value: bank.bin,
+                              label: `${bank.shortName} — ${bank.name}`,
+                            }))}
+                          />
+                          <Input
+                            placeholder="Số tài khoản nhận tiền (chỉ nhập số 0-9)"
+                            maxLength={30}
+                            value={refundAccountNumber}
+                            onChange={(e) => setRefundAccountNumber(e.target.value.replace(/\D/g, ''))}
+                          />
+                          <Input
+                            placeholder="Tên chủ tài khoản (VD: NGUYEN VAN A)"
+                            maxLength={50}
+                            value={refundAccountName}
+                            onChange={(e) => setRefundAccountName(e.target.value)}
+                          />
+                        </div>
+                      )}
+
+                      {refundMethod === 'cash' && (
+                        <Alert
+                          type="warning"
+                          showIcon
+                          message="Bạn sẽ nhận tiền mặt trực tiếp tại quầy lễ tân, vui lòng mang theo giấy tờ tùy thân."
+                        />
+                      )}
+                    </>
+                  ) : (
+                    <Alert
+                      type="warning"
+                      showIcon
+                      message="Hủy đặt phòng này sẽ không được hoàn tiền"
+                      description={
+                        hasPaid
+                          ? reasonText
+                          : 'Bạn chưa thanh toán khoản nào cho đặt phòng này.'
+                      }
+                    />
+                  )}
+                </>
+              );
+            })()}
           </div>
         ) : null}
       </Modal>
