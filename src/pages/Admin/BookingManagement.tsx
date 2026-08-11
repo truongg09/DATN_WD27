@@ -286,7 +286,7 @@ function BookingManagement() {
       content: (
         <div>
           <p style={{ marginTop: 0 }}>
-            Chính sách hoàn cọc: dưới 3 ngày hoàn 100%, từ 3-7 ngày hoàn 50%, trên 7 ngày không hoàn.
+            Chính sách hoàn cọc: trên 7 ngày hoàn 100%, từ 3-7 ngày hoàn 50%, dưới 3 ngày không hoàn.
           </p>
           <Input.TextArea
             rows={3}

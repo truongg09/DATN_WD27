@@ -52,6 +52,11 @@ export interface RefundPreview {
   daysBeforeCheckIn: number;
   refundRate: number;
   refundableAmount: number;
+  paidAmount?: number;
+  tierLabel?: string;
+  tier?: 'past_checkin' | 'under_3_days' | '3_to_7_days' | 'over_7_days' | 'full_override';
+  reason?: string;
+  forceFullRefund?: boolean;
 }
 
 export const getRefundPreview = async (id: number) => {

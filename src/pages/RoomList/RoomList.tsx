@@ -266,7 +266,20 @@ const RoomList: React.FC = () => {
                     </div>
 
                     <div className="type-specs">
-                      <span><FontAwesomeIcon icon={faUserGroup} /> Tối đa {type.capacity} khách</span>
+                      <span style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        padding: '4px 10px',
+                        borderRadius: 999,
+                        background: 'linear-gradient(135deg, #fff4e5 0%, #ffe8cc 100%)',
+                        color: '#b45309',
+                        fontWeight: 600,
+                        fontSize: 13,
+                        border: '1px solid #fdba74',
+                      }}>
+                        <FontAwesomeIcon icon={faUserGroup} /> Tối đa {type.capacity} khách
+                      </span>
                       {type.minArea !== null && (
                         <span>
                           <FontAwesomeIcon icon={faExpandArrowsAlt} />{' '}

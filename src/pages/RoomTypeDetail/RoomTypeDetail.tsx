@@ -247,7 +247,20 @@ const RoomTypeDetail: React.FC = () => {
             </div>
 
             <div className="type-specs">
-              <span><FontAwesomeIcon icon={faUserGroup} /> Tối đa {roomType.capacity} khách</span>
+              <span style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '6px 14px',
+                borderRadius: 999,
+                background: 'linear-gradient(135deg, #fff4e5 0%, #ffe8cc 100%)',
+                color: '#b45309',
+                fontWeight: 600,
+                fontSize: 14,
+                border: '1px solid #fdba74',
+              }}>
+                <FontAwesomeIcon icon={faUserGroup} /> Tối đa {roomType.capacity} khách
+              </span>
               {roomType.minArea !== null && (
                 <span>
                   <FontAwesomeIcon icon={faExpandArrowsAlt} />{' '}
@@ -377,7 +390,7 @@ const RoomTypeDetail: React.FC = () => {
             <ul className="widget-perks">
               <li><FontAwesomeIcon icon={faCheck} /> Xác nhận ngay lập tức</li>
               <li><FontAwesomeIcon icon={faCheck} /> Giữ phòng 15 phút để thanh toán</li>
-              <li><FontAwesomeIcon icon={faCheck} /> Hoàn 100% khi hủy dưới 3 ngày</li>
+              <li><FontAwesomeIcon icon={faCheck} /> Hoàn 100% khi hủy trên 7 ngày trước nhận phòng</li>
             </ul>
           </div>
         </div>

@@ -126,11 +126,24 @@ const cancelBooking = async (req, res) => {
     const currentBooking = await bookingService.getBookingById(bookingId);
     ensureBookingAccess(req.user, currentBooking, 'hủy');
 
+    const isStaffOrAdmin = req.user?.role === 'admin' || req.user?.role === 'staff' || req.user?.role === 'employee';
+    const rawForce = req.body?.forceFullRefund;
+    const forceFullRefund = Boolean(
+      isStaffOrAdmin && (rawForce === true || rawForce === 'true' || rawForce === 1 || rawForce === '1')
+    );
+    const overrideReason = isStaffOrAdmin && forceFullRefund
+      ? String(req.body?.overrideReason || '').trim() || null
+      : null;
+
     const booking = await bookingService.cancelBooking(
       bookingId,
       req.body?.refund || null,
       req.body?.reason,
-      req.user || null
+      req.user || null,
+      {
+        forceFullRefund,
+        overrideReason,
+      }
     );
     res.json({
       message: 'Hủy đặt phòng thành công',
