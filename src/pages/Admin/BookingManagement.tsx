@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Alert, Button, DatePicker, Form, Input, InputNumber, message, Modal, Select, Space, Tag, Tooltip } from 'antd';
+import { Alert, Button, DatePicker, Form, Input, InputNumber, message, Modal, Pagination, Select, Space, Tag, Tooltip } from 'antd';
 import {
   CheckOutlined,
   CloseOutlined,
@@ -151,35 +151,77 @@ function BookingManagement() {
   const [filterSearch, setFilterSearch] = useState<string>(
     searchParams.get('search') || ''
   );
+  const [currentPage, setCurrentPage] = useState<number>(
+    Number(searchParams.get('page')) || 1
+  );
+  const [pageSize, setPageSize] = useState<number>(
+    Number(searchParams.get('limit')) || 8
+  );
+  const [totalCount, setTotalCount] = useState<number>(0);
 
   useEffect(() => {
     const statusFromUrl = searchParams.get('status');
     const searchFromUrl = searchParams.get('search');
+    const pageFromUrl = searchParams.get('page');
+    const limitFromUrl = searchParams.get('limit');
+
     if (statusFromUrl !== null) setFilterStatus(statusFromUrl);
     if (searchFromUrl !== null) setFilterSearch(searchFromUrl);
+    if (pageFromUrl !== null) setCurrentPage(Number(pageFromUrl) || 1);
+    if (limitFromUrl !== null) setPageSize(Number(limitFromUrl) || 8);
   }, [searchParams]);
 
   // Trả về mảng booking vừa tải để nơi gọi (VD: sau khi chuyển phòng) có thể
   // lấy ngay bản ghi mới nhất mà không cần đọc lại state bất đồng bộ.
-  const fetchBookings = async (): Promise<Booking[]> => {
+  const fetchBookings = async (
+    page = currentPage,
+    limit = pageSize,
+    status = filterStatus,
+    search = filterSearch
+  ): Promise<Booking[]> => {
     setLoading(true);
     try {
-      const response = await api.get('/bookings');
-      const data = Array.isArray(response.data) ? response.data : [];
-      const mapped = data
-        .map((booking: Booking) => ({
-          ...booking,
-          status: normalizeStatus(booking.status),
-          adults: booking.adults ?? 0,
-          children: booking.children ?? 0,
-        }))
-        .filter((booking: Booking) => booking.check_in && booking.check_out);
+      const params: Record<string, any> = {
+        page,
+        limit,
+      };
+      if (status && status !== 'all') {
+        params.status = status;
+      }
+      if (search && search.trim()) {
+        params.search = search.trim();
+      }
+
+      const response: any = await api.get('/bookings', { params });
+      const dataArray = Array.isArray(response?.data)
+        ? response.data
+        : Array.isArray(response)
+          ? response
+          : [];
+
+      const total =
+        typeof response?.total === 'number'
+          ? response.total
+          : typeof response?.data?.total === 'number'
+            ? response.data.total
+            : dataArray.length;
+
+      const mapped = dataArray.map((booking: Booking) => ({
+        ...booking,
+        status: normalizeStatus(booking.status),
+        adults: booking.adults ?? 0,
+        children: booking.children ?? 0,
+      }));
+
       setBookings(mapped);
+      setTotalCount(total);
+
       return mapped;
     } catch (error) {
       console.error('Error fetching bookings:', error);
       message.error('Lỗi khi tải danh sách đặt phòng');
       setBookings([]);
+      setTotalCount(0);
       return [];
     } finally {
       setLoading(false);
@@ -198,14 +240,12 @@ function BookingManagement() {
   };
 
   useEffect(() => {
-    fetchBookings();
+    fetchBookings(currentPage, pageSize, filterStatus, filterSearch);
     fetchSupportData();
-    // Chỉ dùng để phát hiện khách đến sớm hơn giờ chuẩn -> hỏi xác nhận
-    // trước khi check-in, không hiển thị note nào khác trong màn hình này.
     getPolicies()
       .then((res) => setPolicies(res.data))
       .catch(() => setPolicies(null));
-  }, []);
+  }, [currentPage, pageSize, filterStatus, filterSearch]);
 
   // Có phải khách đang đến SỚM hơn giờ nhận phòng chuẩn không (so trên đúng
   // ngày check_in của booking). Chỉ true khi hôm nay là ngày nhận phòng và
@@ -790,37 +830,7 @@ const handleCheckIn = (booking: Booking) => {
     transfer: 'Chuyển phòng giữa chừng',
   };
 
-  const filteredBookings = bookings.filter((booking) => {
-    let matchStatus = true;
-    if (filterStatus === 'pending') {
-      matchStatus = booking.status === 'pending';
-    } else if (filterStatus === 'checkin_today') {
-      const isTodayCheckin =
-        booking.check_in && dayjs(booking.check_in).isSame(dayjs(), 'day');
-      matchStatus =
-        Boolean(isTodayCheckin) &&
-        ['confirmed', 'pending'].includes(booking.status);
-    } else if (filterStatus === 'checkout_today') {
-      const isTodayCheckout =
-        booking.check_out && dayjs(booking.check_out).isSame(dayjs(), 'day');
-      matchStatus =
-        Boolean(isTodayCheckout) && booking.status === 'checked_in';
-    } else if (filterStatus && filterStatus !== 'all') {
-      matchStatus = booking.status === filterStatus;
-    }
-
-    let matchSearch = true;
-    if (filterSearch.trim()) {
-      const term = filterSearch.trim().toLowerCase();
-      matchSearch =
-        (booking.customer_name || '').toLowerCase().includes(term) ||
-        (booking.customer_phone || '').toLowerCase().includes(term) ||
-        (booking.room_number || '').toLowerCase().includes(term) ||
-        `#${booking.id}`.includes(term);
-    }
-
-    return matchStatus && matchSearch;
-  });
+  const filteredBookings = bookings;
 
   return (
     <div style={{ padding: 24 }}>
@@ -833,7 +843,8 @@ const handleCheckIn = (booking: Booking) => {
               value={filterStatus}
               onChange={(val) => {
                 setFilterStatus(val);
-                setSearchParams({ status: val, search: filterSearch });
+                setCurrentPage(1);
+                setSearchParams({ status: val, search: filterSearch, page: '1', limit: String(pageSize) });
               }}
               options={[
                 { value: 'all', label: 'Tất cả trạng thái' },
@@ -854,7 +865,8 @@ const handleCheckIn = (booking: Booking) => {
               onChange={(e) => {
                 const val = e.target.value;
                 setFilterSearch(val);
-                setSearchParams({ status: filterStatus, search: val });
+                setCurrentPage(1);
+                setSearchParams({ status: filterStatus, search: val, page: '1', limit: String(pageSize) });
               }}
               style={{ width: 260 }}
             />
@@ -863,13 +875,14 @@ const handleCheckIn = (booking: Booking) => {
                 onClick={() => {
                   setFilterStatus('all');
                   setFilterSearch('');
-                  setSearchParams({});
+                  setCurrentPage(1);
+                  setSearchParams({ page: '1', limit: String(pageSize) });
                 }}
               >
                 Xóa bộ lọc
               </Button>
             )}
-            <Button icon={<ReloadOutlined />} onClick={fetchBookings} loading={loading}>
+            <Button icon={<ReloadOutlined />} onClick={() => fetchBookings(currentPage, pageSize, filterStatus, filterSearch)} loading={loading}>
               Làm mới
             </Button>
           </Space>
@@ -1009,6 +1022,27 @@ const handleCheckIn = (booking: Booking) => {
               )}
             </tbody>
           </table>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 20, flexWrap: 'wrap', gap: 12 }}>
+          <div style={{ fontSize: 13, color: '#666' }}>
+            Hiển thị {totalCount > 0 ? (currentPage - 1) * pageSize + 1 : 0} – {totalCount > 0 ? Math.min((currentPage - 1) * pageSize + bookings.length, totalCount) : 0} / {totalCount} đặt phòng
+          </div>
+          <Pagination
+            current={currentPage}
+            pageSize={pageSize}
+            total={totalCount}
+            showSizeChanger={false}
+            onChange={(page) => {
+              setCurrentPage(page);
+              setSearchParams({
+                status: filterStatus,
+                search: filterSearch,
+                page: String(page),
+                limit: String(pageSize),
+              });
+            }}
+          />
         </div>
       </div>
 

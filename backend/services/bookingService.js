@@ -869,8 +869,49 @@ const createBooking = async (payload, actor) => {
 };
 
 const listBookings = async (filters) => {
-  const bookings = await bookingModel.listBookings(filters);
-  if (!bookings || bookings.length === 0) return [];
+  const result = await bookingModel.listBookings(filters);
+
+  if (result && typeof result === 'object' && !Array.isArray(result) && Array.isArray(result.data)) {
+    const bookings = result.data;
+    if (bookings.length === 0) return { ...result, data: [] };
+
+    const bookingIds = bookings.map((b) => b.id);
+    const [details] = await db.query(
+      `SELECT bd.bookingId, bd.roomId, r.roomNumber
+       FROM booking_details bd
+       INNER JOIN rooms r ON r.id = bd.roomId
+       WHERE bd.bookingId IN (?)
+       ORDER BY bd.id ASC`,
+      [bookingIds]
+    );
+
+    const roomMap = {};
+    for (const d of details) {
+      if (!roomMap[d.bookingId]) roomMap[d.bookingId] = [];
+      roomMap[d.bookingId].push({ id: d.roomId, number: d.roomNumber });
+    }
+
+    const enriched = bookings.map((b) => {
+      const roomsForBooking =
+        roomMap[b.id] && roomMap[b.id].length > 0
+          ? roomMap[b.id]
+          : b.room_id && b.room_number
+            ? [{ id: b.room_id, number: b.room_number }]
+            : [];
+      return {
+        ...b,
+        booking_rooms: roomsForBooking,
+      };
+    });
+
+    return {
+      ...result,
+      data: enriched,
+    };
+  }
+
+  const bookings = Array.isArray(result) ? result : [];
+  if (bookings.length === 0) return [];
 
   const bookingIds = bookings.map((b) => b.id);
   const [details] = await db.query(
