@@ -334,6 +334,66 @@ const normalizeUpdateDamageChargePayload = (body) => {
   return payload;
 };
 
+const normalizeExtendStayPayload = (body) => ({
+  checkOut: normalizeDate(body.checkOut ?? body.checkOutDate ?? body.check_out, 'checkOut')
+});
+
+const normalizeUpdateStayPayload = (body) => {
+  const checkIn = normalizeDate(
+    body.checkIn ?? body.checkInDate ?? body.check_in,
+    'checkIn'
+  );
+  const checkOut = normalizeDate(
+    body.checkOut ?? body.checkOutDate ?? body.check_out,
+    'checkOut'
+  );
+  // Chuỗi ngày ISO YYYY-MM-DD có thể so sánh trực tiếp bằng toán tử chuỗi
+  // (không cần thêm dayjs plugin isSameOrBefore, tránh lỗi TypeError)
+  if (!checkIn || !checkOut || checkOut <= checkIn) {
+    throw new HttpError(400, 'Ngày trả phòng phải sau ngày nhận phòng');
+  }
+  const roomTypeId = body.roomTypeId ?? body.room_type_id;
+  if (roomTypeId !== undefined && roomTypeId !== null && !Number.isInteger(Number(roomTypeId))) {
+    throw new HttpError(400, 'roomTypeId phải là số nguyên');
+  }
+  return {
+    checkIn,
+    checkOut,
+    roomTypeId: roomTypeId != null ? Number(roomTypeId) : null,
+  };
+};
+
+const normalizeGuestIdentitiesPayload = (body) => {
+  const guests = Array.isArray(body.guests) ? body.guests : [];
+  if (guests.length === 0) {
+    throw new HttpError(400, 'Danh sách khách lưu trú không được để trống');
+  }
+
+  return {
+    guests: guests.map((guest, index) => {
+      const fullName = String(guest.fullName ?? guest.full_name ?? '').trim();
+      const identityNumber = String(guest.identityNumber ?? guest.cccd ?? guest.identity_number ?? '').trim();
+
+      if (!fullName) {
+        throw new HttpError(400, `Vui lòng nhập họ tên khách thứ ${index + 1}`);
+      }
+      if (!identityNumber) {
+        throw new HttpError(400, `Vui lòng nhập giấy tờ tùy thân của khách thứ ${index + 1}`);
+      }
+      if (!/^\d{12}$/.test(identityNumber)) {
+        throw new HttpError(400, `Số CCCD của khách thứ ${index + 1} (${fullName}) phải bao gồm đúng 12 chữ số (không chứa chữ cái hoặc ký hiệu)`);
+      }
+
+      return {
+        fullName,
+        identityNumber,
+        phone: guest.phone ? String(guest.phone).trim() : null,
+        note: guest.note ? String(guest.note).trim() : null
+      };
+    })
+  };
+};
+
 const normalizeTransferRoomPayload = (body) => {
   const payload = {
     toRoomId: toPositiveInt(body.toRoomId ?? body.to_room_id, 'toRoomId'),
