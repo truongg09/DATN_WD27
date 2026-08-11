@@ -16,6 +16,7 @@ interface BookingServiceRow {
   bookingCustomer: string | null;
   roomNumber: string | null;
   bookingStatus: string | null;
+  status: string | null;
 }
 
 function BookingServicesTab() {
@@ -94,6 +95,27 @@ function BookingServicesTab() {
       sorter: (a: BookingServiceRow, b: BookingServiceRow) =>
         (parseFloat(a.totalPrice as string) || 0) - (parseFloat(b.totalPrice as string) || 0),
       render: (price: string | number) => <Tag color="green">{formatPrice(price)}</Tag>,
+    },
+    {
+      title: 'Trạng thái DV',
+      dataIndex: 'status',
+      key: 'status',
+      width: 140,
+      filters: [
+        { text: 'Đã sử dụng', value: 'used' },
+        { text: 'Chưa sử dụng', value: 'unused' },
+        { text: 'Đã hủy', value: 'cancelled' },
+      ],
+      onFilter: (value: unknown, record: BookingServiceRow) => record.status === value,
+      render: (status: string | null) => {
+        const map: Record<string, { label: string; color: string }> = {
+          used: { label: 'Đã sử dụng', color: 'green' },
+          unused: { label: 'Chưa sử dụng', color: 'orange' },
+          cancelled: { label: 'Đã hủy', color: 'default' },
+        };
+        const info = map[status || ''] || { label: status || '—', color: 'default' };
+        return <Tag color={info.color}>{info.label}</Tag>;
+      },
     },
     {
       title: 'Trạng thái đơn',

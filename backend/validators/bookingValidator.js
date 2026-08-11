@@ -77,10 +77,34 @@ const normalizeServiceRequestsPayload = (value) => {
   }
 
   return value
-    .map((item, index) => ({
-      serviceId: toPositiveInt(item.serviceId ?? item.service_id, `serviceRequests[${index}].serviceId`),
-      quantity: toPositiveInt(item.quantity ?? 1, `serviceRequests[${index}].quantity`)
-    }))
+    .map((item, index) => {
+      const rawRoomId = item.roomId ?? item.room_id;
+      const rawRoomIndex = item.roomIndex ?? item.room_index;
+      const rawBookingDetailId = item.bookingDetailId ?? item.booking_detail_id;
+
+      let roomId = null;
+      if (rawRoomId !== undefined && rawRoomId !== null && rawRoomId !== '') {
+        roomId = toPositiveInt(rawRoomId, `serviceRequests[${index}].roomId`);
+      }
+
+      let roomIndex = null;
+      if (rawRoomIndex !== undefined && rawRoomIndex !== null && rawRoomIndex !== '') {
+        roomIndex = toPositiveInt(rawRoomIndex, `serviceRequests[${index}].roomIndex`);
+      }
+
+      let bookingDetailId = null;
+      if (rawBookingDetailId !== undefined && rawBookingDetailId !== null && rawBookingDetailId !== '') {
+        bookingDetailId = toPositiveInt(rawBookingDetailId, `serviceRequests[${index}].bookingDetailId`);
+      }
+
+      return {
+        serviceId: toPositiveInt(item.serviceId ?? item.service_id, `serviceRequests[${index}].serviceId`),
+        quantity: toPositiveInt(item.quantity ?? 1, `serviceRequests[${index}].quantity`),
+        roomId,
+        roomIndex,
+        bookingDetailId
+      };
+    })
     .filter((item) => item.quantity > 0);
 };
 
@@ -334,24 +358,33 @@ const normalizeUpdateDamageChargePayload = (body) => {
   return payload;
 };
 
-const normalizeExtendStayPayload = (body) => {
-  return {
-    checkOut: normalizeDate(body.checkOut ?? body.check_out, 'checkOut')
-  };
-};
+const normalizeExtendStayPayload = (body) => ({
+  checkOut: normalizeDate(body.checkOut ?? body.checkOutDate ?? body.check_out, 'checkOut')
+});
 
 const normalizeUpdateStayPayload = (body) => {
-  const payload = {
-    checkIn: normalizeDate(body.checkIn ?? body.check_in, 'checkIn'),
-    checkOut: normalizeDate(body.checkOut ?? body.check_out, 'checkOut')
-  };
-
-  if (body.roomTypeId !== undefined && body.roomTypeId !== null) {
-    payload.roomTypeId = toPositiveInt(body.roomTypeId ?? body.room_type_id, 'roomTypeId');
+  const checkIn = normalizeDate(
+    body.checkIn ?? body.checkInDate ?? body.check_in,
+    'checkIn'
+  );
+  const checkOut = normalizeDate(
+    body.checkOut ?? body.checkOutDate ?? body.check_out,
+    'checkOut'
+  );
+  // Chuỗi ngày ISO YYYY-MM-DD có thể so sánh trực tiếp bằng toán tử chuỗi
+  // (không cần thêm dayjs plugin isSameOrBefore, tránh lỗi TypeError)
+  if (!checkIn || !checkOut || checkOut <= checkIn) {
+    throw new HttpError(400, 'Ngày trả phòng phải sau ngày nhận phòng');
   }
-
-  assertDateRange(payload.checkIn, payload.checkOut);
-  return payload;
+  const roomTypeId = body.roomTypeId ?? body.room_type_id;
+  if (roomTypeId !== undefined && roomTypeId !== null && !Number.isInteger(Number(roomTypeId))) {
+    throw new HttpError(400, 'roomTypeId phải là số nguyên');
+  }
+  return {
+    checkIn,
+    checkOut,
+    roomTypeId: roomTypeId != null ? Number(roomTypeId) : null,
+  };
 };
 
 const normalizeGuestIdentitiesPayload = (body) => {
@@ -370,6 +403,9 @@ const normalizeGuestIdentitiesPayload = (body) => {
       }
       if (!identityNumber) {
         throw new HttpError(400, `Vui lòng nhập giấy tờ tùy thân của khách thứ ${index + 1}`);
+      }
+      if (!/^\d{12}$/.test(identityNumber)) {
+        throw new HttpError(400, `Số CCCD của khách thứ ${index + 1} (${fullName}) phải bao gồm đúng 12 chữ số (không chứa chữ cái hoặc ký hiệu)`);
       }
 
       return {
