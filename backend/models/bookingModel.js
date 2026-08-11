@@ -868,7 +868,7 @@ const getBookingById = async (bookingId, connection, lock = false) => {
   return rows[0] || null;
 };
 
-const listBookings = async ({ userId, status } = {}) => {
+const listBookings = async ({ userId, status, search, page, limit } = {}, connection) => {
   const conditions = [];
   const values = [];
 
@@ -877,21 +877,78 @@ const listBookings = async ({ userId, status } = {}) => {
     values.push(userId);
   }
 
-  if (status) {
-    conditions.push('b.status = ?');
-    values.push(status);
+  const BOOKING_STATUS_EXPR = 'COALESCE(b.bookingStatus, b.status)';
+
+  if (status && status !== 'all') {
+    if (status === 'checkin_today') {
+      conditions.push(`DATE(COALESCE(bd.checkInDate, b.check_in)) = CURDATE() AND ${BOOKING_STATUS_EXPR} IN ('confirmed', 'pending')`);
+    } else if (status === 'checkout_today') {
+      conditions.push(`DATE(COALESCE(bd.checkOutDate, b.check_out)) = CURDATE() AND ${BOOKING_STATUS_EXPR} = 'checked_in'`);
+    } else {
+      conditions.push(`${BOOKING_STATUS_EXPR} = ?`);
+      values.push(status);
+    }
   }
 
-  const [rows] = await db.query(
+  if (search && String(search).trim()) {
+    const term = `%${String(search).trim()}%`;
+    const num = Number(search) || 0;
+    conditions.push('(b.guest_name LIKE ? OR c.fullName LIKE ? OR a.email LIKE ? OR c.phone LIKE ? OR r.roomNumber LIKE ? OR b.id = ?)');
+    values.push(term, term, term, term, term, num);
+  }
+
+  const isPaginated = page !== undefined || limit !== undefined;
+
+  if (!isPaginated) {
+    const [rows] = await run(connection).query(
+      `
+        ${BOOKING_SELECT}
+        ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}
+        GROUP BY b.id
+        ORDER BY b.created_at DESC, b.id DESC
+      `,
+      values
+    );
+    return rows;
+  }
+
+  const [[totalRow]] = await run(connection).query(
+    `
+      SELECT COUNT(DISTINCT b.id) AS total
+      FROM bookings b
+      LEFT JOIN booking_details bd ON bd.bookingId = b.id
+      LEFT JOIN customers c ON c.accountId = b.user_id
+      LEFT JOIN accounts a ON a.id = b.user_id
+      LEFT JOIN rooms r ON r.id = COALESCE(bd.roomId, b.room_id)
+      ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}
+    `,
+    values
+  );
+
+  const pageNum = Math.max(Number(page) || 1, 1);
+  const limitNum = Math.max(Number(limit) || 8, 1);
+  const offset = (pageNum - 1) * limitNum;
+
+  const [rows] = await run(connection).query(
     `
       ${BOOKING_SELECT}
       ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}
       GROUP BY b.id
-      ORDER BY b.created_at DESC
+      ORDER BY b.created_at DESC, b.id DESC
+      LIMIT ? OFFSET ?
     `,
-    values
+    [...values, limitNum, offset]
   );
-  return rows;
+
+  const total = Number(totalRow?.total || 0);
+
+  return {
+    data: rows,
+    total,
+    page: pageNum,
+    limit: limitNum,
+    totalPages: Math.ceil(total / limitNum),
+  };
 };
 
 const updateBookingStatus = async (bookingId, status, connection) => {

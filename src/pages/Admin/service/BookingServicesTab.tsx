@@ -147,7 +147,19 @@ function BookingServicesTab() {
       dataIndex: 'bookingStatus',
       key: 'bookingStatus',
       width: 130,
-      render: (status: string | null) => (status ? <Tag>{status}</Tag> : '—'),
+      render: (status: string | null) => {
+        if (!status) return '—';
+        const map: Record<string, { label: string; color: string }> = {
+          pending: { label: 'Chờ xác nhận', color: 'orange' },
+          confirmed: { label: 'Đã xác nhận', color: 'blue' },
+          checked_in: { label: 'Đã check-in', color: 'cyan' },
+          checked_out: { label: 'Đã trả phòng', color: 'purple' },
+          cancelled: { label: 'Đã hủy', color: 'red' },
+          no_show: { label: 'No-show', color: 'default' },
+        };
+        const info = map[status] || { label: status, color: 'default' };
+        return <Tag color={info.color}>{info.label}</Tag>;
+      },
     },
   ];
 

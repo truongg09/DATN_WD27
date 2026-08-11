@@ -711,7 +711,9 @@ function RoomManagement() {
       dataIndex: 'price_per_night',
       key: 'price_per_night',
       sorter: (a: Room, b: Room) => (parseFloat(a.price_per_night as string) || 0) - (parseFloat(b.price_per_night as string) || 0),
-      render: (price: string | number) => formatPrice(price)
+      render: (price: string | number) => (
+        <span style={{ whiteSpace: 'nowrap', fontWeight: 600 }}>{formatPrice(price)}</span>
+      )
     },
     {
       title: 'Sức chứa',
@@ -770,43 +772,46 @@ function RoomManagement() {
       title: 'Thao tác',
       key: 'action',
       render: (_: unknown, record: Room) => (
-        <Space>
-          <Button
-            type="primary"
-            style={{ backgroundColor: '#52c41a', borderColor: '#52c41a' }}
-            icon={<ToolOutlined />}
-            size="small"
-            onClick={() => handleManageItems(record)}
-            title="Quản lý vật tư"
-          >
-          </Button>
-          <Button
-            type="primary"
-            icon={<EyeOutlined style={{ color: 'white' }} />}
-            size="small"
-            onClick={() => handleViewDetail(record)}
-          >
-          </Button>
-          <Button
-            type="primary"
-            icon={<EditOutlined />}
-            size="small"
-            onClick={() => handleEdit(record)}
-          >
-          </Button>
+        <Space size={[4, 4]} wrap>
+          <Tooltip title="Quản lý vật tư phòng">
+            <Button
+              type="primary"
+              style={{ backgroundColor: '#52c41a', borderColor: '#52c41a' }}
+              icon={<ToolOutlined />}
+              size="small"
+              onClick={() => handleManageItems(record)}
+            />
+          </Tooltip>
+          <Tooltip title="Xem chi tiết phòng">
+            <Button
+              type="primary"
+              icon={<EyeOutlined style={{ color: 'white' }} />}
+              size="small"
+              onClick={() => handleViewDetail(record)}
+            />
+          </Tooltip>
+          <Tooltip title="Chỉnh sửa phòng">
+            <Button
+              type="primary"
+              icon={<EditOutlined />}
+              size="small"
+              onClick={() => handleEdit(record)}
+            />
+          </Tooltip>
           <Popconfirm
             title="Bạn có chắc chắn muốn xóa?"
             onConfirm={() => handleDelete(record.id)}
             okText="Xóa"
             cancelText="Hủy"
           >
-            <Button
-              type="primary"
-              danger
-              icon={<DeleteOutlined />}
-              size="small"
-            >
-            </Button>
+            <Tooltip title="Xóa phòng">
+              <Button
+                type="primary"
+                danger
+                icon={<DeleteOutlined />}
+                size="small"
+              />
+            </Tooltip>
           </Popconfirm>
         </Space>
       ),

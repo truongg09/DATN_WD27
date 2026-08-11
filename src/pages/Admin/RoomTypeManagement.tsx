@@ -15,7 +15,8 @@ import {
   Row,
   Col,
   Descriptions,
-  Divider
+  Divider,
+  Tooltip
 } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined, DownOutlined, EyeOutlined } from '@ant-design/icons';
 import axios from 'axios';
@@ -350,7 +351,9 @@ function RoomTypeManagement() {
       dataIndex: 'defaultPrice',
       key: 'defaultPrice',
       sorter: (a: RoomType, b: RoomType) => (parseFloat(a.defaultPrice as string) || 0) - (parseFloat(b.defaultPrice as string) || 0),
-      render: (price: string | number) => formatPrice(price)
+      render: (price: string | number) => (
+        <span style={{ whiteSpace: 'nowrap', fontWeight: 600 }}>{formatPrice(price)}</span>
+      )
     },
     {
       title: 'Trạng thái',
@@ -387,21 +390,23 @@ function RoomTypeManagement() {
       key: 'actions',
       width: 150,
       render: (_: unknown, record: RoomType) => (
-        <Space>
-          <Button
-            type="primary"
-            icon={<EyeOutlined style={{ color: 'white' }} />}
-            size="small"
-            onClick={() => handleViewDetail(record)}
-          >
-          </Button>
-          <Button
-            type="primary"
-            icon={<EditOutlined />}
-            size="small"
-            onClick={() => handleEdit(record)}
-          >
-          </Button>
+        <Space size={[4, 4]} wrap>
+          <Tooltip title="Xem chi tiết hạng phòng">
+            <Button
+              type="primary"
+              icon={<EyeOutlined style={{ color: 'white' }} />}
+              size="small"
+              onClick={() => handleViewDetail(record)}
+            />
+          </Tooltip>
+          <Tooltip title="Chỉnh sửa hạng phòng">
+            <Button
+              type="primary"
+              icon={<EditOutlined />}
+              size="small"
+              onClick={() => handleEdit(record)}
+            />
+          </Tooltip>
           <Popconfirm
             title="Bạn có chắc chắn muốn xóa?"
             description="Lưu ý: Chỉ xóa được hạng phòng khi không có phòng nào thuộc hạng này."
@@ -409,17 +414,18 @@ function RoomTypeManagement() {
             okText="Xóa"
             cancelText="Hủy"
           >
-            <Button
-              type="primary"
-              danger
-              icon={<DeleteOutlined />}
-              size="small"
-            >
-            </Button>
+            <Tooltip title="Xóa hạng phòng">
+              <Button
+                type="primary"
+                danger
+                icon={<DeleteOutlined />}
+                size="small"
+              />
+            </Tooltip>
           </Popconfirm>
         </Space>
       ),
-    }
+    },
   ];
 
   return (

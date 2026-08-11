@@ -364,13 +364,14 @@ function PaymentManagement() {
       title: 'Tổng tiền',
       dataIndex: 'totalAmount',
       key: 'totalAmount',
-      render: (amount: number) => formatPrice(amount),
+      render: (amount: number) => <span style={{ whiteSpace: 'nowrap' }}>{formatPrice(amount)}</span>,
     },
     {
-      title: 'Đã trả',
+      title: 'Số tiền thanh toán',
       dataIndex: 'paidAmount',
       key: 'paidAmount',
-      render: (amount: number) => formatPrice(amount),
+      align: 'right' as const,
+      render: (amount: number) => <span style={{ whiteSpace: 'nowrap', fontWeight: 600 }}>{formatPrice(amount)}</span>,
     },
     {
       title: 'Phương thức',

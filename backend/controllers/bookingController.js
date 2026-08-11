@@ -96,9 +96,22 @@ const listBookings = async (req, res) => {
     if (req.query.status) {
       filters.status = req.query.status;
     }
+    if (req.query.search) {
+      filters.search = req.query.search;
+    }
+    if (req.query.page) {
+      filters.page = Number(req.query.page);
+    }
+    if (req.query.limit) {
+      filters.limit = Number(req.query.limit);
+    }
 
-    const bookings = await bookingService.listBookings(filters);
-    res.json({ data: bookings });
+    const result = await bookingService.listBookings(filters);
+    if (result && typeof result === 'object' && !Array.isArray(result) && Array.isArray(result.data)) {
+      res.json(result);
+    } else {
+      res.json({ data: result });
+    }
   } catch (error) {
     sendError(res, error);
   }
