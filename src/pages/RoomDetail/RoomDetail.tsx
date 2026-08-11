@@ -263,7 +263,7 @@ const RoomDetail: React.FC = () => {
               </button>
               <img
                 src={room.images[selectedImage]}
-                alt={`Phòng ${room.roomNumber}`}
+                alt={`Hình ảnh ${room.room_type_name || 'phòng'}`}
                 onClick={() => {
                   setSelectedImage((prev) =>
                     prev === room.images.length - 1 ? 0 : prev + 1,

@@ -457,10 +457,14 @@ const BookingDetail: React.FC = () => {
             <Descriptions.Item label="Khách hàng">{String(booking.customer_name)}</Descriptions.Item>
             <Descriptions.Item label="Email">{String(booking.customer_email)}</Descriptions.Item>
             <Descriptions.Item label="SĐT">{String(booking.customer_phone || '-')}</Descriptions.Item>
-            <Descriptions.Item label="Phòng">
-              {String(booking.room_number)} - {String(booking.room_type_name)}
+            <Descriptions.Item label="Hạng phòng">
+              {booking.status === 'checked_in' && booking.room_number
+                ? `Phòng ${booking.room_number} - ${booking.room_type_name || ''}`
+                : `${booking.room_type_name || 'Đặt phòng'} (Số phòng phân bố khi nhận phòng)`}
             </Descriptions.Item>
-            <Descriptions.Item label="Tầng">{String(booking.room_floor ?? '-')}</Descriptions.Item>
+            {booking.status === 'checked_in' && (
+              <Descriptions.Item label="Tầng">{String(booking.room_floor ?? '-')}</Descriptions.Item>
+            )}
             <Descriptions.Item label="Diện tích">
               {booking.room_area ? `${String(booking.room_area)} m²` : '-'}
             </Descriptions.Item>
@@ -693,8 +697,9 @@ const BookingDetail: React.FC = () => {
                     <td>
                       <strong>Tiền phòng lưu trú</strong>
                       <small style={{ display: 'block', color: '#888' }}>
-                        {booking.room_number ? `Phòng ${String(booking.room_number)}` : 'Chưa xếp phòng'}{' '}
-                        {booking.room_type_name ? `(${String(booking.room_type_name)})` : ''}
+                        {booking.status === 'checked_in' && booking.room_number
+                          ? `Phòng ${String(booking.room_number)} (${booking.room_type_name || ''})`
+                          : String(booking.room_type_name || 'Đặt phòng')}
                       </small>
                     </td>
                     <td style={{ textAlign: 'center' }}>{nights} đêm</td>
