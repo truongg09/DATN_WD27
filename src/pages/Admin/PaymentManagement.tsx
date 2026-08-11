@@ -357,8 +357,8 @@ function PaymentManagement() {
     },
     {
       title: 'Phòng',
-      dataIndex: 'roomNumber',
-      key: 'roomNumber',
+      key: 'room_number',
+      render: (_: unknown, record: any) => record.room_number || record.roomNumber || '-',
     },
     {
       title: 'Tổng tiền',
