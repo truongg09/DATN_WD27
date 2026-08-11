@@ -449,79 +449,79 @@ const PaymentSettings = () => {
         </Card>
       ),
     },
-    {
-      key: '4',
-      label: (
-        <span>
-          <TeamOutlined /> Phụ thu trẻ em
-        </span>
-      ),
-      children: (
-        <Card title={<><TeamOutlined /> Chính sách phụ thu trẻ em & Người ở thêm</>} style={{ maxWidth: 660 }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-              <div>
-                <div style={{ marginBottom: 6 }}>Miễn phí đến (tuổi)</div>
-                <InputNumber
-                  min={0}
-                  max={17}
-                  value={childrenPolicy.freeMaxAge}
-                  onChange={(value) =>
-                    setChildrenPolicy((prev) => ({ ...prev, freeMaxAge: Number(value) || 0 }))
-                  }
-                />
-              </div>
-              <div>
-                <div style={{ marginBottom: 6 }}>Phụ thu đến (tuổi)</div>
-                <InputNumber
-                  min={1}
-                  max={17}
-                  value={childrenPolicy.childMaxAge}
-                  onChange={(value) =>
-                    setChildrenPolicy((prev) => ({ ...prev, childMaxAge: Number(value) || 0 }))
-                  }
-                />
-              </div>
-              <div>
-                <div style={{ marginBottom: 6 }}>Phụ thu mỗi đêm (₫)</div>
-                <InputNumber
-                  min={0}
-                  step={50000}
-                  style={{ width: 180 }}
-                  value={childrenPolicy.surchargePerNight}
-                  onChange={(value) =>
-                    setChildrenPolicy((prev) => ({ ...prev, surchargePerNight: Number(value) || 0 }))
-                  }
-                  formatter={(value) => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, '.')}
-                  parser={(value) => Number((value || '0').replace(/\./g, ''))}
-                />
-              </div>
-            </div>
-            <Alert
-              type="info"
-              showIcon
-              message={`Hiện tại: 0–${childrenPolicy.freeMaxAge} tuổi miễn phí · ${childrenPolicy.freeMaxAge + 1}–${childrenPolicy.childMaxAge} tuổi phụ thu ${new Intl.NumberFormat('vi-VN').format(childrenPolicy.surchargePerNight)}₫/đêm · từ ${childrenPolicy.childMaxAge + 1} tuổi tính như người lớn`}
-            />
-            <Button
-              type="primary"
-              icon={<SaveOutlined />}
-              loading={savingChildrenPolicy}
-              style={{ alignSelf: 'flex-start' }}
-              onClick={handleSaveChildrenPolicy}
-            >
-              Lưu chính sách trẻ em
-            </Button>
-          </div>
-        </Card>
-      ),
-    },
+    // {
+    //   key: '4',
+    //   label: (
+    //     <span>
+    //       <TeamOutlined /> Phụ thu trẻ em
+    //     </span>
+    //   ),
+    //   children: (
+    //     <Card title={<><TeamOutlined /> Chính sách phụ thu trẻ em & Người ở thêm</>} style={{ maxWidth: 660 }}>
+    //       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+    //         <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+    //           <div>
+    //             <div style={{ marginBottom: 6 }}>Miễn phí đến (tuổi)</div>
+    //             <InputNumber
+    //               min={0}
+    //               max={17}
+    //               value={childrenPolicy.freeMaxAge}
+    //               onChange={(value) =>
+    //                 setChildrenPolicy((prev) => ({ ...prev, freeMaxAge: Number(value) || 0 }))
+    //               }
+    //             />
+    //           </div>
+    //           <div>
+    //             <div style={{ marginBottom: 6 }}>Phụ thu đến (tuổi)</div>
+    //             <InputNumber
+    //               min={1}
+    //               max={17}
+    //               value={childrenPolicy.childMaxAge}
+    //               onChange={(value) =>
+    //                 setChildrenPolicy((prev) => ({ ...prev, childMaxAge: Number(value) || 0 }))
+    //               }
+    //             />
+    //           </div>
+    //           <div>
+    //             <div style={{ marginBottom: 6 }}>Phụ thu mỗi đêm (₫)</div>
+    //             <InputNumber
+    //               min={0}
+    //               step={50000}
+    //               style={{ width: 180 }}
+    //               value={childrenPolicy.surchargePerNight}
+    //               onChange={(value) =>
+    //                 setChildrenPolicy((prev) => ({ ...prev, surchargePerNight: Number(value) || 0 }))
+    //               }
+    //               formatter={(value) => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, '.')}
+    //               parser={(value) => Number((value || '0').replace(/\./g, ''))}
+    //             />
+    //           </div>
+    //         </div>
+    //         <Alert
+    //           type="info"
+    //           showIcon
+    //           message={`Hiện tại: 0–${childrenPolicy.freeMaxAge} tuổi miễn phí · ${childrenPolicy.freeMaxAge + 1}–${childrenPolicy.childMaxAge} tuổi phụ thu ${new Intl.NumberFormat('vi-VN').format(childrenPolicy.surchargePerNight)}₫/đêm · từ ${childrenPolicy.childMaxAge + 1} tuổi tính như người lớn`}
+    //         />
+    //         <Button
+    //           type="primary"
+    //           icon={<SaveOutlined />}
+    //           loading={savingChildrenPolicy}
+    //           style={{ alignSelf: 'flex-start' }}
+    //           onClick={handleSaveChildrenPolicy}
+    //         >
+    //           Lưu chính sách trẻ em
+    //         </Button>
+    //       </div>
+    //     </Card>
+    //   ),
+    // },
   ];
 
   return (
     <div style={{ maxWidth: 1050 }}>
       <h1 style={{ marginBottom: 4 }}>Cài đặt & Chính sách</h1>
       <p style={{ color: '#8a93a5', marginBottom: 20 }}>
-        Quản lý tài khoản thanh toán, giờ nhận/trả phòng chuẩn, chính sách phụ thu trễ giờ, phụ thu trẻ em và quy định hủy phòng.
+        Quản lý tài khoản thanh toán, giờ nhận/trả phòng chuẩn, chính sách phụ thu trễ giờ.
       </p>
 
       <Tabs defaultActiveKey="1" items={tabItems} size="large" />

@@ -12,7 +12,9 @@ import {
   Popconfirm,
   Space,
   Card,
-  Descriptions
+  Descriptions,
+  Tag,
+  Tooltip
 } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined, EyeOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
@@ -171,49 +173,49 @@ function EmployeeManagement() {
       dataIndex: 'status',
       key: 'status',
       render: (status: string) => (
-        <span style={{
-          color: status === 'active' ? '#52c41a' : '#ff4d4f',
-          fontWeight: 'bold'
-        }}>
-          {status === 'active' ? 'Hoạt động' : 'Không hoạt động'}
-        </span>
+        <Tag color={status === 'active' ? 'green' : 'red'}>
+          {status === 'active' ? 'Hoạt động' : 'Tạm khóa'}
+        </Tag>
       )
     },
     {
       title: 'Thao tác',
       key: 'actions',
       render: (_: unknown, record: Employee) => (
-        <Space>
-          <Button
-            type="primary"
-            icon={<EyeOutlined style={{ color: 'white' }} />}
-            size="small"
-            onClick={() => handleViewDetail(record)}
-          >
-          </Button>
-          <Button 
-            type="primary" 
-            icon={<EditOutlined />} 
-            size="small"
-            onClick={() => handleEdit(record)}
-          >
-          </Button>
+        <Space size={[4, 4]} wrap>
+          <Tooltip title="Xem chi tiết nhân viên">
+            <Button
+              type="primary"
+              icon={<EyeOutlined style={{ color: 'white' }} />}
+              size="small"
+              onClick={() => handleViewDetail(record)}
+            />
+          </Tooltip>
+          <Tooltip title="Chỉnh sửa nhân viên">
+            <Button 
+              type="primary" 
+              icon={<EditOutlined />} 
+              size="small"
+              onClick={() => handleEdit(record)}
+            />
+          </Tooltip>
           <Popconfirm
             title="Bạn có chắc chắn muốn xóa?"
             onConfirm={() => handleDelete(record.id)}
             okText="Xóa"
             cancelText="Hủy"
           >
-            <Button 
-              type="primary" 
-              danger 
-              icon={<DeleteOutlined />} 
-              size="small"
-            >
-            </Button>
+            <Tooltip title="Xóa nhân viên">
+              <Button 
+                type="primary" 
+                danger 
+                icon={<DeleteOutlined />} 
+                size="small"
+              />
+            </Tooltip>
           </Popconfirm>
         </Space>
-      ),
+      )
     },
   ];
 

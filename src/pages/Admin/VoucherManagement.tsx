@@ -1,5 +1,5 @@
-﻿import { useEffect, useState } from 'react';
-import { Table, Button, Modal, Form, Input, InputNumber, DatePicker, message, Space, Card, Tag, Popconfirm, Select, Row, Col, Statistic, Descriptions } from 'antd';
+import { useEffect, useState } from 'react';
+import { Table, Button, Modal, Form, Input, InputNumber, DatePicker, message, Space, Card, Tag, Popconfirm, Select, Row, Col, Statistic, Descriptions, Tooltip } from 'antd';
 import { PlusOutlined, ReloadOutlined, EditOutlined, DeleteOutlined, CalendarOutlined, GiftOutlined, DollarOutlined, EyeOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import { getVouchers, createVoucher, updateVoucher, deleteVoucher } from '../../services/voucherService';
@@ -149,7 +149,11 @@ function VoucherManagement() {
       dataIndex: 'discountValue',
       key: 'discountValue',
       render: (_: object, record: AdminVoucher) => 
-        record.discountType === 'percentage' ? formatPercentage(record.discountValue) : `${record.discountValue}đ`,
+        record.discountType === 'percentage' ? (
+          <span style={{ whiteSpace: 'nowrap', fontWeight: 600 }}>{formatPercentage(record.discountValue)}</span>
+        ) : (
+          <span style={{ whiteSpace: 'nowrap', fontWeight: 600 }}>{new Intl.NumberFormat('vi-VN').format(Number(record.discountValue))} VNĐ</span>
+        ),
     },
     {
       title: 'Số lượng',
@@ -181,34 +185,37 @@ function VoucherManagement() {
       title: 'Thao tác',
       key: 'action',
       render: (_: object, record: AdminVoucher) => (
-        <Space>
-          <Button
-            type="primary"
-            icon={<EyeOutlined style={{ color: 'white' }} />}
-            size="small"
-            onClick={() => handleViewDetail(record)}
-          >
-          </Button>
-          <Button
-            type="primary"
-            icon={<EditOutlined />}
-            size="small"
-            onClick={() => openEditModal(record)}
-          >
-          </Button>
+        <Space size={[4, 4]} wrap>
+          <Tooltip title="Xem chi tiết voucher">
+            <Button
+              type="primary"
+              icon={<EyeOutlined style={{ color: 'white' }} />}
+              size="small"
+              onClick={() => handleViewDetail(record)}
+            />
+          </Tooltip>
+          <Tooltip title="Chỉnh sửa voucher">
+            <Button
+              type="primary"
+              icon={<EditOutlined />}
+              size="small"
+              onClick={() => openEditModal(record)}
+            />
+          </Tooltip>
           <Popconfirm
             title="Bạn có chắc chắn muốn xóa?"
             onConfirm={() => handleDelete(record.id)}
             okText="Xóa"
             cancelText="Hủy"
           >
-            <Button
-              type="primary"
-              danger
-              icon={<DeleteOutlined />}
-              size="small"
-            >
-            </Button>
+            <Tooltip title="Xóa voucher">
+              <Button
+                type="primary"
+                danger
+                icon={<DeleteOutlined />}
+                size="small"
+              />
+            </Tooltip>
           </Popconfirm>
         </Space>
       ),

@@ -11,8 +11,9 @@ const BOOKING_SELECT = `
     b.voucherId AS voucher_id,
     b.user_id,
     b.status,
-    b.total_price,
-    b.totalAmount AS booking_total_amount,
+    COALESCE(b.totalAmount, b.total_price, 0) AS total_price,
+    COALESCE(b.total_price, 0) AS room_total_price,
+    COALESCE(b.totalAmount, b.total_price, 0) AS booking_total_amount,
     COALESCE(
       (
         SELECT p.totalAmount
@@ -21,36 +22,40 @@ const BOOKING_SELECT = `
         ORDER BY p.id DESC
         LIMIT 1
       ),
+      b.totalAmount,
       b.total_price,
       0
     ) AS payable_total,
     b.created_at,
+    b.holdExpiresAt AS hold_expires_at,
+    NOW() AS server_now,
+    GREATEST(TIMESTAMPDIFF(SECOND, NOW(), b.holdExpiresAt), 0) AS hold_remaining_seconds,
     b.notes,
     b.extraGuestSnapshot AS extra_guest_snapshot,
     b.cancellation_reason,
-    bd.id AS detail_id,
-    bd.roomId AS room_id,
-    DATE(COALESCE(bd.checkInDate, b.check_in)) AS check_in,
-    DATE(COALESCE(bd.checkOutDate, b.check_out)) AS check_out,
-    bd.adults,
-    bd.children,
-    bd.roomPrice AS room_price,
-    COALESCE(bd.occupancySurcharge, 0) AS occupancy_surcharge,
-    COALESCE(bd.requestedCheckInTime, b.requestedCheckInTime) AS requested_check_in_time,
-    COALESCE(bd.requestedCheckOutTime, b.requestedCheckOutTime) AS requested_check_out_time,
-    COALESCE(bd.requestedCheckInDayOffset, b.requestedCheckInDayOffset, 0) AS requested_check_in_day_offset,
+    MIN(bd.id) AS detail_id,
+    COALESCE(MIN(bd.roomId), b.room_id) AS room_id,
+    DATE(COALESCE(MIN(bd.checkInDate), b.check_in)) AS check_in,
+    DATE(COALESCE(MIN(bd.checkOutDate), b.check_out)) AS check_out,
+    SUM(COALESCE(bd.adults, 0)) AS adults,
+    SUM(COALESCE(bd.children, 0)) AS children,
+    GREATEST(COUNT(DISTINCT bd.id), 1) AS room_quantity,
+    MIN(bd.roomPrice) AS room_price,
+    SUM(COALESCE(bd.occupancySurcharge, 0)) AS occupancy_surcharge,
+    COALESCE(MIN(bd.requestedCheckInTime), b.requestedCheckInTime) AS requested_check_in_time,
+    COALESCE(MIN(bd.requestedCheckOutTime), b.requestedCheckOutTime) AS requested_check_out_time,
+    COALESCE(MIN(bd.requestedCheckInDayOffset), b.requestedCheckInDayOffset, 0) AS requested_check_in_day_offset,
     b.actualCheckInTime AS actual_check_in_time,
     b.actualCheckOutTime AS actual_check_out_time,
-    COALESCE(b.guest_name, c.fullName) AS customer_name,
-    COALESCE(b.guest_email, a.email) AS customer_email,
-    COALESCE(b.guest_phone, c.phone, a.phone) AS customer_phone,
-    r.roomNumber AS room_number,
-    r.floor AS room_floor,
-    r.area AS room_area,
-    r.status AS room_status,
-    rt.typeName AS room_type_name,
-    rt.defaultPrice AS price_per_night,
-    rt.capacity AS room_capacity
+    COALESCE(b.guest_name, MAX(c.fullName)) AS customer_name,
+    COALESCE(b.guest_email, MAX(a.email)) AS customer_email,
+    GROUP_CONCAT(DISTINCT r.roomNumber ORDER BY r.roomNumber SEPARATOR ', ') AS room_number,
+    MIN(r.floor) AS room_floor,
+    MIN(r.area) AS room_area,
+    MIN(r.status) AS room_status,
+    COALESCE(GROUP_CONCAT(DISTINCT rt.typeName SEPARATOR ', '), 'Đặt phòng') AS room_type_name,
+    MIN(rt.defaultPrice) AS price_per_night,
+    MIN(rt.capacity) AS room_capacity
   FROM bookings b
   LEFT JOIN booking_details bd ON bd.bookingId = b.id
   LEFT JOIN customers c ON c.accountId = b.user_id
@@ -120,17 +125,31 @@ const getRoomWithType = async (roomId, connection, lock = false) => {
 
 const expireUnpaidBookingHolds = async (connection) => {
   await run(connection).query(
+    `UPDATE payment_gateway_orders
+     SET status = 'expired'
+     WHERE status = 'created'
+       AND DATE_ADD(expiresAt, INTERVAL 60 SECOND) <= NOW()`
+  );
+  const [result] = await run(connection).query(
     `
       UPDATE bookings b
       JOIN payments p ON p.bookingId = b.id
       SET b.status = 'cancelled',
-          b.bookingStatus = 'cancelled'
+          b.bookingStatus = 'cancelled',
+          b.cancellation_reason = COALESCE(b.cancellation_reason, 'Hết thời gian giữ phòng')
       WHERE b.status IN ('pending', 'confirmed')
         AND p.paymentStatus = 'unpaid'
         AND COALESCE(p.paidAmount, 0) <= 0
-        AND b.created_at < DATE_SUB(NOW(), INTERVAL ${HOLD_MINUTES} MINUTE)
+        AND COALESCE(b.holdExpiresAt, DATE_ADD(b.created_at, INTERVAL ${HOLD_MINUTES} MINUTE)) <= NOW()
+        AND NOT EXISTS (
+          SELECT 1 FROM payment_gateway_orders pgo
+          WHERE pgo.bookingId = b.id
+            AND pgo.status = 'created'
+            AND DATE_ADD(pgo.expiresAt, INTERVAL 60 SECOND) > NOW()
+        )
     `
   );
+  return result.affectedRows || 0;
 };
 
 const getSecuredConflictingBookings = async (
@@ -352,9 +371,9 @@ const createBooking = async (payload, totalPrice, connection, extraGuestSnapshot
       INSERT INTO bookings (
         user_id, customerId, room_id, check_in, check_out, total_price, totalAmount,
         status, bookingStatus, notes, extraGuestSnapshot, guest_name, guest_email, guest_phone,
-        requestedCheckInTime, requestedCheckOutTime
+        requestedCheckInTime, requestedCheckOutTime, holdExpiresAt
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ${HOLD_MINUTES} MINUTE))
     `,
     [
       payload.userId,
@@ -859,13 +878,13 @@ const listRoomPriceRanges = async (roomTypeId, connection) => {
 
 const getBookingById = async (bookingId, connection, lock = false) => {
   const [rows] = await run(connection).query(
-    `${BOOKING_SELECT} WHERE b.id = ? ${lock ? 'FOR UPDATE' : ''}`,
+    `${BOOKING_SELECT} WHERE b.id = ? GROUP BY b.id ${lock ? 'FOR UPDATE' : ''}`,
     [bookingId]
   );
   return rows[0] || null;
 };
 
-const listBookings = async ({ userId, status } = {}) => {
+const listBookings = async ({ userId, status, search, page, limit } = {}, connection) => {
   const conditions = [];
   const values = [];
 
@@ -874,50 +893,79 @@ const listBookings = async ({ userId, status } = {}) => {
     values.push(userId);
   }
 
-  if (status) {
-    conditions.push('b.status = ?');
-    values.push(status);
+  const BOOKING_STATUS_EXPR = 'COALESCE(b.bookingStatus, b.status)';
+
+  if (status && status !== 'all') {
+    if (status === 'checkin_today') {
+      conditions.push(`DATE(COALESCE(bd.checkInDate, b.check_in)) = CURDATE() AND ${BOOKING_STATUS_EXPR} IN ('confirmed', 'pending')`);
+    } else if (status === 'checkout_today') {
+      conditions.push(`DATE(COALESCE(bd.checkOutDate, b.check_out)) = CURDATE() AND ${BOOKING_STATUS_EXPR} = 'checked_in'`);
+    } else {
+      conditions.push(`${BOOKING_STATUS_EXPR} = ?`);
+      values.push(status);
+    }
   }
 
-  const [rows] = await db.query(
+  if (search && String(search).trim()) {
+    const term = `%${String(search).trim()}%`;
+    const num = Number(search) || 0;
+    conditions.push('(b.guest_name LIKE ? OR c.fullName LIKE ? OR a.email LIKE ? OR c.phone LIKE ? OR r.roomNumber LIKE ? OR b.id = ?)');
+    values.push(term, term, term, term, term, num);
+  }
+
+  const isPaginated = page !== undefined || limit !== undefined;
+
+  if (!isPaginated) {
+    const [rows] = await run(connection).query(
+      `
+        ${BOOKING_SELECT}
+        ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}
+        GROUP BY b.id
+        ORDER BY b.created_at DESC, b.id DESC
+      `,
+      values
+    );
+    return rows;
+  }
+
+  const [[totalRow]] = await run(connection).query(
     `
-      ${BOOKING_SELECT}
+      SELECT COUNT(DISTINCT b.id) AS total
+      FROM bookings b
+      LEFT JOIN booking_details bd ON bd.bookingId = b.id
+      LEFT JOIN customers c ON c.accountId = b.user_id
+      LEFT JOIN accounts a ON a.id = b.user_id
+      LEFT JOIN rooms r ON r.id = COALESCE(bd.roomId, b.room_id)
       ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}
-      ORDER BY b.created_at DESC
     `,
     values
   );
 
-  const uniqueMap = new Map();
-  for (const row of rows) {
-    if (!uniqueMap.has(row.id)) {
-      uniqueMap.set(row.id, {
-        ...row,
-        _roomNumbers: row.room_number ? [String(row.room_number)] : [],
-        _roomTypeNames: row.room_type_name ? [String(row.room_type_name)] : []
-      });
-    } else {
-      const existing = uniqueMap.get(row.id);
-      if (row.room_number && !existing._roomNumbers.includes(String(row.room_number))) {
-        existing._roomNumbers.push(String(row.room_number));
-      }
-      if (row.room_type_name && !existing._roomTypeNames.includes(String(row.room_type_name))) {
-        existing._roomTypeNames.push(String(row.room_type_name));
-      }
-    }
-  }
+  const pageNum = Math.max(Number(page) || 1, 1);
+  const limitNum = Math.max(Number(limit) || 8, 1);
+  const offset = (pageNum - 1) * limitNum;
 
-  return Array.from(uniqueMap.values()).map(item => {
-    const joinedRooms = item._roomNumbers.join(', ');
-    const joinedTypes = item._roomTypeNames.join(', ');
-    delete item._roomNumbers;
-    delete item._roomTypeNames;
-    return {
-      ...item,
-      room_number: joinedRooms || item.room_number,
-      room_type_name: joinedTypes || item.room_type_name
-    };
-  });
+  const [rows] = await run(connection).query(
+    `
+      ${BOOKING_SELECT}
+      ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}
+      GROUP BY b.id
+      ORDER BY b.created_at DESC, b.id DESC
+      LIMIT ? OFFSET ?
+    `,
+    [...values, limitNum, offset]
+  );
+
+  const total = Number(totalRow?.total || 0);
+
+  return {
+    data: rows,
+    total,
+    page: pageNum,
+    limit: limitNum,
+    totalPages: Math.ceil(total / limitNum),
+  };
+};
 };
 
 const updateBookingStatus = async (bookingId, status, connection) => {
@@ -1009,18 +1057,22 @@ const listBookingHistory = async (bookingId, connection) => {
 // Lấy tên hiển thị của người thực hiện thao tác từ tài khoản.
 const getActorDisplayName = async (accountId, connection) => {
   if (!accountId) return null;
-  const [rows] = await run(connection).query(
-    `
-      SELECT COALESCE(NULLIF(e.fullName, ''), NULLIF(c.fullName, ''), NULLIF(a.full_name, ''), a.email) AS name
-      FROM accounts a
-      LEFT JOIN customers c ON c.accountId = a.id
-      LEFT JOIN employees e ON e.accountId = a.id
-      WHERE a.id = ?
-      LIMIT 1
-    `,
-    [accountId]
-  );
-  return rows[0]?.name || null;
+  try {
+    const [rows] = await run(connection).query(
+      `
+        SELECT COALESCE(NULLIF(c.fullName, ''), NULLIF(a.full_name, ''), a.email) AS name
+        FROM accounts a
+        LEFT JOIN customers c ON c.accountId = a.id
+        WHERE a.id = ?
+        LIMIT 1
+      `,
+      [accountId]
+    );
+    return rows[0]?.name || null;
+  } catch (err) {
+    console.error('getActorDisplayName error:', err.message);
+    return null;
+  }
 };
 
 const listEligibleNoShowBookings = async (connection) => {
@@ -1188,6 +1240,28 @@ const findActiveCheckedInBooking = async (roomId, excludeBookingId, connection) 
 };
 
 const addLateCheckoutCharge = async (bookingId, payload, connection) => {
+  const [existing] = await run(connection).query(
+    'SELECT id FROM booking_late_checkout_charges WHERE bookingId = ? ORDER BY id ASC LIMIT 1',
+    [bookingId]
+  );
+
+  if (existing.length > 0) {
+    const chargeId = existing[0].id;
+    await run(connection).query(
+      `
+        UPDATE booking_late_checkout_charges
+        SET lateMinutes = ?, tierPercent = ?, nightlyRate = ?, totalPrice = ?, note = ?
+        WHERE id = ?
+      `,
+      [payload.lateMinutes, payload.tierPercent, payload.nightlyRate, payload.totalPrice, payload.note || null, chargeId]
+    );
+    await run(connection).query(
+      'DELETE FROM booking_late_checkout_charges WHERE bookingId = ? AND id != ?',
+      [bookingId, chargeId]
+    );
+    return { id: chargeId, totalPrice: payload.totalPrice };
+  }
+
   const [result] = await run(connection).query(
     `
       INSERT INTO booking_late_checkout_charges

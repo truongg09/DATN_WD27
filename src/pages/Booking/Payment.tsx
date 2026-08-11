@@ -29,9 +29,10 @@ const formatDate = (date: string | Date) => {
 const HOLD_MINUTES = 15;
 const HOLD_DURATION_MS = HOLD_MINUTES * 60 * 1000;
 
-const getHoldRemainingMs = (createdAt?: unknown) => {
-  if (!createdAt) return 0;
-  return Math.max(dayjs(String(createdAt)).add(HOLD_MINUTES, 'minute').diff(dayjs()), 0);
+const getHoldRemainingMs = (expiresAt?: unknown, serverNow?: unknown) => {
+  if (!expiresAt) return 0;
+  const clock = serverNow ? dayjs(String(serverNow)) : dayjs();
+  return Math.max(dayjs(String(expiresAt)).diff(clock), 0);
 };
 
 const formatHoldTime = (milliseconds: number) => {
@@ -152,18 +153,23 @@ const PaymentPage: React.FC = () => {
 
   useEffect(() => {
     if (!booking || payment?.paymentStatus !== 'unpaid') {
-      setHoldRemainingMs(0);
-      return;
+      const resetTimer = window.setTimeout(() => setHoldRemainingMs(0), 0);
+      return () => window.clearTimeout(resetTimer);
     }
 
+    const initialRemaining = getHoldRemainingMs(booking.hold_expires_at, booking.server_now);
+    const startedAt = Date.now();
     const updateRemaining = () => {
-      setHoldRemainingMs(getHoldRemainingMs(booking.created_at));
+      setHoldRemainingMs(Math.max(initialRemaining - (Date.now() - startedAt), 0));
     };
 
-    updateRemaining();
+    const initialTimer = window.setTimeout(updateRemaining, 0);
     const timer = window.setInterval(updateRemaining, 1000);
 
-    return () => window.clearInterval(timer);
+    return () => {
+      window.clearTimeout(initialTimer);
+      window.clearInterval(timer);
+    };
   }, [booking, payment?.paymentStatus]);
 
   const isPaid = payment?.paymentStatus === 'paid';
