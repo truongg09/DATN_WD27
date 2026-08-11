@@ -35,13 +35,13 @@ const getCheckInDayStart = (checkInDate) =>
   new Date(`${dayString(checkInDate)}T00:00:00`);
 
 const isWithinLateCheckInWindow = (checkInDate, requestedCheckInTime = DEFAULT_STANDARD_CHECKIN_TIME, now = new Date(), dayOffset = 0) => {
-  const start = combineDateTime(checkInDate, requestedCheckInTime || DEFAULT_STANDARD_CHECKIN_TIME, dayOffset);
   const deadline = getLateCheckInDeadline(checkInDate, requestedCheckInTime, LATE_CHECKIN_GRACE_HOUR, dayOffset);
-  return now >= start && now <= deadline;
+  return now <= deadline;
 };
 
 const isLateCheckIn = (checkInDate, requestedCheckInTime = DEFAULT_STANDARD_CHECKIN_TIME, now = new Date(), dayOffset = 0) => {
-  const requestedCheckIn = combineDateTime(checkInDate, requestedCheckInTime || DEFAULT_STANDARD_CHECKIN_TIME, dayOffset);
+  const checkInStartHour = (requestedCheckInTime && requestedCheckInTime < DEFAULT_STANDARD_CHECKIN_TIME) ? requestedCheckInTime : DEFAULT_STANDARD_CHECKIN_TIME;
+  const requestedCheckIn = combineDateTime(checkInDate, checkInStartHour, dayOffset);
   const deadline = getLateCheckInDeadline(checkInDate, requestedCheckInTime, LATE_CHECKIN_GRACE_HOUR, dayOffset);
   return now > requestedCheckIn && now <= deadline;
 };

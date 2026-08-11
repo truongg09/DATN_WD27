@@ -2732,7 +2732,7 @@ const checkIn = async (bookingId, payload = {}, actor = null) => {
     }
 
     const now = new Date();
-    if (!isWithinLateCheckInWindow(booking.check_in, now)) {
+    if (!isWithinLateCheckInWindow(booking.check_in, booking.requested_check_in_time, now, booking.requested_check_in_day_offset)) {
       const checkInDay = new Date(`${dayString(booking.check_in)}T00:00:00`);
       if (now < checkInDay) {
         throw new HttpError(409, "Chưa đến ngày nhận phòng");
@@ -2869,8 +2869,8 @@ const markNoShow = async (
       );
     }
 
-    if (!allowBeforeDeadline && !isPastNoShowDeadline(booking.check_in)) {
-      const deadline = getLateCheckInDeadline(booking.check_in);
+    if (!allowBeforeDeadline && !isPastNoShowDeadline(booking.check_in, booking.requested_check_in_time, new Date(), booking.requested_check_in_day_offset)) {
+      const deadline = getLateCheckInDeadline(booking.check_in, booking.requested_check_in_time, LATE_CHECKIN_GRACE_HOUR, booking.requested_check_in_day_offset);
       throw new HttpError(
         409,
         `Chưa đến thời điểm xử lý no-show. Hệ thống sẽ tự động xử lý sau ${deadline.toLocaleString("vi-VN")}`,
