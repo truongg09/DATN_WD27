@@ -6,8 +6,8 @@ const PAYMENT_SELECT = `
   SELECT
     p.*,
     b.status AS booking_status,
-    COALESCE(b.guest_name, c.fullName, a.email) AS customer_name,
-    r.roomNumber AS room_number,
+    COALESCE(b.guest_name, MAX(c.fullName), MAX(a.email)) AS customer_name,
+    MIN(r.roomNumber) AS room_number,
     pcr.status AS verification_status,
     pcr.amount AS verification_amount,
     pcr.submittedAt AS verification_submitted_at
@@ -56,7 +56,7 @@ const createPayment = async (payload, connection) => {
 
 const getPaymentById = async (paymentId, connection, lock = false) => {
   const [rows] = await run(connection).query(
-    `${PAYMENT_SELECT} WHERE p.id = ? ${lock ? 'FOR UPDATE' : ''}`,
+    `${PAYMENT_SELECT} WHERE p.id = ? GROUP BY p.id ${lock ? 'FOR UPDATE' : ''}`,
     [paymentId]
   );
   return rows[0] || null;
@@ -64,7 +64,7 @@ const getPaymentById = async (paymentId, connection, lock = false) => {
 
 const getPaymentByBookingId = async (bookingId, connection) => {
   const [rows] = await run(connection).query(
-    `${PAYMENT_SELECT} WHERE p.bookingId = ? ORDER BY p.id DESC LIMIT 1`,
+    `${PAYMENT_SELECT} WHERE p.bookingId = ? GROUP BY p.id ORDER BY p.id DESC LIMIT 1`,
     [bookingId]
   );
   return rows[0] || null;
@@ -72,7 +72,7 @@ const getPaymentByBookingId = async (bookingId, connection) => {
 
 const getPaymentByTransactionCode = async (transactionCode, connection) => {
   const [rows] = await run(connection).query(
-    `${PAYMENT_SELECT} WHERE p.transactionCode = ? ORDER BY p.id DESC LIMIT 1`,
+    `${PAYMENT_SELECT} WHERE p.transactionCode = ? GROUP BY p.id ORDER BY p.id DESC LIMIT 1`,
     [transactionCode]
   );
   return rows[0] || null;
@@ -96,6 +96,7 @@ const listPayments = async ({ bookingId, paymentStatus } = {}) => {
     `
       ${PAYMENT_SELECT}
       ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}
+      GROUP BY p.id
       ORDER BY p.id DESC
     `,
     values

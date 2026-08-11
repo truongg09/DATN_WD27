@@ -1,4 +1,5 @@
 import { useState, useEffect, type Key } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Table,
   Button,
@@ -68,6 +69,7 @@ interface Room {
 }
 
 function RoomManagement() {
+  const [searchParams] = useSearchParams();
   const [rooms, setRooms] = useState<Room[]>([]);
   const [roomTypes, setRoomTypes] = useState<RoomType[]>([]);
   const [bookings, setBookings] = useState<any[]>([]);
@@ -77,7 +79,14 @@ function RoomManagement() {
   const [editingRoom, setEditingRoom] = useState<Room | null>(null);
   const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
   const [form] = Form.useForm();
-  const [searchText, setSearchText] = useState('');
+  const [searchText, setSearchText] = useState(searchParams.get('search') || searchParams.get('room') || '');
+
+  useEffect(() => {
+    const q = searchParams.get('search') || searchParams.get('room');
+    if (q !== null) {
+      setSearchText(q);
+    }
+  }, [searchParams]);
 
   // Advanced filter states
   const [filterRoomTypeId, setFilterRoomTypeId] = useState<number | null>(null);

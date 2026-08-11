@@ -159,15 +159,16 @@ interface BookingDetail {
   adults: number | null;
   children: number | null;
   total_price: string | number | null;
+  room_total_price?: string | number | null;
+  room_quantity?: number | null;
   payable_total?: string | number | null;
   occupancy_surcharge?: string | number | null;
+  late_checkout_surcharge?: string | number | null;
   notes?: string | null;
   cancellation_reason?: string | null;
   requested_check_in_time?: string | null;
   requested_check_in_day_offset?: number | null;
   created_at?: string | null;
-  requested_check_in_time?: string | null;
-  requested_check_in_day_offset?: number | null;
   actual_check_in_time?: string | null;
   voucher?: {
     id: number;
@@ -390,13 +391,17 @@ const BookingDetailModal: React.FC<Props> = ({
   const refunds = detail?.refunds || [];
   const history = detail?.history || [];
 
-  const serviceTotal = services.reduce(
+  const usedServices = services.filter((s) => (s.status || "used") === "used");
+  const usedDamages = damages.filter((d) => (d.status || "used") === "used");
+
+  const serviceTotal = usedServices.reduce(
     (sum, item) => sum + Number(item.totalPrice || 0),
     0,
   );
-  const damageTotal = damages
-    .filter((d) => (d.status || "used") === "used")
-    .reduce((sum, item) => sum + Number(item.totalPrice || 0), 0);
+  const damageTotal = usedDamages.reduce(
+    (sum, item) => sum + Number(item.totalPrice || 0),
+    0,
+  );
 
   const mainPayment = payments[0];
   const nights =
@@ -408,11 +413,46 @@ const BookingDetailModal: React.FC<Props> = ({
           0,
         )
       : 0;
+
+  const rawRoomCost =
+    detail?.room_total_price != null
+      ? Number(detail.room_total_price)
+      : Number(detail?.room_price || 0) * nights * (detail?.room_quantity || 1);
+
   const roomOnlyAmount =
-    Number(detail?.total_price || 0) - Number(detail?.occupancy_surcharge || 0);
-  const paidAmount = Number(mainPayment?.paidAmount || 0);
-  const remainingAmount = Number(mainPayment?.remainingAmount || 0);
+    mainPayment?.roomAmount != null
+      ? Number(mainPayment.roomAmount)
+      : Math.max(rawRoomCost - Number(detail?.occupancy_surcharge || 0), 0);
+
+  const lateCheckoutTotal = Number(detail?.late_checkout_surcharge || 0);
+
   const discountAmount = Number(mainPayment?.discountAmount || 0);
+
+  const totalPayableAmount =
+    mainPayment?.totalAmount != null
+      ? Number(mainPayment.totalAmount)
+      : Math.max(
+          roomOnlyAmount +
+            Number(detail?.occupancy_surcharge || 0) +
+            serviceTotal +
+            damageTotal +
+            lateCheckoutTotal -
+            discountAmount,
+          0,
+        );
+
+  const paidAmount = Number(mainPayment?.paidAmount || 0);
+  const rawRemaining =
+    mainPayment?.remainingAmount != null
+      ? Number(mainPayment.remainingAmount)
+      : Math.max(totalPayableAmount - paidAmount, 0);
+
+  const isCancelledOrNoShow = ["cancelled", "no_show"].includes(
+    detail?.status || "",
+  );
+  const remainingAmount = isCancelledOrNoShow ? 0 : rawRemaining;
+
+  const overpaidAmount = Math.max(paidAmount - totalPayableAmount, 0);
 
   // ─── Service tab: state & helpers ───────────────────────────────
   const [addServiceForm] = Form.useForm();
@@ -860,7 +900,8 @@ const BookingDetailModal: React.FC<Props> = ({
           {nights > 0 && (
             <span style={{ color: "#888" }}>
               {" "}
-              ({nights} đêm × {money(detail.room_price)})
+              ({nights} đêm × {money(detail.room_price)}
+              {roomQuantity > 1 ? ` × ${roomQuantity} phòng` : ""})
             </span>
           )}
         </Descriptions.Item>
@@ -869,12 +910,19 @@ const BookingDetailModal: React.FC<Props> = ({
         </Descriptions.Item>
         <Descriptions.Item label="Dịch vụ phát sinh">
           {money(serviceTotal)}{" "}
-          <span style={{ color: "#888" }}>({services.length} mục)</span>
+          <span style={{ color: "#888" }}>({usedServices.length} mục)</span>
         </Descriptions.Item>
         <Descriptions.Item label="Phí hư hỏng">
           {money(damageTotal)}{" "}
-          <span style={{ color: "#888" }}>({damages.length} mục)</span>
+          <span style={{ color: "#888" }}>({usedDamages.length} mục)</span>
         </Descriptions.Item>
+        {lateCheckoutTotal > 0 && (
+          <Descriptions.Item label="Phí trả phòng muộn">
+            <strong style={{ color: "#cf1322" }}>
+              {money(lateCheckoutTotal)}
+            </strong>
+          </Descriptions.Item>
+        )}
         <Descriptions.Item label="Giảm giá (voucher)">
           {discountAmount > 0 ? `− ${money(discountAmount)}` : money(0)}
           {detail.voucher?.code && (
@@ -884,9 +932,7 @@ const BookingDetailModal: React.FC<Props> = ({
           )}
         </Descriptions.Item>
         <Descriptions.Item label="Tổng phải thanh toán">
-          <strong style={{ fontSize: 16 }}>
-            {money(detail.payable_total ?? detail.total_price)}
-          </strong>
+          <strong style={{ fontSize: 16 }}>{money(totalPayableAmount)}</strong>
         </Descriptions.Item>
       </Descriptions>
 
@@ -900,12 +946,29 @@ const BookingDetailModal: React.FC<Props> = ({
           <strong style={{ color: "#389e0d" }}>{money(paidAmount)}</strong>
         </Descriptions.Item>
         <Descriptions.Item label="Còn phải trả">
-          <strong
-            style={{ color: remainingAmount > 0 ? "#cf1322" : "#389e0d" }}
-          >
-            {money(remainingAmount)}
-          </strong>
+          {isCancelledOrNoShow ? (
+            <span style={{ color: "#888" }}>
+              0₫ <Tag style={{ marginLeft: 6 }}>Đã hủy đơn</Tag>
+            </span>
+          ) : (
+            <strong
+              style={{ color: remainingAmount > 0 ? "#cf1322" : "#389e0d" }}
+            >
+              {money(remainingAmount)}
+            </strong>
+          )}
         </Descriptions.Item>
+        {overpaidAmount > 0 && (
+          <Descriptions.Item label="Thanh toán thừa (Cần hoàn)" span={2}>
+            <Tag color="cyan" style={{ fontSize: 13, padding: "2px 8px" }}>
+              Thanh toán thừa: {money(overpaidAmount)}
+            </Tag>
+            <span style={{ color: "#888", fontSize: 13, marginLeft: 8 }}>
+              (Khách đã nộp {money(paidAmount)} · Tổng đơn{" "}
+              {money(totalPayableAmount)})
+            </span>
+          </Descriptions.Item>
+        )}
         <Descriptions.Item label="Tiền đặt cọc">
           {money(mainPayment?.depositAmount)}
         </Descriptions.Item>
@@ -916,18 +979,22 @@ const BookingDetailModal: React.FC<Props> = ({
             : "—"}
         </Descriptions.Item>
         <Descriptions.Item label="Trạng thái thanh toán">
-          <Tag
-            color={
-              mainPayment?.paymentStatus === "paid"
-                ? "green"
-                : mainPayment?.paymentStatus === "refunded"
-                  ? "red"
-                  : "orange"
-            }
-          >
-            {paymentStatusText[mainPayment?.paymentStatus || ""] ||
-              "Chưa có giao dịch"}
-          </Tag>
+          {overpaidAmount > 0 ? (
+            <Tag color="cyan">Thanh toán thừa ({money(overpaidAmount)})</Tag>
+          ) : (
+            <Tag
+              color={
+                mainPayment?.paymentStatus === "paid"
+                  ? "green"
+                  : mainPayment?.paymentStatus === "refunded"
+                    ? "red"
+                    : "orange"
+              }
+            >
+              {paymentStatusText[mainPayment?.paymentStatus || ""] ||
+                "Chưa có giao dịch"}
+            </Tag>
+          )}
         </Descriptions.Item>
         <Descriptions.Item label="Thời điểm thanh toán">
           {dateTime(mainPayment?.paymentDate)}

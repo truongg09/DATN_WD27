@@ -132,7 +132,7 @@ const createPaymentForBooking = async (bookingId, options = {}, connection) => {
 
   const occupancySurcharge = Number(booking.occupancy_surcharge || 0);
   const amounts = buildPaymentAmounts({
-    roomAmount: Math.max(Number(booking.total_price || 0) - occupancySurcharge, 0),
+    roomAmount: Math.max(Number(booking.room_total_price || 0) - occupancySurcharge, 0),
     serviceAmount: options.serviceAmount || 0,
     surchargeAmount: occupancySurcharge + Number(options.surchargeAmount || 0),
     discountAmount: options.discountAmount || 0,
@@ -184,7 +184,7 @@ const recalculatePaymentForBooking = async (bookingId, connection) => {
   }
 
   const guestSurcharge = Number(booking.occupancy_surcharge || 0);
-  const roomAmount = Math.max(Number(booking.total_price || 0) - guestSurcharge, 0);
+  const roomAmount = Math.max(Number(booking.room_total_price || 0) - guestSurcharge, 0);
   const serviceAmount = await bookingModel.sumBookingServices(bookingId, connection);
   const damageSurcharge = await bookingModel.sumDamageCharges(bookingId, connection);
   const lateCheckoutSurcharge = await bookingModel.sumLateCheckoutCharges(bookingId, connection);
@@ -777,7 +777,7 @@ const applyVoucher = async (paymentId, code, actor) => {
     if (customerVoucher?.isUsed) throw new HttpError(409, 'Voucher đã được sử dụng');
 
     const guestSurcharge = Number(booking.occupancy_surcharge || 0);
-    const roomAmount = Math.max(Number(booking.total_price || 0) - guestSurcharge, 0);
+    const roomAmount = Math.max(Number(booking.room_total_price || 0) - guestSurcharge, 0);
     const serviceAmount = await bookingModel.sumBookingServices(payment.bookingId, connection);
     const damageSurcharge = await bookingModel.sumDamageCharges(payment.bookingId, connection);
     const surchargeAmount = guestSurcharge + damageSurcharge;
