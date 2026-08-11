@@ -887,7 +887,37 @@ const listBookings = async ({ userId, status } = {}) => {
     `,
     values
   );
-  return rows;
+
+  const uniqueMap = new Map();
+  for (const row of rows) {
+    if (!uniqueMap.has(row.id)) {
+      uniqueMap.set(row.id, {
+        ...row,
+        _roomNumbers: row.room_number ? [String(row.room_number)] : [],
+        _roomTypeNames: row.room_type_name ? [String(row.room_type_name)] : []
+      });
+    } else {
+      const existing = uniqueMap.get(row.id);
+      if (row.room_number && !existing._roomNumbers.includes(String(row.room_number))) {
+        existing._roomNumbers.push(String(row.room_number));
+      }
+      if (row.room_type_name && !existing._roomTypeNames.includes(String(row.room_type_name))) {
+        existing._roomTypeNames.push(String(row.room_type_name));
+      }
+    }
+  }
+
+  return Array.from(uniqueMap.values()).map(item => {
+    const joinedRooms = item._roomNumbers.join(', ');
+    const joinedTypes = item._roomTypeNames.join(', ');
+    delete item._roomNumbers;
+    delete item._roomTypeNames;
+    return {
+      ...item,
+      room_number: joinedRooms || item.room_number,
+      room_type_name: joinedTypes || item.room_type_name
+    };
+  });
 };
 
 const updateBookingStatus = async (bookingId, status, connection) => {
