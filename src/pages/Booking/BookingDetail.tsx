@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, Descriptions, Tag, Button, Spin, message, Divider, Rate, Input, Space, Upload, Modal, Select } from 'antd';
 import type { UploadFile, UploadProps } from 'antd/es/upload/interface';
-import { FileTextOutlined, CreditCardOutlined, PlusOutlined, StarOutlined, EditOutlined, ClockCircleOutlined } from '@ant-design/icons';
+import { FileTextOutlined, CreditCardOutlined, PlusOutlined, StarOutlined, EditOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { getBookingDetail, updateRequestedArrivalTime } from '../../services/bookingService';
 import { getPaymentByBookingId } from '../../services/paymentService';

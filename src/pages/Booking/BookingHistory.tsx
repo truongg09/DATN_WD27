@@ -233,7 +233,6 @@ const BookingHistory: React.FC = () => {
   const [editLoading, setEditLoading] = useState(false);
   const [editDetail, setEditDetail] = useState<any>(null);
   const [allRoomTypes, setAllRoomTypes] = useState<any[]>([]);
-  const [allRooms, setAllRooms] = useState<any[]>([]);
   const [allServices, setAllServices] = useState<Service[]>([]);
   const [editTab, setEditTab] = useState('info');
   const [savingEdit, setSavingEdit] = useState(false);
@@ -244,7 +243,6 @@ const BookingHistory: React.FC = () => {
   // Form values
   const [editStayRange, setEditStayRange] = useState<[any, any] | null>(null);
   const [editRoomTypeId, setEditRoomTypeId] = useState<number | null>(null);
-  const [editTransferReason, setEditTransferReason] = useState('');
   const [newServiceId, setNewServiceId] = useState<number | null>(null);
   const [newServiceQty, setNewServiceQty] = useState<number>(1);
   const [savingServiceAction, setSavingServiceAction] = useState<number | string | null>(null);
@@ -371,9 +369,8 @@ const BookingHistory: React.FC = () => {
     setEditTab('info');
     setNewServiceId(null);
     setNewServiceQty(1);
-    setEditTransferReason('');
     try {
-      const [detailRes, rtRes, roomsRes, servicesRes] = await Promise.all([
+      const [detailRes, rtRes, , servicesRes] = await Promise.all([
         api.get(`/bookings/${record.id}`),
         getRoomTypes(),
         getRooms(),
@@ -382,7 +379,6 @@ const BookingHistory: React.FC = () => {
       const detail = (detailRes as any).data || detailRes;
       setEditDetail(detail);
       setAllRoomTypes(unwrapList<any>(rtRes));
-      setAllRooms(unwrapList<any>(roomsRes));
       setAllServices(servicesRes);
       setEditStayRange(
         detail.check_in && detail.check_out
