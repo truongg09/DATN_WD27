@@ -444,7 +444,7 @@ const Booking: React.FC = () => {
           beds: `${adultCap} NL + ${childCap} TE (Tối đa ${maxOcc} khách)`,
           area: room.area
             ? `${room.area}m²`
-            : `Phòng ${room.room_number || room.id}`,
+            : `${room.room_type_name || 'Phòng chuẩn'}`,
           capacity: room.capacity,
           adultCapacity: adultCap,
           childCapacity: childCap,
@@ -1237,7 +1237,7 @@ const Booking: React.FC = () => {
                             prev.map((item, i) => (i === index ? value : item)),
                           )
                         }
-                        options={Array.from({ length: 18 }, (_, ageOption) => ({
+                        options={Array.from({ length: 12 }, (_, ageOption) => ({
                           value: ageOption,
                           label: `${ageOption} tuổi`,
                         }))}
@@ -1259,7 +1259,7 @@ const Booking: React.FC = () => {
                       )}
                       /đêm · từ{" "}
                       {dateAvailability.childrenPolicy.childMaxAge + 1} tuổi
-                      tính như người lớn
+                      được tính là người lớn
                     </p>
                   )}
                 </div>

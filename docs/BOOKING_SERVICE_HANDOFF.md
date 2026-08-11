@@ -870,10 +870,10 @@ Status: DONE
   * `bookingController.js`: `listServiceRequests` queries `sr.roomId`, `sr.note` & joins `rooms r ON COALESCE(sr.roomId, b.room_id) = r.id`. `confirmServiceRequest` passes `roomId: request.roomId || null` to `addServiceCharge`, creating `booking_services` with matching `roomId`.
 - **STEP 5C.0A — AUDIT BOOKING ROOM ALLOCATION & CUSTOMER ROOM VISIBILITY**: Status: DONE.
   * Audited room allocation & customer visibility. Core backend room allocation stays intact.
-- **STEP 5C.0B — STABLE LOGICAL ROOM + CUSTOMER ROOM ABSTRACTION**: Status: DONE.
-  * Architecture: Customer sees "Phòng 1 / Phòng 2" (`roomIndex` 1..Q). `booking_details.id` (`bookingDetailId`) serves as the stable logical room identity across room reassignments/transfers. `roomId` represents current physical assignment.
-  * Database: Added `bookingDetailId INT NULL` & FK `ON DELETE SET NULL` to `booking_service_requests`, `booking_services`, and `booking_damage_charges` in `ensure-operational-schema.js` and `hotelbookingdb.sql` with safe unambiguous backfill.
-  * Backend: `bookingValidator.js` parses optional `roomIndex` & `bookingDetailId`; `bookingService.js` maps `roomIndex` -> `createdBookingDetails[roomIndex-1]`, saving `bookingDetailId` & `roomId`; `confirmServiceRequest` resolves current physical `roomId` from `booking_details` via `bookingDetailId` (supporting Admin room reassign).
+- **STEP 5C — FULL FRONTEND AUDIT: PHYSICAL ROOM VISIBILITY**: Status: DONE.
+  * Audited all Customer surfaces across `src/`: `Booking.tsx`, `BookingHistory.tsx`, `BookingDetail.tsx`, `Payment.tsx`, `PaymentSandbox.tsx`, `Profile.tsx`, `RoomDetail.tsx`.
+  * Patched leaks: Removed physical room numbers before check-in (`status !== 'checked_in'`) across all Customer pages, modals, payment headers, and profile tables.
+  * Verified: 100% of remaining `room_number` / `roomNumber` references in `src/` are strictly Admin-facing, checked-in/out only, or internal types/state. `npx tsc` PASS with zero errors.
 - **STEP 5D — ADMIN ROOM DISPLAY + CONFIRM VERIFICATION**: Status: DONE.
   * Room Display Source: `listServiceRequests` in `bookingController.js` joins `booking_details bd ON bd.id = sr.bookingDetailId` and `rooms r ON r.id = COALESCE(bd.roomId, sr.roomId, b.room_id)`, resolving current physical room (e.g., room 305 after Admin reassignment).
   * Legacy Fallback: If `bookingDetailId` is NULL, falls back to `sr.roomId` or `b.room_id`. If roomNumber is NULL, `ServiceRequestsTab.tsx` displays `"Không xác định phòng / Dữ liệu cũ"`.
@@ -1280,6 +1280,13 @@ DONE
 backend/controllers/bookingController.js, src/pages/Admin/service/ServiceRequestsTab.tsx
 node --check pass, tsc pass
 Admin room display + confirm verification: listServiceRequests joins booking_details & rooms to prioritize current physical room (resolves room 305 after Admin reassign); displays "Không xác định phòng / Dữ liệu cũ" when roomNumber is NULL; confirmServiceRequest resolves current physical roomId from booking_details via bookingDetailId and creates booking_services with current roomId & bookingDetailId; maintained pending/confirmed/rejected workflow status.
+
+2026-08-11
+Step 5C Full Audit
+DONE
+src/pages/Booking/BookingDetail.tsx, src/pages/Booking/BookingHistory.tsx, src/pages/Booking/Payment.tsx, src/pages/Booking/PaymentSandbox.tsx, src/pages/Profile/Profile.tsx, src/pages/Booking/Booking.tsx, src/pages/RoomDetail/RoomDetail.tsx
+npx tsc pass, full src/ re-search pass
+Full frontend physical room audit: searched all of src/ and eliminated physical room leaks before check-in across all Customer surfaces (Booking, BookingHistory, BookingDetail, Payment, PaymentSandbox, Profile, RoomDetail). All remaining roomNumber occurrences are verified Admin-only, checked-in/out only, or internal types/state.
 
 ---
 

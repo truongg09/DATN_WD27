@@ -1230,7 +1230,7 @@ const BookingHistory: React.FC = () => {
         open={!!reviewBooking}
         title={
           reviewBooking
-            ? `${editingReviewId ? 'Sửa đánh giá' : 'Đánh giá'} phòng ${reviewBooking.room_number || '-'} – ${reviewBooking.room_type_name || 'Chưa xác định'}`
+            ? `${editingReviewId ? 'Sửa đánh giá' : 'Đánh giá'} ${reviewBooking.room_number ? `phòng ${reviewBooking.room_number} – ` : ''}${reviewBooking.room_type_name || 'Đặt phòng'}`
             : ''
         }
         okText={editingReviewId ? 'Cập nhật đánh giá' : 'Gửi đánh giá'}

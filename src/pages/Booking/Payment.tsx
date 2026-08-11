@@ -364,8 +364,8 @@ const PaymentPage: React.FC = () => {
             </span>
             <h1>Hoàn tất thanh toán</h1>
             <p>
-              Đơn đặt phòng <strong>#{bookingId}</strong> · {String(booking.room_number)} ·{' '}
-              {String(booking.room_type_name)}
+              Đơn đặt phòng <strong>#{bookingId}</strong> ·{' '}
+              {String(booking.room_type_name || 'Đặt phòng')}
             </p>
           </div>
           <div className="payment-hero-steps">
@@ -442,9 +442,9 @@ const PaymentPage: React.FC = () => {
               <h3 className="pay-card-title">Thông tin đặt phòng</h3>
               <div className="info-rows">
                 <div className="info-row">
-                  <span>Phòng</span>
+                  <span>Hạng phòng</span>
                   <strong>
-                    {String(booking.room_number)} · {String(booking.room_type_name)}
+                    {String(booking.room_type_name || 'Đặt phòng')}
                   </strong>
                 </div>
                 <div className="info-row">
