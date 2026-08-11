@@ -148,8 +148,6 @@ interface BookingDetail {
   requested_check_in_time?: string | null;
   requested_check_in_day_offset?: number | null;
   created_at?: string | null;
-  requested_check_in_time?: string | null;
-  requested_check_in_day_offset?: number | null;
   actual_check_in_time?: string | null;
   voucher?: { id: number; code: string; discountType: string; discountValue: string | number } | null;
   services?: ServiceRow[];
@@ -628,7 +626,7 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
           {detail.adults ?? 0} người lớn, {detail.children ?? 0} trẻ em
         </Descriptions.Item>
         <Descriptions.Item label="Thời điểm đặt">{dateTime(detail.created_at)}</Descriptions.Item>
-        <Descriptions.Item label="Trạng thái phòng hiện tại">{detail.room_status || '—'}</Descriptions.Item>
+        <Descriptions.Item label="Trạng thái phòng hiện tại" span={2}>{detail.room_status || '—'}</Descriptions.Item>
         <Descriptions.Item label="Ghi chú của khách" span={2}>{detail.notes || '—'}</Descriptions.Item>
         {detail.cancellation_reason && (
           <Descriptions.Item label="Lý do hủy" span={2}>{detail.cancellation_reason}</Descriptions.Item>
@@ -1226,7 +1224,7 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
     >
       {loading && (
         <div style={{ textAlign: 'center', padding: 48 }}>
-          <Spin tip="Đang tải chi tiết..." />
+          <Spin description="Đang tải chi tiết..." />
         </div>
       )}
 
