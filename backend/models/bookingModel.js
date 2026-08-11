@@ -27,6 +27,9 @@ const BOOKING_SELECT = `
       0
     ) AS payable_total,
     b.created_at,
+    b.holdExpiresAt AS hold_expires_at,
+    NOW() AS server_now,
+    GREATEST(TIMESTAMPDIFF(SECOND, NOW(), b.holdExpiresAt), 0) AS hold_remaining_seconds,
     b.notes,
     b.extraGuestSnapshot AS extra_guest_snapshot,
     b.cancellation_reason,
@@ -123,17 +126,31 @@ const getRoomWithType = async (roomId, connection, lock = false) => {
 
 const expireUnpaidBookingHolds = async (connection) => {
   await run(connection).query(
+    `UPDATE payment_gateway_orders
+     SET status = 'expired'
+     WHERE status = 'created'
+       AND DATE_ADD(expiresAt, INTERVAL 60 SECOND) <= NOW()`
+  );
+  const [result] = await run(connection).query(
     `
       UPDATE bookings b
       JOIN payments p ON p.bookingId = b.id
       SET b.status = 'cancelled',
-          b.bookingStatus = 'cancelled'
+          b.bookingStatus = 'cancelled',
+          b.cancellation_reason = COALESCE(b.cancellation_reason, 'Hết thời gian giữ phòng')
       WHERE b.status IN ('pending', 'confirmed')
         AND p.paymentStatus = 'unpaid'
         AND COALESCE(p.paidAmount, 0) <= 0
-        AND b.created_at < DATE_SUB(NOW(), INTERVAL ${HOLD_MINUTES} MINUTE)
+        AND COALESCE(b.holdExpiresAt, DATE_ADD(b.created_at, INTERVAL ${HOLD_MINUTES} MINUTE)) <= NOW()
+        AND NOT EXISTS (
+          SELECT 1 FROM payment_gateway_orders pgo
+          WHERE pgo.bookingId = b.id
+            AND pgo.status = 'created'
+            AND DATE_ADD(pgo.expiresAt, INTERVAL 60 SECOND) > NOW()
+        )
     `
   );
+  return result.affectedRows || 0;
 };
 
 const getSecuredConflictingBookings = async (
@@ -355,9 +372,9 @@ const createBooking = async (payload, totalPrice, connection, extraGuestSnapshot
       INSERT INTO bookings (
         user_id, customerId, room_id, check_in, check_out, total_price, totalAmount,
         status, bookingStatus, notes, extraGuestSnapshot, guest_name, guest_email, guest_phone,
-        requestedCheckInTime, requestedCheckOutTime
+        requestedCheckInTime, requestedCheckOutTime, holdExpiresAt
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ${HOLD_MINUTES} MINUTE))
     `,
     [
       payload.userId,
