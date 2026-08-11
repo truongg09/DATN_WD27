@@ -334,6 +334,54 @@ const normalizeUpdateDamageChargePayload = (body) => {
   return payload;
 };
 
+const normalizeExtendStayPayload = (body) => {
+  return {
+    checkOut: normalizeDate(body.checkOut ?? body.check_out, 'checkOut')
+  };
+};
+
+const normalizeUpdateStayPayload = (body) => {
+  const payload = {
+    checkIn: normalizeDate(body.checkIn ?? body.check_in, 'checkIn'),
+    checkOut: normalizeDate(body.checkOut ?? body.check_out, 'checkOut')
+  };
+
+  if (body.roomTypeId !== undefined && body.roomTypeId !== null) {
+    payload.roomTypeId = toPositiveInt(body.roomTypeId ?? body.room_type_id, 'roomTypeId');
+  }
+
+  assertDateRange(payload.checkIn, payload.checkOut);
+  return payload;
+};
+
+const normalizeGuestIdentitiesPayload = (body) => {
+  const guests = Array.isArray(body.guests) ? body.guests : [];
+  if (guests.length === 0) {
+    throw new HttpError(400, 'Danh sách khách lưu trú không được để trống');
+  }
+
+  return {
+    guests: guests.map((guest, index) => {
+      const fullName = String(guest.fullName ?? guest.full_name ?? '').trim();
+      const identityNumber = String(guest.identityNumber ?? guest.cccd ?? guest.identity_number ?? '').trim();
+
+      if (!fullName) {
+        throw new HttpError(400, `Vui lòng nhập họ tên khách thứ ${index + 1}`);
+      }
+      if (!identityNumber) {
+        throw new HttpError(400, `Vui lòng nhập giấy tờ tùy thân của khách thứ ${index + 1}`);
+      }
+
+      return {
+        fullName,
+        identityNumber,
+        phone: guest.phone ? String(guest.phone).trim() : null,
+        note: guest.note ? String(guest.note).trim() : null
+      };
+    })
+  };
+};
+
 const normalizeTransferRoomPayload = (body) => {
   const payload = {
     toRoomId: toPositiveInt(body.toRoomId ?? body.to_room_id, 'toRoomId'),
@@ -352,7 +400,7 @@ const normalizeTransferRoomPayload = (body) => {
 const normalizeIdParam = (id, fieldName = 'id') => toPositiveInt(id, fieldName);
 
 const normalizeReassignRoomPayload = (body) => ({
-  roomId: toPositiveInt(body.roomId ?? body.room_id, 'roomId')
+  roomId: toPositiveInt(body.roomId ?? body.room_id ?? body.newRoomId, 'roomId')
 });
 module.exports = {
   normalizeBookingPayload,
