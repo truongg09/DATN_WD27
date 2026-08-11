@@ -1175,24 +1175,24 @@ Không đoán.
 # 11. CURRENT STEP
 
 CURRENT STEP:
-STEP 6 — CHECKOUT / PAYMENT SUMMARY
+STEP 8 — INVOICE INTEGRATION
 
 STATUS:
 TODO
 
 PRIMARY FILE:
-- src/pages/Admin/checkout/CheckoutPaymentModal.tsx
+- backend/services/invoiceService.js
 
 DO NOT TOUCH UNLESS REQUIRED:
-- backend/ (chỉ đụng nếu có bug phát sinh)
+- frontend/ (chỉ đụng nếu có bug phát sinh)
 
 ---
 
 # 12. NEXT THREE STEPS
 
-1. STEP 6 — Checkout / Payment Summary (CheckoutPaymentModal.tsx)
-2. STEP 7 — Booking Services Admin Tab (BookingServicesTab.tsx)
-3. STEP 8 — Verification & Final E2E Audit
+1. STEP 8 — Invoice Integration (invoiceService.js / invoice routes)
+2. STEP 9 — Verification & Final E2E Audit
+3. STEP 10 — System Handoff & Sign-off
 
 ---
 
@@ -1282,11 +1282,11 @@ node --check pass, tsc pass
 Admin room display + confirm verification: listServiceRequests joins booking_details & rooms to prioritize current physical room (resolves room 305 after Admin reassign); displays "Không xác định phòng / Dữ liệu cũ" when roomNumber is NULL; confirmServiceRequest resolves current physical roomId from booking_details via bookingDetailId and creates booking_services with current roomId & bookingDetailId; maintained pending/confirmed/rejected workflow status.
 
 2026-08-11
-Step 5 Customer Presentation Fix (History Modal & Booking Detail Multi-room Display)
+Step 7 Follow-up (Checkout Cost Breakdown, Overpayment Display, and Late Fee History Cleanup)
 DONE
-src/pages/Admin/BookingDetailModal.tsx, src/pages/Booking/BookingHistory.tsx, src/pages/Booking/BookingDetail.tsx
-npx tsc PASS
-Customer presentation fix: Added isCustomer prop to BookingDetailModal.tsx; in Customer context before check-in, hidden physical room number (101) and internal room status (available), rendering logical room quantity (Standard × 2); in Customer BookingDetail.tsx, displayed Standard × 2 and "Số phòng đã đặt: 2 phòng"; preserved physical room display post check-in (Phòng 1 — 101) and Admin view.
+backend/services/bookingService.js, src/pages/Admin/BookingDetailModal.tsx
+node --check PASS, npx tsc PASS, runtime breakdown & overpayment #311 PASS
+Cost Breakdown & Overpayment Fix: Attached late_checkout_surcharge / lateCheckoutSurcharge to getBookingById & getPaymentSummary; rendered 'Phí trả phòng muộn' row in BookingDetailModal.tsx breakdown so visual items sum 100% to totalAmount (room 1.4M + late fee 350k = total 1.75M); calculated overpaidAmount = max(paid - total, 0) and rendered 'Thanh toán thừa: 1.050.000đ (Cần hoàn)' tag & badge; deduplicated checkOut logHistory for late_checkout_fee; cleaned up duplicate test history rows for #311 (retaining 1 valid event).
 
 ---
 

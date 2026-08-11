@@ -12,6 +12,7 @@ const BOOKING_SELECT = `
     b.user_id,
     b.status,
     COALESCE(b.totalAmount, b.total_price, 0) AS total_price,
+    COALESCE(b.total_price, 0) AS room_total_price,
     COALESCE(b.totalAmount, b.total_price, 0) AS booking_total_amount,
     COALESCE(
       (
@@ -982,18 +983,22 @@ const listBookingHistory = async (bookingId, connection) => {
 // Lấy tên hiển thị của người thực hiện thao tác từ tài khoản.
 const getActorDisplayName = async (accountId, connection) => {
   if (!accountId) return null;
-  const [rows] = await run(connection).query(
-    `
-      SELECT COALESCE(NULLIF(e.fullName, ''), NULLIF(c.fullName, ''), NULLIF(a.full_name, ''), a.email) AS name
-      FROM accounts a
-      LEFT JOIN customers c ON c.accountId = a.id
-      LEFT JOIN employees e ON e.accountId = a.id
-      WHERE a.id = ?
-      LIMIT 1
-    `,
-    [accountId]
-  );
-  return rows[0]?.name || null;
+  try {
+    const [rows] = await run(connection).query(
+      `
+        SELECT COALESCE(NULLIF(c.fullName, ''), NULLIF(a.full_name, ''), a.email) AS name
+        FROM accounts a
+        LEFT JOIN customers c ON c.accountId = a.id
+        WHERE a.id = ?
+        LIMIT 1
+      `,
+      [accountId]
+    );
+    return rows[0]?.name || null;
+  } catch (err) {
+    console.error('getActorDisplayName error:', err.message);
+    return null;
+  }
 };
 
 const listEligibleNoShowBookings = async (connection) => {
@@ -1161,6 +1166,28 @@ const findActiveCheckedInBooking = async (roomId, excludeBookingId, connection) 
 };
 
 const addLateCheckoutCharge = async (bookingId, payload, connection) => {
+  const [existing] = await run(connection).query(
+    'SELECT id FROM booking_late_checkout_charges WHERE bookingId = ? ORDER BY id ASC LIMIT 1',
+    [bookingId]
+  );
+
+  if (existing.length > 0) {
+    const chargeId = existing[0].id;
+    await run(connection).query(
+      `
+        UPDATE booking_late_checkout_charges
+        SET lateMinutes = ?, tierPercent = ?, nightlyRate = ?, totalPrice = ?, note = ?
+        WHERE id = ?
+      `,
+      [payload.lateMinutes, payload.tierPercent, payload.nightlyRate, payload.totalPrice, payload.note || null, chargeId]
+    );
+    await run(connection).query(
+      'DELETE FROM booking_late_checkout_charges WHERE bookingId = ? AND id != ?',
+      [bookingId, chargeId]
+    );
+    return { id: chargeId, totalPrice: payload.totalPrice };
+  }
+
   const [result] = await run(connection).query(
     `
       INSERT INTO booking_late_checkout_charges

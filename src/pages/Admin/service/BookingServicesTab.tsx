@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Table, Button, Input, message, Space, Card, Tag, Statistic, Alert } from 'antd';
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import dayjs from 'dayjs';
 import api from '../../../services/api';
 import { unwrapList } from '../../../utils/unwrapList';
 import { formatPrice } from './helpers';
@@ -8,6 +9,7 @@ import { formatPrice } from './helpers';
 interface BookingServiceRow {
   id: number;
   bookingId: number | null;
+  bookingDetailId?: number | null;
   serviceId: number | null;
   quantity: number;
   totalPrice: string | number;
@@ -17,7 +19,12 @@ interface BookingServiceRow {
   roomNumber: string | null;
   bookingStatus: string | null;
   status: string | null;
+  usedAt?: string | null;
+  createdAt?: string | null;
 }
+
+const formatDateTime = (val?: string | null) =>
+  val && dayjs(val).isValid() ? dayjs(val).format('HH:mm DD/MM/YYYY') : '—';
 
 function BookingServicesTab() {
   const [rows, setRows] = useState<BookingServiceRow[]>([]);
@@ -47,14 +54,14 @@ function BookingServicesTab() {
         (r) =>
           (r.serviceName || '').toLowerCase().includes(keyword) ||
           (r.bookingCustomer || '').toLowerCase().includes(keyword) ||
+          (r.roomNumber || '').toLowerCase().includes(keyword) ||
           String(r.bookingId || '').includes(keyword)
       )
     : rows;
 
-  const totalRevenue = filtered.reduce(
-    (sum, r) => sum + (parseFloat(r.totalPrice as string) || 0),
-    0
-  );
+  const totalRevenue = filtered
+    .filter((r) => (r.status || 'used') === 'used')
+    .reduce((sum, r) => sum + (parseFloat(r.totalPrice as string) || 0), 0);
 
   const columns = [
     {
@@ -64,9 +71,19 @@ function BookingServicesTab() {
         <span>
           #{record.bookingId}
           {record.bookingCustomer ? ` · ${record.bookingCustomer}` : ''}
-          {record.roomNumber ? <Tag style={{ marginLeft: 8 }}>Phòng {record.roomNumber}</Tag> : null}
         </span>
       ),
+    },
+    {
+      title: 'Phòng',
+      key: 'roomNumber',
+      width: 170,
+      render: (_: unknown, record: BookingServiceRow) =>
+        record.roomNumber ? (
+          <Tag color="blue">Phòng {record.roomNumber}</Tag>
+        ) : (
+          <Tag style={{ color: '#888' }}>Không xác định phòng / Dữ liệu cũ</Tag>
+        ),
     },
     {
       title: 'Dịch vụ',
@@ -78,20 +95,21 @@ function BookingServicesTab() {
       title: 'Đơn giá',
       dataIndex: 'unitPrice',
       key: 'unitPrice',
-      width: 150,
+      width: 130,
       render: (price: string | number | null) => formatPrice(price),
     },
     {
       title: 'Số lượng',
       dataIndex: 'quantity',
       key: 'quantity',
-      width: 100,
+      width: 90,
+      align: 'center' as const,
     },
     {
       title: 'Thành tiền',
       dataIndex: 'totalPrice',
       key: 'totalPrice',
-      width: 160,
+      width: 140,
       sorter: (a: BookingServiceRow, b: BookingServiceRow) =>
         (parseFloat(a.totalPrice as string) || 0) - (parseFloat(b.totalPrice as string) || 0),
       render: (price: string | number) => <Tag color="green">{formatPrice(price)}</Tag>,
@@ -118,10 +136,17 @@ function BookingServicesTab() {
       },
     },
     {
+      title: 'Thời gian',
+      key: 'time',
+      width: 160,
+      render: (_: unknown, record: BookingServiceRow) =>
+        record.status === 'used' ? formatDateTime(record.usedAt || record.createdAt) : '—',
+    },
+    {
       title: 'Trạng thái đơn',
       dataIndex: 'bookingStatus',
       key: 'bookingStatus',
-      width: 140,
+      width: 130,
       render: (status: string | null) => (status ? <Tag>{status}</Tag> : '—'),
     },
   ];
@@ -133,11 +158,11 @@ function BookingServicesTab() {
         <Space>
           <Input
             allowClear
-            placeholder="Tìm theo dịch vụ / khách / mã đơn..."
+            placeholder="Tìm theo dịch vụ / phòng / khách / mã đơn..."
             prefix={<SearchOutlined />}
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
-            style={{ width: 260 }}
+            style={{ width: 280 }}
           />
           <Button icon={<ReloadOutlined />} onClick={fetchRows}>
             Làm mới
@@ -152,7 +177,7 @@ function BookingServicesTab() {
         title="Dịch vụ được thêm vào đơn ở màn hình Quản lý đặt phòng (kèm tính lại thanh toán). Tại đây chỉ tổng hợp để theo dõi."
       />
       <Statistic
-        title="Tổng doanh thu dịch vụ (theo bộ lọc hiện tại)"
+        title="Tổng doanh thu dịch vụ đã sử dụng (theo bộ lọc)"
         value={totalRevenue}
         formatter={(value) => formatPrice(value as number)}
         style={{ marginBottom: 16 }}
