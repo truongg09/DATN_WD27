@@ -44,6 +44,22 @@ const ensureOperationalSchema = async () => {
     await db.query('ALTER TABLE bookings ADD COLUMN cancellation_reason TEXT NULL AFTER notes');
   }
 
+  // Thời hạn giữ phòng là dữ liệu nghiệp vụ phía server, không suy ra ở trình duyệt.
+  if (!bookingColumns.some((column) => column.Field === 'holdExpiresAt')) {
+    await db.query('ALTER TABLE bookings ADD COLUMN holdExpiresAt DATETIME NULL AFTER created_at');
+    await db.query(`
+      UPDATE bookings b
+      LEFT JOIN payments p ON p.id = (
+        SELECT p2.id FROM payments p2 WHERE p2.bookingId = b.id ORDER BY p2.id DESC LIMIT 1
+      )
+      SET b.holdExpiresAt = DATE_ADD(b.created_at, INTERVAL 15 MINUTE)
+      WHERE b.holdExpiresAt IS NULL
+        AND b.status IN ('pending', 'confirmed')
+        AND COALESCE(p.paymentStatus, 'unpaid') = 'unpaid'
+        AND COALESCE(p.paidAmount, 0) = 0
+    `);
+  }
+
   // Giờ khách mong muốn nhận/trả phòng (khai lúc đặt) + giờ khách thực sự
   // nhận phòng (ghi lúc check-in, đối xứng với actualCheckOutTime đã có).
   // Cần cho tính năng phân loại check-in sớm/đúng giờ/muộn.
@@ -419,6 +435,27 @@ const ensureOperationalSchema = async () => {
       FOREIGN KEY (paymentId) REFERENCES payments(id) ON DELETE CASCADE,
       FOREIGN KEY (bookingId) REFERENCES bookings(id) ON DELETE CASCADE,
       FOREIGN KEY (confirmedBy) REFERENCES accounts(id) ON DELETE SET NULL
+    )
+  `);
+
+  // Mỗi lần chuyển sang VNPay/ZaloPay có một hạn dùng đồng bộ với hạn giữ phòng.
+  // Bảng riêng giúp callback idempotent và cho tác vụ hết hạn nhận biết giao dịch
+  // đang chờ kết quả từ cổng mà không phải thêm trạng thái booking mới.
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS payment_gateway_orders (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      paymentId INT NOT NULL,
+      bookingId INT NOT NULL,
+      provider ENUM('vnpay', 'zalopay') NOT NULL,
+      orderId VARCHAR(100) NOT NULL UNIQUE,
+      amount DECIMAL(15,2) NOT NULL,
+      status ENUM('created', 'paid', 'expired', 'failed', 'cancelled') NOT NULL DEFAULT 'created',
+      expiresAt DATETIME NOT NULL,
+      paidAt DATETIME NULL,
+      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_gateway_orders_expiry (status, expiresAt),
+      FOREIGN KEY (paymentId) REFERENCES payments(id) ON DELETE CASCADE,
+      FOREIGN KEY (bookingId) REFERENCES bookings(id) ON DELETE CASCADE
     )
   `);
 

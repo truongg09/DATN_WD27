@@ -1035,6 +1035,7 @@ const computeHandoverWarning = async (booking) => {
   return { hasWarning: warnings.length > 0, warnings };
 };
 const getBookingById = async (bookingId) => {
+  await bookingModel.expireUnpaidBookingHolds();
   const booking = await bookingModel.getBookingById(bookingId);
   if (!booking) {
     throw new HttpError(404, "Không tìm thấy đặt phòng");

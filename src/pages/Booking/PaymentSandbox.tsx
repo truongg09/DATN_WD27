@@ -31,7 +31,7 @@ const PaymentSandbox: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [booking, setBooking] = useState<Record<string, unknown> | null>(null);
   const [payment, setPayment] = useState<Payment | null>(null);
-  const [countdown, setCountdown] = useState(600); // 10 minutes in seconds
+  const [countdown, setCountdown] = useState(0);
 
   useEffect(() => {
     if (!isValidBookingId) {
@@ -47,8 +47,14 @@ const PaymentSandbox: React.FC = () => {
           getBookingDetail(bookingId),
           getPaymentByBookingId(bookingId),
         ]);
-        setBooking(bookingRes.data as Record<string, unknown>);
+        const bookingData = bookingRes.data as Record<string, unknown>;
+        setBooking(bookingData);
         setPayment(paymentRes.data);
+        const expiresAt = dayjs(String(bookingData.hold_expires_at));
+        const serverNow = dayjs(String(bookingData.server_now));
+        setCountdown(expiresAt.isValid() && serverNow.isValid()
+          ? Math.max(expiresAt.diff(serverNow, 'second'), 0)
+          : 0);
       } catch {
         message.error('Không thể tải thông tin thanh toán');
         navigate('/booking/history');
@@ -61,7 +67,7 @@ const PaymentSandbox: React.FC = () => {
   }, [bookingId, isValidBookingId, navigate]);
 
   useEffect(() => {
-    if (loading) return;
+    if (loading || !booking) return;
     const timer = setInterval(() => {
       setCountdown((prev) => {
         if (prev <= 1) {
@@ -75,7 +81,7 @@ const PaymentSandbox: React.FC = () => {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [loading, bookingId, navigate]);
+  }, [loading, booking, bookingId, navigate]);
 
   const formatCountdown = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -87,7 +93,11 @@ const PaymentSandbox: React.FC = () => {
     if (!payment) return;
     setSubmitting(true);
     try {
-      const response = await confirmPayment(payment.id, { amount, transactionCode: txn });
+      const response = await confirmPayment(payment.id, {
+        amount,
+        transactionCode: txn,
+        gatewayOrderId: txn,
+      });
       const status = response.data.payment.paymentStatus;
       navigate(
         `/booking/${bookingId}?gateway=${method.toLowerCase()}&payment=success&status=${encodeURIComponent(status)}`
