@@ -19,6 +19,8 @@ export interface Invoice {
   customerPhone?: string;
   roomNumber: string;
   roomTypeName: string;
+  roomQuantity?: number;
+  booking_rooms?: Array<{ id: number; number: string }>;
   checkIn: string;
   checkOut: string;
   stayRoomAmount?: number;
@@ -27,6 +29,19 @@ export interface Invoice {
   services?: InvoiceServiceItem[];
   surchargeAmount: number;
   occupancySurcharge?: number;
+  lateCheckoutSurcharge?: number;
+  damageAmount?: number;
+  damages?: Array<{
+    id: number;
+    roomId?: number;
+    roomNumber?: string;
+    chargeType?: string;
+    itemName: string;
+    quantity: number;
+    unitPrice: number;
+    totalPrice: number;
+    note?: string;
+  }>;
   childrenCount?: number;
   discountAmount: number;
   depositAmount?: number;
@@ -34,6 +49,8 @@ export interface Invoice {
   remainingAmount?: number;
   totalAmount: number;
   status: InvoiceStatus;
+  paymentStatus?: string;
+  paymentMethod?: string;
   issuedAt: string;
   createdAt: string;
 }

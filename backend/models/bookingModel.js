@@ -966,7 +966,6 @@ const listBookings = async ({ userId, status, search, page, limit } = {}, connec
     totalPages: Math.ceil(total / limitNum),
   };
 };
-};
 
 const updateBookingStatus = async (bookingId, status, connection) => {
   await run(connection).query(

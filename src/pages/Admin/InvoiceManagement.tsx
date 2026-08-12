@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Card, DatePicker, Descriptions, Empty, Input, Modal, Select, Table, Tag, Typography, message } from 'antd';
+import { Alert, Button, Card, DatePicker, Descriptions, Empty, Input, Modal, Select, Space, Table, Tag, Typography, message } from 'antd';
 import { EyeOutlined, PrinterOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import { getInvoices } from '../../services/invoiceService';
@@ -62,7 +62,33 @@ function InvoiceManagement() {
   const columns = [
     { title: 'Mã hóa đơn', dataIndex: 'invoiceNumber', key: 'invoiceNumber', width: 175, render: (value: string) => <Typography.Text strong copyable>{value}</Typography.Text> },
     { title: 'Khách hàng', key: 'customer', render: (_: unknown, invoice: Invoice) => <div className="invoice-cell"><strong>{invoice.customerName || 'Khách lẻ'}</strong><span>{invoice.customerEmail || invoice.customerPhone || 'Chưa có liên hệ'}</span></div> },
-    { title: 'Đặt phòng', key: 'booking', width: 145, render: (_: unknown, invoice: Invoice) => <div className="invoice-cell"><strong>#{invoice.bookingId}</strong><span>Phòng {invoice.roomNumber || 'Chưa xếp'}</span></div> },
+    {
+      title: 'Đặt phòng',
+      key: 'booking',
+      width: 175,
+      render: (_: unknown, invoice: Invoice) => {
+        const roomCount = invoice.booking_rooms?.length || invoice.roomQuantity || 1;
+        const roomTypeName = invoice.roomTypeName || 'Chưa cập nhật';
+        const typeSubtitle = `${roomTypeName} · ${roomCount} phòng`;
+        return (
+          <div className="invoice-cell">
+            <strong>#{invoice.bookingId}</strong>
+            <span style={{ fontSize: '12px', color: '#667085' }}>{typeSubtitle}</span>
+            {invoice.booking_rooms && invoice.booking_rooms.length > 0 ? (
+              <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '2px' }}>
+                {invoice.booking_rooms.map((r) => (
+                  <Tag key={r.id || r.number} color="blue" style={{ margin: 0, fontSize: '11px', padding: '0 4px', lineHeight: '18px' }}>
+                    {r.number}
+                  </Tag>
+                ))}
+              </div>
+            ) : (
+              <span style={{ fontSize: '12px', color: '#667085' }}>Phòng {invoice.roomNumber || 'Chưa xếp'}</span>
+            )}
+          </div>
+        );
+      }
+    },
     { title: 'Ngày phát hành', dataIndex: 'issuedAt', key: 'issuedAt', width: 165, sorter: (a: Invoice, b: Invoice) => dayjs(a.issuedAt).valueOf() - dayjs(b.issuedAt).valueOf(), render: formatDateTime },
     { title: 'Tổng tiền', dataIndex: 'totalAmount', key: 'totalAmount', width: 165, align: 'right' as const, sorter: (a: Invoice, b: Invoice) => a.totalAmount - b.totalAmount, render: (value: number) => <strong className="invoice-total">{formatCurrency(value)}</strong> },
     { title: 'Trạng thái', dataIndex: 'status', key: 'status', width: 135, render: (value: InvoiceStatus) => { const meta = STATUS_META[value] || { label: value, color: 'default' }; return <Tag color={meta.color}>{meta.label}</Tag>; } },
@@ -88,35 +114,127 @@ function InvoiceManagement() {
   </div>;
 }
 
+const PAYMENT_STATUS_META: Record<string, { label: string; color: string }> = {
+  unpaid: { label: 'Chưa thanh toán', color: 'orange' },
+  deposit_paid: { label: 'Đã đặt cọc', color: 'blue' },
+  paid: { label: 'Đã thanh toán', color: 'green' },
+  refunded: { label: 'Đã hoàn tiền', color: 'red' },
+};
+
 function InvoiceDetail({ invoice }: { invoice: Invoice }) {
   const status = STATUS_META[invoice.status] || { label: invoice.status, color: 'default' };
+  const payMeta = invoice.paymentStatus ? PAYMENT_STATUS_META[invoice.paymentStatus] : null;
+  const roomCount = invoice.booking_rooms?.length || invoice.roomQuantity || 1;
+  const roomNumbers = invoice.booking_rooms && invoice.booking_rooms.length > 0
+    ? invoice.booking_rooms.map((r) => r.number)
+    : (invoice.roomNumber ? [invoice.roomNumber] : ['Chưa xếp']);
+
+  const checkInDate = dayjs(invoice.checkIn);
+  const checkOutDate = dayjs(invoice.checkOut);
+  const nights = Math.max(checkOutDate.diff(checkInDate, 'day'), 1);
+
+  const overpaid = Math.max((invoice.paidAmount || 0) - invoice.totalAmount, 0);
+
   return <div className="invoice-print-sheet">
     <div className="invoice-document-header">
-      <div><Typography.Title level={3}>HotelHub</Typography.Title><Typography.Text type="secondary">Hóa đơn dịch vụ lưu trú</Typography.Text></div>
-      <div className="invoice-document-code"><strong>{invoice.invoiceNumber}</strong><span>{formatDateTime(invoice.issuedAt)}</span><Tag color={status.color}>{status.label}</Tag></div>
-    </div>
-    <Descriptions bordered column={{ xs: 1, sm: 2 }} size="small">
-      <Descriptions.Item label="Khách hàng">{invoice.customerName || 'Khách lẻ'}</Descriptions.Item><Descriptions.Item label="Booking">#{invoice.bookingId}</Descriptions.Item>
-      <Descriptions.Item label="Email">{invoice.customerEmail || 'Chưa cập nhật'}</Descriptions.Item><Descriptions.Item label="Điện thoại">{invoice.customerPhone || 'Chưa cập nhật'}</Descriptions.Item>
-      <Descriptions.Item label="Phòng">{invoice.roomNumber || 'Chưa xếp'} · {invoice.roomTypeName || 'Chưa cập nhật'}</Descriptions.Item><Descriptions.Item label="Thời gian lưu trú">{dayjs(invoice.checkIn).format('DD/MM/YYYY')} đến {dayjs(invoice.checkOut).format('DD/MM/YYYY')}</Descriptions.Item>
-    </Descriptions>
-    <div className="invoice-amounts">
-      <AmountRow label="Tiền phòng" value={invoice.roomAmount} />
-      <AmountRow label="Tiền dịch vụ" value={invoice.serviceAmount} />
-      {invoice.services?.map((service) => (
-        <div className="invoice-service-item" key={service.serviceId}>
-          <span>{service.serviceName}<small>{service.quantity} × {formatCurrency(service.unitPrice)}</small></span>
-          <strong>{formatCurrency(service.totalPrice)}</strong>
+      <div>
+        <Typography.Title level={3}>HotelHub</Typography.Title>
+        <Typography.Text type="secondary">Hóa đơn dịch vụ lưu trú</Typography.Text>
+      </div>
+      <div className="invoice-document-code">
+        <strong>{invoice.invoiceNumber}</strong>
+        <span>{formatDateTime(invoice.issuedAt)}</span>
+        <div style={{ display: 'flex', gap: 6, marginTop: 4, justifyContent: 'flex-end' }}>
+          <Tag color={status.color}>Hóa đơn: {status.label}</Tag>
+          {payMeta && <Tag color={payMeta.color}>Thanh toán: {payMeta.label}</Tag>}
         </div>
-      ))}
-      <AmountRow label={invoice.occupancySurcharge && invoice.occupancySurcharge > 0 ? "Phụ thu (trẻ em)" : "Phụ thu"} value={invoice.surchargeAmount} />
-      <AmountRow label="Giảm giá" value={-invoice.discountAmount} />
-      <AmountRow label="Tiền cọc" value={invoice.depositAmount || 0} />
-      <AmountRow label="Đã thanh toán" value={invoice.paidAmount || 0} />
-      <AmountRow label="Còn phải thanh toán" value={invoice.remainingAmount || 0} />
-      <AmountRow label="Tổng thanh toán" value={invoice.totalAmount} total />
+      </div>
     </div>
-    <p className="invoice-print-note">Cảm ơn quý khách đã sử dụng dịch vụ của HotelHub.</p>
+
+    <Descriptions bordered column={{ xs: 1, sm: 2 }} size="small">
+      <Descriptions.Item label="Khách hàng">{invoice.customerName || 'Khách lẻ'}</Descriptions.Item>
+      <Descriptions.Item label="Booking">#{invoice.bookingId}</Descriptions.Item>
+      <Descriptions.Item label="Email">{invoice.customerEmail || 'Chưa cập nhật'}</Descriptions.Item>
+      <Descriptions.Item label="Điện thoại">{invoice.customerPhone || 'Chưa cập nhật'}</Descriptions.Item>
+      <Descriptions.Item label="Hạng phòng">{invoice.roomTypeName || 'Chưa cập nhật'} · {roomCount} phòng</Descriptions.Item>
+      <Descriptions.Item label="Phòng thực tế">
+        <Space size={[4, 4]} wrap>
+          {roomNumbers.map((num) => (
+            <Tag key={num} color="blue" style={{ margin: 0 }}>{num}</Tag>
+          ))}
+        </Space>
+      </Descriptions.Item>
+      <Descriptions.Item label="Thời gian lưu trú" span={2}>
+        {checkInDate.format('DD/MM/YYYY')} đến {checkOutDate.format('DD/MM/YYYY')} ({nights} đêm)
+      </Descriptions.Item>
+    </Descriptions>
+
+    <div className="invoice-amounts" style={{ marginTop: 16 }}>
+      <AmountRow label="Tiền phòng" value={invoice.roomAmount} />
+
+      {/* Dịch vụ */}
+      {invoice.serviceAmount > 0 && (
+        <>
+          <AmountRow label="Tiền dịch vụ" value={invoice.serviceAmount} />
+          {invoice.services && invoice.services.length > 0 && (
+            <div style={{ paddingLeft: 16, marginBottom: 8 }}>
+              {invoice.services.map((service) => (
+                <div className="invoice-service-item" key={service.serviceId || service.serviceName}>
+                  <span>• {service.serviceName} <small>({service.quantity} × {formatCurrency(service.unitPrice)})</small></span>
+                  <strong>{formatCurrency(service.totalPrice)}</strong>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Phụ thu */}
+      {invoice.surchargeAmount > 0 && (
+        <>
+          <AmountRow label="Phụ thu" value={invoice.surchargeAmount} />
+          <div style={{ paddingLeft: 16, marginBottom: 8 }}>
+            {Number(invoice.lateCheckoutSurcharge || 0) > 0 && (
+              <div className="invoice-service-item">
+                <span>• Phí trả phòng muộn</span>
+                <strong>{formatCurrency(Number(invoice.lateCheckoutSurcharge))}</strong>
+              </div>
+            )}
+            {Number(invoice.occupancySurcharge || 0) > 0 && (
+              <div className="invoice-service-item">
+                <span>• Phụ thu người ở / trẻ em</span>
+                <strong>{formatCurrency(Number(invoice.occupancySurcharge))}</strong>
+              </div>
+            )}
+            {invoice.damages && invoice.damages.length > 0 && invoice.damages.map((d) => (
+              <div className="invoice-service-item" key={d.id || d.itemName}>
+                <span>• {d.itemName} {d.quantity > 1 ? `(${d.quantity} × ${formatCurrency(d.unitPrice)})` : ''}</span>
+                <strong>{formatCurrency(d.totalPrice)}</strong>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* Giảm giá & Đặt cọc */}
+      {invoice.discountAmount > 0 && <AmountRow label="Giảm giá (Voucher)" value={-invoice.discountAmount} />}
+      {Number(invoice.depositAmount || 0) > 0 && <AmountRow label="Tiền cọc" value={invoice.depositAmount || 0} />}
+
+      {/* Thông tin thanh toán tổng */}
+      <div style={{ borderTop: '1px solid #e8e8e8', paddingTop: 8, marginTop: 8 }}>
+        <AmountRow label="Tổng thanh toán" value={invoice.totalAmount} total />
+        <AmountRow label="Đã thanh toán" value={invoice.paidAmount || 0} />
+        <AmountRow label="Còn phải thanh toán" value={invoice.remainingAmount || 0} />
+        {overpaid > 0 && (
+          <div className="invoice-amount-row" style={{ color: '#389e0d' }}>
+            <span>Thanh toán thừa</span>
+            <strong>{formatCurrency(overpaid)}</strong>
+          </div>
+        )}
+      </div>
+    </div>
+
+    <p className="invoice-print-note" style={{ marginTop: 20 }}>Cảm ơn quý khách đã sử dụng dịch vụ của HotelHub.</p>
   </div>;
 }
 
