@@ -36,3 +36,19 @@ export const register = async (data: RegisterRequest): Promise<AuthResponse> => 
 export const getProfile = async () => {
   return api.get("/auth/profile");
 };
+
+export interface ForgotPasswordResponse {
+  message: string;
+  delivered?: boolean;
+  token?: string;
+}
+
+export const forgotPasswordRequest = async (email: string): Promise<ForgotPasswordResponse> => {
+  const response = await api.post("/auth/forgot-password", { email });
+  return response;
+};
+
+export const resetPassword = async (token: string, password: string): Promise<{ message: string }> => {
+  const response = await api.post("/auth/reset-password", { token, password });
+  return response;
+};
