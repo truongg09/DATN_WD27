@@ -101,7 +101,29 @@ const listPayments = async ({ bookingId, paymentStatus } = {}) => {
     `,
     values
   );
-  return rows;
+  const uniqueMap = new Map();
+  for (const row of rows) {
+    if (!uniqueMap.has(row.id)) {
+      uniqueMap.set(row.id, {
+        ...row,
+        _roomNumbers: row.room_number ? [String(row.room_number)] : []
+      });
+    } else {
+      const existing = uniqueMap.get(row.id);
+      if (row.room_number && !existing._roomNumbers.includes(String(row.room_number))) {
+        existing._roomNumbers.push(String(row.room_number));
+      }
+    }
+  }
+
+  return Array.from(uniqueMap.values()).map(item => {
+    const joinedRooms = item._roomNumbers.join(', ');
+    delete item._roomNumbers;
+    return {
+      ...item,
+      room_number: joinedRooms || item.room_number
+    };
+  });
 };
 
 const updatePayment = async (paymentId, fields, connection) => {

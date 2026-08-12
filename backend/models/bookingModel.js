@@ -49,12 +49,11 @@ const BOOKING_SELECT = `
     b.actualCheckOutTime AS actual_check_out_time,
     COALESCE(b.guest_name, MAX(c.fullName)) AS customer_name,
     COALESCE(b.guest_email, MAX(a.email)) AS customer_email,
-    COALESCE(b.guest_phone, MAX(c.phone), MAX(a.phone)) AS customer_phone,
-    MIN(r.roomNumber) AS room_number,
+    GROUP_CONCAT(DISTINCT r.roomNumber ORDER BY r.roomNumber SEPARATOR ', ') AS room_number,
     MIN(r.floor) AS room_floor,
     MIN(r.area) AS room_area,
     MIN(r.status) AS room_status,
-    COALESCE(MIN(rt.typeName), 'Đặt phòng') AS room_type_name,
+    COALESCE(GROUP_CONCAT(DISTINCT rt.typeName SEPARATOR ', '), 'Đặt phòng') AS room_type_name,
     MIN(rt.defaultPrice) AS price_per_night,
     MIN(rt.capacity) AS room_capacity
   FROM bookings b

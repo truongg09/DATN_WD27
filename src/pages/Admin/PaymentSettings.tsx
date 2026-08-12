@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Card, Form, Input, Select, Button, message, QRCode, Alert, Spin, InputNumber, Tabs, TimePicker } from 'antd';
-import { BankOutlined, SaveOutlined, TeamOutlined, ClockCircleOutlined, SafetyOutlined } from '@ant-design/icons';
+import { BankOutlined, SaveOutlined, ClockCircleOutlined, SafetyOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import api from '../../services/api';
+
 import {
   getPaymentSettings,
   updatePaymentSettings,
@@ -23,11 +23,7 @@ interface FormValues {
   transferPrefix: string;
 }
 
-interface ChildrenPolicy {
-  freeMaxAge: number;
-  childMaxAge: number;
-  surchargePerNight: number;
-}
+
 
 const PaymentSettings = () => {
   const [form] = Form.useForm<FormValues>();
@@ -38,13 +34,7 @@ const PaymentSettings = () => {
   const [saving, setSaving] = useState(false);
   const [savingTiers, setSavingTiers] = useState(false);
   const [savingCancelPolicy, setSavingCancelPolicy] = useState(false);
-  const [savingChildrenPolicy, setSavingChildrenPolicy] = useState(false);
 
-  const [childrenPolicy, setChildrenPolicy] = useState<ChildrenPolicy>({
-    freeMaxAge: 5,
-    childMaxAge: 11,
-    surchargePerNight: 200000,
-  });
 
   const bankBin = Form.useWatch('bankBin', form);
   const accountNumber = Form.useWatch('accountNumber', form);
@@ -65,12 +55,7 @@ const PaymentSettings = () => {
         message.error('Không thể tải cài đặt thanh toán');
       }
 
-      try {
-        const policyRes = (await api.get('/settings/children-policy')) as { data: ChildrenPolicy };
-        setChildrenPolicy(policyRes.data);
-      } catch {
-        // dùng mặc định nếu chưa cấu hình
-      }
+
 
       try {
         const tiersRes = await getLateCheckoutTiers();
@@ -182,18 +167,7 @@ const PaymentSettings = () => {
     }
   };
 
-  const handleSaveChildrenPolicy = async () => {
-    setSavingChildrenPolicy(true);
-    try {
-      await api.put('/settings/children-policy', childrenPolicy);
-      message.success('Đã lưu chính sách phụ thu trẻ em');
-    } catch (error: unknown) {
-      const err = error as { response?: { data?: { message?: string } } };
-      message.error(err.response?.data?.message || 'Không thể lưu chính sách trẻ em');
-    } finally {
-      setSavingChildrenPolicy(false);
-    }
-  };
+
 
   const previewQr = useMemo(() => {
     if (!bankBin || !accountNumber) return '';

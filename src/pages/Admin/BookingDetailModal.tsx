@@ -874,7 +874,7 @@ const BookingDetailModal: React.FC<Props> = ({
           {dateTime(detail.created_at)}
         </Descriptions.Item>
         {!isCustomer && (
-          <Descriptions.Item label="Trạng thái phòng hiện tại">
+          <Descriptions.Item label="Trạng thái phòng hiện tại" span={2}>
             {detail.room_status || "—"}
           </Descriptions.Item>
         )}
@@ -1897,7 +1897,7 @@ const BookingDetailModal: React.FC<Props> = ({
     >
       {loading && (
         <div style={{ textAlign: "center", padding: 48 }}>
-          <Spin tip="Đang tải chi tiết..." />
+          <Spin description="Đang tải chi tiết..." />
         </div>
       )}
 
