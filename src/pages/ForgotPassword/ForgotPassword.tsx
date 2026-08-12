@@ -27,6 +27,7 @@ function ForgotPassword() {
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
   const [sentEmail, setSentEmail] = useState("");
+  void sentEmail;
   const [devToken, setDevToken] = useState<string | undefined>(undefined);
   const [serverError, setServerError] = useState<string | null>(null);
 

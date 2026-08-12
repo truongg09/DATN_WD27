@@ -71,9 +71,12 @@ interface RoomTypeOption {
   id: number;
   typeName: string;
   defaultPrice?: number | string;
+  capacity?: number;
   adultCapacity?: number;
   childCapacity?: number;
   maxOccupancy?: number;
+  extraAdultFee?: number;
+  extraChildFee?: number;
 }
 
 interface SelectedRoom {
@@ -137,12 +140,6 @@ const bookingStatusMap: Record<string, { label: string; className: string }> = {
 
 const canShowRoomNumber = (status: string | undefined) =>
   status === 'checked_in' || status === 'checked_out';
-
-const roomStatusMap: Record<string, { label: string; className: string }> = {
-  available: { label: "Còn trống", className: "available" },
-  occupied: { label: "Đang có khách", className: "occupied" },
-  maintenance: { label: "Đang bảo trì", className: "maintenance" },
-};
 
 const Booking: React.FC = () => {
   const [roomTypes, setRoomTypes] = useState<RoomTypeOption[]>([]);
@@ -536,15 +533,24 @@ const Booking: React.FC = () => {
 
     setSelectedRoomsList(prev => prev.map(item => {
       if (item.key === key) {
+        const adultCap = Number(typeOpt.adultCapacity ?? 2);
+        const childCap = Number(typeOpt.childCapacity ?? 0);
+        const cap = Number(typeOpt.capacity ?? (adultCap + childCap));
+        const maxOcc = Number(typeOpt.maxOccupancy ?? cap);
+        const exAdultFee = Number(typeOpt.extraAdultFee ?? 200000);
+        const exChildFee = Number(typeOpt.extraChildFee ?? 100000);
         return {
           ...item,
           roomTypeId,
           name: typeOpt.typeName,
           price: Number(typeOpt.defaultPrice || 0),
-          adultCapacity: typeOpt.adultCapacity || 2,
-          childCapacity: typeOpt.childCapacity || 1,
-          maxOccupancy: typeOpt.maxOccupancy || 3,
-          beds: `${typeOpt.adultCapacity || 2} NL + ${typeOpt.childCapacity || 1} TE`,
+          capacity: cap,
+          adultCapacity: adultCap,
+          childCapacity: childCap,
+          maxOccupancy: maxOcc,
+          extraAdultFee: exAdultFee,
+          extraChildFee: exChildFee,
+          beds: `${adultCap} NL + ${childCap} TE`,
           image: getRoomTypeCardImage(typeOpt.typeName)
         };
       }
@@ -1009,6 +1015,13 @@ const Booking: React.FC = () => {
                 </div>
 
                 {selectedRoomsList.map((roomItem, index) => {
+                  const stdCap = Number(roomItem.capacity ?? ((roomItem.adultCapacity || 2) + (roomItem.childCapacity || 0)));
+                  const maxOcc = Number(roomItem.maxOccupancy ?? stdCap);
+                  const extraMax = Math.max(0, maxOcc - stdCap);
+                  const extraAdultFee = Number(roomItem.extraAdultFee ?? 200000);
+                  const extraChildFee = Number(roomItem.extraChildFee ?? 100000);
+                  const cp = dateAvailability?.childrenPolicy || { freeMaxAge: 5, childMaxAge: 11, surchargePerNight: 200000 };
+
                   return (
                     <div key={roomItem.key} className="room-selection-row-item" style={{ borderBottom: "1px solid #f0f0f0", paddingBottom: "20px", marginBottom: "20px" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
@@ -1080,6 +1093,25 @@ const Booking: React.FC = () => {
                         </div>
                       </div>
 
+                      <div className="extra-guest-policy-box" style={{ marginTop: "12px", padding: "12px 14px", background: "#fdf8f2", border: "1px solid #f2e3d3", borderRadius: "10px", fontSize: "13px", color: "#513c2b" }}>
+                        <div style={{ fontWeight: 700, marginBottom: "4px", color: "#3f3024" }}>
+                          Chính sách sức chứa &amp; khách phát sinh ({roomItem.name}):
+                        </div>
+                        <ul style={{ margin: 0, paddingLeft: "18px", lineHeight: "1.5" }}>
+                          <li>Sức chứa tiêu chuẩn: <strong>{stdCap} khách</strong></li>
+                          <li>Sức chứa tối đa: <strong>{maxOcc} khách</strong></li>
+                          {extraMax > 0 ? (
+                            <>
+                              <li>Có thể thêm tối đa <strong>{extraMax} khách phát sinh</strong>/phòng</li>
+                              <li>Phụ thu người lớn: <strong>{formatPrice(extraAdultFee)}</strong>/người/đêm</li>
+                              <li>Phụ thu trẻ em: <strong>{formatPrice(extraChildFee)}</strong>/trẻ/đêm</li>
+                            </>
+                          ) : (
+                            <li>Hạng phòng này không nhận thêm khách phát sinh</li>
+                          )}
+                        </ul>
+                      </div>
+
                       <div className="form-row two-col guest-count-grid" style={{ marginTop: "12px" }}>
                         <div className="form-group">
                           <label>Người lớn</label>
@@ -1148,6 +1180,10 @@ const Booking: React.FC = () => {
                             ))}
                           </div>
                         )}
+
+                        <div className="children-policy-box" style={{ marginTop: "12px", padding: "10px 14px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "8px", fontSize: "12px", color: "#475467", lineHeight: "1.45" }}>
+                          <strong style={{ color: "#334155" }}>Quy định trẻ em:</strong> 0–{cp.freeMaxAge} tuổi: Miễn phí · {cp.freeMaxAge + 1}–{cp.childMaxAge} tuổi: Phụ thu {formatPrice(cp.surchargePerNight)}/đêm · Từ {cp.childMaxAge + 1} tuổi: Tính như người lớn.
+                        </div>
                       </div>
                     );
                   })}
@@ -1157,6 +1193,12 @@ const Booking: React.FC = () => {
                     onClick={() => {
                       if (roomTypes.length > 0) {
                         const typeOpt = roomTypes[0];
+                        const adultCap = Number(typeOpt.adultCapacity ?? 2);
+                        const childCap = Number(typeOpt.childCapacity ?? 0);
+                        const cap = Number(typeOpt.capacity ?? (adultCap + childCap));
+                        const maxOcc = Number(typeOpt.maxOccupancy ?? cap);
+                        const exAdultFee = Number(typeOpt.extraAdultFee ?? 200000);
+                        const exChildFee = Number(typeOpt.extraChildFee ?? 100000);
                         setSelectedRoomsList(prev => [
                           ...prev,
                           {
@@ -1164,11 +1206,17 @@ const Booking: React.FC = () => {
                             roomTypeId: typeOpt.id,
                             name: typeOpt.typeName,
                             price: Number(typeOpt.defaultPrice || 0),
+                            capacity: cap,
+                            adultCapacity: adultCap,
+                            childCapacity: childCap,
+                            maxOccupancy: maxOcc,
+                            extraAdultFee: exAdultFee,
+                            extraChildFee: exChildFee,
                             quantity: 1,
                             adults: 2,
                             children: 0,
                             childrenAges: [],
-                            beds: `${typeOpt.adultCapacity || 2} NL + ${typeOpt.childCapacity || 1} TE`,
+                            beds: `${adultCap} NL + ${childCap} TE`,
                             image: getRoomTypeCardImage(typeOpt.typeName)
                           }
                         ]);
@@ -1181,79 +1229,78 @@ const Booking: React.FC = () => {
                   >
                     Thêm hạng phòng khác
                   </Button>
-                </div>
-
-              <div className="secondary-time-options">
-                <div className="secondary-options-heading">
-                  <span>Tùy chọn thời gian</span>
-                  <small>Không bắt buộc</small>
-                </div>
-                <div className="form-row two-col stay-time-grid">
-                  <div className="form-group">
-                    <label>Giờ nhận phòng mong muốn</label>
-                    <Controller
-                      name="requestedCheckInTime"
-                      control={control}
-                      render={({ field }) => (
-                        <TimePicker
-                          style={{ width: "100%" }}
-                          size="large"
-                          format="HH:mm"
-                          minuteStep={15}
-                          placeholder={`Mặc định ${shortTime(policies?.checkInTime) || "14:00"}`}
-                          suffixIcon={<ClockCircleOutlined />}
-                          value={field.value ? dayjs(field.value, "HH:mm") : null}
-                          onChange={(time) =>
-                            field.onChange(time ? time.format("HH:mm") : null)
-                          }
+                  <div className="secondary-time-options">
+                    <div className="secondary-options-heading">
+                      <span>Tùy chọn thời gian</span>
+                      <small>Không bắt buộc</small>
+                    </div>
+                    <div className="form-row two-col stay-time-grid">
+                      <div className="form-group">
+                        <label>Giờ nhận phòng mong muốn</label>
+                        <Controller
+                          name="requestedCheckInTime"
+                          control={control}
+                          render={({ field }) => (
+                            <TimePicker
+                              style={{ width: "100%" }}
+                              size="large"
+                              format="HH:mm"
+                              minuteStep={15}
+                              placeholder={`Mặc định ${shortTime(policies?.checkInTime) || "14:00"}`}
+                              suffixIcon={<ClockCircleOutlined />}
+                              value={field.value ? dayjs(field.value, "HH:mm") : null}
+                              onChange={(time) =>
+                                field.onChange(time ? time.format("HH:mm") : null)
+                              }
+                            />
+                          )}
                         />
-                      )}
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Giờ trả phòng mong muốn</label>
-                    <Controller
-                      name="requestedCheckOutTime"
-                      control={control}
-                      render={({ field }) => {
-                        const standard = dayjs(
-                          policies?.checkOutTime || "12:00:00",
-                          "HH:mm:ss",
-                        );
-                        return (
-                          <TimePicker
-                            style={{ width: "100%" }}
-                            size="large"
-                            format="HH:mm"
-                            minuteStep={15}
-                            placeholder={`Mặc định ${shortTime(policies?.checkOutTime) || "12:00"}`}
-                            suffixIcon={<ClockCircleOutlined />}
-                            value={field.value ? dayjs(field.value, "HH:mm") : null}
-                            disabledTime={() => ({
-                              disabledHours: () =>
-                                Array.from({ length: 24 }, (_, h) => h).filter(
-                                  (h) => h > standard.hour(),
-                                ),
-                              disabledMinutes: (selectedHour) =>
-                                selectedHour === standard.hour()
-                                  ? Array.from({ length: 60 }, (_, m) => m).filter(
-                                      (m) => m > standard.minute(),
-                                    )
-                                  : [],
-                            })}
-                            onChange={(time) =>
-                              field.onChange(time ? time.format("HH:mm") : null)
-                            }
-                          />
-                        );
-                      }}
-                    />
+                      </div>
+                      <div className="form-group">
+                        <label>Giờ trả phòng mong muốn</label>
+                        <Controller
+                          name="requestedCheckOutTime"
+                          control={control}
+                          render={({ field }) => {
+                            const standard = dayjs(
+                              policies?.checkOutTime || "12:00:00",
+                              "HH:mm:ss",
+                            );
+                            return (
+                              <TimePicker
+                                style={{ width: "100%" }}
+                                size="large"
+                                format="HH:mm"
+                                minuteStep={15}
+                                placeholder={`Mặc định ${shortTime(policies?.checkOutTime) || "12:00"}`}
+                                suffixIcon={<ClockCircleOutlined />}
+                                value={field.value ? dayjs(field.value, "HH:mm") : null}
+                                disabledTime={() => ({
+                                  disabledHours: () =>
+                                    Array.from({ length: 24 }, (_, h) => h).filter(
+                                      (h) => h > standard.hour(),
+                                    ),
+                                  disabledMinutes: (selectedHour) =>
+                                    selectedHour === standard.hour()
+                                      ? Array.from({ length: 60 }, (_, m) => m).filter(
+                                          (m) => m > standard.minute(),
+                                        )
+                                      : [],
+                                })}
+                                onChange={(time) =>
+                                  field.onChange(time ? time.format("HH:mm") : null)
+                                }
+                              />
+                            );
+                          }}
+                        />
+                      </div>
+                    </div>
+                    <p className="secondary-options-note">
+                      Lễ tân sẽ chuẩn bị theo giờ bạn chọn; giờ trả chỉ nhận đến giờ chuẩn.
+                    </p>
                   </div>
                 </div>
-                <p className="secondary-options-note">
-                  Lễ tân sẽ chuẩn bị theo giờ bạn chọn; giờ trả chỉ nhận đến giờ chuẩn.
-                </p>
-              </div>
             </div>
 
             <div className="booking-section">
@@ -1370,28 +1417,38 @@ const Booking: React.FC = () => {
               <div className="booking-summary-scroll">
               {selectedRoomsList.length > 0 ? (
                 <>
-                  {selectedRoomsList.map((roomItem, idx) => (
-                    <div className="selected-room" key={roomItem.key || idx} style={{ marginBottom: "16px", borderBottom: "1px dashed #eee", paddingBottom: "12px" }}>
-                      <img
-                        src={roomItem.image}
-                        alt={roomItem.name}
-                        onError={(e) =>
-                          handleRoomImageError(e, roomItem.name)
-                        }
-                      />
-                      <div className="room-summary-info">
-                        <div className="room-summary-heading">
-                          <h4>{roomItem.name}</h4>
+                  {selectedRoomsList.map((roomItem, idx) => {
+                    const adultCap = Number(roomItem.adultCapacity ?? 2);
+                    const childCap = Number(roomItem.childCapacity ?? 0);
+                    const stdCapacity = Number(roomItem.capacity ?? (adultCap + childCap));
+                    const maxOcc = Number(roomItem.maxOccupancy ?? stdCapacity);
+
+                    return (
+                      <div className="selected-room" key={roomItem.key || idx} style={{ marginBottom: "16px", borderBottom: "1px dashed #eee", paddingBottom: "12px" }}>
+                        <img
+                          src={roomItem.image}
+                          alt={roomItem.name}
+                          onError={(e) =>
+                            handleRoomImageError(e, roomItem.name)
+                          }
+                        />
+                        <div className="room-summary-info">
+                          <div className="room-summary-heading">
+                            <h4>{roomItem.name}</h4>
+                          </div>
+                          <p className="room-summary-meta">
+                            {roomItem.quantity} phòng · Khách chọn: {roomItem.adults} NL + {roomItem.children} TE
+                          </p>
+                          <p style={{ fontSize: "12px", color: "#666", marginTop: "4px", lineHeight: "1.4" }}>
+                            Tiêu chuẩn: {stdCapacity} khách · {adultCap} NL + {childCap} TE
+                          </p>
+                          <p style={{ fontSize: "12px", color: "#666", marginTop: "2px" }}>
+                            Tối đa: {maxOcc} khách
+                          </p>
                         </div>
-                        <p className="room-summary-meta">
-                          {roomItem.quantity} phòng · {roomItem.adults} NL {roomItem.children > 0 ? `+ ${roomItem.children} TE` : ''}
-                        </p>
-                        <p style={{ fontSize: "13px", color: "#666" }}>
-                          Sức chứa: {roomItem.beds}
-                        </p>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
 
                   <div className="summary-details" style={{ marginTop: "16px" }}>
                     <div className="summary-row">

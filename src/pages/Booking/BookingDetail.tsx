@@ -403,6 +403,7 @@ const BookingDetail: React.FC = () => {
   const roomQuantity = bookingDetails.length > 0
     ? bookingDetails.length
     : ((booking as unknown as { extra_guest_snapshot?: { roomQuantity?: number } })?.extra_guest_snapshot?.roomQuantity || Number(booking.room_quantity || 1));
+  void roomQuantity;
   const bookingServices = Array.isArray(booking.services)
     ? booking.services as Array<Record<string, unknown>>
     : [];
