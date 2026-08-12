@@ -1,10 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Card, Descriptions, Tag, Button, Spin, message, Divider, Rate, Input, Space, Upload } from 'antd';
+import { Card, Descriptions, Tag, Button, Spin, message, Divider, Rate, Input, Space, Upload, Modal, Select } from 'antd';
 import type { UploadFile, UploadProps } from 'antd/es/upload/interface';
-import { FileTextOutlined, CreditCardOutlined, PlusOutlined, StarOutlined } from '@ant-design/icons';
+import { FileTextOutlined, CreditCardOutlined, PlusOutlined, StarOutlined, EditOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { getBookingDetail } from '../../services/bookingService';
+import { getBookingDetail, updateRequestedArrivalTime } from '../../services/bookingService';
 import { getPaymentByBookingId } from '../../services/paymentService';
 import { getInvoiceByBookingId } from '../../services/invoiceService';
 import { createReview, getReviews, updateReview } from '../../services/reviewService';
@@ -38,7 +38,8 @@ const uploadReviewImage: UploadProps['customRequest'] = async (options) => {
     onError?.(error as Error);
   }
 };
-
+    // Never trust a gateway query parameter alone. The success notice is shown
+    // only after the backend has verified the callback and updated the payment.
 const beforeUploadReviewImage = (file: File) => {
   const isImage = file.type.startsWith('image/');
   if (!isImage) {
@@ -79,6 +80,28 @@ const bookingStatusMap: Record<string, { label: string; color: string }> = {
   checked_in: { label: 'Đang ở', color: 'green' },
   checked_out: { label: 'Đã trả phòng', color: 'default' },
   cancelled: { label: 'Đã hủy', color: 'red' },
+  no_show: { label: 'Khách không đến (No-show)', color: 'volcano' },
+};
+
+const getBookingDisplayTag = (b: Record<string, unknown> | null) => {
+  if (!b) return { label: 'N/A', color: 'default' };
+  const normStatus = String(b.status || 'pending').toLowerCase();
+  if (
+    ['pending', 'confirmed'].includes(normStatus) &&
+    !b.actual_check_in_time &&
+    b.check_in
+  ) {
+    const checkInStr = dayjs(String(b.check_in)).format('YYYY-MM-DD');
+    const reqTime = String(b.requested_check_in_time || '14:00:00');
+    const requestedDateTime = dayjs(`${checkInStr} ${reqTime}`);
+    const lateDeadline = requestedDateTime.add(6, 'hour');
+    const now = dayjs();
+
+    if (now.isAfter(requestedDateTime) && (now.isBefore(lateDeadline) || now.isSame(lateDeadline))) {
+      return { label: 'Check-in muộn', color: 'orange' };
+    }
+  }
+  return bookingStatusMap[normStatus] || { label: normStatus, color: 'default' };
 };
 
 const canShowRoomNumber = (status: string | undefined) =>
@@ -123,6 +146,38 @@ const BookingDetail: React.FC = () => {
     hideReason?: string | null;
     images?: string[];
   } | null>(null);
+
+  const [isArrivalTimeModalOpen, setIsArrivalTimeModalOpen] = useState(false);
+  const [newArrivalTime, setNewArrivalTime] = useState('14:00');
+  const [arrivalNotes, setArrivalNotes] = useState('');
+  const [updatingArrivalTime, setUpdatingArrivalTime] = useState(false);
+
+  const handleUpdateArrivalTime = async () => {
+    if (!newArrivalTime) {
+      message.warning('Vui lòng chọn giờ đến dự kiến mới');
+      return;
+    }
+    setUpdatingArrivalTime(true);
+    try {
+      let timeStr = newArrivalTime;
+      let dayOffset = 0;
+      if (timeStr.includes('+1')) {
+        timeStr = timeStr.replace('+1', '');
+        dayOffset = 1;
+      }
+      await updateRequestedArrivalTime(bookingId, timeStr, dayOffset, arrivalNotes.trim());
+      message.success('Đã cập nhật giờ đến dự kiến thành công!');
+      setIsArrivalTimeModalOpen(false);
+      setArrivalNotes('');
+      const res = await getBookingDetail(bookingId);
+      setBooking(res.data as Record<string, unknown>);
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { message?: string } } };
+      message.error(err.response?.data?.message || 'Không thể cập nhật giờ đến');
+    } finally {
+      setUpdatingArrivalTime(false);
+    }
+  };
 
   useEffect(() => {
     if (!isValidBookingId) {
@@ -218,8 +273,7 @@ const BookingDetail: React.FC = () => {
           ? payment?.paymentStatus === 'deposit_paid'
           : false;
 
-    // Never trust a gateway query parameter alone. The success notice is shown
-    // only after the backend has verified the callback and updated the payment.
+
     if (isGatewayReturn && isSettled && callbackMatchesPayment && isCurrentZalopayPaymentRecorded) {
       const isFullyPaid = payment?.paymentStatus === 'paid';
       message.success({
@@ -343,9 +397,54 @@ const BookingDetail: React.FC = () => {
     dayjs(String(booking.check_out)).diff(dayjs(String(booking.check_in)), 'day'),
     0
   );
+  const bookingDetails = Array.isArray(booking.details)
+    ? (booking.details as Array<{ id: number; roomId?: number | null; roomNumber?: string | null }>)
+    : [];
+  const roomQuantity = bookingDetails.length > 0
+    ? bookingDetails.length
+    : ((booking as unknown as { extra_guest_snapshot?: { roomQuantity?: number } })?.extra_guest_snapshot?.roomQuantity || Number(booking.room_quantity || 1));
   const bookingServices = Array.isArray(booking.services)
     ? booking.services as Array<Record<string, unknown>>
     : [];
+
+  const getServiceRoomTag = (service: Record<string, unknown>) => {
+    const serviceDetailId = Number(service.bookingDetailId || service.booking_detail_id || 0);
+    const serviceRoomId = Number(service.roomId || service.room_id || 0);
+    const serviceRoomNumber = service.roomNumber ? String(service.roomNumber) : '';
+
+    if (bookingDetails.length > 0) {
+      if (serviceDetailId > 0) {
+        const idx = bookingDetails.findIndex((d) => Number(d.id) === serviceDetailId);
+        if (idx >= 0) {
+          const logicalLabel = `Phòng ${idx + 1}`;
+          const roomNum = serviceRoomNumber || bookingDetails[idx]?.roomNumber;
+          if (['checked_in', 'checked_out'].includes(status) && roomNum) {
+            return `${logicalLabel} — ${roomNum}`;
+          }
+          return logicalLabel;
+        }
+      }
+
+      if (serviceRoomId > 0) {
+        const idx = bookingDetails.findIndex((d) => Number(d.roomId) === serviceRoomId);
+        if (idx >= 0) {
+          const logicalLabel = `Phòng ${idx + 1}`;
+          const roomNum = serviceRoomNumber || bookingDetails[idx]?.roomNumber;
+          if (['checked_in', 'checked_out'].includes(status) && roomNum) {
+            return `${logicalLabel} — ${roomNum}`;
+          }
+          return logicalLabel;
+        }
+      }
+    }
+
+    if (['checked_in', 'checked_out'].includes(status) && serviceRoomNumber) {
+      return `Phòng ${serviceRoomNumber}`;
+    }
+
+    return 'Không xác định phòng / Dữ liệu cũ';
+  };
+
   const bookingServiceAmount = bookingServices.reduce(
     (sum, service) => sum + Number(service.totalPrice || 0),
     0
@@ -381,12 +480,14 @@ const BookingDetail: React.FC = () => {
     ? Number(invoice.totalAmount || (invoiceRoomAmount + invoiceServiceAmount + invoiceSurchargeAmount - invoiceDiscountAmount))
     : Number(booking.payable_total || booking.total_price || 0);
 
+  const displayTag = getBookingDisplayTag(booking);
+
   return (
     <div className="booking-detail-page">
       <div className="detail-hero">
         <h1>Chi tiết đặt phòng #{bookingId}</h1>
-        <Tag color={bookingStatusMap[status]?.color}>
-          {bookingStatusMap[status]?.label || status}
+        <Tag color={displayTag.color}>
+          {displayTag.label}
         </Tag>
       </div>
 
@@ -397,8 +498,8 @@ const BookingDetail: React.FC = () => {
               {String(booking.booking_code || `#${bookingId}`)}
             </Descriptions.Item>
             <Descriptions.Item label="Trạng thái">
-              <Tag color={bookingStatusMap[status]?.color}>
-                {bookingStatusMap[status]?.label || status}
+              <Tag color={displayTag.color}>
+                {displayTag.label}
               </Tag>
             </Descriptions.Item>
             <Descriptions.Item label="Khách hàng">{String(booking.customer_name)}</Descriptions.Item>
@@ -428,13 +529,42 @@ const BookingDetail: React.FC = () => {
             </Descriptions.Item>
             <Descriptions.Item label="Ngày đặt">{formatDate(String(booking.created_at))}</Descriptions.Item>
             <Descriptions.Item label="Nhận phòng">{formatDate(String(booking.check_in))}</Descriptions.Item>
+            
             <Descriptions.Item label="Trả phòng">{formatDate(String(booking.check_out))}</Descriptions.Item>
+            <Descriptions.Item label="Người lớn">{String(booking.adults || '-')}</Descriptions.Item>
+            <Descriptions.Item label="Trẻ em">{String(booking.children || 0)}</Descriptions.Item>
             <Descriptions.Item label="Số đêm">{nights}</Descriptions.Item>
             <Descriptions.Item label="Giá phòng/đêm">
               {formatPrice(Number(booking.room_price || booking.price_per_night || 0))}
             </Descriptions.Item>
-            <Descriptions.Item label="Người lớn">{String(booking.adults || '-')}</Descriptions.Item>
-            <Descriptions.Item label="Trẻ em">{String(booking.children || 0)}</Descriptions.Item>
+
+            <Descriptions.Item label="Giờ check-in dự kiến">
+              <Space wrap>
+                <span>
+                  {booking.requested_check_in_time
+                    ? `${String(booking.requested_check_in_time).slice(0, 5)}${Number(booking.requested_check_in_day_offset || 0) === 1 ? ' (ngày hôm sau)' : ''}`
+                    : '14:00 (Chuẩn)'}
+                </span>
+                {!booking.actual_check_in_time &&
+                  ['pending', 'confirmed'].includes(status) && (
+                    <Button
+                      type="link"
+                      size="small"
+                      icon={<EditOutlined />}
+                      onClick={() => {
+                        const timeStr = booking.requested_check_in_time
+                          ? String(booking.requested_check_in_time).slice(0, 5)
+                          : '14:00';
+                        const offset = Number(booking.requested_check_in_day_offset || 0);
+                        setNewArrivalTime(offset === 1 ? `${timeStr}+1` : timeStr);
+                        setIsArrivalTimeModalOpen(true);
+                      }}
+                    >
+                      Cập nhật giờ đến
+                    </Button>
+                  )}
+              </Space>
+            </Descriptions.Item>
             <Descriptions.Item label="Tổng tiền" span={{ xs: 1, sm: 2 }}>
               <strong>{formatPrice(payment?.totalAmount ?? Number(booking.booking_total_amount || booking.total_price))}</strong>
             </Descriptions.Item>
@@ -462,10 +592,15 @@ const BookingDetail: React.FC = () => {
         <Card title={`Dịch vụ đã chọn (${bookingServices.length})`}>
           {bookingServices.length > 0 ? (
             <Descriptions column={1} bordered>
-              {bookingServices.map((service) => (
+              {bookingServices.map((service, index) => (
                 <Descriptions.Item
-                  key={String(service.serviceId)}
-                  label={String(service.serviceName)}
+                  key={String(service.id || service.serviceId || index)}
+                  label={
+                    <Space wrap align="center">
+                      <span>{String(service.serviceName)}</span>
+                      <Tag color="blue">{getServiceRoomTag(service)}</Tag>
+                    </Space>
+                  }
                 >
                   {String(service.quantity)} × {formatPrice(Number(service.unitPrice || 0))}
                   {' = '}
@@ -681,6 +816,18 @@ const BookingDetail: React.FC = () => {
                   )}
                 </tbody>
                 <tfoot>
+                  <tr>
+                    <td colSpan={2}>Tiền cọc</td>
+                    <td style={{ textAlign: 'right' }}>{formatPrice(invoice.depositAmount || 0)}</td>
+                  </tr>
+                  <tr>
+                    <td colSpan={2}>Đã thanh toán</td>
+                    <td style={{ textAlign: 'right' }}>{formatPrice(invoice.paidAmount || 0)}</td>
+                  </tr>
+                  <tr>
+                    <td colSpan={2}>Còn phải thanh toán</td>
+                    <td style={{ textAlign: 'right' }}>{formatPrice(invoice.remainingAmount || 0)}</td>
+                  </tr>
                   <tr className="invoice-total-row">
                     <td colSpan={2}>
                       <strong style={{ fontSize: 16 }}>Tổng thanh toán</strong>
@@ -843,6 +990,62 @@ const BookingDetail: React.FC = () => {
           </Link>
         </div>
       </div>
+
+      <Modal
+        title="Cập nhật giờ đến dự kiến"
+        open={isArrivalTimeModalOpen}
+        onOk={handleUpdateArrivalTime}
+        confirmLoading={updatingArrivalTime}
+        onCancel={() => setIsArrivalTimeModalOpen(false)}
+        okText="Lưu thay đổi"
+        cancelText="Hủy"
+      >
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>
+            Chọn giờ đến dự kiến mới:
+          </label>
+          <Select
+            style={{ width: '100%' }}
+            value={newArrivalTime}
+            onChange={(val) => setNewArrivalTime(val)}
+            options={[
+              { value: '12:00', label: '12:00 (Check-in sớm)' },
+              { value: '13:00', label: '13:00' },
+              { value: '14:00', label: '14:00 (Giờ chuẩn)' },
+              { value: '15:00', label: '15:00' },
+              { value: '16:00', label: '16:00' },
+              { value: '17:00', label: '17:00' },
+              { value: '18:00', label: '18:00' },
+              { value: '19:00', label: '19:00' },
+              { value: '20:00', label: '20:00' },
+              { value: '21:00', label: '21:00' },
+              { value: '22:00', label: '22:00' },
+              { value: '23:00', label: '23:00' },
+              { value: '00:00+1', label: '00:00 (ngày hôm sau)' },
+              { value: '01:00+1', label: '01:00 (ngày hôm sau)' },
+              { value: '02:00+1', label: '02:00 (ngày hôm sau)' },
+              { value: '03:00+1', label: '03:00 (ngày hôm sau)' },
+              { value: '04:00+1', label: '04:00 (ngày hôm sau)' },
+              { value: '05:00+1', label: '05:00 (ngày hôm sau)' },
+              { value: '06:00+1', label: '06:00 (ngày hôm sau)' }
+            ]}
+          />
+          <p style={{ marginTop: 8, color: '#666', fontSize: '13px' }}>
+            Hạn check-in của quý khách sẽ tự động được tính lại bằng <strong>Giờ đến + 6 giờ</strong>.
+          </p>
+        </div>
+        <div>
+          <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>
+            Ghi chú / Lý do (không bắt buộc):
+          </label>
+          <Input.TextArea
+            rows={3}
+            placeholder="Ví dụ: Chuyến bay bị hoãn, kẹt xe..."
+            value={arrivalNotes}
+            onChange={(e) => setArrivalNotes(e.target.value)}
+          />
+        </div>
+      </Modal>
     </div>
   );
 };

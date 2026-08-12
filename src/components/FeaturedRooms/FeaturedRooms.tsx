@@ -90,7 +90,7 @@ const FeaturedRooms: React.FC = () => {
                     fontSize: 12,
                     border: '1px solid #fdba74',
                   }}>
-                    <FontAwesomeIcon icon={faUserGroup} /> Tối đa {type.capacity} khách
+                    <FontAwesomeIcon icon={faUserGroup} /> Tối đa {type.maxOccupancy ?? type.capacity} khách
                   </span>
                   {formatArea(type) && (
                     <span><FontAwesomeIcon icon={faExpandArrowsAlt} /> {formatArea(type)}</span>

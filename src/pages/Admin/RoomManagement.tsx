@@ -1,4 +1,5 @@
 import { useState, useEffect, type Key } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Table,
   Button,
@@ -17,7 +18,9 @@ import {
   Descriptions,
   Radio,
   DatePicker,
-  Tooltip
+  Tooltip,
+  Divider,
+  Image
 } from 'antd';
 import { 
   PlusOutlined, 
@@ -44,6 +47,7 @@ interface RoomType {
   typeName: string;
   description: string;
   capacity: number;
+  maxOccupancy?: number;
   defaultPrice: string | number;
 }
 
@@ -57,6 +61,7 @@ interface Room {
   room_type_name: string;
   room_type_description: string;
   capacity: number;
+  maxOccupancy?: number;
   price_per_night: string | number;
   imageUrl?: string;
   maintenanceNote?: string | null;
@@ -64,6 +69,7 @@ interface Room {
 }
 
 function RoomManagement() {
+  const [searchParams] = useSearchParams();
   const [rooms, setRooms] = useState<Room[]>([]);
   const [roomTypes, setRoomTypes] = useState<RoomType[]>([]);
   const [bookings, setBookings] = useState<any[]>([]);
@@ -73,7 +79,14 @@ function RoomManagement() {
   const [editingRoom, setEditingRoom] = useState<Room | null>(null);
   const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
   const [form] = Form.useForm();
-  const [searchText, setSearchText] = useState('');
+  const [searchText, setSearchText] = useState(searchParams.get('search') || searchParams.get('room') || '');
+
+  useEffect(() => {
+    const q = searchParams.get('search') || searchParams.get('room');
+    if (q !== null) {
+      setSearchText(q);
+    }
+  }, [searchParams]);
 
   // Advanced filter states
   const [filterRoomTypeId, setFilterRoomTypeId] = useState<number | null>(null);
@@ -646,6 +659,26 @@ function RoomManagement() {
     return new Intl.NumberFormat('vi-VN').format(numPrice) + ' VNĐ';
   };
 
+  const getRoomStatusMeta = (room: Room) => {
+    let color = 'default';
+    let text: string = room.status;
+    if (room.status === 'available') {
+      color = 'green';
+      text = 'Trống sạch';
+    } else if (room.status === 'occupied') {
+      color = 'blue';
+      text = 'Đang ở';
+    } else if (room.status === 'reserved') {
+      color = 'orange';
+      text = 'Đã cọc';
+    } else if (room.status === 'maintenance') {
+      const isCleaning = room.maintenanceNote && room.maintenanceNote.toLowerCase().includes('dọn');
+      color = isCleaning ? 'purple' : 'red';
+      text = isCleaning ? 'Chờ dọn dẹp' : 'Bảo trì';
+    }
+    return { color, text };
+  };
+
   const columns = [
     {
       title: 'Số phòng',
@@ -678,13 +711,15 @@ function RoomManagement() {
       dataIndex: 'price_per_night',
       key: 'price_per_night',
       sorter: (a: Room, b: Room) => (parseFloat(a.price_per_night as string) || 0) - (parseFloat(b.price_per_night as string) || 0),
-      render: (price: string | number) => formatPrice(price)
+      render: (price: string | number) => (
+        <span style={{ whiteSpace: 'nowrap', fontWeight: 600 }}>{formatPrice(price)}</span>
+      )
     },
     {
       title: 'Sức chứa',
       dataIndex: 'capacity',
       key: 'capacity',
-      render: (capacity: number) => `${capacity} người`
+      render: (capacity: number, record: Room) => `${record.maxOccupancy ?? capacity} người`
     },
     {
       title: 'Trạng thái',
@@ -737,43 +772,46 @@ function RoomManagement() {
       title: 'Thao tác',
       key: 'action',
       render: (_: unknown, record: Room) => (
-        <Space>
-          <Button
-            type="primary"
-            style={{ backgroundColor: '#52c41a', borderColor: '#52c41a' }}
-            icon={<ToolOutlined />}
-            size="small"
-            onClick={() => handleManageItems(record)}
-            title="Quản lý vật tư"
-          >
-          </Button>
-          <Button
-            type="primary"
-            icon={<EyeOutlined style={{ color: 'white' }} />}
-            size="small"
-            onClick={() => handleViewDetail(record)}
-          >
-          </Button>
-          <Button
-            type="primary"
-            icon={<EditOutlined />}
-            size="small"
-            onClick={() => handleEdit(record)}
-          >
-          </Button>
+        <Space size={[4, 4]} wrap>
+          <Tooltip title="Quản lý vật tư phòng">
+            <Button
+              type="primary"
+              style={{ backgroundColor: '#52c41a', borderColor: '#52c41a' }}
+              icon={<ToolOutlined />}
+              size="small"
+              onClick={() => handleManageItems(record)}
+            />
+          </Tooltip>
+          <Tooltip title="Xem chi tiết phòng">
+            <Button
+              type="primary"
+              icon={<EyeOutlined style={{ color: 'white' }} />}
+              size="small"
+              onClick={() => handleViewDetail(record)}
+            />
+          </Tooltip>
+          <Tooltip title="Chỉnh sửa phòng">
+            <Button
+              type="primary"
+              icon={<EditOutlined />}
+              size="small"
+              onClick={() => handleEdit(record)}
+            />
+          </Tooltip>
           <Popconfirm
             title="Bạn có chắc chắn muốn xóa?"
             onConfirm={() => handleDelete(record.id)}
             okText="Xóa"
             cancelText="Hủy"
           >
-            <Button
-              type="primary"
-              danger
-              icon={<DeleteOutlined />}
-              size="small"
-            >
-            </Button>
+            <Tooltip title="Xóa phòng">
+              <Button
+                type="primary"
+                danger
+                icon={<DeleteOutlined />}
+                size="small"
+              />
+            </Tooltip>
           </Popconfirm>
         </Space>
       ),
@@ -1371,61 +1409,119 @@ function RoomManagement() {
 
       {/* Detail Modal */}
       <Modal
-        title="Chi tiết phòng"
+        title={null}
         open={detailModalVisible}
         onCancel={() => setDetailModalVisible(false)}
         footer={null}
-        width={600}
+        width={860}
+        styles={{ body: { maxHeight: '76vh', overflowY: 'auto', paddingTop: 8 } }}
       >
-        {selectedRoom && (
-          <Descriptions bordered column={1}>
-            <Descriptions.Item label="ID">{selectedRoom.id}</Descriptions.Item>
-            <Descriptions.Item label="Số phòng">{selectedRoom.roomNumber}</Descriptions.Item>
-            <Descriptions.Item label="Loại phòng">{selectedRoom.room_type_name}</Descriptions.Item>
-            <Descriptions.Item label="Mô tả">{selectedRoom.room_type_description || '—'}</Descriptions.Item>
-            <Descriptions.Item label="Tầng">{selectedRoom.floor}</Descriptions.Item>
-            <Descriptions.Item label="Diện tích">{selectedRoom.area} m²</Descriptions.Item>
-            <Descriptions.Item label="Giá/đêm">{formatPrice(selectedRoom.price_per_night)}</Descriptions.Item>
-            <Descriptions.Item label="Sức chứa">{selectedRoom.capacity} người</Descriptions.Item>
-            <Descriptions.Item label="Trạng thái">
-              {(() => {
-                let color = 'default';
-                let text: string = selectedRoom.status;
-                if (selectedRoom.status === 'available') {
-                  color = 'green';
-                  text = 'Trống sạch';
-                } else if (selectedRoom.status === 'occupied') {
-                  color = 'blue';
-                  text = 'Đang ở';
-                } else if (selectedRoom.status === 'reserved') {
-                  color = 'orange';
-                  text = 'Đã cọc';
-                } else if (selectedRoom.status === 'maintenance') {
-                  const isCleaning = selectedRoom.maintenanceNote && selectedRoom.maintenanceNote.toLowerCase().includes('dọn');
-                  color = isCleaning ? 'purple' : 'red';
-                  text = isCleaning ? 'Chờ dọn dẹp' : 'Bảo trì';
-                }
-                return (
-                  <Tag color={color}>
-                    {text}
-                  </Tag>
-                );
-              })()}
-            </Descriptions.Item>
-            {selectedRoom.status === 'maintenance' && (
-              <>
-                <Descriptions.Item label={selectedRoom.maintenanceNote && selectedRoom.maintenanceNote.toLowerCase().includes('dọn') ? "Lý do dọn dẹp" : "Lý do bảo trì"}>
-                  {selectedRoom.maintenanceNote || 'Không có ghi chú'}
+        {selectedRoom && (() => {
+          const { color: statusColor, text: statusText } = getRoomStatusMeta(selectedRoom);
+          const isMaintenance = selectedRoom.status === 'maintenance';
+          const isCleaning = isMaintenance && selectedRoom.maintenanceNote && selectedRoom.maintenanceNote.toLowerCase().includes('dọn');
+
+          return (
+            <div>
+              {/* HEADER */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
+                <div>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: '#1e293b' }}>Phòng {selectedRoom.roomNumber}</div>
+                  <div style={{ fontSize: 13, color: '#8c8c8c', marginTop: 2 }}>{selectedRoom.room_type_name} · Tầng {selectedRoom.floor}</div>
+                </div>
+                <Tag color={statusColor} style={{ fontSize: 13, padding: '4px 12px', fontWeight: 600 }}>
+                  {statusText}
+                </Tag>
+              </div>
+
+              <Divider style={{ margin: '16px 0' }} />
+
+              {/* A. THÔNG TIN CHUNG */}
+              <div style={{ fontWeight: 700, color: '#ab8965', marginBottom: 10, letterSpacing: 0.3 }}>THÔNG TIN CHUNG</div>
+              <Descriptions bordered column={2} size="small" style={{ marginBottom: 20 }}>
+                <Descriptions.Item label="ID">{selectedRoom.id}</Descriptions.Item>
+                <Descriptions.Item label="Số phòng"><strong>{selectedRoom.roomNumber}</strong></Descriptions.Item>
+                <Descriptions.Item label="Hạng phòng">{selectedRoom.room_type_name}</Descriptions.Item>
+                <Descriptions.Item label="Tầng">{selectedRoom.floor}</Descriptions.Item>
+                <Descriptions.Item label="Diện tích">{selectedRoom.area} m²</Descriptions.Item>
+                <Descriptions.Item label="Trạng thái">
+                  <Tag color={statusColor} style={{ margin: 0 }}>{statusText}</Tag>
                 </Descriptions.Item>
-                <Descriptions.Item label="Dự kiến hoàn thành">
-                  {selectedRoom.maintenanceExpectedCompletion
-                    ? dayjs(selectedRoom.maintenanceExpectedCompletion).format('DD/MM/YYYY')
-                    : 'Chưa xác định'}
-                </Descriptions.Item>
-              </>
-            )}
-          </Descriptions>
-        )}
+              </Descriptions>
+
+              {selectedRoom.room_type_description && (
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ fontWeight: 700, color: '#ab8965', marginBottom: 8, letterSpacing: 0.3 }}>MÔ TẢ</div>
+                  <div style={{ background: '#fbf9f6', padding: '10px 14px', borderRadius: 8, border: '1px solid #e8e0d5', color: '#475569', fontSize: 13, lineHeight: 1.6 }}>
+                    {selectedRoom.room_type_description}
+                  </div>
+                </div>
+              )}
+
+              <Divider style={{ margin: '16px 0' }} />
+
+              {/* B & C. GIÁ & SỨC CHỨA */}
+              <div style={{ fontWeight: 700, color: '#ab8965', marginBottom: 10, letterSpacing: 0.3 }}>GIÁ &amp; SỨC CHỨA</div>
+              <Row gutter={12} style={{ marginBottom: 20 }}>
+                <Col xs={24} sm={8}>
+                  <Card size="small" style={{ background: '#fbf9f6', border: '1px solid #e8e0d5', height: '100%' }}>
+                    <div style={{ fontSize: 12, color: '#64748b' }}>Giá / đêm</div>
+                    <div style={{ fontSize: 17, fontWeight: 700, color: '#ab8965', marginTop: 4 }}>
+                      {formatPrice(selectedRoom.price_per_night)}
+                    </div>
+                  </Card>
+                </Col>
+                <Col xs={12} sm={8}>
+                  <Card size="small" style={{ background: '#f8fafc', border: '1px solid #e2e8f0', height: '100%' }}>
+                    <div style={{ fontSize: 12, color: '#64748b' }}>Sức chứa tiêu chuẩn</div>
+                    <div style={{ fontSize: 17, fontWeight: 700, color: '#334155', marginTop: 4 }}>
+                      {selectedRoom.capacity} khách
+                    </div>
+                  </Card>
+                </Col>
+                <Col xs={12} sm={8}>
+                  <Card size="small" style={{ background: '#eff6ff', border: '1px solid #bfdbfe', height: '100%' }}>
+                    <div style={{ fontSize: 12, color: '#1e40af' }}>Sức chứa tối đa</div>
+                    <div style={{ fontSize: 17, fontWeight: 700, color: '#1e3a8a', marginTop: 4 }}>
+                      {selectedRoom.maxOccupancy ?? selectedRoom.capacity} khách
+                    </div>
+                  </Card>
+                </Col>
+              </Row>
+
+              {isMaintenance && (
+                <>
+                  <Divider style={{ margin: '16px 0' }} />
+                  <div style={{ fontWeight: 700, color: '#ab8965', marginBottom: 10, letterSpacing: 0.3 }}>
+                    {isCleaning ? 'THÔNG TIN DỌN DẸP' : 'THÔNG TIN BẢO TRÌ'}
+                  </div>
+                  <Descriptions bordered column={1} size="small" style={{ marginBottom: 20 }}>
+                    <Descriptions.Item label={isCleaning ? 'Lý do dọn dẹp' : 'Lý do bảo trì'}>
+                      {selectedRoom.maintenanceNote || 'Không có ghi chú'}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Dự kiến hoàn thành">
+                      {selectedRoom.maintenanceExpectedCompletion
+                        ? dayjs(selectedRoom.maintenanceExpectedCompletion).format('DD/MM/YYYY')
+                        : 'Chưa xác định'}
+                    </Descriptions.Item>
+                  </Descriptions>
+                </>
+              )}
+
+              {selectedRoom.imageUrl && (
+                <>
+                  <Divider style={{ margin: '16px 0' }} />
+                  <div style={{ fontWeight: 700, color: '#ab8965', marginBottom: 10, letterSpacing: 0.3 }}>HÌNH ẢNH</div>
+                  <Image
+                    src={selectedRoom.imageUrl}
+                    alt={`Phòng ${selectedRoom.roomNumber}`}
+                    style={{ maxHeight: 260, borderRadius: 8, border: '1px solid #e8e0d5' }}
+                  />
+                </>
+              )}
+            </div>
+          );
+        })()}
       </Modal>
 
       {/* Booking Detail Modal */}

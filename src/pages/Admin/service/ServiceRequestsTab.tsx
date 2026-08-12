@@ -19,6 +19,8 @@ import { formatPrice } from './helpers';
 interface ServiceRequest {
   id: number;
   bookingId: number;
+  bookingDetailId?: number | null;
+  roomId?: number | null;
   serviceId: number;
   quantity: number;
   status: 'pending' | 'confirmed' | 'rejected';
@@ -126,7 +128,15 @@ function ServiceRequestsTab() {
         <span>
           #{r.bookingId}
           {r.bookingCustomer ? ` · ${r.bookingCustomer}` : ''}
-          {r.roomNumber ? <Tag style={{ marginLeft: 8 }}>Phòng {r.roomNumber}</Tag> : null}
+          {r.roomNumber ? (
+            <Tag style={{ marginLeft: 8 }} color="blue">
+              Phòng {r.roomNumber}
+            </Tag>
+          ) : (
+            <Tag style={{ marginLeft: 8 }} color="default">
+              Không xác định phòng / Dữ liệu cũ
+            </Tag>
+          )}
           {r.bookingPhone ? <div style={{ fontSize: 12, color: '#888' }}>{r.bookingPhone}</div> : null}
         </span>
       ),

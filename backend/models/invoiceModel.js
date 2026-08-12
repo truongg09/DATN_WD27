@@ -5,6 +5,9 @@ const run = (connection) => connection || db;
 const INVOICE_SELECT = `
   SELECT
     i.*,
+    p.depositAmount AS deposit_amount,
+    p.paidAmount AS paid_amount,
+    p.remainingAmount AS remaining_amount,
     b.customerId AS user_id,
     COALESCE(b.guest_name, c.fullName, a.email) AS customer_name,
     a.email AS customer_email,
@@ -20,6 +23,7 @@ const INVOICE_SELECT = `
       0
     ) AS stay_room_amount
   FROM invoices i
+  LEFT JOIN payments p ON p.id = i.paymentId
   JOIN bookings b ON b.id = i.bookingId
   LEFT JOIN customers c ON c.id = b.customerId
   LEFT JOIN accounts a ON a.id = c.accountId
@@ -61,6 +65,25 @@ const createInvoice = async (payload, connection) => {
     ]
   );
   return result.insertId;
+};
+
+const updateInvoiceAmounts = async (invoiceId, payload, connection) => {
+  await run(connection).query(
+    `UPDATE invoices
+     SET paymentId = ?, roomAmount = ?, serviceAmount = ?, surchargeAmount = ?, subtotal = ?,
+         discountAmount = ?, totalAmount = ?, status = 'issued', invoiceDate = NOW()
+     WHERE id = ?`,
+    [
+      payload.paymentId,
+      payload.roomAmount,
+      payload.serviceAmount,
+      payload.surchargeAmount,
+      payload.subtotal,
+      payload.discountAmount,
+      payload.totalAmount,
+      invoiceId
+    ]
+  );
 };
 
 const getInvoiceById = async (invoiceId, connection) => {
@@ -144,6 +167,7 @@ const getNextInvoiceSequence = async (connection) => {
 
 module.exports = {
   createInvoice,
+  updateInvoiceAmounts,
   getInvoiceById,
   getInvoiceByNumber,
   getInvoiceByBookingId,

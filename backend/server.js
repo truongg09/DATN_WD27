@@ -78,16 +78,26 @@ setInterval(() => {
   bookingService.expireUnpaidBookingHolds().catch((error) => {
     console.error('Expire booking holds error:', error);
   });
-}, 60 * 1000);
+}, 10 * 1000);
 
 setInterval(() => {
-  bookingService.processNoShows().catch((error) => {
-    console.error('Process no-show bookings error:', error);
+  bookingService.processOverdueCheckIns().catch((error) => {
+    console.error('Process overdue check-ins error:', error);
   });
-}, 60 * 60 * 1000);
+}, 30 * 60 * 1000);
 
-bookingService.processNoShows().catch((error) => {
-  console.error('Initial no-show processing error:', error);
+const ensureOperationalSchema = require('./ensure-operational-schema');
+
+ensureOperationalSchema().then(() => {
+  console.log('Database operational schema sync finished.');
+  bookingService.expireUnpaidBookingHolds().catch((error) => {
+    console.error('Initial booking hold expiration error:', error);
+  });
+  bookingService.processOverdueCheckIns().catch((error) => {
+    console.error('Initial overdue check-ins processing error:', error);
+  });
+}).catch((error) => {
+  console.error('Operational schema sync error:', error);
 });
 
 // Start server

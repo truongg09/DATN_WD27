@@ -19,6 +19,11 @@ export interface RoomTypeSearchResult {
   typeName: string;
   description: string | null;
   capacity: number;
+  adultCapacity?: number;
+  childCapacity?: number;
+  maxOccupancy?: number;
+  extraAdultFee?: number;
+  extraChildFee?: number;
   defaultPrice: number;
   totalRooms: number;
   minArea: number | null;
@@ -28,6 +33,8 @@ export interface RoomTypeSearchResult {
   avgRating: number | null;
   reviewCount: number;
   fitsGuests?: boolean;
+  fitsOneRoom?: boolean;
+  minimumRooms?: number;
   // Chỉ có khi truyền checkIn/checkOut
   availableRooms?: number;
   nights?: number;
