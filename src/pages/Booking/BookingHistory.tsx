@@ -268,7 +268,7 @@ const BookingHistory: React.FC = () => {
   // Form values
   const [editStayRange, setEditStayRange] = useState<[any, any] | null>(null);
   const [editRoomTypeId, setEditRoomTypeId] = useState<number | null>(null);
-  const [editTransferReason, setEditTransferReason] = useState("");
+  const [_editTransferReason, setEditTransferReason] = useState("");
   const [newServiceId, setNewServiceId] = useState<number | null>(null);
   const [newServiceQty, setNewServiceQty] = useState<number>(1);
   const [savingServiceAction, setSavingServiceAction] = useState<

@@ -15,8 +15,8 @@ Bất kỳ AI/account mới nào chỉ cần:
 
 Không cần audit lại toàn project.
 
-KHÔNG implement thêm code trong lượt này.
-CHỈ tạo/cập nhật tài liệu.
+AI/account mới phải làm đúng CURRENT STEP.
+Không tự làm sang bước kế tiếp.
 
 Phải dựa trên:
 
@@ -492,7 +492,7 @@ Chia nhỏ.
 
 Status:
 
-Xác định từ code thực tế.
+DONE
 
 Files có thể gồm:
 
@@ -604,11 +604,6 @@ BookingDetailModal.tsx: 0 lỗi mới.
 
 Không có lỗi.
 
----
-
-CURRENT STEP: STEP 5 — BOOKING SERVICE REQUESTS BY ROOM
-
----
 
 ## STEP 3B.3 — MULTI-ROOM SOURCE CORRECTION
 
@@ -664,7 +659,7 @@ Trả thêm field `booking_rooms` trong response.
 
 # STEP 4 — DAMAGE / EXTRA FEE / OTHER UI
 
-Status: IN PROGRESS
+Status: DONE
 
 Chia nhỏ.
 
@@ -852,7 +847,7 @@ Không có lỗi.
 ## STEP 5A — REVIEW SERVICE REQUEST THEO PHÒNG
 Status: DONE
 
-### Review Findings:
+### Historical Review Findings — BEFORE Step 5B–5D
 - **Current Flow**: Customer chọn `serviceRequests: [{ serviceId, quantity }]` khi đặt phòng (`POST /api/bookings`). Backend lưu vào `booking_service_requests` với `status='confirmed'` (tự động tạo `booking_services` ngay) hoặc `'pending'`. Admin xem danh sách yêu cầu tại Tab "Yêu cầu dịch vụ từ khách" (`ServiceRequestsTab.tsx` via `GET /api/service-requests`), thực hiện `confirm` (`PATCH /api/service-requests/:id/confirm`) hoặc `reject` (`PATCH /api/service-requests/:id/reject`).
 - **Current Statuses**: `'pending'`, `'confirmed'`, `'rejected'`.
 - **roomId Support**: Bảng `booking_service_requests` đã có cột `roomId INT NULL`, tuy nhiên:
@@ -884,7 +879,7 @@ Status: DONE
 
 # STEP 6 — CHECKOUT / PAYMENT SUMMARY
 
-Status: IN PROGRESS hoặc TODO dựa trên code thực tế.
+Status: DONE
 
 Kiểm tra:
 
@@ -925,7 +920,7 @@ status thay đổi → checkout total thay đổi đúng sau refetch.
 
 # STEP 7 — BOOKING SERVICES ADMIN TAB
 
-Status dựa trên code thực tế.
+Status: DONE
 
 File:
 
@@ -951,7 +946,7 @@ không bắt buộc duplicate CRUD từ BookingDetailModal.
 
 # STEP 8 — INVOICE INTEGRATION
 
-Status: TODO
+Status: DONE (STEP 8A — DONE, STEP 8B — DONE)
 
 Review:
 
@@ -1159,14 +1154,9 @@ git diff --stat
 
 Ghi chính xác:
 
-Modified:
-...
-
-Untracked:
-...
-
-Committed:
-...
+Workspace state changes frequently.
+Always run git status + git diff before starting.
+Do not rely on a stale snapshot here.
 
 Không đoán.
 
@@ -1175,32 +1165,33 @@ Không đoán.
 # 11. CURRENT STEP
 
 CURRENT STEP:
-STEP 8 — INVOICE INTEGRATION
+STEP 9A — SERVICE + CHARGE CASES
 
 STATUS:
 TODO
 
 PRIMARY FILE:
-- backend/services/invoiceService.js
+- backend/services/bookingService.js / paymentService.js
 
 DO NOT TOUCH UNLESS REQUIRED:
-- frontend/ (chỉ đụng nếu có bug phát sinh)
+- docs/ (chỉ cập nhật sau khi hoàn thành)
 
 ---
 
-# 12. NEXT THREE STEPS
+# 12. REMAINING STEPS
 
-1. STEP 8 — Invoice Integration (invoiceService.js / invoice routes)
-2. STEP 9 — Verification & Final E2E Audit
-3. STEP 10 — System Handoff & Sign-off
+1. 9A — Service + charge cases
+2. 9B — Final checkout/payment/invoice E2E
+3. 10 — Regression smoke test
+4. 11 + 12 — Cleanup + Final Handoff
 
 ---
 
 # 13. CURRENT KNOWN TECHNICAL DEBT
 
 ## Existing TypeScript errors
-
-Ghi đúng các lỗi hiện còn nếu chúng thực sự tồn tại.
+None currently known.
+Latest npx tsc -b --noEmit: PASS.
 
 Phân biệt:
 
@@ -1288,6 +1279,30 @@ backend/services/bookingService.js, src/pages/Admin/BookingDetailModal.tsx
 node --check PASS, npx tsc PASS, runtime breakdown & overpayment #311 PASS
 Cost Breakdown & Overpayment Fix: Attached late_checkout_surcharge / lateCheckoutSurcharge to getBookingById & getPaymentSummary; rendered 'Phí trả phòng muộn' row in BookingDetailModal.tsx breakdown so visual items sum 100% to totalAmount (room 1.4M + late fee 350k = total 1.75M); calculated overpaidAmount = max(paid - total, 0) and rendered 'Thanh toán thừa: 1.050.000đ (Cần hoàn)' tag & badge; deduplicated checkOut logHistory for late_checkout_fee; cleaned up duplicate test history rows for #311 (retaining 1 valid event).
 
+2026-08-12
+Step 8A — Backend Invoice
+DONE
+backend/models/invoiceModel.js, backend/models/bookingModel.js, docs/BOOKING_SERVICE_HANDOFF.md
+node --check PASS, runtime invoice acceptance verification PASS (#318 & #311)
+Backend Invoice Alignment: Updated INVOICE_SELECT query with GROUP BY i.id to prevent multi-room duplicate invoice rows; updated listInvoiceServices to filter bs.status = 'used' and use snapshot unit price bs.unitPrice; verified payment.totalAmount === invoice.totalAmount for multi-room (#318: 3,450,000 == 3,450,000) and checked_out (#311: 1,750,000 == 1,750,000).
+
+2026-08-12
+Step 8B — Invoice Runtime Verification & Multi-room Display Fix
+DONE
+backend/models/invoiceModel.js, backend/services/invoiceService.js, src/types/invoice.ts, src/pages/Admin/InvoiceManagement.tsx, docs/BOOKING_SERVICE_HANDOFF.md
+node --check PASS, npx tsc PASS, runtime multi-room room list verification PASS (#318 & #311)
+Invoice Multi-room Display Fix: Enriched invoice data with roomQuantity and booking_rooms [{ id, number }]; updated InvoiceManagement.tsx table column "Đặt phòng" to render bookingId, "roomTypeName · X phòng", and room tags [101] [102]; updated InvoiceDetail modal "Phòng" to render "101, 102 · Standard (2 phòng)" for multi-room (#318) and "201 · Superior" for single room (#311). Kept 100% financial formulas and total amounts unchanged.
+
+2026-08-12
+STEP 8 — COMPLETE (Complete Invoice Detail & Payment Detail Modal Enrichment)
+DONE
+backend/models/invoiceModel.js, backend/services/invoiceService.js, backend/utils/formatters.js, src/types/invoice.ts, src/pages/Admin/InvoiceManagement.tsx, src/pages/Admin/PaymentManagement.tsx, docs/BOOKING_SERVICE_HANDOFF.md
+node --check PASS, npx tsc PASS, runtime verification PASS (#311 & #318)
+Step 8 Complete: (1) Enriched InvoiceDetail with room type, room count, actual room tags from booking_details, check-in/out dates, nights count, paymentStatus vs invoice status, detailed surcharge breakdown (late checkout fee, occupancy surcharge, damage charges), used services breakdown with snapshot prices, zero-row filtering (only showing active amounts, keeping total/paid/remaining/overpaid); (2) Shared 100% printed invoice sheet data with print function; (3) Maintained 100% financial formula integrity across backend and frontend.
+
+CURRENT STEP:
+STEP 9A — SERVICE + CHARGE CASES
+
 ---
 
 # 16. DEFINITION OF DONE
@@ -1324,6 +1339,8 @@ Sau khi tạo/cập nhật docs:
    * số step DONE
    * số step TODO/IN PROGRESS
 
-KHÔNG IMPLEMENT CODE.
-
-DỪNG.
+Sau khi hoàn thành CURRENT STEP:
+- test đúng scope
+- cập nhật handoff
+- không tự làm bước tiếp theo
+- dừng và báo kết quả

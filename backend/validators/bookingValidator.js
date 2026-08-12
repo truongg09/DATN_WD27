@@ -118,36 +118,67 @@ const normalizeChildrenAges = (value) => {
 
 const normalizeBookingPayload = (body, userFromToken) => {
   const userId = body.userId ?? body.customerId ?? userFromToken;
-  const roomId = body.roomId ?? body.room_id;
-  const roomTypeId = body.roomTypeId ?? body.room_type_id;
   const checkIn = body.checkIn ?? body.checkInDate ?? body.check_in;
   const checkOut = body.checkOut ?? body.checkOutDate ?? body.check_out;
 
-  // Khách đặt theo hạng phòng (roomTypeId) - hệ thống tự gán phòng trống;
-  // roomId chỉ dùng khi lễ tân/admin chỉ định phòng cụ thể.
-  if (!roomId && !roomTypeId) {
-    throw new HttpError(400, 'Vui lòng chọn phòng hoặc hạng phòng');
-  }
-
-  if (Array.isArray(body.rooms) && body.rooms.length > 1) {
-    const uniqueTypeIds = new Set(
-      body.rooms.map((r) => r.roomTypeId ?? r.room_type_id).filter(Boolean)
-    );
-    if (uniqueTypeIds.size > 1) {
-      throw new HttpError(400, 'Một booking chỉ được đặt các phòng thuộc cùng một hạng phòng');
+  let rooms = [];
+  if (Array.isArray(body.rooms) && body.rooms.length > 0) {
+    rooms = body.rooms.map((r, index) => {
+      const roomId = r.roomId ?? r.room_id;
+      const roomTypeId = r.roomTypeId ?? r.room_type_id;
+      if (!roomId && !roomTypeId) {
+        throw new HttpError(400, `Vui lòng chọn phòng hoặc hạng phòng cho phòng thứ ${index + 1}`);
+      }
+      const item = {
+        roomId: roomId ? toPositiveInt(roomId, `rooms[${index}].roomId`) : null,
+        roomTypeId: roomTypeId ? toPositiveInt(roomTypeId, `rooms[${index}].roomTypeId`) : null,
+        quantity: toPositiveInt(r.quantity ?? r.roomQuantity ?? r.room_quantity ?? 1, `rooms[${index}].quantity`),
+        adults: toNonNegativeInt(r.adults, `rooms[${index}].adults`, 1),
+        children: toNonNegativeInt(r.children, `rooms[${index}].children`, 0),
+        childrenAges: normalizeChildrenAges(r.childrenAges ?? r.children_ages)
+      };
+      if (item.adults + item.children <= 0) {
+        throw new HttpError(400, `Phòng thứ ${index + 1} phải có ít nhất một khách`);
+      }
+      if (item.children > 0 && item.childrenAges.length !== item.children) {
+        throw new HttpError(400, `Vui lòng khai báo tuổi của từng trẻ em đi cùng ở phòng thứ ${index + 1}`);
+      }
+      return item;
+    });
+  } else {
+    const roomId = body.roomId ?? body.room_id;
+    const roomTypeId = body.roomTypeId ?? body.room_type_id;
+    if (!roomId && !roomTypeId) {
+      throw new HttpError(400, 'Vui lòng chọn phòng hoặc hạng phòng');
     }
+    const adults = toNonNegativeInt(body.adults, 'adults', 1);
+    const children = toNonNegativeInt(body.children, 'children', 0);
+    const childrenAges = normalizeChildrenAges(body.childrenAges ?? body.children_ages);
+
+    if (adults + children <= 0) {
+      throw new HttpError(400, 'Đặt phòng phải có ít nhất một khách');
+    }
+    if (children > 0 && childrenAges.length !== children) {
+      throw new HttpError(400, 'Vui lòng khai báo tuổi của từng trẻ em đi cùng');
+    }
+
+    rooms = [
+      {
+        roomId: roomId ? toPositiveInt(roomId, 'roomId') : null,
+        roomTypeId: roomTypeId ? toPositiveInt(roomTypeId, 'roomTypeId') : null,
+        quantity: toPositiveInt(body.roomQuantity ?? body.room_quantity ?? 1, 'roomQuantity'),
+        adults,
+        children,
+        childrenAges
+      }
+    ];
   }
 
   const payload = {
     userId: toPositiveInt(userId, 'userId'),
-    roomId: roomId ? toPositiveInt(roomId, 'roomId') : null,
-    roomTypeId: roomTypeId ? toPositiveInt(roomTypeId, 'roomTypeId') : null,
-    roomQuantity: toPositiveInt(body.roomQuantity ?? body.room_quantity ?? 1, 'roomQuantity'),
     checkIn: normalizeDate(checkIn, 'checkIn'),
     checkOut: normalizeDate(checkOut, 'checkOut'),
-    adults: toNonNegativeInt(body.adults, 'adults', 1),
-    children: toNonNegativeInt(body.children, 'children', 0),
-    childrenAges: normalizeChildrenAges(body.childrenAges ?? body.children_ages),
+    rooms,
     notes: body.notes ?? body.specialRequests ?? null,
     guestName: body.guestName ?? body.guest_name ?? null,
     guestEmail: body.guestEmail ?? body.guest_email ?? null,
@@ -168,16 +199,6 @@ const normalizeBookingPayload = (body, userFromToken) => {
     throw new HttpError(400, 'Trạng thái phải là chờ xác nhận hoặc đã xác nhận');
   }
 
-  if (payload.adults + payload.children <= 0) {
-    throw new HttpError(400, 'Đặt phòng phải có ít nhất một khách');
-  }
-
-  // Phụ thu trẻ em tính theo tuổi từng bé. Nếu không bắt buộc khai đủ tuổi,
-  // khách chỉ cần gửi childrenAges rỗng là né được toàn bộ phụ thu.
-  if (payload.children > 0 && payload.childrenAges.length !== payload.children) {
-    throw new HttpError(400, 'Vui lòng khai báo tuổi của từng trẻ em đi cùng');
-  }
-
   assertDateRange(payload.checkIn, payload.checkOut);
   return payload;
 };
@@ -188,7 +209,7 @@ const normalizeAvailabilityPayload = (body) => {
   const checkIn = body.checkIn ?? body.checkInDate ?? body.check_in;
   const checkOut = body.checkOut ?? body.checkOutDate ?? body.check_out;
 
-  if (!roomId && !roomTypeId) {
+  if (!roomId && !roomTypeId && (!Array.isArray(body.rooms) || body.rooms.length === 0)) {
     throw new HttpError(400, 'Vui lòng chọn phòng hoặc hạng phòng');
   }
 
@@ -199,6 +220,17 @@ const normalizeAvailabilityPayload = (body) => {
     checkOut: normalizeDate(checkOut, 'checkOut'),
     childrenAges: normalizeChildrenAges(body.childrenAges ?? body.children_ages)
   };
+
+  if (Array.isArray(body.rooms)) {
+    payload.rooms = body.rooms.map((item, idx) => ({
+      roomTypeId: item.roomTypeId ? toPositiveInt(item.roomTypeId, `rooms[${idx}].roomTypeId`) : null,
+      roomId: item.roomId ? toPositiveInt(item.roomId, `rooms[${idx}].roomId`) : null,
+      quantity: toPositiveInt(item.quantity || 1, `rooms[${idx}].quantity`),
+      adults: toPositiveInt(item.adults || 2, `rooms[${idx}].adults`),
+      children: toNonNegativeInt(item.children, `rooms[${idx}].children`, 0),
+      childrenAges: normalizeChildrenAges(item.childrenAges ?? item.children_ages)
+    }));
+  }
 
   assertDateRange(payload.checkIn, payload.checkOut);
   return payload;
