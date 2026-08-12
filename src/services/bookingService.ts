@@ -200,3 +200,14 @@ export const updateRequestedArrivalTime = async (
     notes
   });
 };
+
+export const updateRequestedDepartureTime = async (
+  id: number,
+  requestedCheckOutTime: string,
+  notes?: string
+) => {
+  return api.patch(`/bookings/${id}/departure-time`, {
+    requestedCheckOutTime,
+    notes
+  });
+};

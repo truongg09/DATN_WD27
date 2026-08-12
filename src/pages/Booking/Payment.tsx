@@ -17,6 +17,7 @@ import type { Payment, PaymentMethod } from '../../types/payment';
 import zalopayLogo from '../../assets/payment/zalopay.svg';
 import vnpayLogo from '../../assets/payment/vnpay.svg';
 import vietqrLogo from '../../assets/payment/vietqr.svg';
+import { renderRoomTypesSummaryText } from '../../utils/bookingUtils';
 import './Payment.css';
 
 const formatPrice = (price: number) =>
@@ -395,7 +396,7 @@ const PaymentPage: React.FC = () => {
             <h1>Hoàn tất thanh toán</h1>
             <p>
               Đơn đặt phòng <strong>#{bookingId}</strong> ·{' '}
-              {String(booking.room_type_name || 'Đặt phòng')}
+              {renderRoomTypesSummaryText(booking as any)}
             </p>
           </div>
           <div className="payment-hero-steps">
@@ -474,7 +475,7 @@ const PaymentPage: React.FC = () => {
                 <div className="info-row">
                   <span>Hạng phòng</span>
                   <strong>
-                    {String(booking.room_type_name || 'Đặt phòng')}
+                    {renderRoomTypesSummaryText(booking as any)}
                   </strong>
                 </div>
                 <div className="info-row">

@@ -45,6 +45,22 @@ const enrichInvoiceWithServices = async (row, connection) => {
   const fallbackRooms = invoice.roomNumber ? [{ id: 0, number: invoice.roomNumber }] : [];
   const finalRooms = bookingRooms.length > 0 ? bookingRooms : fallbackRooms;
 
+  const roomTypesSummary = Object.values(
+    finalRooms.reduce((acc, r) => {
+      const key = r.roomTypeId || r.typeName || 'Standard';
+      if (!acc[key]) {
+        acc[key] = {
+          roomTypeId: r.roomTypeId,
+          typeName: r.typeName || 'Standard',
+          quantity: 0,
+          roomPrice: Number(r.roomPrice || invoice.room_price || 0)
+        };
+      }
+      acc[key].quantity += 1;
+      return acc;
+    }, {})
+  );
+
   // Dùng số tiền đã chốt trong invoice; danh sách dịch vụ chỉ dùng để hiển thị.
   const serviceAmount = Number(invoice.serviceAmount || 0);
   // Tính lại tiền phòng từ đơn giá lưu trú và số đêm. Dữ liệu hóa đơn cũ có
@@ -59,6 +75,7 @@ const enrichInvoiceWithServices = async (row, connection) => {
     damageAmount,
     lateCheckoutSurcharge,
     roomQuantity: Math.max(finalRooms.length, Number(row.room_quantity || 1)),
+    roomTypesSummary,
     booking_rooms: finalRooms,
     roomAmount,
     serviceAmount,

@@ -99,10 +99,15 @@ interface SelectedRoom {
   availableRooms?: number;
 }
 
+import { renderRoomTypesSummaryText } from "../../utils/bookingUtils";
+
 interface BookingHistoryItem {
   id: number;
   room_number?: string;
   room_type_name?: string;
+  room_quantity?: number;
+  roomTypesSummary?: Array<{ roomTypeId?: number; typeName: string; quantity: number; roomPrice?: number }>;
+  booking_rooms?: Array<{ bookingDetailId?: number; id: number; number: string; roomTypeId?: number; typeName?: string }>;
   check_in: string;
   check_out: string;
   total_price: number | string;
@@ -825,15 +830,17 @@ const Booking: React.FC = () => {
                         </span>
                       </div>
                       <h3>
-                        {booking.status === 'checked_in' && booking.room_number
-                          ? `Phòng ${booking.room_number} - ${booking.room_type_name || ''}`
-                          : booking.room_type_name || 'Đặt phòng'}
+                        {renderRoomTypesSummaryText(booking)}
                       </h3>
-                      {!canShowRoomNumber(booking.status) && (
+                      {canShowRoomNumber(booking.status) && (booking.booking_rooms?.length || booking.room_number) ? (
+                        <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
+                          Phòng: {booking.booking_rooms?.map(r => r.number).join(', ') || booking.room_number}
+                        </div>
+                      ) : !canShowRoomNumber(booking.status) ? (
                         <p style={{ fontSize: 12, color: '#888', margin: '4px 0 0' }}>
                           Số phòng sẽ được sắp xếp khi nhận phòng
                         </p>
-                      )}
+                      ) : null}
                       <div className="history-date">
                         <CalendarOutlined />
                         <span>

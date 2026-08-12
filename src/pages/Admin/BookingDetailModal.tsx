@@ -139,6 +139,8 @@ interface RefundRow {
   processedAt?: string | null;
 }
 
+import { type RoomTypeSummaryItem, type BookingRoomItem } from "../../utils/bookingUtils";
+
 interface BookingDetail {
   id: number;
   booking_code?: string | null;
@@ -153,6 +155,8 @@ interface BookingDetail {
   room_capacity?: number | null;
   room_status?: string | null;
   room_price?: string | number | null;
+  roomTypesSummary?: RoomTypeSummaryItem[];
+  booking_rooms?: BookingRoomItem[];
   check_in: string | null;
   check_out: string | null;
   status: string;
@@ -183,7 +187,6 @@ interface BookingDetail {
   payments?: PaymentRow[];
   refunds?: RefundRow[];
   history?: BookingHistoryEntry[];
-  booking_rooms?: { id: number; number: string }[];
 }
 
 const money = (value?: string | number | null) =>
@@ -333,6 +336,8 @@ interface Props {
   open: boolean;
   onClose: () => void;
   isCustomer?: boolean;
+  onOpenUpdateArrivalTimeModal?: (booking: any) => void;
+  onOpenUpdateDepartureTimeModal?: (booking: any) => void;
 }
 
 const BookingDetailModal: React.FC<Props> = ({
@@ -340,6 +345,8 @@ const BookingDetailModal: React.FC<Props> = ({
   open,
   onClose,
   isCustomer = false,
+  onOpenUpdateArrivalTimeModal,
+  onOpenUpdateDepartureTimeModal,
 }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -816,13 +823,48 @@ const BookingDetailModal: React.FC<Props> = ({
           {detail.customer_name || "—"}
         </Descriptions.Item>
         <Descriptions.Item label="Số điện thoại">
-          {detail.customer_phone || "—"}
+          {detail.customer_phone || (detail as any).customerPhone || (detail as any).guest_phone || "—"}
         </Descriptions.Item>
         <Descriptions.Item label="Email" span={2}>
           {detail.customer_email || "—"}
         </Descriptions.Item>
-        <Descriptions.Item label="Phòng">
+        <Descriptions.Item label="Hạng phòng & Chi tiết phòng" span={2}>
           {(() => {
+            if (detail.roomTypesSummary && detail.roomTypesSummary.length > 0) {
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {detail.roomTypesSummary.map((s, idx) => {
+                    const matchingRooms = (detail.booking_rooms || []).filter(
+                      (r) => (s.roomTypeId && Number(r.roomTypeId) === Number(s.roomTypeId)) || r.typeName === s.typeName
+                    );
+                    return (
+                      <div key={s.roomTypeId || idx} style={{ padding: '8px 12px', background: '#fafafa', borderRadius: 8, border: '1px solid #f0f0f0' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                          <strong style={{ fontSize: 13, color: '#1f1f1f' }}>
+                            {s.typeName} · {s.quantity} phòng {s.roomPrice ? ` (${money(s.roomPrice)}/đêm)` : ''}
+                          </strong>
+                          <span style={{ fontSize: 12, color: '#666' }}>
+                            Tiêu chuẩn: {s.capacity || (s.adultCapacity || 2) + (s.childCapacity || 0)} khách ({s.adultCapacity || 2} NL + {s.childCapacity || 0} TE) · Tối đa: {s.maxOccupancy || 3} khách
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+                          {matchingRooms.length > 0 ? (
+                            matchingRooms.map((r, rIdx) => (
+                              <Tag key={r.id || rIdx} color="blue" style={{ margin: 0, fontSize: 12, padding: '2px 8px' }}>
+                                Phòng {r.number}{r.floor != null ? ` (Tầng ${r.floor})` : ''}{r.area ? ` · ${r.area}m²` : ''}
+                              </Tag>
+                            ))
+                          ) : (
+                            <span style={{ fontSize: 12, color: '#888' }}>Chưa phân phòng</span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            }
+
             const isCheckedInOrOut = ["checked_in", "checked_out"].includes(
               String(detail.status),
             );
@@ -836,7 +878,7 @@ const BookingDetailModal: React.FC<Props> = ({
             if (bookingRooms.length > 1) {
               return `${bookingRooms
                 .map(
-                  (r, i) => `Phòng ${i + 1}${r.number ? ` (${r.number})` : ""}`,
+                  (r, i) => `Phòng ${i + 1}${r.number ? ` (${r.number})` : ""}${r.floor != null ? ` (Tầng ${r.floor})` : ""}`,
                 )
                 .join(", ")}${
                 detail.room_type_name ? ` · ${detail.room_type_name}` : ""
@@ -844,23 +886,79 @@ const BookingDetailModal: React.FC<Props> = ({
             }
 
             return `${detail.room_number ? `Phòng ${detail.room_number}` : "—"}${
-              detail.room_type_name ? ` (${detail.room_type_name})` : ""
-            }`;
+              detail.room_floor != null ? ` (Tầng ${detail.room_floor})` : ""
+            }${detail.room_type_name ? ` (${detail.room_type_name})` : ""}`;
           })()}
-        </Descriptions.Item>
-        <Descriptions.Item label="Tầng / Diện tích / Sức chứa">
-          {detail.room_floor ?? "—"} /{" "}
-          {detail.room_area ? `${detail.room_area}m²` : "—"} /{" "}
-          {detail.room_capacity ? `${detail.room_capacity} khách` : "—"}
         </Descriptions.Item>
         <Descriptions.Item label="Ngày nhận phòng">
           {day(detail.check_in)}
         </Descriptions.Item>
-        <Descriptions.Item label="Giờ check-in dự kiến">
-          {detail.requested_check_in_time
-            ? `${String(detail.requested_check_in_time).slice(0, 5)}${Number(detail.requested_check_in_day_offset || 0) === 1 ? " (ngày hôm sau)" : ""}`
-            : "14:00 (Chuẩn)"}
-        </Descriptions.Item>
+        {(() => {
+          const currentStatus = String(detail.status || '').toLowerCase();
+          
+          if (['pending', 'confirmed'].includes(currentStatus)) {
+            return (
+              <Descriptions.Item label="Giờ check-in dự kiến">
+                <Space wrap>
+                  <span>
+                    {detail.requested_check_in_time
+                      ? `${String(detail.requested_check_in_time).slice(0, 5)}${Number(detail.requested_check_in_day_offset || 0) === 1 ? " (ngày hôm sau)" : ""}`
+                      : "14:00 (Chuẩn)"}
+                  </span>
+                  {!isCustomer && onOpenUpdateArrivalTimeModal && (
+                    <Button
+                      type="link"
+                      size="small"
+                      style={{ padding: 0 }}
+                      onClick={() => onOpenUpdateArrivalTimeModal(detail)}
+                    >
+                      Cập nhật giờ check-in
+                    </Button>
+                  )}
+                </Space>
+              </Descriptions.Item>
+            );
+          }
+
+          if (currentStatus === 'checked_in') {
+            return (
+              <Descriptions.Item label="Giờ check-out dự kiến">
+                <Space wrap>
+                  <span>
+                    {(detail as any).requested_check_out_time
+                      ? String((detail as any).requested_check_out_time).slice(0, 5)
+                      : "12:00 (Chuẩn)"}
+                  </span>
+                  {!isCustomer && onOpenUpdateDepartureTimeModal && (
+                    <Button
+                      type="link"
+                      size="small"
+                      style={{ padding: 0 }}
+                      onClick={() => onOpenUpdateDepartureTimeModal(detail)}
+                    >
+                      Cập nhật giờ check-out
+                    </Button>
+                  )}
+                </Space>
+              </Descriptions.Item>
+            );
+          }
+
+          if (currentStatus === 'checked_out') {
+            return (
+              <>
+                <Descriptions.Item label="Giờ check-in thực tế">
+                  {detail.actual_check_in_time ? dateTime(detail.actual_check_in_time) : "—"}
+                </Descriptions.Item>
+                <Descriptions.Item label="Giờ check-out thực tế">
+                  {(detail as any).actual_check_out_time ? dateTime((detail as any).actual_check_out_time) : "—"}
+                </Descriptions.Item>
+              </>
+            );
+          }
+
+          return null;
+        })()}
         <Descriptions.Item label="Ngày trả phòng">
           {day(detail.check_out)}
         </Descriptions.Item>
