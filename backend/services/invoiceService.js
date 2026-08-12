@@ -12,6 +12,7 @@ const buildInvoiceCode = async (connection) => {
 };
 
 const enrichInvoiceWithServices = async (row, connection) => {
+  if (!row) return null;
   const invoice = formatInvoice(row);
   const serviceRows = await invoiceModel.listInvoiceServices(invoice.bookingId, connection);
   const services = serviceRows.map((service) => ({
@@ -21,17 +22,44 @@ const enrichInvoiceWithServices = async (row, connection) => {
     unitPrice: Number(service.unitPrice ?? 0),
     totalPrice: Number(service.totalPrice ?? 0)
   }));
+
+  const damageRows = await invoiceModel.listInvoiceDamages(invoice.bookingId, connection);
+  const damages = damageRows.map((d) => ({
+    id: Number(d.id),
+    roomId: Number(d.roomId || 0),
+    roomNumber: d.roomNumber || '',
+    chargeType: d.chargeType || 'damage',
+    itemName: d.itemName,
+    quantity: Number(d.quantity ?? 1),
+    unitPrice: Number(d.unitPrice ?? 0),
+    totalPrice: Number(d.totalPrice ?? 0),
+    note: d.note || ''
+  }));
+
+  const damageAmount = damages.reduce((sum, d) => sum + d.totalPrice, 0);
+  const occupancySurcharge = Number(invoice.occupancySurcharge || 0);
+  const surchargeAmount = Number(invoice.surchargeAmount || 0);
+  const lateCheckoutSurcharge = Math.max(surchargeAmount - occupancySurcharge - damageAmount, 0);
+
+  const bookingRooms = await invoiceModel.listInvoiceRooms(invoice.bookingId, connection);
+  const fallbackRooms = invoice.roomNumber ? [{ id: 0, number: invoice.roomNumber }] : [];
+  const finalRooms = bookingRooms.length > 0 ? bookingRooms : fallbackRooms;
+
   // Dùng số tiền đã chốt trong invoice; danh sách dịch vụ chỉ dùng để hiển thị.
   const serviceAmount = Number(invoice.serviceAmount || 0);
   // Tính lại tiền phòng từ đơn giá lưu trú và số đêm. Dữ liệu hóa đơn cũ có
   // trường hợp đã gộp tiền dịch vụ vào roomAmount nên không dùng số đó làm gốc.
   const roomAmount = Number(invoice.roomAmount || 0);
-  const surchargeAmount = Number(invoice.surchargeAmount || 0);
   const totalAmount = Number(invoice.totalAmount || 0);
 
   return {
     ...invoice,
     services,
+    damages,
+    damageAmount,
+    lateCheckoutSurcharge,
+    roomQuantity: Math.max(finalRooms.length, Number(row.room_quantity || 1)),
+    booking_rooms: finalRooms,
     roomAmount,
     serviceAmount,
     surchargeAmount,
