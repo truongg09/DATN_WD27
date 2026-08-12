@@ -74,9 +74,15 @@ export const cancelBooking = async (
   );
 };
 
+// ─── Service Charges ───────────────────────────────────────────────
+
+export const getBookingServiceCharges = async (bookingId: number) => {
+  return api.get(`/bookings/${bookingId}/services`);
+};
+
 export const addBookingServiceCharge = async (
   id: number,
-  data: { serviceId: number; quantity: number }
+  data: { serviceId: number; quantity: number; roomId?: number | null; status?: string }
 ) => {
   return api.post(`/bookings/${id}/services`, data);
 };
@@ -84,9 +90,17 @@ export const addBookingServiceCharge = async (
 export const updateBookingServiceCharge = async (
   id: number,
   serviceChargeId: number,
-  data: { quantity: number }
+  data: { quantity?: number; roomId?: number | null; status?: string }
 ) => {
   return api.patch(`/bookings/${id}/services/${serviceChargeId}`, data);
+};
+
+export const updateBookingServiceChargeStatus = async (
+  bookingId: number,
+  serviceChargeId: number,
+  status: string
+) => {
+  return api.patch(`/bookings/${bookingId}/services/${serviceChargeId}/status`, { status });
 };
 
 export const deleteBookingServiceCharge = async (
@@ -95,6 +109,54 @@ export const deleteBookingServiceCharge = async (
 ) => {
   return api.delete(`/bookings/${id}/services/${serviceChargeId}`);
 };
+
+// ─── Damage / Extra Fee / Other Charges ────────────────────────────
+
+export const getBookingDamageCharges = async (bookingId: number) => {
+  return api.get(`/bookings/${bookingId}/damages`);
+};
+
+export interface DamageChargePayload {
+  roomId?: number | null;
+  chargeType?: string;
+  itemName: string;
+  quantity: number;
+  unitPrice: number;
+  status?: string;
+  note?: string | null;
+}
+
+export const addBookingDamageCharge = async (
+  bookingId: number,
+  data: DamageChargePayload
+) => {
+  return api.post(`/bookings/${bookingId}/damages`, data);
+};
+
+export const updateBookingDamageCharge = async (
+  bookingId: number,
+  chargeId: number,
+  data: Partial<DamageChargePayload>
+) => {
+  return api.patch(`/bookings/${bookingId}/damages/${chargeId}`, data);
+};
+
+export const updateBookingDamageChargeStatus = async (
+  bookingId: number,
+  chargeId: number,
+  status: string
+) => {
+  return api.patch(`/bookings/${bookingId}/damages/${chargeId}/status`, { status });
+};
+
+export const deleteBookingDamageCharge = async (
+  bookingId: number,
+  chargeId: number
+) => {
+  return api.delete(`/bookings/${bookingId}/damages/${chargeId}`);
+};
+
+// ─── Stay Management ──────────────────────────────────────────────
 
 export const extendBookingStay = async (
   id: number,
@@ -122,10 +184,19 @@ export const checkIn = async (
   );
 };
 
-export const checkOut = async (
-  id: number
+export const checkOut = async (id: number, actualCheckOutTime?: string) => {
+  return api.patch(`/bookings/${id}/check-out`, { actualCheckOutTime });
+};
+
+export const updateRequestedArrivalTime = async (
+  id: number,
+  requestedCheckInTime: string,
+  dayOffset: number = 0,
+  notes?: string
 ) => {
-  return api.patch(
-    `/bookings/${id}/check-out`
-  );
+  return api.patch(`/bookings/${id}/arrival-time`, {
+    requestedCheckInTime,
+    dayOffset,
+    notes
+  });
 };

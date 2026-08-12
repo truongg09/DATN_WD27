@@ -201,6 +201,53 @@
   line-height: 1.8;
 }
 
+/* ==== Policy Section styling ==== */
+.capacity-policy-section {
+  background: #fdfbf7;
+  border: 1px solid #ebd9c6;
+  border-radius: 12px;
+  padding: 20px 24px;
+}
+
+.policy-block-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.policy-box h4 {
+  font-size: 15px;
+  color: #70533a;
+  margin: 0 0 8px 0;
+  font-weight: 600;
+}
+
+.policy-box ul {
+  margin: 0;
+  padding-left: 20px;
+  color: #444;
+  font-size: 14.5px;
+}
+
+.policy-box li {
+  margin-bottom: 4px;
+}
+
+.policy-box.highlight {
+  background: #fff;
+  border: 1px solid #f0e6da;
+  padding: 14px 18px;
+  border-radius: 8px;
+}
+
+.policy-note {
+  font-size: 13px;
+  color: #8a6d3b;
+  margin: 8px 0 0 0;
+  line-height: 1.5;
+}
+
+
 .amenities-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));

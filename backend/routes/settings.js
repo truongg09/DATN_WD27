@@ -139,4 +139,214 @@ router.put('/children-policy', requireAuth, async (req, res) => {
   }
 });
 
+// Thêm vào cuối file, trước module.exports
+
+const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)(:[0-5]\d)?$/;
+const normalizeTime = (value, fallback) => {
+  if (!TIME_REGEX.test(String(value || ''))) return fallback;
+  return String(value).length === 5 ? `${value}:00` : String(value);
+};
+
+// Public: trang đặt phòng / trang chi tiết cần hiển thị giờ nhận-trả phòng
+// và chính sách hoàn tiền khi hủy. Gộp từ 2 bảng: checkout_late_fee_tiers
+// (nguồn "sống" cho giờ chuẩn, được checkOut()/checkIn() dùng để tính phí
+// trễ giờ) và cancellation_policies (nguồn cho % hoàn tiền khi hủy).
+router.get('/policies', async (_req, res) => {
+  try {
+    const [[cancellation]] = await db.query('SELECT * FROM cancellation_policies WHERE id = 1');
+    const [[tiers]] = await db.query('SELECT * FROM checkout_late_fee_tiers WHERE id = 1');
+
+    res.json({
+      data: {
+        checkInTime: tiers?.standardCheckInTime || cancellation?.standardCheckInTime || '14:00:00',
+        checkOutTime: tiers?.standardCheckOutTime || cancellation?.standardCheckOutTime || '12:00:00',
+        nearTierMaxDays: cancellation?.nearTierMaxDays ?? 3,
+        nearTierPercent: Number(cancellation?.nearTierPercent ?? 100),
+        midTierMaxDays: cancellation?.midTierMaxDays ?? 7,
+        midTierPercent: Number(cancellation?.midTierPercent ?? 50),
+        farTierPercent: Number(cancellation?.farTierPercent ?? 0)
+      }
+    });
+  } catch (error) {
+    console.error('Get policies error:', error);
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
+  }
+});
+
+
+router.put('/policies', requireAuth, async (req, res) => {
+  try {
+    if (req.user?.role !== 'admin') {
+      return res.status(403).json({ message: 'Chỉ admin được phép thay đổi chính sách' });
+    }
+
+    const {
+      checkInTime,
+      checkOutTime,
+      nearTierMaxDays,
+      nearTierPercent,
+      midTierMaxDays,
+      midTierPercent,
+      farTierPercent
+    } = req.body || {};
+
+    const normalizedCheckIn = normalizeTime(checkInTime, '14:00:00');
+    const normalizedCheckOut = normalizeTime(checkOutTime, '12:00:00');
+
+    const near = Number(nearTierMaxDays);
+    const mid = Number(midTierMaxDays);
+    const nearPct = Number(nearTierPercent);
+    const midPct = Number(midTierPercent);
+    const farPct = Number(farTierPercent);
+
+    if (!Number.isInteger(near) || near < 0) {
+      return res.status(400).json({ message: 'Số ngày mốc gần không hợp lệ' });
+    }
+    if (!Number.isInteger(mid) || mid <= near) {
+      return res.status(400).json({ message: 'Số ngày mốc xa phải lớn hơn mốc gần' });
+    }
+    for (const [label, pct] of [['nearTierPercent', nearPct], ['midTierPercent', midPct], ['farTierPercent', farPct]]) {
+      if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
+        return res.status(400).json({ message: `${label} phải từ 0-100` });
+      }
+    }
+
+    await db.query(
+      `UPDATE cancellation_policies
+       SET nearTierMaxDays = ?, nearTierPercent = ?, midTierMaxDays = ?, midTierPercent = ?,
+           farTierPercent = ?, standardCheckInTime = ?, standardCheckOutTime = ?
+       WHERE id = 1`,
+      [near, nearPct, mid, midPct, farPct, normalizedCheckIn, normalizedCheckOut]
+    );
+    await db.query(
+      `UPDATE checkout_late_fee_tiers
+       SET standardCheckInTime = ?, standardCheckOutTime = ?
+       WHERE id = 1`,
+      [normalizedCheckIn, normalizedCheckOut]
+    );
+
+    res.json({
+      data: {
+        checkInTime: normalizedCheckIn,
+        checkOutTime: normalizedCheckOut,
+        nearTierMaxDays: near,
+        nearTierPercent: nearPct,
+        midTierMaxDays: mid,
+        midTierPercent: midPct,
+        farTierPercent: farPct
+      },
+      message: 'Đã lưu chính sách hủy phòng và giờ nhận/trả phòng'
+    });
+  } catch (error) {
+    console.error('Update policies error:', error);
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
+  }
+});
+
+// GET /api/settings/late-checkout-tiers
+router.get('/late-checkout-tiers', async (_req, res) => {
+  try {
+    const [[tiers]] = await db.query('SELECT * FROM checkout_late_fee_tiers WHERE id = 1');
+    res.json({
+      data: tiers || {
+        id: 1,
+        graceMinutes: 60,
+        tier1MaxHours: 3.0,
+        tier1Percent: 30.0,
+        tier2MaxHours: 6.0,
+        tier2Percent: 50.0,
+        tier3Percent: 100.0,
+        standardCheckOutTime: '12:00:00',
+        standardCheckInTime: '14:00:00',
+        housekeepingBufferMinutes: 60,
+        absoluteMaxLateHours: 6.0
+      }
+    });
+  } catch (error) {
+    console.error('Get late checkout tiers error:', error);
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
+  }
+});
+
+// PUT /api/settings/late-checkout-tiers (Admin)
+router.put('/late-checkout-tiers', requireAuth, async (req, res) => {
+  try {
+    if (req.user?.role !== 'admin') {
+      return res.status(403).json({ message: 'Chỉ admin được phép thay đổi cấu hình phí trễ giờ' });
+    }
+
+    const {
+      graceMinutes,
+      tier1MaxHours,
+      tier1Percent,
+      tier2MaxHours,
+      tier2Percent,
+      tier3Percent,
+      standardCheckInTime,
+      standardCheckOutTime,
+      housekeepingBufferMinutes,
+      absoluteMaxLateHours
+    } = req.body || {};
+
+    const normalizedCheckIn = normalizeTime(standardCheckInTime, '14:00:00');
+    const normalizedCheckOut = normalizeTime(standardCheckOutTime, '12:00:00');
+
+    const grace = Number(graceMinutes ?? 60);
+    const t1Max = Number(tier1MaxHours ?? 3.0);
+    const t1Pct = Number(tier1Percent ?? 30.0);
+    const t2Max = Number(tier2MaxHours ?? 6.0);
+    const t2Pct = Number(tier2Percent ?? 50.0);
+    const t3Pct = Number(tier3Percent ?? 100.0);
+    const hkBuffer = Number(housekeepingBufferMinutes ?? 60);
+    const absMax = Number(absoluteMaxLateHours ?? 6.0);
+
+    await db.query(
+      `INSERT INTO checkout_late_fee_tiers
+         (id, graceMinutes, tier1MaxHours, tier1Percent, tier2MaxHours, tier2Percent, tier3Percent,
+          standardCheckOutTime, standardCheckInTime, housekeepingBufferMinutes, absoluteMaxLateHours)
+       VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         graceMinutes = VALUES(graceMinutes),
+         tier1MaxHours = VALUES(tier1MaxHours),
+         tier1Percent = VALUES(tier1Percent),
+         tier2MaxHours = VALUES(tier2MaxHours),
+         tier2Percent = VALUES(tier2Percent),
+         tier3Percent = VALUES(tier3Percent),
+         standardCheckOutTime = VALUES(standardCheckOutTime),
+         standardCheckInTime = VALUES(standardCheckInTime),
+         housekeepingBufferMinutes = VALUES(housekeepingBufferMinutes),
+         absoluteMaxLateHours = VALUES(absoluteMaxLateHours)`,
+      [grace, t1Max, t1Pct, t2Max, t2Pct, t3Pct, normalizedCheckOut, normalizedCheckIn, hkBuffer, absMax]
+    );
+
+    // Đồng bộ lại giờ chuẩn vào bảng cancellation_policies
+    await db.query(
+      `UPDATE cancellation_policies
+       SET standardCheckInTime = ?, standardCheckOutTime = ?
+       WHERE id = 1`,
+      [normalizedCheckIn, normalizedCheckOut]
+    );
+
+    res.json({
+      data: {
+        graceMinutes: grace,
+        tier1MaxHours: t1Max,
+        tier1Percent: t1Pct,
+        tier2MaxHours: t2Max,
+        tier2Percent: t2Pct,
+        tier3Percent: t3Pct,
+        standardCheckInTime: normalizedCheckIn,
+        standardCheckOutTime: normalizedCheckOut,
+        housekeepingBufferMinutes: hkBuffer,
+        absoluteMaxLateHours: absMax
+      },
+      message: 'Đã lưu cấu hình phí trả phòng muộn và giờ chuẩn'
+    });
+  } catch (error) {
+    console.error('Update late checkout tiers error:', error);
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
+  }
+});
+
 module.exports = router;
+

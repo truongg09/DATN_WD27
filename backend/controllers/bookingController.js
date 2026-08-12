@@ -5,14 +5,17 @@ const {
   normalizeAvailabilityPayload,
   normalizeBookingPayload,
   normalizeDamageChargePayload,
+  normalizeUpdateDamageChargePayload,
   normalizeExtendStayPayload,
   normalizeUpdateStayPayload,
   normalizeGuestIdentitiesPayload,
   normalizeServiceChargePayload,
   normalizeUpdateServiceChargePayload,
+  normalizeStatusPayload,
   normalizeTransferRoomPayload,
   normalizeTypeAvailabilityPayload,
-  normalizeIdParam
+  normalizeIdParam,
+  normalizeReassignRoomPayload
 } = require('../validators/bookingValidator');
 
 // Mặc định từ chối: chỉ nhân viên hoặc đúng chủ đặt phòng mới được xem/thao tác.
@@ -79,6 +82,10 @@ const createBooking = async (req, res) => {
 
 const listBookings = async (req, res) => {
   try {
+    await bookingService.processOverdueCheckIns().catch((err) => {
+      console.error('Error processing overdue check-ins in listBookings:', err);
+    });
+
     const filters = {};
     if (req.query.userId || req.query.customerId) {
       filters.userId = normalizeIdParam(req.query.userId || req.query.customerId, 'userId');
@@ -89,9 +96,60 @@ const listBookings = async (req, res) => {
     if (req.query.status) {
       filters.status = req.query.status;
     }
+    if (req.query.search) {
+      filters.search = req.query.search;
+    }
+    if (req.query.page) {
+      filters.page = Number(req.query.page);
+    }
+    if (req.query.limit) {
+      filters.limit = Number(req.query.limit);
+    }
 
-    const bookings = await bookingService.listBookings(filters);
-    res.json({ data: bookings });
+    const result = await bookingService.listBookings(filters);
+    if (result && typeof result === 'object' && !Array.isArray(result) && Array.isArray(result.data)) {
+      res.json(result);
+    } else {
+      res.json({ data: result });
+    }
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
+const updateArrivalTime = async (req, res) => {
+  try {
+    const bookingId = normalizeIdParam(req.params.id);
+    const booking = await bookingService.getBookingById(bookingId);
+    ensureBookingAccess(req.user, booking, 'cập nhật giờ đến');
+
+    const { requestedCheckInTime, requestedCheckInDayOffset, dayOffset, notes } = req.body;
+    if (!requestedCheckInTime) {
+      throw new HttpError(400, 'Vui lòng cung cấp giờ đến dự kiến mới');
+    }
+
+    const result = await bookingService.updateBookingRequestedCheckInTime(
+      bookingId,
+      { requestedCheckInTime, requestedCheckInDayOffset, dayOffset, notes },
+      req.user || null
+    );
+
+    res.json({
+      message: 'Đã cập nhật giờ đến dự kiến thành công',
+      data: result
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
+const processOverdue = async (req, res) => {
+  try {
+    const results = await bookingService.processOverdueCheckIns();
+    res.json({
+      message: 'Xử lý các đặt phòng quá hạn check-in thành công',
+      data: results
+    });
   } catch (error) {
     sendError(res, error);
   }
@@ -213,6 +271,18 @@ const getRefundPreview = async (req, res) => {
   }
 };
 
+const getBookingServices = async (req, res) => {
+  try {
+    const bookingId = normalizeIdParam(req.params.id);
+    const currentBooking = await bookingService.getBookingById(bookingId);
+    ensureBookingAccess(req.user, currentBooking, 'xem dịch vụ');
+    const services = await bookingService.getBookingServices(bookingId);
+    res.json({ data: services });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
 const addServiceCharge = async (req, res) => {
   try {
     const bookingId = normalizeIdParam(req.params.id);
@@ -238,7 +308,24 @@ const updateServiceCharge = async (req, res) => {
     const payload = normalizeUpdateServiceChargePayload(req.body);
     const result = await bookingService.updateServiceCharge(bookingId, serviceChargeId, payload, req.user || null);
     res.json({
-      message: 'Cập nhật số lượng dịch vụ thành công',
+      message: 'Cập nhật dịch vụ thành công',
+      data: result
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
+const updateServiceChargeStatus = async (req, res) => {
+  try {
+    const bookingId = normalizeIdParam(req.params.id);
+    const serviceChargeId = normalizeIdParam(req.params.serviceChargeId, 'serviceChargeId');
+    const currentBooking = await bookingService.getBookingById(bookingId);
+    ensureBookingAccess(req.user, currentBooking, 'cập nhật trạng thái dịch vụ');
+    const { status } = normalizeStatusPayload(req.body);
+    const result = await bookingService.updateServiceChargeStatus(bookingId, serviceChargeId, status, req.user || null);
+    res.json({
+      message: 'Cập nhật trạng thái dịch vụ thành công',
       data: result
     });
   } catch (error) {
@@ -251,10 +338,10 @@ const deleteServiceCharge = async (req, res) => {
     const bookingId = normalizeIdParam(req.params.id);
     const serviceChargeId = normalizeIdParam(req.params.serviceChargeId, 'serviceChargeId');
     const currentBooking = await bookingService.getBookingById(bookingId);
-    ensureBookingAccess(req.user, currentBooking, 'xóa dịch vụ');
+    ensureBookingAccess(req.user, currentBooking, 'hủy dịch vụ');
     const result = await bookingService.deleteServiceCharge(bookingId, serviceChargeId, req.user || null);
     res.json({
-      message: 'Xóa dịch vụ thành công',
+      message: 'Hủy dịch vụ thành công',
       data: result
     });
   } catch (error) {
@@ -276,13 +363,77 @@ const saveGuestIdentities = async (req, res) => {
   }
 };
 
+const getDamageCharges = async (req, res) => {
+  try {
+    const bookingId = normalizeIdParam(req.params.id);
+    const currentBooking = await bookingService.getBookingById(bookingId);
+    ensureBookingAccess(req.user, currentBooking, 'xem khoản phát sinh');
+    const charges = await bookingService.getDamageCharges(bookingId);
+    res.json({ data: charges });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
 const addDamageCharge = async (req, res) => {
   try {
     const bookingId = normalizeIdParam(req.params.id);
+    const currentBooking = await bookingService.getBookingById(bookingId);
+    ensureBookingAccess(req.user, currentBooking, 'thêm khoản phát sinh');
     const payload = normalizeDamageChargePayload(req.body);
     const result = await bookingService.addDamageCharge(bookingId, payload, req.user || null);
     res.json({
-      message: 'Đã thêm phí hư hỏng',
+      message: 'Đã thêm khoản phát sinh/hư hỏng',
+      data: result
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
+const updateDamageCharge = async (req, res) => {
+  try {
+    const bookingId = normalizeIdParam(req.params.id);
+    const chargeId = normalizeIdParam(req.params.chargeId, 'chargeId');
+    const currentBooking = await bookingService.getBookingById(bookingId);
+    ensureBookingAccess(req.user, currentBooking, 'sửa khoản phát sinh');
+    const payload = normalizeUpdateDamageChargePayload(req.body);
+    const result = await bookingService.updateDamageCharge(bookingId, chargeId, payload, req.user || null);
+    res.json({
+      message: 'Cập nhật khoản phát sinh thành công',
+      data: result
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
+const updateDamageChargeStatus = async (req, res) => {
+  try {
+    const bookingId = normalizeIdParam(req.params.id);
+    const chargeId = normalizeIdParam(req.params.chargeId, 'chargeId');
+    const currentBooking = await bookingService.getBookingById(bookingId);
+    ensureBookingAccess(req.user, currentBooking, 'cập nhật trạng thái khoản phát sinh');
+    const { status } = normalizeStatusPayload(req.body);
+    const result = await bookingService.updateDamageChargeStatus(bookingId, chargeId, status, req.user || null);
+    res.json({
+      message: 'Cập nhật trạng thái khoản phát sinh thành công',
+      data: result
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
+const deleteDamageCharge = async (req, res) => {
+  try {
+    const bookingId = normalizeIdParam(req.params.id);
+    const chargeId = normalizeIdParam(req.params.chargeId, 'chargeId');
+    const currentBooking = await bookingService.getBookingById(bookingId);
+    ensureBookingAccess(req.user, currentBooking, 'hủy khoản phát sinh');
+    const result = await bookingService.deleteDamageCharge(bookingId, chargeId, req.user || null);
+    res.json({
+      message: 'Hủy khoản phát sinh thành công',
       data: result
     });
   } catch (error) {
@@ -366,9 +517,15 @@ const markNoShow = async (req, res) => {
 const checkOut = async (req, res) => {
   try {
     const bookingId = normalizeIdParam(req.params.id);
-    const booking = await bookingService.checkOut(bookingId, req.user || null);
+    const booking = await bookingService.checkOut(bookingId, req.body?.actualCheckOutTime, req.user || null);
+    if (booking.requiresPayment) {
+      return res.status(409).json({
+        message: `Đã cộng phí trả phòng muộn ${Number(booking.lateCheckout.feeAmount || 0).toLocaleString('vi-VN')}₫. Vui lòng thu đủ tiền trước khi trả phòng.`,
+        data: booking
+      });
+    }
     res.json({
-      message: 'Trả phòng thành công',
+      message: booking.lateCheckout ? `Trả phòng thành công (đã tính phí trễ giờ)` : 'Trả phòng thành công',
       data: booking
     });
   } catch (error) {
@@ -385,9 +542,12 @@ const listServiceRequests = async (req, res) => {
       SELECT 
         sr.id,
         sr.bookingId,
+        sr.bookingDetailId,
+        COALESCE(bd.roomId, sr.roomId) AS roomId,
         sr.serviceId,
         sr.quantity,
         sr.status,
+        sr.note,
         sr.createdAt,
         b.status as bookingStatus,
         r.roomNumber,
@@ -395,7 +555,8 @@ const listServiceRequests = async (req, res) => {
         c.phone as bookingPhone
       FROM booking_service_requests sr
       LEFT JOIN bookings b ON sr.bookingId = b.id
-      LEFT JOIN rooms r ON b.room_id = r.id
+      LEFT JOIN booking_details bd ON bd.id = sr.bookingDetailId
+      LEFT JOIN rooms r ON r.id = COALESCE(bd.roomId, sr.roomId, b.room_id)
       LEFT JOIN customers c ON b.customerId = c.id
     `;
     
@@ -465,10 +626,25 @@ const confirmServiceRequest = async (req, res) => {
       return res.status(409).json({ message: 'Yêu cầu dịch vụ này đã được xử lý' });
     }
 
+    let targetRoomId = request.roomId || null;
+    let targetBookingDetailId = request.bookingDetailId || null;
+
+    if (targetBookingDetailId) {
+      const [bdRows] = await db.query(
+        'SELECT roomId FROM booking_details WHERE id = ? AND bookingId = ?',
+        [targetBookingDetailId, request.bookingId]
+      );
+      if (bdRows.length > 0 && bdRows[0].roomId) {
+        targetRoomId = bdRows[0].roomId;
+      }
+    }
+
     // Ghi dịch vụ vào booking_services + tính lại hóa đơn/payment (serviceAmount)
     const result = await bookingService.addServiceCharge(request.bookingId, {
       serviceId: request.serviceId,
-      quantity: request.quantity
+      quantity: request.quantity,
+      roomId: targetRoomId,
+      bookingDetailId: targetBookingDetailId
     }, req.user || null);
 
     // Update request status
@@ -503,6 +679,21 @@ const rejectServiceRequest = async (req, res) => {
   }
 };
 
+const reassignRoom = async (req, res) => {
+  try {
+    const bookingId = normalizeIdParam(req.params.id);
+    const payload = normalizeReassignRoomPayload(req.body);
+    const result = await bookingService.reassignConflictingBooking(bookingId, payload, req.user || null);
+    res.json({
+      message: 'Đã đổi phòng cho đặt phòng',
+      data: result
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
+
 module.exports = {
   checkAvailability,
   checkTypeAvailability,
@@ -515,18 +706,27 @@ module.exports = {
   requestOutstandingPayment,
   getRefundPreview,
   cancelBooking,
+  getBookingServices,
   addServiceCharge,
   updateServiceCharge,
+  updateServiceChargeStatus,
   deleteServiceCharge,
   saveGuestIdentities,
+  getDamageCharges,
   addDamageCharge,
+  updateDamageCharge,
+  updateDamageChargeStatus,
+  deleteDamageCharge,
   extendStay,
   updateStay,
   transferRoom,
   checkIn,
   checkOut,
   markNoShow,
+  updateArrivalTime,
+  processOverdue,
   listServiceRequests,
   confirmServiceRequest,
-  rejectServiceRequest
+  rejectServiceRequest,
+  reassignRoom
 };

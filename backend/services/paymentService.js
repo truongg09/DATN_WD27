@@ -88,35 +88,88 @@ const createGatewayOrder = async (paymentId, { paymentMethod, amount, ipAddress 
   if (!['zalopay', 'vnpay'].includes(paymentMethod)) {
     throw new HttpError(400, 'Gateway payment method must be zalopay or vnpay');
   }
-  const payment = await getPaymentById(paymentId);
-  if (payment.paymentStatus === 'paid' || payment.paymentStatus === 'refunded') {
-    throw new HttpError(409, 'Payment cannot be sent to gateway');
-  }
-  const payableAmount = Number(amount ?? payment.remainingAmount);
-  if (payableAmount <= 0 || payableAmount > Number(payment.remainingAmount)) {
-    throw new HttpError(400, 'Invalid gateway payment amount');
-  }
-  const orderId = paymentMethod === 'zalopay'
-    ? `${new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Ho_Chi_Minh' }).slice(2).replace(/-/g, '')}_${payment.id}_${Date.now()}`
-    : `${paymentMethod.toUpperCase()}-${payment.id}-${Date.now()}`;
-  const orderInfo = `Thanh toan booking ${payment.bookingId}`;
-  // paymentDate belongs to the previously completed installment. Clear it
-  // when opening a new gateway order so its callback is processed exactly once.
-  await paymentModel.updatePayment(payment.id, {
-    paymentMethod,
-    transactionCode: orderId,
-    paymentDate: null
-  });
-  const gateway = require('./paymentGatewayService');
-  const paymentUrl = paymentMethod === 'vnpay'
-    ? gateway.createVnpayUrl({ orderId, amount: payableAmount, orderInfo, ipAddress })
-    : await gateway.createZalopayPayment({
-      orderId,
+  const connection = await db.getConnection();
+  let order;
+  try {
+    await connection.beginTransaction();
+    await bookingModel.expireUnpaidBookingHolds(connection);
+    const payment = await paymentModel.getPaymentById(paymentId, connection, true);
+    if (!payment) throw new HttpError(404, 'Payment not found');
+    if (payment.paymentStatus === 'paid' || payment.paymentStatus === 'refunded') {
+      throw new HttpError(409, 'Payment cannot be sent to gateway');
+    }
+    const booking = await bookingModel.getBookingById(payment.bookingId, connection, true);
+    if (!booking || booking.status === 'cancelled') {
+      throw new HttpError(409, 'Đặt phòng đã hết thời gian giữ chỗ, vui lòng đặt lại');
+    }
+
+    const remainingSeconds = Number(booking.hold_remaining_seconds || 0);
+    // Chừa vài giây cho thời gian ký request/gọi API nhưng vẫn truyền đúng
+    // mốc holdExpiresAt sang cổng, không tự ý kéo dài thời gian giữ phòng.
+    const minimumSeconds = paymentMethod === 'zalopay' ? 305 : 60;
+    if (remainingSeconds < minimumSeconds) {
+      throw new HttpError(
+        409,
+        paymentMethod === 'zalopay'
+          ? 'Cần còn ít nhất 5 phút giữ phòng để thanh toán bằng ZaloPay'
+          : 'Không còn đủ thời gian để khởi tạo giao dịch VNPay, vui lòng đặt lại phòng'
+      );
+    }
+
+    const payableAmount = Number(amount ?? payment.remainingAmount);
+    if (payableAmount <= 0 || payableAmount > Number(payment.remainingAmount)) {
+      throw new HttpError(400, 'Invalid gateway payment amount');
+    }
+    const orderId = paymentMethod === 'zalopay'
+      ? `${new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Ho_Chi_Minh' }).slice(2).replace(/-/g, '')}_${payment.id}_${Date.now()}`
+      : `${paymentMethod.toUpperCase()}-${payment.id}-${Date.now()}`;
+    const expiresAt = new Date(booking.hold_expires_at);
+
+    await paymentModel.createGatewayOrder({
+      paymentId: payment.id,
       bookingId: payment.bookingId,
+      provider: paymentMethod,
+      orderId,
       amount: payableAmount,
-      orderInfo
-    });
-  return { orderId, paymentUrl };
+      expiresAt
+    }, connection);
+    await paymentModel.updatePayment(payment.id, {
+      paymentMethod,
+      transactionCode: orderId,
+      paymentDate: null
+    }, connection);
+    await connection.commit();
+    order = { orderId, bookingId: payment.bookingId, payableAmount, expiresAt };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+
+  const gateway = require('./paymentGatewayService');
+  const orderInfo = `Thanh toan booking ${order.bookingId}`;
+  try {
+    const paymentUrl = paymentMethod === 'vnpay'
+      ? gateway.createVnpayUrl({
+        orderId: order.orderId,
+        amount: order.payableAmount,
+        orderInfo,
+        ipAddress,
+        expiresAt: order.expiresAt
+      })
+      : await gateway.createZalopayPayment({
+        orderId: order.orderId,
+        bookingId: order.bookingId,
+        amount: order.payableAmount,
+        orderInfo,
+        expiresAt: order.expiresAt
+      });
+    return { orderId: order.orderId, paymentUrl, expiresAt: order.expiresAt };
+  } catch (error) {
+    await paymentModel.updateGatewayOrderStatus(order.orderId, 'failed');
+    throw error;
+  }
 };
 
 const createPaymentForBooking = async (bookingId, options = {}, connection) => {
@@ -132,7 +185,7 @@ const createPaymentForBooking = async (bookingId, options = {}, connection) => {
 
   const occupancySurcharge = Number(booking.occupancy_surcharge || 0);
   const amounts = buildPaymentAmounts({
-    roomAmount: Math.max(Number(booking.total_price || 0) - occupancySurcharge, 0),
+    roomAmount: Math.max(Number(booking.room_total_price || 0) - occupancySurcharge, 0),
     serviceAmount: options.serviceAmount || 0,
     surchargeAmount: occupancySurcharge + Number(options.surchargeAmount || 0),
     discountAmount: options.discountAmount || 0,
@@ -184,10 +237,11 @@ const recalculatePaymentForBooking = async (bookingId, connection) => {
   }
 
   const guestSurcharge = Number(booking.occupancy_surcharge || 0);
-  const roomAmount = Math.max(Number(booking.total_price || 0) - guestSurcharge, 0);
+  const roomAmount = Math.max(Number(booking.room_total_price || 0) - guestSurcharge, 0);
   const serviceAmount = await bookingModel.sumBookingServices(bookingId, connection);
   const damageSurcharge = await bookingModel.sumDamageCharges(bookingId, connection);
-  const surchargeAmount = guestSurcharge + damageSurcharge;
+  const lateCheckoutSurcharge = await bookingModel.sumLateCheckoutCharges(bookingId, connection);
+  const surchargeAmount = guestSurcharge + damageSurcharge + lateCheckoutSurcharge;
   const discountAmount = Number(payment.discountAmount || 0);
   const paidAmount = Number(payment.paidAmount || 0);
   const totalAmount = Math.max(roomAmount + serviceAmount + surchargeAmount - discountAmount, 0);
@@ -414,7 +468,8 @@ const processPayment = async (paymentId, payload, actor = null) => {
     // Payment settlement is the source of truth. Invoice generation is a
     // follow-up operation and must never roll back money already received.
     let invoice = null;
-    if (isFullyPaid) {
+    // Invoice is finalized at check-out, after all services and charges are locked.
+    if (isFullyPaid && booking.status === 'checked_out') {
       try {
         invoice = await invoiceService.issueInvoiceForPayment(paymentId);
       } catch (error) {
@@ -566,7 +621,8 @@ const confirmPayment = async (paymentId, payload, actor = null) => {
 
     // Keep a successful gateway payment even if invoice creation fails.
     let invoice = null;
-    if (isFullyPaid) {
+    // Gateway settlement follows the same rule: do not issue an invoice before check-out.
+    if (isFullyPaid && booking.status === 'checked_out') {
       try {
         invoice = await invoiceService.issueInvoiceForPayment(paymentId);
       } catch (error) {
@@ -641,13 +697,29 @@ const refundPayment = async (paymentId, actor = null) => {
 };
 
 const settleGatewayPayment = async ({ orderId, paymentMethod, amount }) => {
+  const gatewayOrder = await paymentModel.getGatewayOrder(orderId);
+  if (!gatewayOrder || gatewayOrder.provider !== paymentMethod) {
+    throw new HttpError(404, 'Gateway order not found');
+  }
+  if (gatewayOrder.status === 'paid') {
+    const settled = await paymentModel.getPaymentById(gatewayOrder.paymentId);
+    return formatPayment(settled);
+  }
+  if (gatewayOrder.status !== 'created') {
+    throw new HttpError(409, 'Gateway order is no longer active');
+  }
   const payment = await paymentModel.getPaymentByTransactionCode(orderId);
   if (!payment) throw new HttpError(404, 'Gateway order not found');
   // The other gateway notification may already have settled this exact order.
   if (payment.paymentDate) return formatPayment(payment);
   if (payment.paymentStatus === 'refunded') throw new HttpError(409, 'Payment was refunded');
   const paid = Number(amount);
-  if (!Number.isFinite(paid) || paid <= 0 || paid > Number(payment.remainingAmount)) {
+  if (
+    !Number.isFinite(paid)
+    || paid <= 0
+    || paid !== Number(gatewayOrder.amount)
+    || paid > Number(payment.remainingAmount)
+  ) {
     throw new HttpError(400, 'Gateway amount is invalid');
   }
 
@@ -660,17 +732,31 @@ const settleGatewayPayment = async ({ orderId, paymentMethod, amount }) => {
     gatewayOrderId: orderId,
     paymentMethod
   });
+  await paymentModel.updateGatewayOrderStatus(orderId, 'paid');
   return result.payment;
+};
+
+const failGatewayOrder = async (orderId, status = 'failed') => {
+  if (!['failed', 'expired', 'cancelled'].includes(status)) return;
+  const order = await paymentModel.getGatewayOrder(orderId);
+  if (order?.status === 'created') {
+    await paymentModel.updateGatewayOrderStatus(orderId, status);
+  }
 };
 
 const submitTransferConfirmation = async (paymentId, payload, actor = null) => {
   const connection = await db.getConnection();
   try {
     await connection.beginTransaction();
+    await bookingModel.expireUnpaidBookingHolds(connection);
     const payment = await paymentModel.getPaymentById(paymentId, connection, true);
     if (!payment) throw new HttpError(404, 'Payment not found');
     if (payment.paymentStatus === 'paid' || payment.paymentStatus === 'refunded') {
       throw new HttpError(409, 'Payment cannot be submitted for verification');
+    }
+    const booking = await bookingModel.getBookingById(payment.bookingId, connection, true);
+    if (!booking || booking.status === 'cancelled') {
+      throw new HttpError(409, 'Đặt phòng đã hết thời gian giữ chỗ, vui lòng đặt lại');
     }
     if (payload.paymentMethod !== 'bank_transfer') {
       throw new HttpError(400, 'Only bank transfer can be manually verified');
@@ -774,7 +860,7 @@ const applyVoucher = async (paymentId, code, actor) => {
     if (customerVoucher?.isUsed) throw new HttpError(409, 'Voucher đã được sử dụng');
 
     const guestSurcharge = Number(booking.occupancy_surcharge || 0);
-    const roomAmount = Math.max(Number(booking.total_price || 0) - guestSurcharge, 0);
+    const roomAmount = Math.max(Number(booking.room_total_price || 0) - guestSurcharge, 0);
     const serviceAmount = await bookingModel.sumBookingServices(payment.bookingId, connection);
     const damageSurcharge = await bookingModel.sumDamageCharges(payment.bookingId, connection);
     const surchargeAmount = guestSurcharge + damageSurcharge;
@@ -866,6 +952,7 @@ module.exports = {
   createPayment,
   createGatewayOrder,
   settleGatewayPayment,
+  failGatewayOrder,
   submitTransferConfirmation,
   confirmTransferPayment,
   recalculatePaymentForBooking,

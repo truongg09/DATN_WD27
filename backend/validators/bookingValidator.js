@@ -4,6 +4,7 @@ const utc = require('dayjs/plugin/utc');
 dayjs.extend(utc);
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
 const toPositiveInt = (value, fieldName) => {
   if (value === undefined || value === null || value === '') {
@@ -42,6 +43,22 @@ const normalizeDate = (value, fieldName) => {
   return value;
 };
 
+// Giờ khách mong muốn nhận/trả phòng khi đặt phòng - tùy chọn, chỉ để lễ tân
+// chủ động chuẩn bị, không ảnh hưởng đến việc tính phí hay chặn đặt phòng.
+// Lưu dưới dạng HH:mm:ss cho khớp kiểu cột TIME của MySQL.
+const normalizeOptionalTime = (value, fieldName) => {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+
+  const str = String(value).trim();
+  if (!TIME_PATTERN.test(str)) {
+    throw new HttpError(400, `${fieldName} phải có định dạng HH:mm`);
+  }
+
+  return `${str}:00`;
+};
+
 const assertDateRange = (checkIn, checkOut) => {
   const checkInDate = new Date(`${checkIn}T00:00:00.000Z`);
   const checkOutDate = new Date(`${checkOut}T00:00:00.000Z`);
@@ -60,10 +77,34 @@ const normalizeServiceRequestsPayload = (value) => {
   }
 
   return value
-    .map((item, index) => ({
-      serviceId: toPositiveInt(item.serviceId ?? item.service_id, `serviceRequests[${index}].serviceId`),
-      quantity: toPositiveInt(item.quantity ?? 1, `serviceRequests[${index}].quantity`)
-    }))
+    .map((item, index) => {
+      const rawRoomId = item.roomId ?? item.room_id;
+      const rawRoomIndex = item.roomIndex ?? item.room_index;
+      const rawBookingDetailId = item.bookingDetailId ?? item.booking_detail_id;
+
+      let roomId = null;
+      if (rawRoomId !== undefined && rawRoomId !== null && rawRoomId !== '') {
+        roomId = toPositiveInt(rawRoomId, `serviceRequests[${index}].roomId`);
+      }
+
+      let roomIndex = null;
+      if (rawRoomIndex !== undefined && rawRoomIndex !== null && rawRoomIndex !== '') {
+        roomIndex = toPositiveInt(rawRoomIndex, `serviceRequests[${index}].roomIndex`);
+      }
+
+      let bookingDetailId = null;
+      if (rawBookingDetailId !== undefined && rawBookingDetailId !== null && rawBookingDetailId !== '') {
+        bookingDetailId = toPositiveInt(rawBookingDetailId, `serviceRequests[${index}].bookingDetailId`);
+      }
+
+      return {
+        serviceId: toPositiveInt(item.serviceId ?? item.service_id, `serviceRequests[${index}].serviceId`),
+        quantity: toPositiveInt(item.quantity ?? 1, `serviceRequests[${index}].quantity`),
+        roomId,
+        roomIndex,
+        bookingDetailId
+      };
+    })
     .filter((item) => item.quantity > 0);
 };
 
@@ -88,10 +129,20 @@ const normalizeBookingPayload = (body, userFromToken) => {
     throw new HttpError(400, 'Vui lòng chọn phòng hoặc hạng phòng');
   }
 
+  if (Array.isArray(body.rooms) && body.rooms.length > 1) {
+    const uniqueTypeIds = new Set(
+      body.rooms.map((r) => r.roomTypeId ?? r.room_type_id).filter(Boolean)
+    );
+    if (uniqueTypeIds.size > 1) {
+      throw new HttpError(400, 'Một booking chỉ được đặt các phòng thuộc cùng một hạng phòng');
+    }
+  }
+
   const payload = {
     userId: toPositiveInt(userId, 'userId'),
     roomId: roomId ? toPositiveInt(roomId, 'roomId') : null,
     roomTypeId: roomTypeId ? toPositiveInt(roomTypeId, 'roomTypeId') : null,
+    roomQuantity: toPositiveInt(body.roomQuantity ?? body.room_quantity ?? 1, 'roomQuantity'),
     checkIn: normalizeDate(checkIn, 'checkIn'),
     checkOut: normalizeDate(checkOut, 'checkOut'),
     adults: toNonNegativeInt(body.adults, 'adults', 1),
@@ -102,6 +153,14 @@ const normalizeBookingPayload = (body, userFromToken) => {
     guestEmail: body.guestEmail ?? body.guest_email ?? null,
     guestPhone: body.guestPhone ?? body.guest_phone ?? null,
     serviceRequests: normalizeServiceRequestsPayload(body.serviceRequests ?? body.service_requests),
+    requestedCheckInTime: normalizeOptionalTime(
+      body.requestedCheckInTime ?? body.requested_check_in_time,
+      'requestedCheckInTime'
+    ),
+    requestedCheckOutTime: normalizeOptionalTime(
+      body.requestedCheckOutTime ?? body.requested_check_out_time,
+      'requestedCheckOutTime'
+    ),
     status: body.status || 'confirmed'
   };
 
@@ -167,18 +226,136 @@ const normalizeTypeAvailabilityPayload = (body) => {
   return payload;
 };
 
-const normalizeServiceChargePayload = (body) => ({
-  serviceId: toPositiveInt(body.serviceId ?? body.service_id, 'serviceId'),
-  quantity: toPositiveInt(body.quantity ?? 1, 'quantity')
-});
+const ALLOWED_SERVICE_STATUSES = ['unused', 'used', 'cancelled'];
+const ALLOWED_CHARGE_TYPES = ['damage', 'extra_fee', 'other'];
+
+const normalizeServiceChargePayload = (body) => {
+  const roomId = body.roomId ?? body.room_id;
+  const status = body.status ? String(body.status).trim().toLowerCase() : 'used';
+  if (body.status && !ALLOWED_SERVICE_STATUSES.includes(status)) {
+    throw new HttpError(400, `Trạng thái không hợp lệ (${ALLOWED_SERVICE_STATUSES.join(', ')})`);
+  }
+
+  return {
+    roomId: roomId != null ? toPositiveInt(roomId, 'roomId') : null,
+    serviceId: toPositiveInt(body.serviceId ?? body.service_id, 'serviceId'),
+    quantity: toPositiveInt(body.quantity ?? 1, 'quantity'),
+    status
+  };
+};
 
 const normalizeUpdateServiceChargePayload = (body) => {
-  if (body.quantity === undefined || body.quantity === null) {
-    throw new HttpError(400, 'quantity là bắt buộc khi cập nhật dịch vụ');
+  const payload = {};
+
+  if (body.roomId !== undefined) {
+    payload.roomId = body.roomId != null ? toPositiveInt(body.roomId, 'roomId') : null;
   }
+  if (body.quantity !== undefined && body.quantity !== null) {
+    payload.quantity = toPositiveInt(body.quantity, 'quantity');
+  }
+  if (body.status !== undefined && body.status !== null) {
+    const status = String(body.status).trim().toLowerCase();
+    if (!ALLOWED_SERVICE_STATUSES.includes(status)) {
+      throw new HttpError(400, `Trạng thái không hợp lệ (${ALLOWED_SERVICE_STATUSES.join(', ')})`);
+    }
+    payload.status = status;
+  }
+
+  if (Object.keys(payload).length === 0) {
+    throw new HttpError(400, 'Không có thông tin nào để cập nhật');
+  }
+
+  return payload;
+};
+
+const normalizeStatusPayload = (body) => {
+  const status = body.status ? String(body.status).trim().toLowerCase() : '';
+  if (!ALLOWED_SERVICE_STATUSES.includes(status)) {
+    throw new HttpError(400, `Trạng thái không hợp lệ (${ALLOWED_SERVICE_STATUSES.join(', ')})`);
+  }
+  return { status };
+};
+
+const normalizeDamageChargePayload = (body) => {
+  const itemName = String(body.itemName ?? body.item_name ?? '').trim();
+  if (!itemName) {
+    throw new HttpError(400, 'Vui lòng nhập tên khoản phí / vật dụng');
+  }
+
+  const unitPrice = Number(body.unitPrice ?? body.unit_price);
+  if (Number.isNaN(unitPrice) || unitPrice < 0) {
+    throw new HttpError(400, 'Đơn giá phải là số không âm');
+  }
+
+  const chargeType = body.chargeType ? String(body.chargeType).trim().toLowerCase() : 'damage';
+  if (body.chargeType && !ALLOWED_CHARGE_TYPES.includes(chargeType)) {
+    throw new HttpError(400, `Loại khoản phí không hợp lệ (${ALLOWED_CHARGE_TYPES.join(', ')})`);
+  }
+
+  const status = body.status ? String(body.status).trim().toLowerCase() : 'used';
+  if (body.status && !ALLOWED_SERVICE_STATUSES.includes(status)) {
+    throw new HttpError(400, `Trạng thái không hợp lệ (${ALLOWED_SERVICE_STATUSES.join(', ')})`);
+  }
+
+  const roomId = body.roomId ?? body.room_id;
+
   return {
-    quantity: toPositiveInt(body.quantity, 'quantity'),
+    roomId: roomId != null ? toPositiveInt(roomId, 'roomId') : null,
+    chargeType,
+    itemName,
+    quantity: toPositiveInt(body.quantity ?? 1, 'quantity'),
+    unitPrice,
+    status,
+    note: body.note ? String(body.note).trim() : null
   };
+};
+
+const normalizeUpdateDamageChargePayload = (body) => {
+  const payload = {};
+
+  if (body.roomId !== undefined) {
+    payload.roomId = body.roomId != null ? toPositiveInt(body.roomId, 'roomId') : null;
+  }
+  if (body.chargeType !== undefined && body.chargeType !== null) {
+    const chargeType = String(body.chargeType).trim().toLowerCase();
+    if (!ALLOWED_CHARGE_TYPES.includes(chargeType)) {
+      throw new HttpError(400, `Loại khoản phí không hợp lệ (${ALLOWED_CHARGE_TYPES.join(', ')})`);
+    }
+    payload.chargeType = chargeType;
+  }
+  if (body.itemName !== undefined && body.itemName !== null) {
+    const itemName = String(body.itemName).trim();
+    if (!itemName) {
+      throw new HttpError(400, 'Tên khoản phí / vật dụng không được để trống');
+    }
+    payload.itemName = itemName;
+  }
+  if (body.quantity !== undefined && body.quantity !== null) {
+    payload.quantity = toPositiveInt(body.quantity, 'quantity');
+  }
+  if (body.unitPrice !== undefined && body.unitPrice !== null) {
+    const unitPrice = Number(body.unitPrice);
+    if (Number.isNaN(unitPrice) || unitPrice < 0) {
+      throw new HttpError(400, 'Đơn giá phải là số không âm');
+    }
+    payload.unitPrice = unitPrice;
+  }
+  if (body.status !== undefined && body.status !== null) {
+    const status = String(body.status).trim().toLowerCase();
+    if (!ALLOWED_SERVICE_STATUSES.includes(status)) {
+      throw new HttpError(400, `Trạng thái không hợp lệ (${ALLOWED_SERVICE_STATUSES.join(', ')})`);
+    }
+    payload.status = status;
+  }
+  if (body.note !== undefined) {
+    payload.note = body.note ? String(body.note).trim() : null;
+  }
+
+  if (Object.keys(payload).length === 0) {
+    throw new HttpError(400, 'Không có thông tin nào để cập nhật');
+  }
+
+  return payload;
 };
 
 const normalizeExtendStayPayload = (body) => ({
@@ -241,25 +418,6 @@ const normalizeGuestIdentitiesPayload = (body) => {
   };
 };
 
-const normalizeDamageChargePayload = (body) => {
-  const itemName = String(body.itemName ?? body.item_name ?? '').trim();
-  if (!itemName) {
-    throw new HttpError(400, 'Vui lòng nhập tên vật dụng');
-  }
-
-  const unitPrice = Number(body.unitPrice ?? body.unit_price);
-  if (Number.isNaN(unitPrice) || unitPrice < 0) {
-    throw new HttpError(400, 'Đơn giá phải là số không âm');
-  }
-
-  return {
-    itemName,
-    quantity: toPositiveInt(body.quantity ?? 1, 'quantity'),
-    unitPrice,
-    note: body.note ? String(body.note).trim() : null
-  };
-};
-
 const normalizeTransferRoomPayload = (body) => {
   const payload = {
     toRoomId: toPositiveInt(body.toRoomId ?? body.to_room_id, 'toRoomId'),
@@ -277,16 +435,22 @@ const normalizeTransferRoomPayload = (body) => {
 
 const normalizeIdParam = (id, fieldName = 'id') => toPositiveInt(id, fieldName);
 
+const normalizeReassignRoomPayload = (body) => ({
+  roomId: toPositiveInt(body.roomId ?? body.room_id ?? body.newRoomId, 'roomId')
+});
 module.exports = {
   normalizeBookingPayload,
   normalizeAvailabilityPayload,
   normalizeTypeAvailabilityPayload,
   normalizeServiceChargePayload,
   normalizeUpdateServiceChargePayload,
+  normalizeStatusPayload,
   normalizeExtendStayPayload,
   normalizeUpdateStayPayload,
   normalizeGuestIdentitiesPayload,
   normalizeDamageChargePayload,
+  normalizeUpdateDamageChargePayload,
   normalizeTransferRoomPayload,
-  normalizeIdParam
+  normalizeIdParam,
+  normalizeReassignRoomPayload
 };
