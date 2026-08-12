@@ -41,6 +41,7 @@ import {
 } from '../../services/walletService';
 import { unwrapList } from '../../utils/unwrapList';
 import type { Payment } from '../../types/payment';
+import { renderRoomTypesSummaryText, getBookingTotalRoomCount } from '../../utils/bookingUtils';
 
 const formatPrice = (price: number) =>
   new Intl.NumberFormat('vi-VN').format(price) + '₫';
@@ -388,9 +389,24 @@ function PaymentManagement() {
       key: 'customerName',
     },
     {
-      title: 'Phòng',
+      title: 'Hạng phòng / Phòng',
       key: 'room_number',
-      render: (_: unknown, record: any) => record.room_number || record.roomNumber || '-',
+      render: (_: unknown, record: any) => (
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: '#1f1f1f' }}>
+            {renderRoomTypesSummaryText(record)}
+          </div>
+          <div style={{ fontSize: 11, color: '#666', marginTop: 2 }}>
+            {record.booking_rooms && record.booking_rooms.length > 0 ? (
+              record.booking_rooms.map((r: any) => r.number).join(', ')
+            ) : record.room_number ? (
+              `Phòng ${record.room_number}`
+            ) : (
+              'Chưa xếp'
+            )}
+          </div>
+        </div>
+      ),
     },
     {
       title: 'Tổng tiền',
@@ -757,23 +773,59 @@ function PaymentManagement() {
                   {detailBooking?.customer_phone || 'Chưa cập nhật'}
                 </Descriptions.Item>
                 <Descriptions.Item label="Hạng phòng">
-                  {detailBooking?.room_type_name || 'Standard'}
+                  {renderRoomTypesSummaryText(detailBooking || selectedPayment)}
                 </Descriptions.Item>
                 <Descriptions.Item label="Số phòng đã đặt">
-                  {detailBooking?.booking_rooms?.length || 1} phòng
+                  {getBookingTotalRoomCount(detailBooking || selectedPayment)} phòng
                 </Descriptions.Item>
-                <Descriptions.Item label="Phòng thực tế">
-                  {detailBooking?.booking_rooms && detailBooking.booking_rooms.length > 0 ? (
-                    <Space size={[4, 4]} wrap>
-                      {detailBooking.booking_rooms.map((r: { id?: number; number: string }) => (
-                        <Tag key={r.id || r.number} color="blue" style={{ margin: 0 }}>
-                          {r.number}
-                        </Tag>
-                      ))}
-                    </Space>
-                  ) : (
-                    <span>Phòng {selectedPayment.roomNumber || 'Chưa xếp'}</span>
-                  )}
+                <Descriptions.Item label="Phòng thực tế" span={2}>
+                  {(() => {
+                    const target = detailBooking || selectedPayment;
+                    const summaryList = (target?.roomTypesSummary && target.roomTypesSummary.length > 0)
+                      ? target.roomTypesSummary
+                      : [
+                          {
+                            typeName: target?.room_type_name || selectedPayment?.roomNumber || 'Standard',
+                            quantity: getBookingTotalRoomCount(target),
+                          }
+                        ];
+
+                    const roomsList = detailBooking?.booking_rooms || [];
+
+                    return (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {summaryList.map((s: any, idx: number) => {
+                          const matchingRooms = roomsList.filter(
+                            (r: any) => (s.roomTypeId && Number(r.roomTypeId) === Number(s.roomTypeId)) || r.typeName === s.typeName
+                          );
+                          return (
+                            <div key={s.roomTypeId || idx}>
+                              <div style={{ fontSize: 12, fontWeight: 600, color: '#1f1f1f' }}>
+                                {s.typeName} ×{s.quantity} {s.roomPrice ? `(${formatPrice(s.roomPrice)}/đêm)` : ''}
+                              </div>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 2 }}>
+                                {matchingRooms.length > 0 ? (
+                                  matchingRooms.map((r: any, rIdx: number) => (
+                                    <Tag key={r.id || rIdx} color="blue" style={{ margin: 0 }}>
+                                      Phòng {r.number}
+                                    </Tag>
+                                  ))
+                                ) : roomsList.length > 0 && idx === 0 ? (
+                                  roomsList.map((r: any, rIdx: number) => (
+                                    <Tag key={r.id || rIdx} color="blue" style={{ margin: 0 }}>
+                                      Phòng {r.number}
+                                    </Tag>
+                                  ))
+                                ) : (
+                                  <span style={{ fontSize: 12, color: '#888' }}>Chưa xếp phòng</span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
                 </Descriptions.Item>
                 <Descriptions.Item label="Thời gian lưu trú">
                   {(() => {

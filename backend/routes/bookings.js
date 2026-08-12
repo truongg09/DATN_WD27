@@ -36,6 +36,7 @@ router.patch('/:id/transfer-room', requireAuth, requireStaff, bookingController.
 router.patch('/:id/check-in', requireAuth, requireStaff, bookingController.checkIn);
 router.patch('/:id/check-out', requireAuth, requireStaff, bookingController.checkOut);
 router.patch('/:id/arrival-time', requireAuth, bookingController.updateArrivalTime);
+router.patch('/:id/departure-time', requireAuth, bookingController.updateDepartureTime);
 router.post('/process-overdue', requireAuth, bookingController.processOverdue);
 router.patch('/:id/reassign-room', requireAuth, requireStaff, bookingController.reassignRoom);
 

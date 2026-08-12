@@ -1,3 +1,5 @@
+import type { RoomTypeSummaryItem } from '../utils/bookingUtils';
+
 export type InvoiceStatus = "draft" | "issued" | "cancelled";
 
 export interface InvoiceServiceItem {
@@ -6,6 +8,15 @@ export interface InvoiceServiceItem {
   quantity: number;
   unitPrice: number;
   totalPrice: number;
+}
+
+export interface InvoiceRoomItem {
+  bookingDetailId?: number;
+  id: number;
+  number: string;
+  roomTypeId?: number;
+  typeName?: string;
+  roomPrice?: number;
 }
 
 export interface Invoice {
@@ -20,7 +31,8 @@ export interface Invoice {
   roomNumber: string;
   roomTypeName: string;
   roomQuantity?: number;
-  booking_rooms?: Array<{ id: number; number: string }>;
+  roomTypesSummary?: RoomTypeSummaryItem[];
+  booking_rooms?: InvoiceRoomItem[];
   checkIn: string;
   checkOut: string;
   stayRoomAmount?: number;

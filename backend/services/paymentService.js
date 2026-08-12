@@ -283,8 +283,8 @@ const getPaymentById = async (paymentId) => {
   return formatPayment(payment);
 };
 
-const getPaymentByBookingId = async (bookingId) => {
-  const payment = await paymentModel.getPaymentByBookingId(bookingId);
+const getPaymentByBookingId = async (bookingId, connection) => {
+  const payment = await paymentModel.getPaymentByBookingId(bookingId, connection);
   if (!payment) {
     throw new HttpError(404, 'Không tìm thấy thanh toán của đặt phòng này');
   }

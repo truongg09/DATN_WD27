@@ -146,10 +146,15 @@ const listInvoiceRooms = async (bookingId, connection) => {
   const [rows] = await run(connection).query(
     `
       SELECT
+        bd.id AS bookingDetailId,
         bd.roomId AS id,
-        r.roomNumber AS number
+        r.roomNumber AS number,
+        bd.roomTypeId AS roomTypeId,
+        rt.typeName AS typeName,
+        bd.roomPrice AS roomPrice
       FROM booking_details bd
       JOIN rooms r ON r.id = bd.roomId
+      LEFT JOIN room_types rt ON rt.id = bd.roomTypeId
       WHERE bd.bookingId = ?
       ORDER BY bd.id ASC
     `,

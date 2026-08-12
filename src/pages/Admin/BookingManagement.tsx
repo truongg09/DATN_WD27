@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Alert, Button, DatePicker, Form, Input, InputNumber, message, Modal, Pagination, Select, Space, Tag, Tooltip } from 'antd';
+import { Alert, Button, DatePicker, Form, Input, InputNumber, message, Modal, Pagination, Select, Space, Tag, TimePicker, Tooltip } from 'antd';
 import {
   CheckOutlined,
   CloseOutlined,
@@ -17,12 +17,15 @@ import dayjs from 'dayjs';
 import api from '../../services/api';
 import BookingDetailModal from './BookingDetailModal';
 import CheckoutPaymentModal from './CheckoutPaymentModal';
-import { getPolicies } from '../../services/settingsService';
-import type { PoliciesInfo } from '../../services/settingsService';
+import { getPolicies, type PoliciesInfo } from '../../services/settingsService';
+import { renderRoomTypesSummaryText, getBookingTotalRoomCount, type RoomTypeSummaryItem } from '../../utils/bookingUtils';
 
 interface BookingRoomItem {
+  bookingDetailId?: number;
   id?: number | null;
   number: string;
+  roomTypeId?: number;
+  typeName?: string;
 }
 
 interface Booking {
@@ -35,6 +38,7 @@ interface Booking {
   room_type_name: string | null;
   room_status?: string | null;
   room_quantity?: number | null;
+  roomTypesSummary?: RoomTypeSummaryItem[];
   booking_rooms?: BookingRoomItem[];
   check_in: string | null;
   check_out: string | null;
@@ -65,7 +69,7 @@ interface RoomItem {
   status: string;
 }
 
-type Operation = 'guests' | 'declareGuests' | 'service' | 'damage' | 'extend' | 'transfer' | null;
+type Operation = 'guests' | 'declareGuests' | 'service' | 'damage' | 'extend' | 'transfer' | 'updateCheckInTime' | 'updateCheckOutTime' | null;
 
 const statusText: Record<string, string> = {
   pending: 'Chờ xác nhận',
@@ -311,6 +315,16 @@ function BookingManagement() {
         toDate: booking.check_out ? dayjs(booking.check_out) : undefined,
       });
     }
+    if (type === 'updateCheckInTime') {
+      form.setFieldsValue({
+        requestedCheckInTime: booking.requested_check_in_time ? dayjs(booking.requested_check_in_time, 'HH:mm:ss') : dayjs('14:00', 'HH:mm'),
+      });
+    }
+    if (type === 'updateCheckOutTime') {
+      form.setFieldsValue({
+        requestedCheckOutTime: (booking as any).requested_check_out_time ? dayjs((booking as any).requested_check_out_time, 'HH:mm:ss') : dayjs('12:00', 'HH:mm'),
+      });
+    }
   };
 
   const closeOperation = () => {
@@ -455,13 +469,10 @@ function BookingManagement() {
                 </p>
               ) : priceDifference < 0 ? (
                 <p>
-                  Phòng mới rẻ hơn, tiền phòng được giảm:{' '}
-                  <strong style={{ color: '#389e0d' }}>{formatPrice(Math.abs(priceDifference))}</strong>.
+                  Phòng mới rẻ hơn, hệ thống đã điều chỉnh số tiền còn lại.
                 </p>
-              ) : (
-                <p>Giá phòng không thay đổi.</p>
-              )}
-              {priceDifference > 0 && (
+              ) : null}
+              {remainingAmount > 0 && (
                 <p>
                   Số tiền khách còn phải thanh toán: <strong>{formatPrice(remainingAmount)}</strong>.
                 </p>
@@ -469,6 +480,22 @@ function BookingManagement() {
             </div>
           ),
         });
+      }
+
+      if (operation === 'updateCheckInTime') {
+        const timeStr = values.requestedCheckInTime.format('HH:mm:ss');
+        await api.patch(`/bookings/${selectedBooking.id}/arrival-time`, {
+          requestedCheckInTime: timeStr,
+        });
+        message.success('Đã cập nhật giờ check-in dự kiến');
+      }
+
+      if (operation === 'updateCheckOutTime') {
+        const timeStr = values.requestedCheckOutTime.format('HH:mm:ss');
+        await api.patch(`/bookings/${selectedBooking.id}/departure-time`, {
+          requestedCheckOutTime: timeStr,
+        });
+        message.success('Đã cập nhật giờ check-out dự kiến');
       }
 
       closeOperation();
@@ -783,22 +810,41 @@ const handleCheckIn = (booking: Booking) => {
     }
 
     if (operation === 'transfer') {
+      const activeRooms = selectedBooking?.booking_rooms && selectedBooking.booking_rooms.length > 0
+        ? selectedBooking.booking_rooms
+        : selectedBooking?.room_number
+          ? [{ id: selectedBooking.room_id, number: selectedBooking.room_number, roomTypeId: undefined, typeName: selectedBooking.room_type_name || '' }]
+          : [];
+
       return (
         <>
           <div
             style={{ marginBottom: 16, padding: '10px 12px', background: '#f6ffed', border: '1px solid #b7eb8f', borderRadius: 8 }}
           >
-            <div style={{ color: '#389e0d', fontWeight: 600 }}>Phòng đang ở</div>
+            <div style={{ color: '#389e0d', fontWeight: 600 }}>Thông tin phòng đặt</div>
             <div>
-              Phòng {selectedBooking?.room_number || '—'} · {selectedBooking?.room_type_name || '—'} · Giá đang áp dụng:{' '}
-              <strong>{formatPrice(selectedBooking?.room_price)}</strong>/đêm
+              {renderRoomTypesSummaryText(selectedBooking as any)} · Đặt dồn {getBookingTotalRoomCount(selectedBooking as any)} phòng
             </div>
           </div>
-          <Form.Item name="toRoomId" label="Phòng chuyển đến" rules={[{ required: true, message: 'Chọn phòng' }]}>
+
+          {activeRooms.length > 1 && (
+            <Form.Item name="fromRoomId" label="Phòng cần chuyển" rules={[{ required: true, message: 'Chọn phòng cần chuyển' }]}>
+              <Select
+                placeholder="Chọn phòng hiện tại trong đơn"
+                options={activeRooms.map((r) => ({
+                  value: r.id,
+                  label: `Phòng ${r.number}${r.typeName ? ` (${r.typeName})` : ''}`,
+                }))}
+              />
+            </Form.Item>
+          )}
+
+          <Form.Item name="toRoomId" label="Phòng chuyển đến" rules={[{ required: true, message: 'Chọn phòng chuyển đến' }]}>
             <Select
               showSearch
+              placeholder="Chọn phòng trống chuyển tới"
               options={rooms
-                .filter((room) => room.id !== selectedBooking?.room_id)
+                .filter((room) => !activeRooms.some((ar) => Number(ar.id) === Number(room.id)))
                 .map((room) => ({
                   value: room.id,
                   label: `Phòng ${room.roomNumber} · ${room.room_type_name || ''} · ${formatPrice(room.price_per_night)}/đêm (${room.status})`,
@@ -818,6 +864,22 @@ const handleCheckIn = (booking: Booking) => {
       );
     }
 
+    if (operation === 'updateCheckInTime') {
+      return (
+        <Form.Item name="requestedCheckInTime" label="Giờ check-in dự kiến mới" rules={[{ required: true, message: 'Chọn giờ check-in dự kiến' }]}>
+          <TimePicker format="HH:mm" style={{ width: '100%' }} minuteStep={15} />
+        </Form.Item>
+      );
+    }
+
+    if (operation === 'updateCheckOutTime') {
+      return (
+        <Form.Item name="requestedCheckOutTime" label="Giờ check-out dự kiến mới" rules={[{ required: true, message: 'Chọn giờ check-out dự kiến' }]}>
+          <TimePicker format="HH:mm" style={{ width: '100%' }} minuteStep={15} />
+        </Form.Item>
+      );
+    }
+
     return null;
   };
 
@@ -828,6 +890,8 @@ const handleCheckIn = (booking: Booking) => {
     damage: 'Thêm phí hư hỏng/mất vật dụng',
     extend: 'Gia hạn thời gian ở',
     transfer: 'Chuyển phòng giữa chừng',
+    updateCheckInTime: 'Cập nhật giờ check-in dự kiến',
+    updateCheckOutTime: 'Cập nhật giờ check-out dự kiến',
   };
 
   const filteredBookings = bookings;
@@ -915,9 +979,6 @@ const handleCheckIn = (booking: Booking) => {
                       : booking.room_number
                         ? [{ id: booking.room_id, number: booking.room_number }]
                         : [];
-                  const roomCount =
-                    booking.room_quantity || roomList.length || 1;
-
                   return (
                     <tr key={booking.id}>
                       <td style={{ ...tdStyle, fontWeight: 700 }}>#{booking.id}</td>
@@ -926,26 +987,51 @@ const handleCheckIn = (booking: Booking) => {
                         <div style={{ ...smallText, marginTop: 2 }}>{booking.customer_phone || ''}</div>
                       </td>
                       <td style={tdStyle}>
-                        {roomList.length > 0 ? (
-                          <div>
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 4 }}>
-                              {roomList.map((r, idx) => (
-                                <Tag key={r.id || idx} color="blue" style={{ margin: 0, fontWeight: 600, borderRadius: 4 }}>
-                                  {r.number}
-                                </Tag>
-                              ))}
+                        {(() => {
+                          const summaryList = (Array.isArray(booking.roomTypesSummary) && booking.roomTypesSummary.length > 0)
+                            ? booking.roomTypesSummary
+                            : [
+                                {
+                                  roomTypeId: booking.room_id ? 1 : undefined,
+                                  typeName: booking.room_type_name || 'Standard',
+                                  quantity: booking.room_quantity || (roomList.length > 0 ? roomList.length : 1),
+                                }
+                              ];
+
+                          return (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                              {summaryList.map((s, idx) => {
+                                const matchingRooms = (booking.booking_rooms || []).filter(
+                                  (r) => (s.roomTypeId && Number(r.roomTypeId) === Number(s.roomTypeId)) || r.typeName === s.typeName
+                                );
+                                return (
+                                  <div key={s.roomTypeId || idx}>
+                                    <div style={{ fontSize: 12, fontWeight: 600, color: '#1f1f1f' }}>
+                                      {s.typeName} ×{s.quantity}
+                                    </div>
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 2 }}>
+                                      {matchingRooms.length > 0 ? (
+                                        matchingRooms.map((r, rIdx) => (
+                                          <Tag key={r.id || rIdx} color="blue" style={{ margin: 0, fontSize: 11, borderRadius: 4 }}>
+                                            {r.number}
+                                          </Tag>
+                                        ))
+                                      ) : roomList.length > 0 && idx === 0 ? (
+                                        roomList.map((r, rIdx) => (
+                                          <Tag key={r.id || rIdx} color="blue" style={{ margin: 0, fontSize: 11, borderRadius: 4 }}>
+                                            {r.number}
+                                          </Tag>
+                                        ))
+                                      ) : (
+                                        <span style={{ fontSize: 11, color: '#888' }}>Chưa xếp phòng</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
                             </div>
-                            <div style={{ fontSize: 12, color: '#666' }}>
-                              {booking.room_type_name || 'Standard'}
-                              {roomCount > 1 ? ` · ${roomCount} phòng` : ''}
-                            </div>
-                          </div>
-                        ) : (
-                          <div>
-                            <Tag color="default" style={{ margin: 0 }}>N/A</Tag>
-                            <div style={{ fontSize: 12, color: '#666', marginTop: 2 }}>{booking.room_type_name || ''}</div>
-                          </div>
-                        )}
+                          );
+                        })()}
                       </td>
                       <td style={tdStyle}>
                         <div style={{ whiteSpace: 'nowrap', fontSize: 13 }}>Nhận: {formatDate(booking.check_in)}</div>
@@ -1050,6 +1136,14 @@ const handleCheckIn = (booking: Booking) => {
         bookingId={viewModalVisible ? selectedBooking?.id ?? null : null}
         open={viewModalVisible}
         onClose={() => setViewModalVisible(false)}
+        onOpenUpdateArrivalTimeModal={(b) => {
+          setViewModalVisible(false);
+          openOperation('updateCheckInTime', b);
+        }}
+        onOpenUpdateDepartureTimeModal={(b) => {
+          setViewModalVisible(false);
+          openOperation('updateCheckOutTime', b);
+        }}
       />
 
       <CheckoutPaymentModal

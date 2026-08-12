@@ -1114,79 +1114,135 @@ const createBooking = async (payload, actor) => {
   }
 };
 
+const fetchMultiRoomTypeMetadata = async (bookingIds, connection) => {
+  const ids = Array.isArray(bookingIds) ? bookingIds.map(Number).filter(Boolean) : [];
+  if (ids.length === 0) return {};
+
+  const [rows] = await (connection || db).query(
+    `SELECT 
+       bd.id AS bookingDetailId,
+       bd.bookingId,
+       bd.roomId,
+       COALESCE(r.roomTypeId, 1) AS roomTypeId,
+       bd.roomPrice,
+       r.roomNumber,
+       r.floor,
+       r.area,
+       r.status AS roomStatus,
+       COALESCE(rt.typeName, 'Standard') AS typeName,
+       COALESCE(rt.capacity, 2) AS capacity,
+       COALESCE(rt.adultCapacity, 2) AS adultCapacity,
+       COALESCE(rt.childCapacity, 0) AS childCapacity,
+       COALESCE(rt.maxOccupancy, 3) AS maxOccupancy,
+       COALESCE(rt.extraAdultFee, 200000) AS extraAdultFee,
+       COALESCE(rt.extraChildFee, 100000) AS extraChildFee
+     FROM booking_details bd
+     LEFT JOIN rooms r ON r.id = bd.roomId
+     LEFT JOIN room_types rt ON rt.id = r.roomTypeId
+     WHERE bd.bookingId IN (?)
+     ORDER BY bd.id ASC`,
+    [ids]
+  );
+
+  const result = {};
+  for (const id of ids) {
+    result[id] = { roomTypesSummary: [], bookingRooms: [] };
+  }
+
+  const groupedByBooking = {};
+  for (const row of rows) {
+    if (!groupedByBooking[row.bookingId]) {
+      groupedByBooking[row.bookingId] = [];
+    }
+    groupedByBooking[row.bookingId].push(row);
+  }
+
+  for (const id of ids) {
+    const details = groupedByBooking[id] || [];
+    const summaryMap = {};
+    const bookingRooms = [];
+
+    for (const d of details) {
+      const typeId = d.roomTypeId || 1;
+      if (!summaryMap[typeId]) {
+        summaryMap[typeId] = {
+          roomTypeId: typeId,
+          typeName: d.typeName || 'Standard',
+          quantity: 0,
+          roomPrice: Number(d.roomPrice || 0),
+          capacity: Number(d.capacity || 2),
+          adultCapacity: Number(d.adultCapacity || 2),
+          childCapacity: Number(d.childCapacity || 0),
+          maxOccupancy: Number(d.maxOccupancy || 3),
+          extraAdultFee: Number(d.extraAdultFee || 200000),
+          extraChildFee: Number(d.extraChildFee || 100000)
+        };
+      }
+      summaryMap[typeId].quantity += 1;
+
+      if (d.roomId) {
+        bookingRooms.push({
+          bookingDetailId: d.bookingDetailId,
+          id: d.roomId,
+          number: d.roomNumber,
+          floor: d.floor,
+          area: d.area,
+          roomTypeId: typeId,
+          typeName: d.typeName || 'Standard'
+        });
+      }
+    }
+
+    result[id] = {
+      roomTypesSummary: Object.values(summaryMap),
+      bookingRooms
+    };
+  }
+
+  return result;
+};
+
 const listBookings = async (filters) => {
   const result = await bookingModel.listBookings(filters);
 
-  if (result && typeof result === 'object' && !Array.isArray(result) && Array.isArray(result.data)) {
-    const bookings = result.data;
-    if (bookings.length === 0) return { ...result, data: [] };
-
+  const enrichList = async (bookings) => {
+    if (!Array.isArray(bookings) || bookings.length === 0) return bookings;
     const bookingIds = bookings.map((b) => b.id);
-    const [details] = await db.query(
-      `SELECT bd.bookingId, bd.roomId, r.roomNumber
-       FROM booking_details bd
-       INNER JOIN rooms r ON r.id = bd.roomId
-       WHERE bd.bookingId IN (?)
-       ORDER BY bd.id ASC`,
-      [bookingIds]
-    );
+    const metadataMap = await fetchMultiRoomTypeMetadata(bookingIds);
 
-    const roomMap = {};
-    for (const d of details) {
-      if (!roomMap[d.bookingId]) roomMap[d.bookingId] = [];
-      roomMap[d.bookingId].push({ id: d.roomId, number: d.roomNumber });
-    }
-
-    const enriched = bookings.map((b) => {
-      const roomsForBooking =
-        roomMap[b.id] && roomMap[b.id].length > 0
-          ? roomMap[b.id]
-          : b.room_id && b.room_number
-            ? [{ id: b.room_id, number: b.room_number }]
-            : [];
-      return {
-        ...b,
-        booking_rooms: roomsForBooking,
-      };
-    });
-
-    return {
-      ...result,
-      data: enriched,
-    };
-  }
-
-  const bookings = Array.isArray(result) ? result : [];
-  if (bookings.length === 0) return [];
-
-  const bookingIds = bookings.map((b) => b.id);
-  const [details] = await db.query(
-    `SELECT bd.bookingId, bd.roomId, r.roomNumber
-     FROM booking_details bd
-     INNER JOIN rooms r ON r.id = bd.roomId
-     WHERE bd.bookingId IN (?)
-     ORDER BY bd.id ASC`,
-    [bookingIds]
-  );
-
-  const roomMap = {};
-  for (const d of details) {
-    if (!roomMap[d.bookingId]) roomMap[d.bookingId] = [];
-    roomMap[d.bookingId].push({ id: d.roomId, number: d.roomNumber });
-  }
-
-  return bookings.map((b) => {
-    const roomsForBooking =
-      roomMap[b.id] && roomMap[b.id].length > 0
-        ? roomMap[b.id]
+    return bookings.map((b) => {
+      const meta = metadataMap[b.id];
+      const roomTypesSummary = (meta && meta.roomTypesSummary.length > 0)
+        ? meta.roomTypesSummary
+        : [
+            {
+              roomTypeId: b.room_type_id || b.roomTypeId || null,
+              typeName: b.room_type_name || 'Đặt phòng',
+              quantity: Number(b.room_quantity || 1),
+              roomPrice: Number(b.room_price || b.price_per_night || 0)
+            }
+          ];
+      const roomsForBooking = (meta && meta.bookingRooms.length > 0)
+        ? meta.bookingRooms
         : b.room_id && b.room_number
           ? [{ id: b.room_id, number: b.room_number }]
           : [];
+      return {
+        ...b,
+        roomTypesSummary,
+        booking_rooms: roomsForBooking,
+      };
+    });
+  };
+
+  if (result && typeof result === 'object' && !Array.isArray(result) && Array.isArray(result.data)) {
     return {
-      ...b,
-      booking_rooms: roomsForBooking,
+      ...result,
+      data: await enrichList(result.data),
     };
-  });
+  }
+
+  return await enrichList(Array.isArray(result) ? result : []);
 };
 // So giờ khách khai báo với booking liền kề cùng phòng để cảnh báo lễ tân.
 // Chỉ tính khi booking chưa/đang lưu trú - booking đã checked_out/cancelled
@@ -1383,8 +1439,25 @@ const getBookingById = async (bookingId) => {
 
   const lateCheckoutSurcharge = await bookingModel.sumLateCheckoutCharges(bookingId);
 
+  const metadataMap = await fetchMultiRoomTypeMetadata([bookingId]);
+  const meta = metadataMap[bookingId];
+  const roomTypesSummary = (meta && meta.roomTypesSummary.length > 0)
+    ? meta.roomTypesSummary
+    : [
+        {
+          roomTypeId: booking.room_type_id || booking.roomTypeId || null,
+          typeName: booking.room_type_name || 'Đặt phòng',
+          quantity: Number(booking.room_quantity || 1),
+          roomPrice: Number(booking.room_price || booking.price_per_night || 0)
+        }
+      ];
+  const enrichedBookingRooms = (meta && meta.bookingRooms.length > 0)
+    ? meta.bookingRooms
+    : bookingRooms;
+
   return {
     ...booking,
+    roomTypesSummary,
     details,
     services,
     guests,
@@ -1398,7 +1471,7 @@ const getBookingById = async (bookingId) => {
     late_checkout_surcharge: lateCheckoutSurcharge,
     history,
     handoverWarning,
-    booking_rooms: bookingRooms,
+    booking_rooms: enrichedBookingRooms,
   };
 };
 
@@ -2530,17 +2603,49 @@ const extendStay = async (bookingId, payload, actor = null) => {
       );
     }
 
-    const addedNightly = await calcNightlyPrices(
-      currentRoom?.roomTypeId,
-      booking.room_price ||
-        booking.price_per_night ||
-        currentRoom?.price_per_night ||
-        0,
-      currentCheckOut,
-      payload.checkOut,
-      connection,
+    // Lấy tất cả booking_details thuộc booking (multi-room-type financial source of truth).
+    const [bdRows] = await connection.query(
+      `SELECT bd.id, bd.bookingId, bd.roomId, bd.roomTypeId, bd.roomPrice,
+              r.price_per_night, rt.defaultPrice
+       FROM booking_details bd
+       LEFT JOIN rooms r ON bd.roomId = r.id
+       LEFT JOIN room_types rt ON bd.roomTypeId = rt.id
+       WHERE bd.bookingId = ?`,
+      [bookingId]
     );
-    const addedNights = addedNightly.nights;
+
+    let totalAddedRoomStay = 0;
+    let addedNights = 0;
+    const allAddedNightlyPrices = [];
+
+    if (bdRows.length > 0) {
+      for (const bd of bdRows) {
+        const detailPrice = Number(bd.roomPrice || bd.price_per_night || bd.defaultPrice || booking.room_price || 0);
+        const detailNightly = await calcNightlyPrices(
+          bd.roomTypeId || currentRoom?.roomTypeId || 1,
+          detailPrice,
+          currentCheckOut,
+          payload.checkOut,
+          connection,
+        );
+        totalAddedRoomStay += detailNightly.total;
+        addedNights = detailNightly.nights;
+        allAddedNightlyPrices.push(...detailNightly.prices);
+      }
+    } else {
+      const fallbackPrice = Number(booking.room_price || currentRoom?.price_per_night || 0);
+      const addedNightly = await calcNightlyPrices(
+        currentRoom?.roomTypeId || 1,
+        fallbackPrice,
+        currentCheckOut,
+        payload.checkOut,
+        connection,
+      );
+      const roomCount = allRoomIds.length || 1;
+      totalAddedRoomStay = addedNightly.total * roomCount;
+      addedNights = addedNightly.nights;
+      allAddedNightlyPrices.push(...addedNightly.prices);
+    }
 
     // Phụ thu trẻ em tính theo từng đêm nên các đêm gia hạn cũng phải chịu phụ
     // thu. Số trẻ chịu phí không được lưu riêng, nên suy ra phụ thu mỗi đêm từ
@@ -2555,13 +2660,12 @@ const extendStay = async (bookingId, payload, actor = null) => {
     const addedSurcharge = Math.round(surchargePerNight * addedNights);
     const newSurcharge = currentSurcharge + addedSurcharge;
 
-    const roomCount = allRoomIds.length || 1;
-    const addedAmount = (addedNightly.total * roomCount) + addedSurcharge;
+    const addedAmount = totalAddedRoomStay + addedSurcharge;
     const newTotalPrice = Number(booking.total_price || 0) + addedAmount;
 
     await bookingModel.saveNightlyPrices(
       bookingId,
-      addedNightly.prices,
+      allAddedNightlyPrices,
       connection,
     );
     await bookingModel.updateBookingStay(
@@ -3011,8 +3115,9 @@ const transferRoom = async (bookingId, payload, actor = null) => {
       );
     }
 
+    const fromRoomId = payload.fromRoomId || payload.roomId || booking.room_id;
     const fromRoom = await bookingModel.getRoomWithType(
-      booking.room_id,
+      fromRoomId,
       connection,
     );
 
@@ -3022,11 +3127,13 @@ const transferRoom = async (bookingId, payload, actor = null) => {
       payload,
       connection,
     );
-    await bookingModel.updateRoomStatus(
-      booking.room_id,
-      "available",
-      connection,
-    );
+    if (fromRoomId) {
+      await bookingModel.updateRoomStatus(
+        fromRoomId,
+        "available",
+        connection,
+      );
+    }
     await bookingModel.updateRoomStatus(toRoom.id, "occupied", connection);
 
     const lockedOldNights = await bookingModel.listNightlyPrices(
@@ -3158,7 +3265,7 @@ const checkIn = async (bookingId, payload = {}, actor = null) => {
 
     const tiers = await bookingModel.getCheckoutLateFeeTiers(connection);
 
-    const payment = await paymentService.getPaymentByBookingId(bookingId);
+    const payment = await paymentService.getPaymentByBookingId(bookingId, connection);
     if (!payment || Number(payment.paidAmount || 0) <= 0) {
       throw new HttpError(409, "Vui lòng thanh toán trước khi check-in");
     }
@@ -3554,6 +3661,109 @@ const updateBookingRequestedCheckInTime = async (
   }
 };
 
+const updateBookingRequestedCheckOutTime = async (
+  bookingId,
+  { requestedCheckOutTime, notes },
+  actor = null
+) => {
+  const connection = await db.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    const booking = await bookingModel.getBookingById(bookingId, connection, true);
+    if (!booking) {
+      throw new HttpError(404, 'Không tìm thấy đặt phòng');
+    }
+
+    const currentStatus = (booking.status || '').toLowerCase();
+    if (currentStatus !== 'checked_in') {
+      throw new HttpError(400, 'Chỉ có thể cập nhật giờ trả phòng dự kiến khi đặt phòng đang check-in');
+    }
+
+    if (!requestedCheckOutTime) {
+      throw new HttpError(400, 'Vui lòng cung cấp giờ trả phòng dự kiến');
+    }
+
+    // Normalize HH:MM → HH:MM:SS
+    let timeStr = String(requestedCheckOutTime);
+    if (timeStr.length === 5) timeStr += ':00';
+
+    // Load policy tiers (standardCheckOutTime, housekeepingBufferMinutes, absoluteMaxLateHours, standardCheckInTime)
+    const tiers = await bookingModel.getCheckoutLateFeeTiers(connection);
+
+    const checkOutDay = dayString(booking.check_out);
+    const standardCheckOut = combineDateTime(checkOutDay, tiers.standardCheckOutTime);
+    const requestedCheckOutDt = combineDateTime(checkOutDay, timeStr);
+
+    // Only run next-booking conflict check when requested time is later than standard checkout
+    if (requestedCheckOutDt > standardCheckOut) {
+      // Collect all physical rooms for this booking (multi-room safe)
+      const [bdRows] = await connection.query(
+        'SELECT DISTINCT roomId FROM booking_details WHERE bookingId = ? AND roomId IS NOT NULL',
+        [bookingId]
+      );
+      const allRoomIds = bdRows.length > 0
+        ? bdRows.map(r => r.roomId)
+        : (booking.room_id ? [booking.room_id] : []);
+
+      // Find the earliest next booking across all rooms (most restrictive constraint)
+      let nextBooking = null;
+      for (const rid of allRoomIds) {
+        const nb = await bookingModel.findNextBookingForRoom(rid, checkOutDay, connection);
+        if (nb && (!nextBooking || nb.checkInDate < nextBooking.checkInDate)) {
+          nextBooking = nb;
+        }
+      }
+
+      // Reuse the same cap logic as checkOut()
+      const maxAllowed = getMaxLateCheckoutTime(
+        standardCheckOut,
+        nextBooking?.checkInDate || null,
+        tiers
+      );
+
+      if (requestedCheckOutDt > maxAllowed) {
+        const maxTimeLabel = [
+          maxAllowed.getHours().toString().padStart(2, '0'),
+          maxAllowed.getMinutes().toString().padStart(2, '0')
+        ].join(':');
+        throw new HttpError(
+          409,
+          nextBooking
+            ? `Không thể cập nhật giờ trả phòng này vì phòng đã có khách tiếp theo. Giờ trả phòng muộn nhất có thể là ${maxTimeLabel}.`
+            : `Đã vượt quá giờ trả phòng muộn tối đa (${maxTimeLabel}). Nếu cần ở thêm, vui lòng liên hệ khách sạn hoặc gia hạn thêm đêm.`
+        );
+      }
+    }
+
+    // Save booking-level requestedCheckOutTime only (not booking_details per task requirement)
+    await bookingModel.updateRequestedCheckOutTime(bookingId, timeStr, connection);
+
+    const descNote = notes ? `. Ghi chú: ${notes}` : '';
+    await logHistory(
+      bookingId,
+      'update_departure_time',
+      `Cập nhật giờ trả phòng dự kiến mới: ${timeStr.slice(0, 5)}${descNote}`,
+      {
+        oldValue: { requestedCheckOutTime: booking.requested_check_out_time },
+        newValue: { requestedCheckOutTime: timeStr, notes }
+      },
+      actor,
+      connection
+    );
+
+    await connection.commit();
+    const updated = await bookingModel.getBookingById(bookingId);
+    return { booking: updated };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
 const checkOut = async (bookingId, actualCheckOutTimeInput, actor = null) => {
   const connection = await db.getConnection();
 
@@ -3634,9 +3844,27 @@ const checkOut = async (bookingId, actualCheckOutTimeInput, actor = null) => {
           );
         }
 
-        const nightlyRate = Number(
-          booking.room_price || booking.price_per_night || 0,
+        // Multi-room-type safe: Tính tổng giá đêm của tất cả booking_details làm nightlyRate cho booking
+        const [bdRowsForRate] = await connection.query(
+          `SELECT bd.id, bd.roomPrice, r.price_per_night, rt.defaultPrice
+           FROM booking_details bd
+           LEFT JOIN rooms r ON bd.roomId = r.id
+           LEFT JOIN room_types rt ON bd.roomTypeId = rt.id
+           WHERE bd.bookingId = ?`,
+          [bookingId]
         );
+
+        let totalBookingNightlyRate = 0;
+        if (bdRowsForRate.length > 0) {
+          totalBookingNightlyRate = bdRowsForRate.reduce((sum, row) => {
+            return sum + Number(row.roomPrice || row.price_per_night || row.defaultPrice || 0);
+          }, 0);
+        }
+
+        const nightlyRate = totalBookingNightlyRate > 0
+          ? totalBookingNightlyRate
+          : Number(booking.room_price || booking.price_per_night || 0);
+
         const result = computeLateCheckoutFee(
           tiers,
           standardCheckOut,
@@ -3721,24 +3949,53 @@ const checkOut = async (bookingId, actualCheckOutTimeInput, actor = null) => {
     const checkOutDay = dayString(booking.check_out);
 
     if (today < checkOutDay) {
-      // Multi-room: lấy room type từ phòng đầu tiên (tất cả phòng cùng loại).
-      const firstRoomId = allRoomIds[0] || booking.room_id;
-      const room = await bookingModel.getRoomWithType(
-        firstRoomId,
-        connection,
-      );
-      const unusedNightly = await calcNightlyPrices(
-        room?.roomTypeId,
-        booking.room_price || room?.price_per_night || 0,
-        today,
-        checkOutDay,
-        connection,
+      // Multi-room-type safe: Lấy tất cả booking_details để tính chính xác unused nightly total
+      const [bdRowsForEarly] = await connection.query(
+        `SELECT bd.id, bd.bookingId, bd.roomId, bd.roomTypeId, bd.roomPrice,
+                r.price_per_night, rt.defaultPrice
+         FROM booking_details bd
+         LEFT JOIN rooms r ON bd.roomId = r.id
+         LEFT JOIN room_types rt ON bd.roomTypeId = rt.id
+         WHERE bd.bookingId = ?`,
+        [bookingId]
       );
 
-      // Nhân với số phòng thực tế để tính đúng chi phí chưa sử dụng.
-      const roomCount = allRoomIds.length || 1;
+      let totalUnusedRoomStay = 0;
+      let unusedNightsCount = 0;
+
+      if (bdRowsForEarly.length > 0) {
+        for (const bd of bdRowsForEarly) {
+          const detailPrice = Number(bd.roomPrice || bd.price_per_night || bd.defaultPrice || booking.room_price || 0);
+          const unusedNightly = await calcNightlyPrices(
+            bd.roomTypeId || 1,
+            detailPrice,
+            today,
+            checkOutDay,
+            connection,
+          );
+          totalUnusedRoomStay += unusedNightly.total;
+          unusedNightsCount = unusedNightly.nights;
+        }
+      } else {
+        const firstRoomId = allRoomIds[0] || booking.room_id;
+        const room = await bookingModel.getRoomWithType(
+          firstRoomId,
+          connection,
+        );
+        const unusedNightly = await calcNightlyPrices(
+          room?.roomTypeId || 1,
+          booking.room_price || room?.price_per_night || 0,
+          today,
+          checkOutDay,
+          connection,
+        );
+        const roomCount = allRoomIds.length || 1;
+        totalUnusedRoomStay = unusedNightly.total * roomCount;
+        unusedNightsCount = unusedNightly.nights;
+      }
+
       const refundAmount = Math.min(
-        Math.round(unusedNightly.total * roomCount * 0.5),
+        Math.round(totalUnusedRoomStay * 0.5),
         Number(payment.paidAmount || 0),
       );
 
@@ -3754,18 +4011,18 @@ const checkOut = async (bookingId, actualCheckOutTimeInput, actor = null) => {
             bookingId,
             refundAmount,
             payment.paidAmount,
-            `Check-out sớm: hoàn 50% của ${unusedNightly.nights} đêm chưa ở (${today} → ${checkOutDay})`,
+            `Check-out sớm: hoàn 50% của ${unusedNightsCount} đêm chưa ở (${today} → ${checkOutDay})`,
           ],
         );
 
         earlyCheckout = {
           refundId: result.insertId,
-          unusedNights: unusedNightly.nights,
-          unusedAmount: unusedNightly.total,
+          unusedNights: unusedNightsCount,
+          unusedAmount: totalUnusedRoomStay,
           refundRate: 0.5,
           refundAmount,
           status: "pending",
-          message: `Check-out sớm ${unusedNightly.nights} đêm. Hoàn 50% = ${refundAmount.toLocaleString("vi-VN")}₫, chờ khách sạn duyệt.`,
+          message: `Check-out sớm ${unusedNightsCount} đêm. Hoàn 50% = ${refundAmount.toLocaleString("vi-VN")}₫, chờ khách sạn duyệt.`,
         };
       }
     }
@@ -3841,5 +4098,6 @@ module.exports = {
   markNoShow,
   processOverdueCheckIns,
   updateBookingRequestedCheckInTime,
+  updateBookingRequestedCheckOutTime,
   reassignConflictingBooking,
 };

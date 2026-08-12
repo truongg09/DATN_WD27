@@ -6,6 +6,7 @@ import dayjs from 'dayjs';
 import { getBookingDetail } from '../../services/bookingService';
 import { getPaymentByBookingId, confirmPayment } from '../../services/paymentService';
 import type { Payment } from '../../types/payment';
+import { renderRoomTypesSummaryText } from '../../utils/bookingUtils';
 import './PaymentSandbox.css';
 
 const formatPrice = (price: number) =>
@@ -155,7 +156,7 @@ const PaymentSandbox: React.FC = () => {
                 <Descriptions.Item label="Đơn vị chấp nhận">HotelHub Booking</Descriptions.Item>
                 <Descriptions.Item label="Mã đặt phòng">#{bookingId}</Descriptions.Item>
                 <Descriptions.Item label="Hạng phòng">
-                  {String(booking.room_type_name || 'Đặt phòng')}
+                  {renderRoomTypesSummaryText(booking as any)}
                 </Descriptions.Item>
                 <Descriptions.Item label="Khách hàng">{String(booking.customer_name)}</Descriptions.Item>
                 <Descriptions.Item label="Thời gian nhận">{formatDate(String(booking.check_in))}</Descriptions.Item>

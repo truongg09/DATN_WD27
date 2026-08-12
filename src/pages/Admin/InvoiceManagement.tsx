@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Card, DatePicker, Descriptions, Empty, Input, Modal, Select, Space, Table, Tag, Typography, message } from 'antd';
+import { Alert, Button, Card, DatePicker, Descriptions, Empty, Input, Modal, Select, Table, Tag, Typography, message } from 'antd';
 import { EyeOutlined, PrinterOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import { getInvoices } from '../../services/invoiceService';
 import type { Invoice, InvoiceStatus } from '../../types/invoice';
+import { renderRoomTypesSummaryText, getBookingTotalRoomCount } from '../../utils/bookingUtils';
 import { unwrapList } from '../../utils/unwrapList';
 import './InvoiceManagement.css';
 
@@ -65,15 +66,13 @@ function InvoiceManagement() {
     {
       title: 'Đặt phòng',
       key: 'booking',
-      width: 175,
+      width: 195,
       render: (_: unknown, invoice: Invoice) => {
-        const roomCount = invoice.booking_rooms?.length || invoice.roomQuantity || 1;
-        const roomTypeName = invoice.roomTypeName || 'Chưa cập nhật';
-        const typeSubtitle = `${roomTypeName} · ${roomCount} phòng`;
+        const typeSubtitle = renderRoomTypesSummaryText(invoice);
         return (
           <div className="invoice-cell">
             <strong>#{invoice.bookingId}</strong>
-            <span style={{ fontSize: '12px', color: '#667085' }}>{typeSubtitle}</span>
+            <span style={{ fontSize: '12px', color: '#667085', fontWeight: 600 }}>{typeSubtitle}</span>
             {invoice.booking_rooms && invoice.booking_rooms.length > 0 ? (
               <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '2px' }}>
                 {invoice.booking_rooms.map((r) => (
@@ -124,10 +123,6 @@ const PAYMENT_STATUS_META: Record<string, { label: string; color: string }> = {
 function InvoiceDetail({ invoice }: { invoice: Invoice }) {
   const status = STATUS_META[invoice.status] || { label: invoice.status, color: 'default' };
   const payMeta = invoice.paymentStatus ? PAYMENT_STATUS_META[invoice.paymentStatus] : null;
-  const roomCount = invoice.booking_rooms?.length || invoice.roomQuantity || 1;
-  const roomNumbers = invoice.booking_rooms && invoice.booking_rooms.length > 0
-    ? invoice.booking_rooms.map((r) => r.number)
-    : (invoice.roomNumber ? [invoice.roomNumber] : ['Chưa xếp']);
 
   const checkInDate = dayjs(invoice.checkIn);
   const checkOutDate = dayjs(invoice.checkOut);
@@ -156,13 +151,52 @@ function InvoiceDetail({ invoice }: { invoice: Invoice }) {
       <Descriptions.Item label="Booking">#{invoice.bookingId}</Descriptions.Item>
       <Descriptions.Item label="Email">{invoice.customerEmail || 'Chưa cập nhật'}</Descriptions.Item>
       <Descriptions.Item label="Điện thoại">{invoice.customerPhone || 'Chưa cập nhật'}</Descriptions.Item>
-      <Descriptions.Item label="Hạng phòng">{invoice.roomTypeName || 'Chưa cập nhật'} · {roomCount} phòng</Descriptions.Item>
+      <Descriptions.Item label="Hạng phòng">{renderRoomTypesSummaryText(invoice)}</Descriptions.Item>
       <Descriptions.Item label="Phòng thực tế">
-        <Space size={[4, 4]} wrap>
-          {roomNumbers.map((num) => (
-            <Tag key={num} color="blue" style={{ margin: 0 }}>{num}</Tag>
-          ))}
-        </Space>
+        {(() => {
+          const summaryList = (invoice.roomTypesSummary && invoice.roomTypesSummary.length > 0)
+            ? invoice.roomTypesSummary
+            : [
+                {
+                  typeName: invoice.roomTypeName || 'Chưa cập nhật',
+                  quantity: getBookingTotalRoomCount(invoice),
+                }
+              ];
+          const roomsList = invoice.booking_rooms || [];
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {summaryList.map((s, idx) => {
+                const matchingRooms = roomsList.filter(
+                  (r) => (s.roomTypeId && Number(r.roomTypeId) === Number(s.roomTypeId)) || r.typeName === s.typeName
+                );
+                return (
+                  <div key={s.roomTypeId || idx}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#1f1f1f' }}>
+                      {s.typeName} ×{s.quantity} {s.roomPrice ? `(${formatCurrency(s.roomPrice)}/đêm)` : ''}
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 2 }}>
+                      {matchingRooms.length > 0 ? (
+                        matchingRooms.map((r, rIdx) => (
+                          <Tag key={r.id || rIdx} color="blue" style={{ margin: 0 }}>
+                            Phòng {r.number}
+                          </Tag>
+                        ))
+                      ) : roomsList.length > 0 && idx === 0 ? (
+                        roomsList.map((r, rIdx) => (
+                          <Tag key={r.id || rIdx} color="blue" style={{ margin: 0 }}>
+                            Phòng {r.number}
+                          </Tag>
+                        ))
+                      ) : (
+                        <span style={{ fontSize: 12, color: '#888' }}>Chưa xếp phòng</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
       </Descriptions.Item>
       <Descriptions.Item label="Thời gian lưu trú" span={2}>
         {checkInDate.format('DD/MM/YYYY')} đến {checkOutDate.format('DD/MM/YYYY')} ({nights} đêm)

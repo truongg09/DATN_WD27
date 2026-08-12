@@ -49,6 +49,7 @@ const BOOKING_SELECT = `
     b.actualCheckOutTime AS actual_check_out_time,
     COALESCE(b.guest_name, MAX(c.fullName)) AS customer_name,
     COALESCE(b.guest_email, MAX(a.email)) AS customer_email,
+    COALESCE(b.guest_phone, MAX(c.phone), MAX(a.phone)) AS customer_phone,
     GROUP_CONCAT(DISTINCT r.roomNumber ORDER BY r.roomNumber SEPARATOR ', ') AS room_number,
     MIN(r.floor) AS room_floor,
     MIN(r.area) AS room_area,
@@ -834,6 +835,7 @@ const updateBookingStayFull = async (bookingId, payload, connection) => {
 };
 
 const transferBookingRoom = async (booking, toRoom, payload, connection) => {
+  const fromRoomId = payload.fromRoomId || payload.roomId || booking.room_id;
   await run(connection).query(
     `
       INSERT INTO booking_room_transfers
@@ -842,7 +844,7 @@ const transferBookingRoom = async (booking, toRoom, payload, connection) => {
     `,
     [
       booking.id,
-      booking.room_id,
+      fromRoomId,
       toRoom.id,
       payload.fromDate,
       payload.toDate,
@@ -851,14 +853,26 @@ const transferBookingRoom = async (booking, toRoom, payload, connection) => {
     ]
   );
 
+  if (payload.bookingDetailId) {
+    await run(connection).query(
+      'UPDATE booking_details SET roomId = ?, roomPrice = ? WHERE id = ? AND bookingId = ?',
+      [toRoom.id, Number(toRoom.price_per_night || 0), payload.bookingDetailId, booking.id]
+    );
+  } else if (payload.fromRoomId) {
+    await run(connection).query(
+      'UPDATE booking_details SET roomId = ?, roomPrice = ? WHERE roomId = ? AND bookingId = ? LIMIT 1',
+      [toRoom.id, Number(toRoom.price_per_night || 0), payload.fromRoomId, booking.id]
+    );
+  } else {
+    await run(connection).query(
+      'UPDATE booking_details SET roomId = ?, roomPrice = ? WHERE bookingId = ?',
+      [toRoom.id, Number(toRoom.price_per_night || 0), booking.id]
+    );
+  }
+
   await run(connection).query(
     'UPDATE bookings SET room_id = ? WHERE id = ?',
     [toRoom.id, booking.id]
-  );
-
-  await run(connection).query(
-    'UPDATE booking_details SET roomId = ?, roomPrice = ? WHERE bookingId = ?',
-    [toRoom.id, Number(toRoom.price_per_night || 0), booking.id]
   );
 };
 
@@ -1131,6 +1145,23 @@ const updateRequestedCheckInTime = async (bookingId, requestedCheckInTime, dayOf
   }
 };
 
+const updateRequestedCheckOutTime = async (bookingId, requestedCheckOutTime, connection) => {
+  await run(connection).query(
+    'UPDATE bookings SET requestedCheckOutTime = ? WHERE id = ?',
+    [requestedCheckOutTime, bookingId]
+  );
+  const [bd] = await run(connection).query(
+    'SELECT id FROM booking_details WHERE bookingId = ?',
+    [bookingId]
+  );
+  if (bd.length > 0) {
+    await run(connection).query(
+      'UPDATE booking_details SET requestedCheckOutTime = ? WHERE bookingId = ?',
+      [requestedCheckOutTime, bookingId]
+    );
+  }
+};
+
 const DEFAULT_CHECKOUT_LATE_FEE_TIERS = {
   graceMinutes: 60,
   tier1MaxHours: 3.0,
@@ -1339,6 +1370,7 @@ module.exports = {
   listEligibleNoShowBookings,
   getOverdueCheckInCandidates,
   updateRequestedCheckInTime,
+  updateRequestedCheckOutTime,
   getCheckoutLateFeeTiers,
   findNextBookingForRoom,
   findAdjacentBookingsForRoom,

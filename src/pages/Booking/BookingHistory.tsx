@@ -124,11 +124,15 @@ const fileListToImageUrls = (fileList: UploadFile[]): string[] =>
     )
     .filter((url): url is string => Boolean(url));
 
+import { renderRoomTypesSummaryText } from "../../utils/bookingUtils";
+
 interface BookingRow {
   id: number;
   room_number?: string;
   room_type_name?: string;
   room_quantity?: number;
+  roomTypesSummary?: Array<{ roomTypeId?: number; typeName: string; quantity: number; roomPrice?: number }>;
+  booking_rooms?: Array<{ bookingDetailId?: number; id: number; number: string; roomTypeId?: number; typeName?: string }>;
   check_in: string;
   check_out: string;
   total_price: number | string;
@@ -1043,11 +1047,13 @@ const BookingHistory: React.FC = () => {
             <span className="history-booking-code">#{record.id}</span>
             <span className="history-room-line">
               <HomeOutlined />
-              {canShowRoomNumber(record.status) && record.room_number
-                ? `Phòng ${record.room_number} · `
-                : ''}
-              {record.room_type_name || 'Chưa có loại phòng'}
+              {renderRoomTypesSummaryText(record)}
             </span>
+            {canShowRoomNumber(record.status) && (record.booking_rooms?.length || record.room_number) ? (
+              <div style={{ fontSize: 11, color: '#666', marginTop: 2, paddingLeft: 18 }}>
+                Phòng: {record.booking_rooms?.map(r => r.number).join(', ') || record.room_number}
+              </div>
+            ) : null}
           </div>
         ),
       },
@@ -1490,7 +1496,7 @@ const BookingHistory: React.FC = () => {
         open={!!reviewBooking}
         title={
           reviewBooking
-            ? `${editingReviewId ? "Sửa đánh giá" : "Đánh giá"} ${reviewBooking.room_number ? `phòng ${reviewBooking.room_number} – ` : ""}${reviewBooking.room_type_name || "Đặt phòng"}`
+            ? `${editingReviewId ? "Sửa đánh giá" : "Đánh giá"} ${canShowRoomNumber(reviewBooking.status) && reviewBooking.room_number ? `phòng ${reviewBooking.room_number} – ` : ""}${renderRoomTypesSummaryText(reviewBooking)}`
             : ""
         }
         okText={editingReviewId ? "Cập nhật đánh giá" : "Gửi đánh giá"}
@@ -1673,12 +1679,7 @@ const BookingHistory: React.FC = () => {
                         #{editDetail.id}
                       </Descriptions.Item>
                       <Descriptions.Item label="Hạng phòng">
-                        {`${editDetail.room_type_name || "—"}${
-                          editDetail.room_quantity &&
-                          editDetail.room_quantity > 1
-                            ? ` (${editDetail.room_quantity} phòng)`
-                            : ""
-                        }`}
+                        {renderRoomTypesSummaryText(editDetail)}
                       </Descriptions.Item>
                       <Descriptions.Item label="Ngày nhận (hiện tại)">
                         {dayjs(editDetail.check_in).format("DD/MM/YYYY")}

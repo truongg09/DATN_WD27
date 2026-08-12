@@ -143,6 +143,32 @@ const updateArrivalTime = async (req, res) => {
   }
 };
 
+const updateDepartureTime = async (req, res) => {
+  try {
+    const bookingId = normalizeIdParam(req.params.id);
+    const booking = await bookingService.getBookingById(bookingId);
+    ensureBookingAccess(req.user, booking, 'cập nhật giờ trả phòng');
+
+    const { requestedCheckOutTime, notes } = req.body;
+    if (!requestedCheckOutTime) {
+      throw new HttpError(400, 'Vui lòng cung cấp giờ trả phòng dự kiến mới');
+    }
+
+    const result = await bookingService.updateBookingRequestedCheckOutTime(
+      bookingId,
+      { requestedCheckOutTime, notes },
+      req.user || null
+    );
+
+    res.json({
+      message: 'Đã cập nhật giờ trả phòng dự kiến thành công',
+      data: result
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
 const processOverdue = async (req, res) => {
   try {
     const results = await bookingService.processOverdueCheckIns();
@@ -724,6 +750,7 @@ module.exports = {
   checkOut,
   markNoShow,
   updateArrivalTime,
+  updateDepartureTime,
   processOverdue,
   listServiceRequests,
   confirmServiceRequest,
