@@ -719,6 +719,72 @@ const refundPayment = async (paymentId, actor = null) => {
   }
 };
 
+// Tiền đã trừ của khách nhưng phòng lại vừa bị khách sạn gỡ. Không được từ
+// chối giao dịch (tiền đã đi rồi) và cũng không được giữ tiền: ghi nhận xong
+// thì hủy đơn, lập yêu cầu hoàn 100% và báo cho khách biết.
+// Lỗi thuộc về khách sạn nên hoàn toàn bộ, không áp chính sách hoàn theo ngày.
+const refundBecauseRoomRemoved = async (bookingId, payment, removedRooms) => {
+  const connection = await db.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    const booking = await bookingModel.getBookingById(bookingId, connection, true);
+    const paidAmount = Number(payment.paidAmount || 0);
+    const roomLabel = removedRooms.map((room) => room.roomNumber).filter(Boolean).join(', ');
+
+    if (paidAmount > 0) {
+      await connection.query(
+        `
+          INSERT INTO payment_refunds
+            (paymentId, bookingId, amount, refundRate, paidAmount, refundMethod, status, note)
+          VALUES (?, ?, ?, 1, ?, 'bank_transfer', 'pending', ?)
+        `,
+        [
+          payment.id,
+          bookingId,
+          paidAmount,
+          paidAmount,
+          `Hoàn 100% do khách sạn ngừng khai thác phòng ${roomLabel} sau khi khách đã thanh toán`
+        ]
+      );
+    }
+
+    await bookingModel.updateBookingStatus(bookingId, 'cancelled', connection);
+    await connection.query(
+      'UPDATE bookings SET cancellation_reason = ? WHERE id = ?',
+      [`Khách sạn ngừng khai thác phòng ${roomLabel}`, bookingId]
+    );
+
+    await bookingModel.createCustomerNotification(
+      booking?.user_id,
+      'Đặt phòng bị hủy do phòng ngừng khai thác',
+      `Rất tiếc, phòng ${roomLabel} thuộc đặt phòng #${bookingId} vừa được khách sạn ngừng khai thác. ` +
+        `Đơn của bạn đã được hủy và toàn bộ ${money(paidAmount)} sẽ được hoàn lại. ` +
+        'Bộ phận lễ tân sẽ liên hệ với bạn để xác nhận thông tin nhận tiền.',
+      connection
+    );
+
+    await logBookingHistory(
+      bookingId,
+      'room_removed',
+      `Phòng ${roomLabel} bị gỡ sau khi khách đã thanh toán. Đã hủy đơn và lập yêu cầu hoàn 100% (${money(paidAmount)})`,
+      { amount: paidAmount },
+      null,
+      connection
+    );
+
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    // Không ném lỗi ra ngoài: tiền của khách đã được ghi nhận thành công rồi,
+    // sự cố ở bước hoàn tiền phải được xử lý thủ công chứ không làm hỏng callback.
+    console.error('Tạo yêu cầu hoàn tiền do phòng bị gỡ thất bại:', error.message);
+  } finally {
+    connection.release();
+  }
+};
+
 const settleGatewayPayment = async ({ orderId, paymentMethod, amount }) => {
   const gatewayOrder = await paymentModel.getGatewayOrder(orderId);
   if (!gatewayOrder || gatewayOrder.provider !== paymentMethod) {
@@ -756,6 +822,17 @@ const settleGatewayPayment = async ({ orderId, paymentMethod, amount }) => {
     paymentMethod
   });
   await paymentModel.updateGatewayOrderStatus(orderId, 'paid');
+
+  // Phòng có thể bị gỡ trong lúc khách đứng ở trang cổng thanh toán. Tới đây
+  // tiền đã vào rồi nên phải ghi nhận trước, sau đó mới hủy đơn và hoàn tiền.
+  const roomsStatus = await bookingModel.listBookingRoomsStatus(payment.bookingId);
+  const removedRooms = roomsStatus.filter(
+    (room) => Number(room.isDeleted) === 1 || room.status === 'maintenance'
+  );
+  if (removedRooms.length > 0) {
+    await refundBecauseRoomRemoved(payment.bookingId, result.payment, removedRooms);
+  }
+
   return result.payment;
 };
 
