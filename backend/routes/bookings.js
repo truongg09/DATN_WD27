@@ -36,6 +36,8 @@ router.delete('/:id/damages/:chargeId', requireAuth, requireStaff, bookingContro
 router.patch('/:id/extend', requireAuth, bookingController.extendStay);
 router.patch('/:id/update-stay', requireAuth, bookingController.updateStay);
 router.patch('/:id/transfer-room', requireAuth, requireStaff, bookingController.transferRoom);
+router.patch('/:id/no-show', requireAuth, requireStaff, bookingController.markNoShow);
+router.patch('/:id/reassign-room', requireAuth, requireStaff, bookingController.reassignRoom);
 router.patch('/:id/check-in', requireAuth, requireStaff, bookingController.checkIn);
 router.patch('/:id/check-out', requireAuth, requireStaff, bookingController.checkOut);
 router.patch('/:id/arrival-time', requireAuth, bookingController.updateArrivalTime);
