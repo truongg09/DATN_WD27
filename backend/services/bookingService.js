@@ -3878,13 +3878,11 @@ const checkOut = async (bookingId, actualCheckOutTimeInput, actor = null) => {
           tiers,
         );
 
-        if (actualCheckOutTime > maxCheckoutTime) {
+        if (nextBooking && actualCheckOutTime > maxCheckoutTime) {
           throw new HttpError(
             409,
-            nextBooking
-              ? `Không thể trả phòng muộn vì phòng đã có khách khác nhận phòng ngày ${displayDate(nextBooking.checkInDate)}. Vui lòng chuyển phòng cho khách sau hoặc xử lý thủ công.`
-              : `Đã vượt quá thời gian trả phòng muộn tối đa (${tiers.absoluteMaxLateHours} giờ so với giờ chuẩn). Vui lòng lập gia hạn thêm đêm thay vì tính phí trễ giờ.`,
-            { conflictingBookingId: nextBooking?.id || null },
+            `Không thể trả phòng muộn vì phòng đã có khách khác nhận phòng ngày ${displayDate(nextBooking.checkInDate)}. Vui lòng chuyển phòng cho khách sau hoặc xử lý thủ công.`,
+            { conflictingBookingId: nextBooking.id },
           );
         }
 

@@ -1176,10 +1176,11 @@ const Booking: React.FC = () => {
                                       return r;
                                     }));
                                   }}
-                                  options={Array.from({ length: 12 }, (_, ageOption) => ({
-                                    value: ageOption,
-                                    label: `${ageOption} tuổi`,
-                                  }))}
+                                  options={[
+                                    { value: 4, label: "Dưới 5 tuổi" },
+                                    { value: 8, label: "Từ 6-11 tuổi" },
+                                    { value: 12, label: "Trên 11 tuổi" },
+                                  ]}
                                   size="large"
                                   style={{ width: "100%" }}
                                 />
@@ -1524,8 +1525,8 @@ const Booking: React.FC = () => {
                     <ul>
                       <li>
                         <FontAwesomeIcon icon={faCheck} /> Hoàn{" "}
-                        {policies?.nearTierPercent ?? 100}% khi hủy dưới{" "}
-                        {policies?.nearTierMaxDays ?? 3} ngày,{" "}
+                        {policies?.farTierPercent && policies.farTierPercent > 0 ? policies.farTierPercent : 100}% khi hủy trước{" "}
+                        {policies?.midTierMaxDays ?? 7} ngày,{" "}
                         {policies?.midTierPercent ?? 50}% khi hủy trước{" "}
                         {policies?.nearTierMaxDays ?? 3}–
                         {policies?.midTierMaxDays ?? 7} ngày
