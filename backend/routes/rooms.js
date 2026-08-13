@@ -8,6 +8,50 @@ const router = express.Router();
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
+// Các đơn còn ràng buộc với một phòng: đơn chưa kết thúc, hoặc đơn đang có
+// phiên thanh toán mở ở cổng (khách đang đứng ở màn hình trả tiền).
+// Dùng COALESCE(bd.roomId, b.room_id) để không bỏ sót đơn cũ chưa có dòng
+// booking_details, và LEFT JOIN để một đơn nhiều phòng vẫn được nhận diện.
+const ACTIVE_BOOKING_FOR_ROOM_SQL = `
+  SELECT
+    b.id,
+    b.status,
+    b.holdExpiresAt,
+    COALESCE(b.guest_name, c.fullName) AS customerName,
+    COALESCE(p.paidAmount, 0) AS paidAmount,
+    COALESCE(p.paymentStatus, 'unpaid') AS paymentStatus,
+    EXISTS (
+      SELECT 1 FROM payment_gateway_orders pgo
+      WHERE pgo.bookingId = b.id AND pgo.status = 'created' AND pgo.expiresAt > NOW()
+    ) AS hasOpenGatewayOrder
+  FROM bookings b
+  LEFT JOIN booking_details bd ON bd.bookingId = b.id
+  LEFT JOIN customers c ON c.id = b.customerId
+  LEFT JOIN payments p ON p.id = (
+    SELECT p2.id FROM payments p2 WHERE p2.bookingId = b.id ORDER BY p2.id DESC LIMIT 1
+  )
+  WHERE COALESCE(bd.roomId, b.room_id) = ?
+    AND b.status NOT IN ('cancelled', 'checked_out', 'no_show')
+  GROUP BY b.id
+`;
+
+// Mô tả ngắn gọn vì sao phòng đang bị khoá, để lễ tân biết vướng đơn nào.
+const describeBlockingBookings = (bookings) => {
+  const paying = bookings.filter(
+    (item) => Number(item.hasOpenGatewayOrder) === 1 || Number(item.paidAmount) > 0
+  );
+  const detail = bookings
+    .slice(0, 3)
+    .map((item) => `#${item.id}${item.customerName ? ` (${item.customerName})` : ''}`)
+    .join(', ');
+  const more = bookings.length > 3 ? ` và ${bookings.length - 3} đơn khác` : '';
+
+  if (paying.length > 0) {
+    return `Khách đang thanh toán cho phòng này (đơn ${detail}${more}). Vui lòng đợi khách hoàn tất hoặc hủy đơn trước.`;
+  }
+  return `Phòng đang có đơn đặt chưa hoàn tất: ${detail}${more}. Hãy xử lý các đơn này trước.`;
+};
+
 // Chỉ nhận cặp ngày hợp lệ; thiếu hoặc sai định dạng thì coi như tìm không kèm ngày
 const parseDateRangeQuery = (query) => {
   const { checkIn, checkOut } = query;
@@ -439,41 +483,62 @@ router.put('/:id', requireAuth, requireStaff, async (req, res) => {
 
 // Delete room
 router.delete('/:id', requireAuth, requireStaff, async (req, res) => {
+  const connection = await db.getConnection();
+
   try {
     const { id } = req.params;
 
-    // Check if the room exists and its status
-    const [rooms] = await db.query('SELECT status, roomNumber FROM rooms WHERE id = ? AND isDeleted = 0', [id]);
+    // Kiểm tra và xóa phải nằm trong cùng một giao dịch, có khóa dòng phòng.
+    // Nếu tách rời, khách vẫn kịp thanh toán xong trong khoảng thời gian giữa
+    // lúc kiểm tra và lúc ghi isDeleted = 1, dẫn tới khách trả tiền cho phòng
+    // vừa bị gỡ khỏi hệ thống.
+    await connection.beginTransaction();
+
+    const [rooms] = await connection.query(
+      'SELECT status, roomNumber FROM rooms WHERE id = ? AND isDeleted = 0 FOR UPDATE',
+      [id]
+    );
     if (rooms.length === 0) {
+      await connection.rollback();
       return res.status(404).json({ message: 'Không tìm thấy phòng!' });
     }
 
     if (rooms[0].status === 'occupied') {
+      await connection.rollback();
       return res.status(400).json({ message: 'Không thể xóa phòng đang có khách ở!' });
     }
 
-    // Check if the room is associated with any active bookings (status is not 'cancelled' and not 'checked_out')
-    const [activeBookings] = await db.query(`
-      SELECT b.id, b.status 
-      FROM bookings b
-      JOIN booking_details bd ON bd.bookingId = b.id
-      WHERE bd.roomId = ? AND b.status NOT IN ('cancelled', 'checked_out')
-    `, [id]);
+    const [activeBookings] = await connection.query(ACTIVE_BOOKING_FOR_ROOM_SQL, [id]);
 
     if (activeBookings.length > 0) {
-      return res.status(400).json({ message: 'Không thể xóa phòng đang có đơn đặt phòng (hoặc đã cọc) chưa hoàn thành!' });
+      await connection.rollback();
+      return res.status(409).json({
+        message: describeBlockingBookings(activeBookings),
+        details: {
+          roomNumber: rooms[0].roomNumber,
+          blockingBookings: activeBookings.map((item) => ({
+            id: item.id,
+            status: item.status,
+            customerName: item.customerName,
+            isPaying: Number(item.hasOpenGatewayOrder) === 1 || Number(item.paidAmount) > 0
+          }))
+        }
+      });
     }
 
-    // Perform soft delete
-    await db.query('UPDATE rooms SET isDeleted = 1 WHERE id = ?', [id]);
+    await connection.query('UPDATE rooms SET isDeleted = 1 WHERE id = ?', [id]);
+    await connection.commit();
 
     res.json({ message: 'Xóa phòng thành công' });
   } catch (error) {
+    await connection.rollback();
     console.error('Delete room error:', error);
-    res.status(500).json({ 
-      message: 'Lỗi khi xóa phòng', 
-      details: error.message 
+    res.status(500).json({
+      message: 'Lỗi khi xóa phòng',
+      details: error.message
     });
+  } finally {
+    connection.release();
   }
 });
 
