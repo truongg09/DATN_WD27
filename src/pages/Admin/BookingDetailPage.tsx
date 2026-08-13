@@ -1,8 +1,32 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Alert, Breadcrumb, Button, Card, Skeleton, Space, Tag } from 'antd';
+import { Alert, Breadcrumb, Button, Card, Col, Descriptions, Row, Skeleton, Space, Tag } from 'antd';
 import { ArrowLeftOutlined, ReloadOutlined } from '@ant-design/icons';
+import dayjs from 'dayjs';
 import api from '../../services/api';
+
+const money = (value?: string | number | null) =>
+  new Intl.NumberFormat('vi-VN').format(Number(value || 0)) + '₫';
+
+const day = (value?: string | null) => {
+  if (!value) return '—';
+  const parsed = dayjs(value);
+  return parsed.isValid() ? parsed.format('DD/MM/YYYY') : '—';
+};
+
+const dateTime = (value?: string | null) => {
+  if (!value) return '—';
+  const parsed = dayjs(value);
+  return parsed.isValid() ? parsed.format('HH:mm — DD/MM/YYYY') : '—';
+};
+
+// Số đêm lưu trú tính theo ngày, không phụ thuộc giờ nhận/trả cụ thể.
+const countNights = (checkIn?: string | null, checkOut?: string | null) => {
+  if (!checkIn || !checkOut) return 0;
+  const from = dayjs(checkIn).startOf('day');
+  const to = dayjs(checkOut).startOf('day');
+  return Math.max(to.diff(from, 'day'), 0);
+};
 
 // Trạng thái đơn dùng chung cho cả trang.
 export const bookingStatusText: Record<string, string> = {
@@ -165,11 +189,83 @@ function BookingDetailPage() {
         </Button>
       </div>
 
-      <Card>
-        <p style={{ margin: 0, color: '#888' }}>
-          Khách: {booking.customer_name || '—'} · Phòng {booking.room_number || '—'}
-        </p>
-      </Card>
+      <Row gutter={[16, 16]}>
+        <Col xs={24} lg={12}>
+          <Card title="Thông tin đặt phòng" size="small">
+            <Descriptions bordered column={1} size="small">
+              <Descriptions.Item label="Mã đơn">
+                #{booking.id}
+                {booking.booking_code ? ` (${booking.booking_code})` : ''}
+              </Descriptions.Item>
+              <Descriptions.Item label="Trạng thái">
+                <Tag color={bookingStatusColor[booking.status] || 'default'}>
+                  {bookingStatusText[booking.status] || booking.status}
+                </Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="Thời điểm đặt">{dateTime(booking.created_at)}</Descriptions.Item>
+              <Descriptions.Item label="Ghi chú của khách">{booking.notes || '—'}</Descriptions.Item>
+              {booking.cancellation_reason && (
+                <Descriptions.Item label="Lý do hủy">{booking.cancellation_reason}</Descriptions.Item>
+              )}
+            </Descriptions>
+          </Card>
+        </Col>
+
+        <Col xs={24} lg={12}>
+          <Card title="Khách hàng" size="small">
+            <Descriptions bordered column={1} size="small">
+              <Descriptions.Item label="Họ tên">{booking.customer_name || '—'}</Descriptions.Item>
+              <Descriptions.Item label="Số điện thoại">{booking.customer_phone || '—'}</Descriptions.Item>
+              <Descriptions.Item label="Email">{booking.customer_email || '—'}</Descriptions.Item>
+              <Descriptions.Item label="Số khách">
+                {booking.adults ?? 0} người lớn, {booking.children ?? 0} trẻ em
+              </Descriptions.Item>
+              <Descriptions.Item label="Khách lưu trú đã khai">
+                {(booking.guests?.length || 0) > 0
+                  ? `${booking.guests?.length} người`
+                  : 'Chưa khai báo'}
+              </Descriptions.Item>
+            </Descriptions>
+          </Card>
+        </Col>
+
+        <Col xs={24} lg={12}>
+          <Card title="Thời gian lưu trú" size="small">
+            <Descriptions bordered column={1} size="small">
+              <Descriptions.Item label="Ngày nhận phòng">{day(booking.check_in)}</Descriptions.Item>
+              <Descriptions.Item label="Ngày trả phòng">{day(booking.check_out)}</Descriptions.Item>
+              <Descriptions.Item label="Số đêm">
+                <strong>{countNights(booking.check_in, booking.check_out)} đêm</strong>
+              </Descriptions.Item>
+              <Descriptions.Item label="Giờ nhận thực tế">
+                {dateTime(booking.actual_check_in_time)}
+              </Descriptions.Item>
+              <Descriptions.Item label="Giờ trả thực tế">
+                {dateTime(booking.actual_check_out_time)}
+              </Descriptions.Item>
+            </Descriptions>
+          </Card>
+        </Col>
+
+        <Col xs={24} lg={12}>
+          <Card title="Phòng và sức chứa" size="small">
+            <Descriptions bordered column={1} size="small">
+              <Descriptions.Item label="Phòng">
+                {booking.room_number || '—'}
+                {(booking.room_quantity || 1) > 1 && ` (${booking.room_quantity} phòng)`}
+              </Descriptions.Item>
+              <Descriptions.Item label="Hạng phòng">{booking.room_type_name || '—'}</Descriptions.Item>
+              <Descriptions.Item label="Tầng / Diện tích">
+                {booking.room_floor ?? '—'} / {booking.room_area ? `${booking.room_area}m²` : '—'}
+              </Descriptions.Item>
+              <Descriptions.Item label="Sức chứa">
+                {booking.room_capacity ? `${booking.room_capacity} khách/phòng` : '—'}
+              </Descriptions.Item>
+              <Descriptions.Item label="Giá phòng mỗi đêm">{money(booking.room_price)}</Descriptions.Item>
+            </Descriptions>
+          </Card>
+        </Col>
+      </Row>
     </div>
   );
 }
