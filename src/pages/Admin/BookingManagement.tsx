@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Alert, Button, DatePicker, Form, Input, InputNumber, message, Modal, Select, Space, Tag, Tooltip } from 'antd';
+import { Alert, Button, DatePicker, Form, Input, InputNumber, message, Modal, Pagination, Select, Space, Tag, Tooltip } from 'antd';
 import {
   CheckOutlined,
   CloseOutlined,
@@ -362,6 +362,10 @@ const formatPrice = (price?: string | number | null) => {
 
 function BookingManagement() {
   const navigate = useNavigate();
+  // Phân trang phía giao diện: danh sách vẫn tải đủ để các thao tác khác dùng,
+  // nhưng bảng chỉ hiển thị từng trang cho dễ đọc.
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const location = useLocation();
   // Trang này dùng chung cho cả /admin lẫn /staff; điều hướng nội bộ phải giữ
   // đúng khu vực đang đứng, nếu không nhân viên bấm vào sẽ bị chặn bởi AdminRoute.
@@ -400,6 +404,10 @@ function BookingManagement() {
         }))
         .filter((booking: Booking) => booking.check_in && booking.check_out);
       setBookings(mapped);
+      setPage((current: number) => {
+        const maxPage = Math.max(1, Math.ceil(mapped.length / pageSize));
+        return Math.min(current, maxPage);
+      });
       return mapped;
     } catch (error) {
       console.error('Error fetching bookings:', error);
@@ -1052,7 +1060,9 @@ const handleCheckIn = (booking: Booking) => {
               ) : bookings.length === 0 ? (
                 <tr><td colSpan={8} style={emptyStyle}>Không có dữ liệu đặt phòng</td></tr>
               ) : (
-                bookings.map((booking) => (
+                bookings
+                  .slice((page - 1) * pageSize, page * pageSize)
+                  .map((booking) => (
                   <tr key={booking.id}>
                     <td style={tdStyle}>#{booking.id}</td>
                     <td style={tdStyle}>
@@ -1144,6 +1154,23 @@ const handleCheckIn = (booking: Booking) => {
             </tbody>
           </table>
         </div>
+
+        {bookings.length > 0 && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+            <Pagination
+              current={page}
+              pageSize={pageSize}
+              total={bookings.length}
+              showSizeChanger
+              pageSizeOptions={[10, 20, 50]}
+              showTotal={(total, range) => `${range[0]}-${range[1]} / ${total} đơn`}
+              onChange={(nextPage, nextSize) => {
+                setPage(nextSize !== pageSize ? 1 : nextPage);
+                setPageSize(nextSize);
+              }}
+            />
+          </div>
+        )}
       </div>
 
       <BookingDetailModal
