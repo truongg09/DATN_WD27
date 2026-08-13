@@ -1047,16 +1047,28 @@ const listNightlyPrices = async (bookingId, from, to, connection) => {
 
 // Ghi một dòng dấu vết vào lịch sử thao tác của đặt phòng.
 // entry: { action, description, oldValue, newValue, amount, actorId, actorName, actorRole }
+// Loại đối tượng mà một mốc lịch sử gắn vào. 'booking' là mặc định cho các
+// thao tác tác động lên cả đơn (tạo đơn, hủy, gia hạn...).
+const HISTORY_ENTITY_TYPES = ['booking', 'room', 'service', 'damage', 'payment', 'stay'];
+
 const addBookingHistory = async (bookingId, entry, connection) => {
+  const entityType = HISTORY_ENTITY_TYPES.includes(entry.entityType)
+    ? entry.entityType
+    : 'booking';
+
   const [result] = await run(connection).query(
     `
       INSERT INTO booking_history
-        (bookingId, action, description, oldValue, newValue, amount, performedBy, performedByName, performedByRole)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (bookingId, action, entityType, entityId, entityLabel, description, oldValue, newValue,
+         amount, performedBy, performedByName, performedByRole)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       bookingId,
       entry.action,
+      entityType,
+      entry.entityId != null ? entry.entityId : null,
+      entry.entityLabel || null,
       entry.description || null,
       entry.oldValue != null ? JSON.stringify(entry.oldValue) : null,
       entry.newValue != null ? JSON.stringify(entry.newValue) : null,
@@ -1069,24 +1081,57 @@ const addBookingHistory = async (bookingId, entry, connection) => {
   return result.insertId;
 };
 
-const listBookingHistory = async (bookingId, connection) => {
+const parseHistoryRow = (row) => {
+  let oldValue = null;
+  let newValue = null;
+  try { oldValue = row.oldValue ? JSON.parse(row.oldValue) : null; } catch { oldValue = row.oldValue; }
+  try { newValue = row.newValue ? JSON.parse(row.newValue) : null; } catch { newValue = row.newValue; }
+  return { ...row, oldValue, newValue };
+};
+
+// Lịch sử thao tác trên một phòng, gộp từ mọi đơn đã từng dùng phòng đó.
+const listRoomHistory = async (roomId, connection) => {
   const [rows] = await run(connection).query(
     `
-      SELECT id, bookingId, action, description, oldValue, newValue, amount,
+      SELECT h.id, h.bookingId, h.action, h.entityType, h.entityId, h.entityLabel,
+             h.description, h.oldValue, h.newValue, h.amount,
+             h.performedBy, h.performedByName, h.performedByRole, h.createdAt
+      FROM booking_history h
+      WHERE (h.entityType = 'room' AND h.entityId = ?)
+         OR h.bookingId IN (
+           SELECT DISTINCT b.id
+           FROM bookings b
+           LEFT JOIN booking_details bd ON bd.bookingId = b.id
+           WHERE COALESCE(bd.roomId, b.room_id) = ?
+         )
+      ORDER BY h.createdAt DESC, h.id DESC
+      LIMIT 200
+    `,
+    [roomId, roomId]
+  );
+  return rows.map(parseHistoryRow);
+};
+
+const listBookingHistory = async (bookingId, connection, { entityType } = {}) => {
+  const conditions = ['bookingId = ?'];
+  const values = [bookingId];
+  if (entityType) {
+    conditions.push('entityType = ?');
+    values.push(entityType);
+  }
+
+  const [rows] = await run(connection).query(
+    `
+      SELECT id, bookingId, action, entityType, entityId, entityLabel,
+             description, oldValue, newValue, amount,
              performedBy, performedByName, performedByRole, createdAt
       FROM booking_history
-      WHERE bookingId = ?
+      WHERE ${conditions.join(' AND ')}
       ORDER BY createdAt DESC, id DESC
     `,
-    [bookingId]
+    values
   );
-  return rows.map((row) => {
-    let oldValue = null;
-    let newValue = null;
-    try { oldValue = row.oldValue ? JSON.parse(row.oldValue) : null; } catch { oldValue = row.oldValue; }
-    try { newValue = row.newValue ? JSON.parse(row.newValue) : null; } catch { newValue = row.newValue; }
-    return { ...row, oldValue, newValue };
-  });
+  return rows.map(parseHistoryRow);
 };
 
 // Lấy tên hiển thị của người thực hiện thao tác từ tài khoản.
@@ -1383,6 +1428,8 @@ module.exports = {
   saveNightlyPrices,
   listNightlyPrices,
   addBookingHistory,
+  listRoomHistory,
+  HISTORY_ENTITY_TYPES,
   listBookingHistory,
   getActorDisplayName,
   getBookingById,
