@@ -19,6 +19,7 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../../services/api';
+import AdminBookingModifyModal from './AdminBookingModifyModal';
 import {
   addBookingServiceCharge,
   addBookingDamageCharge,
@@ -283,6 +284,7 @@ interface Props {
 const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [adminModifyModalOpen, setAdminModifyModalOpen] = useState(false);
   const [detail, setDetail] = useState<BookingDetail | null>(null);
 
   // silent = true dùng cho vòng tự làm mới: không bật spinner để nội dung đang
@@ -1305,6 +1307,17 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
               {statusText[detail.status] || detail.status}
             </Tag>
           )}
+          {detail && (
+            <Button
+              type="primary"
+              icon={<EditOutlined />}
+              size="small"
+              onClick={() => setAdminModifyModalOpen(true)}
+              style={{ marginLeft: 12 }}
+            >
+              Chỉnh sửa Booking
+            </Button>
+          )}
         </span>
       }
       open={open}
@@ -1346,6 +1359,15 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
           ]}
         />
       )}
+
+      <AdminBookingModifyModal
+        open={adminModifyModalOpen}
+        bookingId={bookingId}
+        onClose={() => setAdminModifyModalOpen(false)}
+        onSuccess={() => {
+          fetchDetail();
+        }}
+      />
     </Modal>
   );
 };
