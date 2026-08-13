@@ -825,8 +825,10 @@ const ensureOperationalSchema = async () => {
         `INSERT INTO cancellation_policies
           (id, nearTierMaxDays, nearTierPercent, midTierMaxDays, midTierPercent, farTierPercent,
            noShowGraceHours, noShowVoucherPercent, hotelCancelRefundPercent, standardCheckInTime, standardCheckOutTime)
-         VALUES (1, 3, 100.00, 7, 50.00, 0.00, 6, 10.00, 100.00, '14:00:00', '12:00:00')`
+         VALUES (1, 3, 0.00, 7, 50.00, 100.00, 6, 10.00, 100.00, '14:00:00', '12:00:00')`
       );
+    } else {
+      await db.query(`UPDATE cancellation_policies SET farTierPercent = 100.00, nearTierPercent = 0.00 WHERE id = 1 AND (farTierPercent = 0.00 OR nearTierPercent = 100.00)`);
     }
   } catch (err) {
     console.error('Lỗi khi khởi tạo cancellation_policies:', err.message);
