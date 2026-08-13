@@ -491,6 +491,20 @@ const ensureOperationalSchema = async () => {
     )
   `);
 
+  // Giới hạn voucher theo hạng phòng. Không có dòng nào cho một voucher nghĩa
+  // là voucher đó dùng được cho mọi hạng phòng, nên các voucher cũ giữ nguyên
+  // hành vi sau khi nâng cấp.
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS voucher_room_types (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      voucherId INT NOT NULL,
+      roomTypeId INT NOT NULL,
+      UNIQUE KEY uniq_voucher_room_type (voucherId, roomTypeId),
+      FOREIGN KEY (voucherId) REFERENCES vouchers(id) ON DELETE CASCADE,
+      FOREIGN KEY (roomTypeId) REFERENCES room_types(id) ON DELETE CASCADE
+    )
+  `);
+
   // Vouchers granted to a specific customer (e.g. no-show compensation).
   await db.query(`
     CREATE TABLE IF NOT EXISTS customer_vouchers (
