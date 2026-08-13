@@ -3,6 +3,7 @@ import { Alert, Button, DatePicker, Form, Input, InputNumber, message, Modal, Se
 import {
   CheckOutlined,
   CloseOutlined,
+  EditOutlined,
   EyeOutlined,
   HomeOutlined,
   LogoutOutlined,
@@ -16,10 +17,18 @@ import dayjs from 'dayjs';
 import api from '../../services/api';
 import BookingDetailModal from './BookingDetailModal';
 import CheckoutPaymentModal from './CheckoutPaymentModal';
-import { getPolicies } from '../../services/settingsService';
-import type { PoliciesInfo } from '../../services/settingsService';
-import { previewRoomPrice } from '../../services/roomService';
-import type { NightlyPriceItem } from '../../services/roomService';
+import AdminBookingModifyModal from './AdminBookingModifyModal';
+import { getPolicies, type PoliciesInfo } from '../../services/settingsService';
+import { previewRoomPrice, type NightlyPriceItem } from '../../services/roomService';
+
+interface BookingRoomItem {
+  bookingDetailId?: number;
+  id?: number | null;
+  number: string;
+  roomTypeId?: number;
+  typeName?: string;
+}
+>>>>>>> 4a81937 (Quản lý Booking Admin - Tích hợp nút chỉnh sửa vào trang danh sách và trang chi tiết)
 
 interface Booking {
   id: number;
@@ -365,6 +374,9 @@ function BookingManagement() {
   const [loading, setLoading] = useState(false);
   const [viewModalVisible, setViewModalVisible] = useState(false);
   const [checkoutBookingId, setCheckoutBookingId] = useState<number | null>(null);
+
+  const [adminModifyModalOpen, setAdminModifyModalOpen] = useState(false);
+  const [adminModifyBookingId, setAdminModifyBookingId] = useState<number | null>(null);
   const [operation, setOperation] = useState<Operation>(null);
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [reassigning, setReassigning] = useState(false);
@@ -1074,6 +1086,24 @@ const handleCheckIn = (booking: Booking) => {
                           <Tooltip title="Hủy đặt phòng">
                             <Button type="primary" icon={<CloseOutlined />} size="small" danger onClick={() => handleCancel(booking.id)}></Button>
                           </Tooltip>
+                        <Tooltip title="Xem chi tiết đặt phòng">
+                          <Button type="primary" icon={<EyeOutlined style={{ color: 'white' }} />} size="small" onClick={() => { setSelectedBooking(booking); setViewModalVisible(true); }}></Button>
+                        </Tooltip>
+                        <Tooltip title="Quản lý & Chỉnh sửa Booking (Đổi phòng, đổi loại, đổi ngày, thêm/xóa phòng)">
+                          <Button
+                            type="default"
+                            icon={<EditOutlined style={{ color: '#1890ff' }} />}
+                            size="small"
+                            onClick={() => {
+                              setAdminModifyBookingId(booking.id);
+                              setAdminModifyModalOpen(true);
+                            }}
+                          />
+                        </Tooltip>
+                        {['pending', 'confirmed'].includes(booking.status) && (
+                          <Tooltip title="Hủy đặt phòng">
+                            <Button type="primary" icon={<CloseOutlined />} size="small" danger onClick={() => handleCancel(booking.id)}></Button>
+                          </Tooltip>
                         )}
                         {['pending', 'confirmed'].includes(booking.status) && (
                           <Tooltip title="Check-in (nhận phòng)">
@@ -1118,7 +1148,8 @@ const handleCheckIn = (booking: Booking) => {
                       </Space>
                     </td>
                   </tr>
-                ))
+                );
+              })
               )}
             </tbody>
           </table>
@@ -1233,6 +1264,18 @@ const handleCheckIn = (booking: Booking) => {
           ))}
         </div>
       </Modal>
+
+      <AdminBookingModifyModal
+        open={adminModifyModalOpen}
+        bookingId={adminModifyBookingId}
+        onClose={() => {
+          setAdminModifyModalOpen(false);
+          setAdminModifyBookingId(null);
+        }}
+        onSuccess={() => {
+          fetchBookings(currentPage, pageSize, filterStatus, filterSearch);
+        }}
+      />
     </div>
   );
 }
