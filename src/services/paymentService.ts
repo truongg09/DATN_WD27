@@ -31,30 +31,6 @@ export const getPaymentByBookingId = async (bookingId: number) => {
   return api.get(`/payments/booking/${bookingId}`) as Promise<ApiResponse<Payment>>;
 };
 
-export interface VoucherPreview {
-  code: string;
-  discountType: string;
-  discountValue: number;
-  maxDiscount: number;
-  minBookingAmount: number;
-  validUntil: string;
-  roomTypes: string[];
-  subtotal: number;
-  paidAmount: number;
-  discountAmount: number;
-  rawDiscount: number;
-  cappedByMaxDiscount: boolean;
-  cappedByPayable: boolean;
-  totalAfterDiscount: number;
-  remainingAfterDiscount: number;
-}
-
-export const previewVoucher = async (id: number, code: string) => {
-  return api.post(`/payments/${id}/preview-voucher`, { code }) as Promise<
-    ApiResponse<VoucherPreview>
-  >;
-};
-
 export const applyVoucher = async (id: number, code: string) => {
   return api.post(`/payments/${id}/apply-voucher`, { code }) as Promise<
     ApiResponse<{
@@ -82,7 +58,7 @@ export const createGatewayOrder = async (
   data: { paymentMethod: Extract<PaymentMethod, "zalopay" | "vnpay">; amount: number }
 ) => {
   return api.post(`/payments/${id}/gateway-order`, data) as Promise<
-    ApiResponse<{ orderId: string; paymentUrl: string; expiresAt: string }>
+    ApiResponse<{ orderId: string; paymentUrl: string }>
   >;
 };
 
@@ -103,7 +79,7 @@ export const refundPayment = async (id: number) => {
 
 export const confirmPayment = async (
   id: number,
-  data: { amount: number; transactionCode: string; gatewayOrderId?: string }
+  data: { amount: number; transactionCode: string }
 ) => {
   return api.post(`/payments/${id}/confirm`, data) as Promise<
     ApiResponse<{

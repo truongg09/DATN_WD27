@@ -96,22 +96,9 @@ const listBookings = async (req, res) => {
     if (req.query.status) {
       filters.status = req.query.status;
     }
-    if (req.query.search) {
-      filters.search = req.query.search;
-    }
-    if (req.query.page) {
-      filters.page = Number(req.query.page);
-    }
-    if (req.query.limit) {
-      filters.limit = Number(req.query.limit);
-    }
 
-    const result = await bookingService.listBookings(filters);
-    if (result && typeof result === 'object' && !Array.isArray(result) && Array.isArray(result.data)) {
-      res.json(result);
-    } else {
-      res.json({ data: result });
-    }
+    const bookings = await bookingService.listBookings(filters);
+    res.json({ data: bookings });
   } catch (error) {
     sendError(res, error);
   }
@@ -136,32 +123,6 @@ const updateArrivalTime = async (req, res) => {
 
     res.json({
       message: 'Đã cập nhật giờ đến dự kiến thành công',
-      data: result
-    });
-  } catch (error) {
-    sendError(res, error);
-  }
-};
-
-const updateDepartureTime = async (req, res) => {
-  try {
-    const bookingId = normalizeIdParam(req.params.id);
-    const booking = await bookingService.getBookingById(bookingId);
-    ensureBookingAccess(req.user, booking, 'cập nhật giờ trả phòng');
-
-    const { requestedCheckOutTime, notes } = req.body;
-    if (!requestedCheckOutTime) {
-      throw new HttpError(400, 'Vui lòng cung cấp giờ trả phòng dự kiến mới');
-    }
-
-    const result = await bookingService.updateBookingRequestedCheckOutTime(
-      bookingId,
-      { requestedCheckOutTime, notes },
-      req.user || null
-    );
-
-    res.json({
-      message: 'Đã cập nhật giờ trả phòng dự kiến thành công',
       data: result
     });
   } catch (error) {
@@ -210,24 +171,11 @@ const cancelBooking = async (req, res) => {
     const currentBooking = await bookingService.getBookingById(bookingId);
     ensureBookingAccess(req.user, currentBooking, 'hủy');
 
-    const isStaffOrAdmin = req.user?.role === 'admin' || req.user?.role === 'staff' || req.user?.role === 'employee';
-    const rawForce = req.body?.forceFullRefund;
-    const forceFullRefund = Boolean(
-      isStaffOrAdmin && (rawForce === true || rawForce === 'true' || rawForce === 1 || rawForce === '1')
-    );
-    const overrideReason = isStaffOrAdmin && forceFullRefund
-      ? String(req.body?.overrideReason || '').trim() || null
-      : null;
-
     const booking = await bookingService.cancelBooking(
       bookingId,
       req.body?.refund || null,
       req.body?.reason,
-      req.user || null,
-      {
-        forceFullRefund,
-        overrideReason,
-      }
+      req.user || null
     );
     res.json({
       message: 'Hủy đặt phòng thành công',
@@ -246,9 +194,7 @@ const getBookingHistory = async (req, res) => {
     const currentBooking = await bookingService.getBookingById(bookingId);
     ensureBookingAccess(req.user, currentBooking);
 
-    const history = await bookingService.getBookingHistory(bookingId, {
-      entityType: req.query.entityType ? String(req.query.entityType) : undefined
-    });
+    const history = await bookingService.getBookingHistory(bookingId);
     res.json({ data: history });
   } catch (error) {
     sendError(res, error);
@@ -257,17 +203,6 @@ const getBookingHistory = async (req, res) => {
 
 // Bảng kê tiền còn thiếu + thông tin dựng QR. Khách xem được đơn của mình để
 // tự thanh toán trong app; nhân viên xem được mọi đơn để thu tiền tại quầy.
-// Lịch sử thao tác của một phòng (dành cho nhân viên xem lại lịch sử phòng).
-const getRoomHistory = async (req, res) => {
-  try {
-    const roomId = normalizeIdParam(req.params.roomId, 'roomId');
-    const data = await bookingService.getRoomHistory(roomId);
-    res.json({ data });
-  } catch (error) {
-    sendError(res, error);
-  }
-};
-
 const getPaymentSummary = async (req, res) => {
   try {
     const bookingId = normalizeIdParam(req.params.id);
@@ -733,6 +668,19 @@ const reassignRoom = async (req, res) => {
 };
 
 
+const resetBookingHold = async (req, res) => {
+  try {
+    const bookingId = normalizeIdParam(req.params.id);
+    const result = await bookingService.resetBookingHold(bookingId, req.user || null);
+    res.json({
+      message: result.message || 'Gia hạn giữ phòng thành công',
+      data: result
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
 module.exports = {
   checkAvailability,
   checkTypeAvailability,
@@ -741,11 +689,11 @@ module.exports = {
   listMyBookings,
   getBookingById,
   getBookingHistory,
-  getRoomHistory,
   getPaymentSummary,
   requestOutstandingPayment,
   getRefundPreview,
   cancelBooking,
+  resetBookingHold,
   getBookingServices,
   addServiceCharge,
   updateServiceCharge,
@@ -764,7 +712,6 @@ module.exports = {
   checkOut,
   markNoShow,
   updateArrivalTime,
-  updateDepartureTime,
   processOverdue,
   listServiceRequests,
   confirmServiceRequest,

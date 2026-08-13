@@ -1,8 +1,8 @@
 const db = require('../config/db');
 const paymentModel = require('../models/paymentModel');
 const bookingModel = require('../models/bookingModel');
+const invoiceModel = require('../models/invoiceModel');
 const invoiceService = require('./invoiceService');
-const voucherService = require('./voucherService');
 const emailService = require('./emailService');
 const HttpError = require('../utils/httpError');
 const { formatPayment } = require('../utils/formatters');
@@ -60,11 +60,6 @@ const logBookingHistory = async (bookingId, action, description, extra, actor, c
       {
         action,
         description,
-        // Mọi mốc từ luồng thanh toán đều gắn vào nhóm 'payment' trừ khi nơi
-        // gọi chỉ định khác (VD phòng bị gỡ thì gắn vào phòng).
-        entityType: extra?.entityType || 'payment',
-        entityId: extra?.entityId,
-        entityLabel: extra?.entityLabel,
         oldValue: extra?.oldValue,
         newValue: extra?.newValue,
         amount: extra?.amount,
@@ -94,95 +89,40 @@ const createGatewayOrder = async (paymentId, { paymentMethod, amount, ipAddress 
   if (!['zalopay', 'vnpay'].includes(paymentMethod)) {
     throw new HttpError(400, 'Gateway payment method must be zalopay or vnpay');
   }
-  const connection = await db.getConnection();
-  let order;
-  try {
-    await connection.beginTransaction();
-    await bookingModel.expireUnpaidBookingHolds(connection);
-    const payment = await paymentModel.getPaymentById(paymentId, connection, true);
-    if (!payment) throw new HttpError(404, 'Payment not found');
-    if (payment.paymentStatus === 'paid' || payment.paymentStatus === 'refunded') {
-      throw new HttpError(409, 'Payment cannot be sent to gateway');
-    }
-    const booking = await bookingModel.getBookingById(payment.bookingId, connection, true);
-    if (!booking || booking.status === 'cancelled') {
-      throw new HttpError(409, 'Đặt phòng đã hết thời gian giữ chỗ, vui lòng đặt lại');
-    }
-
-    // Chặn ngay từ lúc mở phiên, đừng để khách sang tận trang cổng thanh toán
-    // rồi mới phát hiện phòng không còn.
-    const gatewayRooms = await bookingModel.listBookingRoomsStatus(booking.id, connection, true);
-    if (gatewayRooms.some((room) => Number(room.isDeleted) === 1 || room.status === 'maintenance')) {
-      throw new HttpError(409, ROOM_REMOVED_MESSAGE);
-    }
-
-    const remainingSeconds = Number(booking.hold_remaining_seconds || 0);
-    // Chừa vài giây cho thời gian ký request/gọi API nhưng vẫn truyền đúng
-    // mốc holdExpiresAt sang cổng, không tự ý kéo dài thời gian giữ phòng.
-    const minimumSeconds = paymentMethod === 'zalopay' ? 305 : 60;
-    if (remainingSeconds < minimumSeconds) {
-      throw new HttpError(
-        409,
-        paymentMethod === 'zalopay'
-          ? 'Cần còn ít nhất 5 phút giữ phòng để thanh toán bằng ZaloPay'
-          : 'Không còn đủ thời gian để khởi tạo giao dịch VNPay, vui lòng đặt lại phòng'
-      );
-    }
-
-    const payableAmount = Number(amount ?? payment.remainingAmount);
-    if (payableAmount <= 0 || payableAmount > Number(payment.remainingAmount)) {
-      throw new HttpError(400, 'Invalid gateway payment amount');
-    }
-    const orderId = paymentMethod === 'zalopay'
-      ? `${new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Ho_Chi_Minh' }).slice(2).replace(/-/g, '')}_${payment.id}_${Date.now()}`
-      : `${paymentMethod.toUpperCase()}-${payment.id}-${Date.now()}`;
-    const expiresAt = new Date(booking.hold_expires_at);
-
-    await paymentModel.createGatewayOrder({
-      paymentId: payment.id,
-      bookingId: payment.bookingId,
-      provider: paymentMethod,
-      orderId,
-      amount: payableAmount,
-      expiresAt
-    }, connection);
-    await paymentModel.updatePayment(payment.id, {
-      paymentMethod,
-      transactionCode: orderId,
-      paymentDate: null
-    }, connection);
-    await connection.commit();
-    order = { orderId, bookingId: payment.bookingId, payableAmount, expiresAt };
-  } catch (error) {
-    await connection.rollback();
-    throw error;
-  } finally {
-    connection.release();
+  await bookingModel.expireUnpaidBookingHolds();
+  const payment = await getPaymentById(paymentId);
+  if (payment.paymentStatus === 'paid' || payment.paymentStatus === 'refunded') {
+    throw new HttpError(409, 'Payment cannot be sent to gateway');
   }
-
+  const booking = await bookingModel.getBookingById(payment.bookingId);
+  if (!booking || booking.status === 'cancelled') {
+    throw new HttpError(409, 'Đặt phòng đã hết thời gian giữ chỗ hoặc đã bị hủy, vui lòng đặt lại phòng');
+  }
+  const payableAmount = Number(amount ?? payment.remainingAmount);
+  if (payableAmount <= 0 || payableAmount > Number(payment.remainingAmount)) {
+    throw new HttpError(400, 'Invalid gateway payment amount');
+  }
+  const orderId = paymentMethod === 'zalopay'
+    ? `${new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Ho_Chi_Minh' }).slice(2).replace(/-/g, '')}_${payment.id}_${Date.now()}`
+    : `${paymentMethod.toUpperCase()}-${payment.id}-${Date.now()}`;
+  const orderInfo = `Thanh toan booking ${payment.bookingId}`;
+  // paymentDate belongs to the previously completed installment. Clear it
+  // when opening a new gateway order so its callback is processed exactly once.
+  await paymentModel.updatePayment(payment.id, {
+    paymentMethod,
+    transactionCode: orderId,
+    paymentDate: null
+  });
   const gateway = require('./paymentGatewayService');
-  const orderInfo = `Thanh toan booking ${order.bookingId}`;
-  try {
-    const paymentUrl = paymentMethod === 'vnpay'
-      ? gateway.createVnpayUrl({
-        orderId: order.orderId,
-        amount: order.payableAmount,
-        orderInfo,
-        ipAddress,
-        expiresAt: order.expiresAt
-      })
-      : await gateway.createZalopayPayment({
-        orderId: order.orderId,
-        bookingId: order.bookingId,
-        amount: order.payableAmount,
-        orderInfo,
-        expiresAt: order.expiresAt
-      });
-    return { orderId: order.orderId, paymentUrl, expiresAt: order.expiresAt };
-  } catch (error) {
-    await paymentModel.updateGatewayOrderStatus(order.orderId, 'failed');
-    throw error;
-  }
+  const paymentUrl = paymentMethod === 'vnpay'
+    ? gateway.createVnpayUrl({ orderId, amount: payableAmount, orderInfo, ipAddress })
+    : await gateway.createZalopayPayment({
+      orderId,
+      bookingId: payment.bookingId,
+      amount: payableAmount,
+      orderInfo
+    });
+  return { orderId, paymentUrl };
 };
 
 const createPaymentForBooking = async (bookingId, options = {}, connection) => {
@@ -198,7 +138,7 @@ const createPaymentForBooking = async (bookingId, options = {}, connection) => {
 
   const occupancySurcharge = Number(booking.occupancy_surcharge || 0);
   const amounts = buildPaymentAmounts({
-    roomAmount: Math.max(Number(booking.room_total_price || 0) - occupancySurcharge, 0),
+    roomAmount: Math.max(Number(booking.total_price || 0) - occupancySurcharge, 0),
     serviceAmount: options.serviceAmount || 0,
     surchargeAmount: occupancySurcharge + Number(options.surchargeAmount || 0),
     discountAmount: options.discountAmount || 0,
@@ -250,7 +190,7 @@ const recalculatePaymentForBooking = async (bookingId, connection) => {
   }
 
   const guestSurcharge = Number(booking.occupancy_surcharge || 0);
-  const roomAmount = Math.max(Number(booking.room_total_price || 0) - guestSurcharge, 0);
+  const roomAmount = Math.max(Number(booking.total_price || 0) - guestSurcharge, 0);
   const serviceAmount = await bookingModel.sumBookingServices(bookingId, connection);
   const damageSurcharge = await bookingModel.sumDamageCharges(bookingId, connection);
   const lateCheckoutSurcharge = await bookingModel.sumLateCheckoutCharges(bookingId, connection);
@@ -279,6 +219,27 @@ const recalculatePaymentForBooking = async (bookingId, connection) => {
     connection
   );
 
+  try {
+    const existingInvoice = await invoiceModel.getInvoiceByBookingId(bookingId, connection);
+    if (existingInvoice) {
+      await invoiceModel.updateInvoiceAmounts(
+        existingInvoice.id,
+        {
+          paymentId: payment.id,
+          roomAmount,
+          serviceAmount,
+          surchargeAmount,
+          subtotal: roomAmount + serviceAmount + surchargeAmount,
+          discountAmount,
+          totalAmount
+        },
+        connection
+      );
+    }
+  } catch (invErr) {
+    console.warn('Sync invoice in recalculatePaymentForBooking warning:', invErr.message);
+  }
+
   const updatedPayment = await paymentModel.getPaymentById(payment.id, connection);
   return formatPayment(updatedPayment);
 };
@@ -296,8 +257,8 @@ const getPaymentById = async (paymentId) => {
   return formatPayment(payment);
 };
 
-const getPaymentByBookingId = async (bookingId, connection) => {
-  const payment = await paymentModel.getPaymentByBookingId(bookingId, connection);
+const getPaymentByBookingId = async (bookingId) => {
+  const payment = await paymentModel.getPaymentByBookingId(bookingId);
   if (!payment) {
     throw new HttpError(404, 'Không tìm thấy thanh toán của đặt phòng này');
   }
@@ -305,8 +266,6 @@ const getPaymentByBookingId = async (bookingId, connection) => {
 };
 
 const ROOM_TAKEN_MESSAGE = 'Phòng vừa được đặt bởi khách khác, vui lòng đặt phòng khác!';
-const ROOM_REMOVED_MESSAGE =
-  'Phòng này vừa được khách sạn ngừng khai thác nên không thể thanh toán. Vui lòng chọn phòng khác, chúng tôi rất xin lỗi vì sự bất tiện này.';
 
 const processPayment = async (paymentId, payload, actor = null) => {
   const connection = await db.getConnection();
@@ -343,20 +302,6 @@ const processPayment = async (paymentId, payload, actor = null) => {
     }
 
     await bookingModel.getRoomWithType(booking.room_id, connection, true);
-
-    // Phòng có thể bị khách sạn gỡ (xóa hoặc chuyển bảo trì) trong lúc khách
-    // đang ở màn hình thanh toán. Không kiểm tra ở đây thì khách trả tiền cho
-    // một phòng không còn tồn tại.
-    const bookingRooms = await bookingModel.listBookingRoomsStatus(booking.id, connection, true);
-    const removedRooms = bookingRooms.filter(
-      (room) => Number(room.isDeleted) === 1 || room.status === 'maintenance'
-    );
-
-    if (removedRooms.length > 0) {
-      throw new HttpError(409, ROOM_REMOVED_MESSAGE, {
-        removedRooms: removedRooms.map((room) => room.roomNumber)
-      });
-    }
 
     if (booking.status === 'cancelled') {
       const lostRace = await bookingModel.getSecuredConflictingBookings(
@@ -725,96 +670,14 @@ const refundPayment = async (paymentId, actor = null) => {
   }
 };
 
-// Tiền đã trừ của khách nhưng phòng lại vừa bị khách sạn gỡ. Không được từ
-// chối giao dịch (tiền đã đi rồi) và cũng không được giữ tiền: ghi nhận xong
-// thì hủy đơn, lập yêu cầu hoàn 100% và báo cho khách biết.
-// Lỗi thuộc về khách sạn nên hoàn toàn bộ, không áp chính sách hoàn theo ngày.
-const refundBecauseRoomRemoved = async (bookingId, payment, removedRooms) => {
-  const connection = await db.getConnection();
-
-  try {
-    await connection.beginTransaction();
-
-    const booking = await bookingModel.getBookingById(bookingId, connection, true);
-    const paidAmount = Number(payment.paidAmount || 0);
-    const roomLabel = removedRooms.map((room) => room.roomNumber).filter(Boolean).join(', ');
-
-    if (paidAmount > 0) {
-      await connection.query(
-        `
-          INSERT INTO payment_refunds
-            (paymentId, bookingId, amount, refundRate, paidAmount, refundMethod, status, note)
-          VALUES (?, ?, ?, 1, ?, 'bank_transfer', 'pending', ?)
-        `,
-        [
-          payment.id,
-          bookingId,
-          paidAmount,
-          paidAmount,
-          `Hoàn 100% do khách sạn ngừng khai thác phòng ${roomLabel} sau khi khách đã thanh toán`
-        ]
-      );
-    }
-
-    await bookingModel.updateBookingStatus(bookingId, 'cancelled', connection);
-    await connection.query(
-      'UPDATE bookings SET cancellation_reason = ? WHERE id = ?',
-      [`Khách sạn ngừng khai thác phòng ${roomLabel}`, bookingId]
-    );
-
-    await bookingModel.createCustomerNotification(
-      booking?.user_id,
-      'Đặt phòng bị hủy do phòng ngừng khai thác',
-      `Rất tiếc, phòng ${roomLabel} thuộc đặt phòng #${bookingId} vừa được khách sạn ngừng khai thác. ` +
-        `Đơn của bạn đã được hủy và toàn bộ ${money(paidAmount)} sẽ được hoàn lại. ` +
-        'Bộ phận lễ tân sẽ liên hệ với bạn để xác nhận thông tin nhận tiền.',
-      connection
-    );
-
-    await logBookingHistory(
-      bookingId,
-      'room_removed',
-      `Phòng ${roomLabel} bị gỡ sau khi khách đã thanh toán. Đã hủy đơn và lập yêu cầu hoàn 100% (${money(paidAmount)})`,
-      { entityType: 'room', entityLabel: roomLabel, amount: paidAmount },
-      null,
-      connection
-    );
-
-    await connection.commit();
-  } catch (error) {
-    await connection.rollback();
-    // Không ném lỗi ra ngoài: tiền của khách đã được ghi nhận thành công rồi,
-    // sự cố ở bước hoàn tiền phải được xử lý thủ công chứ không làm hỏng callback.
-    console.error('Tạo yêu cầu hoàn tiền do phòng bị gỡ thất bại:', error.message);
-  } finally {
-    connection.release();
-  }
-};
-
 const settleGatewayPayment = async ({ orderId, paymentMethod, amount }) => {
-  const gatewayOrder = await paymentModel.getGatewayOrder(orderId);
-  if (!gatewayOrder || gatewayOrder.provider !== paymentMethod) {
-    throw new HttpError(404, 'Gateway order not found');
-  }
-  if (gatewayOrder.status === 'paid') {
-    const settled = await paymentModel.getPaymentById(gatewayOrder.paymentId);
-    return formatPayment(settled);
-  }
-  if (gatewayOrder.status !== 'created') {
-    throw new HttpError(409, 'Gateway order is no longer active');
-  }
   const payment = await paymentModel.getPaymentByTransactionCode(orderId);
   if (!payment) throw new HttpError(404, 'Gateway order not found');
   // The other gateway notification may already have settled this exact order.
   if (payment.paymentDate) return formatPayment(payment);
   if (payment.paymentStatus === 'refunded') throw new HttpError(409, 'Payment was refunded');
   const paid = Number(amount);
-  if (
-    !Number.isFinite(paid)
-    || paid <= 0
-    || paid !== Number(gatewayOrder.amount)
-    || paid > Number(payment.remainingAmount)
-  ) {
+  if (!Number.isFinite(paid) || paid <= 0 || paid > Number(payment.remainingAmount)) {
     throw new HttpError(400, 'Gateway amount is invalid');
   }
 
@@ -827,51 +690,18 @@ const settleGatewayPayment = async ({ orderId, paymentMethod, amount }) => {
     gatewayOrderId: orderId,
     paymentMethod
   });
-  await paymentModel.updateGatewayOrderStatus(orderId, 'paid');
-
-  // Phòng có thể bị gỡ trong lúc khách đứng ở trang cổng thanh toán. Tới đây
-  // tiền đã vào rồi nên phải ghi nhận trước, sau đó mới hủy đơn và hoàn tiền.
-  const roomsStatus = await bookingModel.listBookingRoomsStatus(payment.bookingId);
-  const removedRooms = roomsStatus.filter(
-    (room) => Number(room.isDeleted) === 1 || room.status === 'maintenance'
-  );
-  if (removedRooms.length > 0) {
-    await refundBecauseRoomRemoved(payment.bookingId, result.payment, removedRooms);
-  }
-
   return result.payment;
-};
-
-const failGatewayOrder = async (orderId, status = 'failed') => {
-  if (!['failed', 'expired', 'cancelled'].includes(status)) return;
-  const order = await paymentModel.getGatewayOrder(orderId);
-  if (order?.status === 'created') {
-    await paymentModel.updateGatewayOrderStatus(orderId, status);
-  }
 };
 
 const submitTransferConfirmation = async (paymentId, payload, actor = null) => {
   const connection = await db.getConnection();
   try {
     await connection.beginTransaction();
-    await bookingModel.expireUnpaidBookingHolds(connection);
     const payment = await paymentModel.getPaymentById(paymentId, connection, true);
     if (!payment) throw new HttpError(404, 'Payment not found');
     if (payment.paymentStatus === 'paid' || payment.paymentStatus === 'refunded') {
       throw new HttpError(409, 'Payment cannot be submitted for verification');
     }
-    const booking = await bookingModel.getBookingById(payment.bookingId, connection, true);
-    if (!booking || booking.status === 'cancelled') {
-      throw new HttpError(409, 'Đặt phòng đã hết thời gian giữ chỗ, vui lòng đặt lại');
-    }
-
-    // Không nhận khai báo chuyển khoản cho phòng đã bị gỡ, nếu không lễ tân có
-    // thể duyệt nhầm và ghi nhận tiền cho một phòng không còn tồn tại.
-    const transferRooms = await bookingModel.listBookingRoomsStatus(booking.id, connection, true);
-    if (transferRooms.some((room) => Number(room.isDeleted) === 1 || room.status === 'maintenance')) {
-      throw new HttpError(409, ROOM_REMOVED_MESSAGE);
-    }
-
     if (payload.paymentMethod !== 'bank_transfer') {
       throw new HttpError(400, 'Only bank transfer can be manually verified');
     }
@@ -923,57 +753,6 @@ const confirmTransferPayment = async (paymentId, confirmedBy, actor = null) => {
   return result.payment;
 };
 
-// Thử một mã voucher mà KHÔNG ghi gì vào cơ sở dữ liệu, để khách xem trước
-// được giảm bao nhiêu trước khi quyết định áp.
-const previewVoucher = async (paymentId, code, actor) => {
-  const userId = typeof actor === 'object' ? actor?.userId : actor;
-  const userRole = typeof actor === 'object' ? actor?.role : 'customer';
-  const isStaffUser = ['admin', 'employee', 'staff', 'manager', 'receptionist'].includes(userRole);
-
-  const payment = await paymentModel.getPaymentById(paymentId);
-  if (!payment) throw new HttpError(404, 'Không tìm thấy thanh toán');
-
-  const booking = await bookingModel.getBookingById(payment.bookingId);
-  if (!booking) throw new HttpError(404, 'Không tìm thấy đặt phòng');
-  if (!isStaffUser && Number(booking.user_id) !== Number(userId)) {
-    throw new HttpError(403, 'Bạn không có quyền xem voucher của đặt phòng này');
-  }
-
-  const paidAmount = Number(payment.paidAmount || 0);
-  const subtotal = Number(payment.roomAmount || 0)
-    + Number(payment.serviceAmount || 0)
-    + Number(payment.surchargeAmount || 0);
-
-  const evaluation = await voucherService.evaluateVoucherForBooking({
-    code,
-    booking,
-    subtotal,
-    payableCeiling: Math.max(subtotal - paidAmount, 0),
-    userId,
-    userRole
-  });
-
-  return {
-    code: evaluation.voucher.code,
-    discountType: evaluation.voucher.discountType,
-    discountValue: Number(evaluation.voucher.discountValue),
-    maxDiscount: Number(evaluation.voucher.maxDiscount || 0),
-    minBookingAmount: Number(evaluation.voucher.minBookingAmount || 0),
-    validUntil: evaluation.voucher.endDate,
-    roomTypes: evaluation.allowedRoomTypes.map((item) => item.typeName),
-    subtotal,
-    paidAmount,
-    discountAmount: evaluation.discountAmount,
-    // Mức giảm gốc trước khi bị chặn bởi trần giảm hoặc số tiền còn phải trả,
-    // dùng để giải thích cho khách vì sao giảm ít hơn con số ghi trên voucher.
-    rawDiscount: evaluation.rawDiscount,
-    cappedByMaxDiscount: evaluation.cappedByMaxDiscount,
-    cappedByPayable: evaluation.cappedByPayable,
-    totalAfterDiscount: subtotal - evaluation.discountAmount,
-    remainingAfterDiscount: Math.max(subtotal - evaluation.discountAmount - paidAmount, 0)
-  };
-};
-
 const applyVoucher = async (paymentId, code, actor) => {
   const normalizedCode = String(code || '').trim().toUpperCase();
   if (!normalizedCode) throw new HttpError(400, 'Vui lòng nhập mã voucher');
@@ -1003,49 +782,55 @@ const applyVoucher = async (paymentId, code, actor) => {
     }
     if (booking.voucher_id || booking.voucherId) throw new HttpError(409, 'Đặt phòng đã áp dụng voucher');
 
-    // Voucher chỉ dùng ở lần thanh toán cuối (hoặc lúc trả phòng), không dùng
-    // để bớt tiền cọc giữ phòng. Cọc là khoản cam kết giữ phòng nên phải tính
-    // trên giá gốc; giảm giá được trừ vào phần thanh toán còn lại.
-    const hasPaidDeposit = Number(payment.paidAmount || 0) > 0;
-    const isAtCheckout = ['checked_in', 'checked_out'].includes(booking.status);
-    if (!hasPaidDeposit && !isAtCheckout) {
-      throw new HttpError(
-        409,
-        'Voucher chỉ được áp dụng ở lần thanh toán cuối. Vui lòng thanh toán tiền cọc giữ phòng trước, mã giảm giá sẽ được trừ vào số tiền còn lại.'
-      );
-    }
+    const [voucherRows] = await connection.query(
+      `SELECT * FROM vouchers
+       WHERE UPPER(code) = ? AND status = 'active'
+         AND startDate <= CURDATE() AND endDate >= CURDATE()
+       FOR UPDATE`,
+      [normalizedCode]
+    );
+    const voucher = voucherRows[0];
+    if (!voucher) throw new HttpError(404, 'Mã voucher không tồn tại hoặc đã hết hạn');
+    if (Number(voucher.quantity) <= 0) throw new HttpError(409, 'Voucher đã hết lượt sử dụng');
 
-    // Khóa dòng voucher trước khi kiểm tra để hai khách dùng cùng lúc không
-    // cùng trừ được một lượt cuối cùng.
-    await connection.query('SELECT id FROM vouchers WHERE UPPER(code) = ? FOR UPDATE', [
-      normalizedCode
-    ]);
+    const [assignmentRows] = await connection.query(
+      'SELECT id, userId, isUsed FROM customer_vouchers WHERE voucherId = ? FOR UPDATE',
+      [voucher.id]
+    );
+    const customerVoucher = assignmentRows.find((row) => Number(row.userId) === Number(userId));
+    if (assignmentRows.length > 0 && !customerVoucher && !isStaff) {
+      throw new HttpError(403, 'Voucher này dành riêng cho khách hàng khác');
+    }
+    if (customerVoucher?.isUsed) throw new HttpError(409, 'Voucher đã được sử dụng');
 
     const guestSurcharge = Number(booking.occupancy_surcharge || 0);
-    const roomAmount = Math.max(Number(booking.room_total_price || 0) - guestSurcharge, 0);
+    const roomAmount = Math.max(Number(booking.total_price || 0) - guestSurcharge, 0);
     const serviceAmount = await bookingModel.sumBookingServices(payment.bookingId, connection);
     const damageSurcharge = await bookingModel.sumDamageCharges(payment.bookingId, connection);
     const surchargeAmount = guestSurcharge + damageSurcharge;
     const subtotal = roomAmount + serviceAmount + surchargeAmount;
-    const paidAmount = Number(payment.paidAmount || 0);
 
-    // Giảm giá chỉ được trừ vào phần chưa trả. Phần khách đã đóng (tiền cọc)
-    // giữ nguyên, đúng nguyên tắc voucher không làm giảm tiền cọc.
-    const evaluation = await voucherService.evaluateVoucherForBooking(
-      {
-        code: normalizedCode,
-        booking,
-        subtotal,
-        payableCeiling: Math.max(subtotal - paidAmount, 0),
-        userId,
-        userRole
-      },
-      connection
-    );
+    if (subtotal < Number(voucher.minBookingAmount || 0)) {
+      throw new HttpError(
+        400,
+        `Đơn hàng tối thiểu để dùng voucher là ${Number(voucher.minBookingAmount).toLocaleString('vi-VN')}đ`
+      );
+    }
 
-    const { voucher, customerVoucher, discountAmount } = evaluation;
+    let discountAmount = voucher.discountType === 'percentage'
+      ? Math.round(subtotal * Number(voucher.discountValue) / 100)
+      : Math.round(Number(voucher.discountValue));
+    if (Number(voucher.maxDiscount) > 0) {
+      discountAmount = Math.min(discountAmount, Number(voucher.maxDiscount));
+    }
+    discountAmount = Math.min(Math.max(discountAmount, 0), subtotal);
+
     const totalAmount = subtotal - discountAmount;
-    const remainingAmount = Math.max(totalAmount - paidAmount, 0);
+    const paidAmount = Number(payment.paidAmount || 0);
+    if (totalAmount < paidAmount) {
+      throw new HttpError(409, 'Giá trị voucher vượt quá số tiền còn phải thanh toán');
+    }
+    const remainingAmount = totalAmount - paidAmount;
 
     const newPaymentStatus = remainingAmount <= 0
       ? 'paid'
@@ -1111,7 +896,6 @@ module.exports = {
   createPayment,
   createGatewayOrder,
   settleGatewayPayment,
-  failGatewayOrder,
   submitTransferConfirmation,
   confirmTransferPayment,
   recalculatePaymentForBooking,
@@ -1119,7 +903,6 @@ module.exports = {
   getPaymentById,
   getPaymentByBookingId,
   applyVoucher,
-  previewVoucher,
   processPayment,
   confirmPayment,
   refundPayment

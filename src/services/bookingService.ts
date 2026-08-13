@@ -52,11 +52,6 @@ export interface RefundPreview {
   daysBeforeCheckIn: number;
   refundRate: number;
   refundableAmount: number;
-  paidAmount?: number;
-  tierLabel?: string;
-  tier?: 'past_checkin' | 'under_3_days' | '3_to_7_days' | 'over_7_days' | 'full_override';
-  reason?: string;
-  forceFullRefund?: boolean;
 }
 
 export const getRefundPreview = async (id: number) => {
@@ -201,13 +196,20 @@ export const updateRequestedArrivalTime = async (
   });
 };
 
-export const updateRequestedDepartureTime = async (
-  id: number,
-  requestedCheckOutTime: string,
-  notes?: string
-) => {
-  return api.patch(`/bookings/${id}/departure-time`, {
-    requestedCheckOutTime,
-    notes
-  });
-};
+export interface ResetHoldResponse {
+  bookingId: number;
+  holdExpiresAt: string;
+  hold_expires_at: string;
+  holdResetCount: number;
+  hold_reset_count: number;
+  maxHoldResets: number;
+  max_hold_resets: number;
+  remainingResets: number;
+  holdRemainingSeconds: number;
+  canResetHold: boolean;
+  message: string;
+}
+
+export const resetBookingHold = async (bookingId: number) => {
+  return api.post(`/bookings/${bookingId}/reset-hold`) as Promise<{ message: string; data: ResetHoldResponse }>;
+};

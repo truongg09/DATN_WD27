@@ -34,12 +34,12 @@ const requireEnv = (keys, provider) => {
   if (missing.length) throw new HttpError(503, `${provider} Sandbox thiếu cấu hình: ${missing.join(', ')}`);
 };
 
-const createVnpayUrl = ({ orderId, amount, orderInfo, ipAddress, expiresAt }) => {
+const createVnpayUrl = ({ orderId, amount, orderInfo, ipAddress }) => {
   requireEnv(['VNPAY_TMN_CODE', 'VNPAY_HASH_SECRET'], 'VNPay');
   const stamp = (date) => date.toLocaleString('sv-SE', { timeZone: 'Asia/Ho_Chi_Minh', hour12: false }).replace(/[-: ]/g, '').slice(0, 14);
   const params = {
     vnp_Amount: Math.round(amount * 100), vnp_Command: 'pay', vnp_CreateDate: stamp(new Date()),
-    vnp_CurrCode: 'VND', vnp_ExpireDate: stamp(new Date(expiresAt)),
+    vnp_CurrCode: 'VND', vnp_ExpireDate: stamp(new Date(Date.now() + 15 * 60 * 1000)),
     vnp_IpAddr: normalizeVnpayIp(ipAddress), vnp_Locale: 'vn', vnp_OrderInfo: orderInfo,
     vnp_OrderType: 'other', vnp_ReturnUrl: `${API_BASE_URL}/api/payments/gateway/vnpay/return`,
     vnp_TmnCode: process.env.VNPAY_TMN_CODE, vnp_TxnRef: orderId, vnp_Version: '2.1.0'
@@ -58,7 +58,7 @@ const verifyVnpay = (query) => {
     && crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(received));
 };
 
-const createZalopayPayment = async ({ orderId, bookingId, amount, orderInfo, expiresAt }) => {
+const createZalopayPayment = async ({ orderId, bookingId, amount, orderInfo }) => {
   requireEnv(['ZALOPAY_APP_ID', 'ZALOPAY_KEY1'], 'ZaloPay');
   const appId = Number(process.env.ZALOPAY_APP_ID);
   if (!Number.isInteger(appId) || appId <= 0) {
@@ -72,10 +72,6 @@ const createZalopayPayment = async ({ orderId, bookingId, amount, orderInfo, exp
     return `${FRONTEND_URL}/booking/${bookingId}/payment/sandbox?method=zalopay&amount=${encodeURIComponent(Math.round(amount))}&txn=${encodeURIComponent(orderId)}`;
   }
   const appTime = Date.now();
-  const expireDurationSeconds = Math.floor((new Date(expiresAt).getTime() - appTime) / 1000);
-  if (expireDurationSeconds < 300) {
-    throw new HttpError(409, 'ZaloPay yêu cầu còn ít nhất 5 phút giữ phòng để tạo giao dịch');
-  }
   const appUser = process.env.ZALOPAY_APP_USER || 'HotelBooking';
   const embedData = JSON.stringify({
     preferred_payment_method: ['zalopay_wallet'],
@@ -97,7 +93,6 @@ const createZalopayPayment = async ({ orderId, bookingId, amount, orderInfo, exp
     app_user: appUser,
     app_trans_id: orderId,
     app_time: appTime,
-    expire_duration_seconds: expireDurationSeconds,
     amount: roundedAmount,
     description: orderInfo,
     callback_url: `${API_BASE_URL}/api/payments/gateway/zalopay/callback`,

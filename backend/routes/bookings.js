@@ -13,12 +13,11 @@ router.get('/me', requireAuth, bookingController.listMyBookings);
 router.get('/', requireAuth, bookingController.listBookings);
 router.get('/:id', requireAuth, bookingController.getBookingById);
 router.get('/:id/history', requireAuth, bookingController.getBookingHistory);
-// Lịch sử thao tác của một phòng, gộp từ mọi đơn từng dùng phòng đó
-router.get('/room-history/:roomId', requireAuth, requireStaff, bookingController.getRoomHistory);
 router.get('/:id/payment-summary', requireAuth, bookingController.getPaymentSummary);
 router.post('/:id/payment-request', requireAuth, requireStaff, bookingController.requestOutstandingPayment);
 router.get('/:id/refund-preview', requireAuth, bookingController.getRefundPreview);
 router.patch('/:id/cancel', requireAuth, bookingController.cancelBooking);
+router.post('/:id/reset-hold', requireAuth, bookingController.resetBookingHold);
 router.post('/:id/guests', requireAuth, requireStaff, bookingController.saveGuestIdentities);
 // Khách (chủ booking) hoặc nhân viên thao tác dịch vụ/phí phát sinh trên booking
 router.get('/:id/services', requireAuth, bookingController.getBookingServices);
@@ -38,7 +37,6 @@ router.patch('/:id/transfer-room', requireAuth, requireStaff, bookingController.
 router.patch('/:id/check-in', requireAuth, requireStaff, bookingController.checkIn);
 router.patch('/:id/check-out', requireAuth, requireStaff, bookingController.checkOut);
 router.patch('/:id/arrival-time', requireAuth, bookingController.updateArrivalTime);
-router.patch('/:id/departure-time', requireAuth, bookingController.updateDepartureTime);
 router.post('/process-overdue', requireAuth, bookingController.processOverdue);
 router.patch('/:id/reassign-room', requireAuth, requireStaff, bookingController.reassignRoom);
 
