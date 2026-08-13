@@ -31,6 +31,7 @@ import {
   IdcardOutlined,
   PlusCircleOutlined,
   QrcodeOutlined,
+  StopOutlined,
   RollbackOutlined,
   SwapOutlined,
   ToolOutlined,
@@ -305,6 +306,11 @@ const actionMeta: Record<
     label: "Khách báo đã chuyển khoản",
     color: "gold",
     icon: <QrcodeOutlined />,
+  },
+  room_removed: {
+    label: "Phòng bị gỡ khỏi hệ thống",
+    color: "volcano",
+    icon: <StopOutlined />,
   },
   refund: { label: "Hoàn tiền", color: "red", icon: <RollbackOutlined /> },
   refund_approved: {

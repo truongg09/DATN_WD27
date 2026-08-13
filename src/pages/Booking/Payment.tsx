@@ -106,6 +106,9 @@ const PaymentPage: React.FC = () => {
   const [paymentAmountMode, setPaymentAmountMode] = useState<'deposit' | 'full'>('deposit');
   const [holdRemainingMs, setHoldRemainingMs] = useState(0);
   const [roomTakenError, setRoomTakenError] = useState(false);
+  // Phòng bị khách sạn ngừng khai thác là tình huống khác hẳn việc bị khách
+  // khác đặt mất, nên phải báo riêng để khách không hiểu nhầm là mình chậm tay.
+  const [roomRemovedError, setRoomRemovedError] = useState(false);
   const [qrModalOpen, setQrModalOpen] = useState(false);
   const [voucherCode, setVoucherCode] = useState('');
   const [applyingVoucher, setApplyingVoucher] = useState(false);
@@ -305,6 +308,7 @@ const PaymentPage: React.FC = () => {
 
     setSubmitting(true);
     setRoomTakenError(false);
+    setRoomRemovedError(false);
     try {
       const result = await processPayment(payment.id, { paymentMethod, amount: paymentAmount });
 
@@ -324,7 +328,9 @@ const PaymentPage: React.FC = () => {
       const err = error as { response?: { data?: { message?: string } } };
       const errorMessage = err.response?.data?.message || 'Thanh toán thất bại';
       const isRoomTaken = errorMessage.includes('Phòng vừa được đặt bởi khách khác');
+      const isRoomRemoved = errorMessage.includes('ngừng khai thác');
       setRoomTakenError(isRoomTaken);
+      setRoomRemovedError(isRoomRemoved);
       setQrModalOpen(false);
       message.error(errorMessage);
     } finally {
@@ -414,6 +420,21 @@ const PaymentPage: React.FC = () => {
       </div>
 
       <div className="payment-container">
+        {roomRemovedError && (
+          <Alert
+            className="payment-alert"
+            type="error"
+            showIcon
+            message="Phòng này đã ngừng khai thác"
+            description="Khách sạn vừa ngừng khai thác phòng bạn chọn nên không thể tiếp tục thanh toán. Nếu bạn đã bị trừ tiền, khoản tiền sẽ được hoàn lại đầy đủ và lễ tân sẽ liên hệ với bạn."
+            action={
+              <Button size="small" type="primary" onClick={() => navigate('/booking')}>
+                Chọn phòng khác
+              </Button>
+            }
+          />
+        )}
+
         {roomTakenError && (
           <Alert
             className="payment-alert"
