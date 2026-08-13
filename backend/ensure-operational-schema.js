@@ -491,6 +491,23 @@ const ensureOperationalSchema = async () => {
     )
   `);
 
+  // Luồng đặt nhiều hạng phòng đọc booking_details.roomTypeId nhưng cột này
+  // chưa từng được tạo, khiến check-out và phát hành hóa đơn văng lỗi SQL.
+  // Tạo cột rồi lấp dữ liệu cũ theo hạng phòng của chính phòng đã đặt.
+  const [bookingDetailTables2] = await db.query('SHOW TABLES LIKE "booking_details"');
+  if (bookingDetailTables2.length > 0) {
+    const [detailColumns] = await db.query('DESCRIBE booking_details');
+    if (!detailColumns.some((column) => column.Field === 'roomTypeId')) {
+      await db.query('ALTER TABLE booking_details ADD COLUMN roomTypeId INT NULL AFTER roomId');
+    }
+    await db.query(`
+      UPDATE booking_details bd
+      JOIN rooms r ON r.id = bd.roomId
+      SET bd.roomTypeId = r.roomTypeId
+      WHERE bd.roomTypeId IS NULL
+    `);
+  }
+
   // Liên kết mỗi mốc lịch sử với đối tượng bị tác động (phòng, dịch vụ, phí
   // phát sinh, thanh toán...). Nhờ vậy trang chi tiết lọc được lịch sử theo
   // từng mảng thay vì chỉ xem một dòng thời gian chung.
