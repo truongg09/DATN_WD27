@@ -16,14 +16,33 @@ import {
   Col,
   Descriptions,
   Divider,
-  Tooltip
+  DatePicker,
+  Tooltip,
+  Radio
 } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined, DownOutlined, EyeOutlined } from '@ant-design/icons';
+import {
+  PlusOutlined,
+  EditOutlined,
+  DeleteOutlined,
+  ReloadOutlined,
+  DownOutlined,
+  EyeOutlined,
+  DollarCircleOutlined
+} from '@ant-design/icons';
+import dayjs from 'dayjs';
 import axios from 'axios';
 import api from '../../services/api';
+import {
+  getRoomPrices,
+  createRoomPrice,
+  updateRoomPrice,
+  deleteRoomPrice
+} from '../../services/roomService';
+import type { RoomPriceRule } from '../../services/roomService';
 
 const { TextArea } = Input;
 const { Option } = Select;
+const { RangePicker } = DatePicker;
 
 interface RoomType {
   id: number;
@@ -62,6 +81,15 @@ function RoomTypeManagement() {
   const [selectedType, setSelectedType] = useState<RoomType | null>(null);
   const [form] = Form.useForm();
   const [searchText, setSearchText] = useState('');
+
+  // ── State quản lý giá theo ngày lễ / cuối tuần / ngày thường ──
+  const [pricingModalVisible, setPricingModalVisible] = useState(false);
+  const [priceRules, setPriceRules] = useState<RoomPriceRule[]>([]);
+  const [priceLoading, setPriceLoading] = useState(false);
+  const [selectedTypeIdForPrice, setSelectedTypeIdForPrice] = useState<number | null>(null);
+  const [editingPriceRule, setEditingPriceRule] = useState<RoomPriceRule | null>(null);
+  const [priceRuleFormVisible, setPriceRuleFormVisible] = useState(false);
+  const [priceForm] = Form.useForm();
 
   const totalTypes = roomTypes.length;
   const activeTypes = roomTypes.filter(t => t.status === 'active' || !t.status).length;
@@ -176,6 +204,87 @@ function RoomTypeManagement() {
     fetchRoomTypes();
     fetchAmenities();
   }, []);
+
+  const fetchPriceRules = async (typeId?: number | null) => {
+    setPriceLoading(true);
+    try {
+      const res = await getRoomPrices(typeId ? { roomTypeId: typeId } : undefined);
+      setPriceRules(res.data?.data || []);
+    } catch {
+      message.error('Không thể tải danh sách bảng giá');
+    } finally {
+      setPriceLoading(false);
+    }
+  };
+
+  const handleOpenPricingModal = (typeRecord?: RoomType) => {
+    const targetId = typeRecord ? typeRecord.id : null;
+    setSelectedTypeIdForPrice(targetId);
+    setPricingModalVisible(true);
+    fetchPriceRules(targetId);
+  };
+
+  const handleOpenAddPriceRule = () => {
+    setEditingPriceRule(null);
+    priceForm.resetFields();
+    priceForm.setFieldsValue({
+      roomTypeId: selectedTypeIdForPrice || (roomTypes.length > 0 ? roomTypes[0].id : undefined),
+      priceType: 'weekend',
+      dateRange: [dayjs().startOf('year'), dayjs().endOf('year')],
+      price: 600000,
+      note: 'Giá cuối tuần (Thứ 7 & Chủ nhật)'
+    });
+    setPriceRuleFormVisible(true);
+  };
+
+  const handleOpenEditPriceRule = (rule: RoomPriceRule) => {
+    setEditingPriceRule(rule);
+    priceForm.setFieldsValue({
+      roomTypeId: rule.roomTypeId,
+      priceType: rule.priceType,
+      dateRange: [dayjs(rule.startDate), dayjs(rule.endDate)],
+      price: rule.price,
+      note: rule.note
+    });
+    setPriceRuleFormVisible(true);
+  };
+
+  const handleSavePriceRule = async () => {
+    try {
+      const values = await priceForm.validateFields();
+      const payload: Partial<RoomPriceRule> = {
+        roomTypeId: values.roomTypeId || null,
+        priceType: values.priceType,
+        startDate: values.dateRange[0].format('YYYY-MM-DD'),
+        endDate: values.dateRange[1].format('YYYY-MM-DD'),
+        price: Number(values.price),
+        note: values.note ? String(values.note).trim() : null
+      };
+
+      if (editingPriceRule) {
+        await updateRoomPrice(editingPriceRule.id, payload);
+        message.success('Cập nhật quy tắc giá thành công!');
+      } else {
+        await createRoomPrice(payload);
+        message.success('Thêm quy tắc giá thành công!');
+      }
+      setPriceRuleFormVisible(false);
+      fetchPriceRules(selectedTypeIdForPrice);
+    } catch (err: any) {
+      if (err.errorFields) return;
+      message.error(err.response?.data?.message || 'Có lỗi xảy ra khi lưu bảng giá');
+    }
+  };
+
+  const handleDeletePriceRule = async (id: number) => {
+    try {
+      await deleteRoomPrice(id);
+      message.success('Đã xóa quy tắc giá');
+      fetchPriceRules(selectedTypeIdForPrice);
+    } catch {
+      message.error('Không thể xóa quy tắc giá');
+    }
+  };
 
   const handleAdd = () => {
     setEditingType(null);
@@ -351,9 +460,7 @@ function RoomTypeManagement() {
       dataIndex: 'defaultPrice',
       key: 'defaultPrice',
       sorter: (a: RoomType, b: RoomType) => (parseFloat(a.defaultPrice as string) || 0) - (parseFloat(b.defaultPrice as string) || 0),
-      render: (price: string | number) => (
-        <span style={{ whiteSpace: 'nowrap', fontWeight: 600 }}>{formatPrice(price)}</span>
-      )
+      render: (price: string | number) => formatPrice(price)
     },
     {
       title: 'Trạng thái',
@@ -388,15 +495,23 @@ function RoomTypeManagement() {
     {
       title: 'Thao tác',
       key: 'actions',
-      width: 150,
+      width: 200,
       render: (_: unknown, record: RoomType) => (
-        <Space size={[4, 4]} wrap>
+        <Space>
           <Tooltip title="Xem chi tiết hạng phòng">
             <Button
               type="primary"
               icon={<EyeOutlined style={{ color: 'white' }} />}
               size="small"
               onClick={() => handleViewDetail(record)}
+            />
+          </Tooltip>
+          <Tooltip title="Cấu hình bảng giá (Lễ / Chủ nhật / Ngày thường)">
+            <Button
+              style={{ backgroundColor: '#f59e0b', color: '#fff', borderColor: '#f59e0b' }}
+              icon={<DollarCircleOutlined />}
+              size="small"
+              onClick={() => handleOpenPricingModal(record)}
             />
           </Tooltip>
           <Tooltip title="Chỉnh sửa hạng phòng">
@@ -414,18 +529,16 @@ function RoomTypeManagement() {
             okText="Xóa"
             cancelText="Hủy"
           >
-            <Tooltip title="Xóa hạng phòng">
-              <Button
-                type="primary"
-                danger
-                icon={<DeleteOutlined />}
-                size="small"
-              />
-            </Tooltip>
+            <Button
+              type="primary"
+              danger
+              icon={<DeleteOutlined />}
+              size="small"
+            />
           </Popconfirm>
         </Space>
       ),
-    },
+    }
   ];
 
   return (
@@ -435,6 +548,13 @@ function RoomTypeManagement() {
         <Space>
           <Button icon={<ReloadOutlined />} onClick={fetchRoomTypes} loading={loading}>
             Tải lại
+          </Button>
+          <Button
+            style={{ backgroundColor: '#f59e0b', color: '#fff', borderColor: '#f59e0b' }}
+            icon={<DollarCircleOutlined />}
+            onClick={() => handleOpenPricingModal()}
+          >
+            Bảng giá Lễ & Chủ nhật
           </Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
             Thêm hạng phòng
@@ -870,6 +990,217 @@ function RoomTypeManagement() {
             </div>
           );
         })()}
+      </Modal>
+
+      {/* ── MODAL QUẢN LÝ BẢNG GIÁ THEO NGÀY LỄ / CHỦ NHẬT / NGÀY THƯỜNG ── */}
+      <Modal
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <DollarCircleOutlined style={{ color: '#f59e0b', fontSize: 20 }} />
+            <span>
+              Cấu hình Bảng giá Ngày lễ, Chủ nhật & Ngày thường{' '}
+              {selectedTypeIdForPrice
+                ? `(Hạng phòng: ${roomTypes.find((t) => t.id === selectedTypeIdForPrice)?.typeName || ''})`
+                : '(Tất cả hạng phòng)'}
+            </span>
+          </div>
+        }
+        open={pricingModalVisible}
+        onCancel={() => setPricingModalVisible(false)}
+        footer={[
+          <Button key="close" onClick={() => setPricingModalVisible(false)}>
+            Đóng
+          </Button>,
+        ]}
+        width={900}
+        destroyOnHidden
+      >
+        <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+          <Space>
+            <span>Lọc theo hạng phòng:</span>
+            <Select
+              style={{ width: 220 }}
+              value={selectedTypeIdForPrice}
+              onChange={(val) => {
+                setSelectedTypeIdForPrice(val);
+                fetchPriceRules(val);
+              }}
+              allowClear
+              placeholder="Tất cả hạng phòng"
+            >
+              {roomTypes.map((t) => (
+                <Option key={t.id} value={t.id}>
+                  {t.typeName} (Gốc: {formatPrice(t.defaultPrice)})
+                </Option>
+              ))}
+            </Select>
+            <Button icon={<ReloadOutlined />} onClick={() => fetchPriceRules(selectedTypeIdForPrice)} loading={priceLoading}>
+              Làm mới
+            </Button>
+          </Space>
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            style={{ backgroundColor: '#f59e0b', borderColor: '#f59e0b' }}
+            onClick={handleOpenAddPriceRule}
+          >
+            Thêm quy tắc giá
+          </Button>
+        </div>
+
+        <Table<RoomPriceRule>
+          dataSource={priceRules}
+          rowKey="id"
+          loading={priceLoading}
+          pagination={{ pageSize: 8 }}
+          columns={[
+            {
+              title: 'Hạng phòng',
+              dataIndex: 'roomTypeName',
+              key: 'roomTypeName',
+              render: (name: string, record) => (
+                <strong>{name || (record.roomTypeId ? `Hạng #${record.roomTypeId}` : 'Tất cả hạng')}</strong>
+              ),
+            },
+            {
+              title: 'Loại áp dụng',
+              dataIndex: 'priceType',
+              key: 'priceType',
+              render: (type: string) => {
+                if (type === 'holiday') return <Tag color="red">Dịp lễ</Tag>;
+                if (type === 'weekend') return <Tag color="purple">Cuối tuần (Thứ 7 & CN)</Tag>;
+                if (type === 'saturday') return <Tag color="magenta">Thứ 7</Tag>;
+                if (type === 'sunday') return <Tag color="orange">Chủ nhật</Tag>;
+                if (type === 'season' || type === 'special') return <Tag color="cyan">Mùa / Sự kiện</Tag>;
+                return <Tag color="blue">Ngày thường</Tag>;
+              },
+            },
+            {
+              title: 'Thời gian áp dụng',
+              key: 'period',
+              render: (_: unknown, row: RoomPriceRule) => (
+                <span>
+                  {dayjs(row.startDate).format('DD/MM/YYYY')} - {dayjs(row.endDate).format('DD/MM/YYYY')}
+                </span>
+              ),
+            },
+            {
+              title: 'Đơn giá / đêm',
+              dataIndex: 'price',
+              key: 'price',
+              render: (price: number) => <strong style={{ color: '#047857' }}>{formatPrice(price)}</strong>,
+            },
+            {
+              title: 'Ghi chú',
+              dataIndex: 'note',
+              key: 'note',
+              render: (note?: string | null) => note || <span style={{ color: '#aaa' }}>—</span>,
+            },
+            {
+              title: 'Thao tác',
+              key: 'action',
+              width: 110,
+              render: (_: unknown, row: RoomPriceRule) => (
+                <Space size="small">
+                  <Button type="link" size="small" icon={<EditOutlined />} onClick={() => handleOpenEditPriceRule(row)} />
+                  <Popconfirm
+                    title="Xác nhận xóa quy tắc giá này?"
+                    onConfirm={() => handleDeletePriceRule(row.id)}
+                    okText="Xóa"
+                    cancelText="Hủy"
+                  >
+                    <Button type="link" size="small" danger icon={<DeleteOutlined />} />
+                  </Popconfirm>
+                </Space>
+              ),
+            },
+          ]}
+        />
+      </Modal>
+
+      {/* ── MODAL THÊM / SỬA QUY TẮC GIÁ ── */}
+      <Modal
+        title={editingPriceRule ? 'Sửa quy tắc giá' : 'Thêm quy tắc giá mới'}
+        open={priceRuleFormVisible}
+        onCancel={() => setPriceRuleFormVisible(false)}
+        onOk={handleSavePriceRule}
+        okText="Lưu quy tắc"
+        cancelText="Hủy"
+        destroyOnHidden
+        width={550}
+      >
+        <Form form={priceForm} layout="vertical">
+          <Form.Item
+            name="roomTypeId"
+            label="Hạng phòng áp dụng"
+            rules={[{ required: true, message: 'Vui lòng chọn hạng phòng!' }]}
+          >
+            <Select placeholder="Chọn hạng phòng">
+              {roomTypes.map((t) => (
+                <Option key={t.id} value={t.id}>
+                  {t.typeName} (Giá gốc: {formatPrice(t.defaultPrice)}/đêm)
+                </Option>
+              ))}
+            </Select>
+          </Form.Item>
+
+          <Form.Item
+            name="priceType"
+            label="Loại quy tắc giá"
+            rules={[{ required: true, message: 'Vui lòng chọn loại giá!' }]}
+          >
+            <Radio.Group style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <Radio value="holiday">
+                <Tag color="red">Dịp lễ</Tag> (Áp dụng ưu tiên cao nhất cho tất cả các ngày trong khoảng ngày lễ)
+              </Radio>
+              <Radio value="weekend">
+                <Tag color="purple">Cuối tuần (Thứ 7 & Chủ nhật)</Tag> (Áp dụng cho cả đêm Thứ 7 và Chủ nhật)
+              </Radio>
+              <Radio value="saturday">
+                <Tag color="magenta">Thứ 7</Tag> (Chỉ áp dụng riêng cho đêm Thứ 7)
+              </Radio>
+              <Radio value="sunday">
+                <Tag color="orange">Chủ nhật</Tag> (Chỉ áp dụng riêng cho đêm Chủ nhật)
+              </Radio>
+              <Radio value="normal">
+                <Tag color="blue">Ngày thường</Tag> (Áp dụng cho các ngày trong tuần từ Thứ 2 đến Thứ 6)
+              </Radio>
+              <Radio value="season">
+                <Tag color="cyan">Mùa vụ / Sự kiện</Tag> (Áp dụng cho toàn bộ giai đoạn sự kiện)
+              </Radio>
+            </Radio.Group>
+          </Form.Item>
+
+          <Form.Item
+            name="dateRange"
+            label="Khoảng thời gian hiệu lực"
+            rules={[{ required: true, message: 'Vui lòng chọn khoảng thời gian!' }]}
+          >
+            <RangePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
+          </Form.Item>
+
+          <Form.Item
+            name="price"
+            label="Đơn giá áp dụng (VNĐ / đêm)"
+            rules={[
+              { required: true, message: 'Vui lòng nhập đơn giá!' },
+              { type: 'number', min: 0, message: 'Giá không được nhỏ hơn 0!' },
+            ]}
+          >
+            <InputNumber
+              min={0}
+              step={50000}
+              style={{ width: '100%' }}
+              formatter={(value) => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+              parser={(value) => (value ? value.replace(/\$\s?|(,*)/g, '') : '') as any}
+              addonAfter="VNĐ"
+            />
+          </Form.Item>
+
+          <Form.Item name="note" label="Ghi chú / Tên dịp (ví dụ: Dịp 30/4 - 1/5, Quốc khánh 2/9, Giá cuối tuần...)">
+            <Input placeholder="Nhập ghi chú cho mức giá này" />
+          </Form.Item>
+        </Form>
       </Modal>
     </Card>
   );

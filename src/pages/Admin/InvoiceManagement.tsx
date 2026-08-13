@@ -4,7 +4,6 @@ import { EyeOutlined, PrinterOutlined, ReloadOutlined, SearchOutlined } from '@a
 import dayjs, { type Dayjs } from 'dayjs';
 import { getInvoices } from '../../services/invoiceService';
 import type { Invoice, InvoiceStatus } from '../../types/invoice';
-import { renderRoomTypesSummaryText, getBookingTotalRoomCount } from '../../utils/bookingUtils';
 import { unwrapList } from '../../utils/unwrapList';
 import './InvoiceManagement.css';
 
@@ -63,31 +62,7 @@ function InvoiceManagement() {
   const columns = [
     { title: 'Mã hóa đơn', dataIndex: 'invoiceNumber', key: 'invoiceNumber', width: 175, render: (value: string) => <Typography.Text strong copyable>{value}</Typography.Text> },
     { title: 'Khách hàng', key: 'customer', render: (_: unknown, invoice: Invoice) => <div className="invoice-cell"><strong>{invoice.customerName || 'Khách lẻ'}</strong><span>{invoice.customerEmail || invoice.customerPhone || 'Chưa có liên hệ'}</span></div> },
-    {
-      title: 'Đặt phòng',
-      key: 'booking',
-      width: 195,
-      render: (_: unknown, invoice: Invoice) => {
-        const typeSubtitle = renderRoomTypesSummaryText(invoice);
-        return (
-          <div className="invoice-cell">
-            <strong>#{invoice.bookingId}</strong>
-            <span style={{ fontSize: '12px', color: '#667085', fontWeight: 600 }}>{typeSubtitle}</span>
-            {invoice.booking_rooms && invoice.booking_rooms.length > 0 ? (
-              <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '2px' }}>
-                {invoice.booking_rooms.map((r) => (
-                  <Tag key={r.id || r.number} color="blue" style={{ margin: 0, fontSize: '11px', padding: '0 4px', lineHeight: '18px' }}>
-                    {r.number}
-                  </Tag>
-                ))}
-              </div>
-            ) : (
-              <span style={{ fontSize: '12px', color: '#667085' }}>Phòng {invoice.roomNumber || 'Chưa xếp'}</span>
-            )}
-          </div>
-        );
-      }
-    },
+    { title: 'Đặt phòng', key: 'booking', width: 145, render: (_: unknown, invoice: Invoice) => <div className="invoice-cell"><strong>#{invoice.bookingId}</strong><span>Phòng {invoice.roomNumber || 'Chưa xếp'}</span></div> },
     { title: 'Ngày phát hành', dataIndex: 'issuedAt', key: 'issuedAt', width: 165, sorter: (a: Invoice, b: Invoice) => dayjs(a.issuedAt).valueOf() - dayjs(b.issuedAt).valueOf(), render: formatDateTime },
     { title: 'Tổng tiền', dataIndex: 'totalAmount', key: 'totalAmount', width: 165, align: 'right' as const, sorter: (a: Invoice, b: Invoice) => a.totalAmount - b.totalAmount, render: (value: number) => <strong className="invoice-total">{formatCurrency(value)}</strong> },
     { title: 'Trạng thái', dataIndex: 'status', key: 'status', width: 135, render: (value: InvoiceStatus) => { const meta = STATUS_META[value] || { label: value, color: 'default' }; return <Tag color={meta.color}>{meta.label}</Tag>; } },
@@ -113,167 +88,199 @@ function InvoiceManagement() {
   </div>;
 }
 
-const PAYMENT_STATUS_META: Record<string, { label: string; color: string }> = {
-  unpaid: { label: 'Chưa thanh toán', color: 'orange' },
-  deposit_paid: { label: 'Đã đặt cọc', color: 'blue' },
-  paid: { label: 'Đã thanh toán', color: 'green' },
-  refunded: { label: 'Đã hoàn tiền', color: 'red' },
-};
-
 function InvoiceDetail({ invoice }: { invoice: Invoice }) {
   const status = STATUS_META[invoice.status] || { label: invoice.status, color: 'default' };
-  const payMeta = invoice.paymentStatus ? PAYMENT_STATUS_META[invoice.paymentStatus] : null;
+  const breakdown = invoice.breakdown;
+  const nightlyPrices = invoice.nightlyPrices || [];
+  const transfers = invoice.transfers || [];
+  const damages = invoice.damages || [];
 
-  const checkInDate = dayjs(invoice.checkIn);
-  const checkOutDate = dayjs(invoice.checkOut);
-  const nights = Math.max(checkOutDate.diff(checkInDate, 'day'), 1);
-
-  const overpaid = Math.max((invoice.paidAmount || 0) - invoice.totalAmount, 0);
-
-  return <div className="invoice-print-sheet">
-    <div className="invoice-document-header">
-      <div>
-        <Typography.Title level={3}>HotelHub</Typography.Title>
-        <Typography.Text type="secondary">Hóa đơn dịch vụ lưu trú</Typography.Text>
-      </div>
-      <div className="invoice-document-code">
-        <strong>{invoice.invoiceNumber}</strong>
-        <span>{formatDateTime(invoice.issuedAt)}</span>
-        <div style={{ display: 'flex', gap: 6, marginTop: 4, justifyContent: 'flex-end' }}>
-          <Tag color={status.color}>Hóa đơn: {status.label}</Tag>
-          {payMeta && <Tag color={payMeta.color}>Thanh toán: {payMeta.label}</Tag>}
+  return (
+    <div className="invoice-print-sheet">
+      <div className="invoice-document-header">
+        <div>
+          <Typography.Title level={3} style={{ margin: 0 }}>
+            HotelHub
+          </Typography.Title>
+          <Typography.Text type="secondary">Hóa đơn dịch vụ lưu trú & Chi tiết thanh toán</Typography.Text>
+        </div>
+        <div className="invoice-document-code">
+          <strong>{invoice.invoiceNumber}</strong>
+          <span>{formatDateTime(invoice.issuedAt)}</span>
+          <Tag color={status.color}>{status.label}</Tag>
         </div>
       </div>
-    </div>
 
-    <Descriptions bordered column={{ xs: 1, sm: 2 }} size="small">
-      <Descriptions.Item label="Khách hàng">{invoice.customerName || 'Khách lẻ'}</Descriptions.Item>
-      <Descriptions.Item label="Booking">#{invoice.bookingId}</Descriptions.Item>
-      <Descriptions.Item label="Email">{invoice.customerEmail || 'Chưa cập nhật'}</Descriptions.Item>
-      <Descriptions.Item label="Điện thoại">{invoice.customerPhone || 'Chưa cập nhật'}</Descriptions.Item>
-      <Descriptions.Item label="Hạng phòng">{renderRoomTypesSummaryText(invoice)}</Descriptions.Item>
-      <Descriptions.Item label="Phòng thực tế">
-        {(() => {
-          const summaryList = (invoice.roomTypesSummary && invoice.roomTypesSummary.length > 0)
-            ? invoice.roomTypesSummary
-            : [
-                {
-                  typeName: invoice.roomTypeName || 'Chưa cập nhật',
-                  quantity: getBookingTotalRoomCount(invoice),
-                }
-              ];
-          const roomsList = invoice.booking_rooms || [];
-          return (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {summaryList.map((s, idx) => {
-                const matchingRooms = roomsList.filter(
-                  (r) => (s.roomTypeId && Number(r.roomTypeId) === Number(s.roomTypeId)) || r.typeName === s.typeName
-                );
-                return (
-                  <div key={s.roomTypeId || idx}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: '#1f1f1f' }}>
-                      {s.typeName} ×{s.quantity} {s.roomPrice ? `(${formatCurrency(s.roomPrice)}/đêm)` : ''}
-                    </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 2 }}>
-                      {matchingRooms.length > 0 ? (
-                        matchingRooms.map((r, rIdx) => (
-                          <Tag key={r.id || rIdx} color="blue" style={{ margin: 0 }}>
-                            Phòng {r.number}
-                          </Tag>
-                        ))
-                      ) : roomsList.length > 0 && idx === 0 ? (
-                        roomsList.map((r, rIdx) => (
-                          <Tag key={r.id || rIdx} color="blue" style={{ margin: 0 }}>
-                            Phòng {r.number}
-                          </Tag>
-                        ))
-                      ) : (
-                        <span style={{ fontSize: 12, color: '#888' }}>Chưa xếp phòng</span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+      <Descriptions bordered column={{ xs: 1, sm: 2 }} size="small" style={{ marginBottom: 16 }}>
+        <Descriptions.Item label="Khách hàng">{invoice.customerName || 'Khách lẻ'}</Descriptions.Item>
+        <Descriptions.Item label="Mã Đặt phòng">#{invoice.bookingId}</Descriptions.Item>
+        <Descriptions.Item label="Email">{invoice.customerEmail || 'Chưa cập nhật'}</Descriptions.Item>
+        <Descriptions.Item label="Điện thoại">{invoice.customerPhone || 'Chưa cập nhật'}</Descriptions.Item>
+        <Descriptions.Item label="Phòng">{invoice.roomNumber ? `Phòng ${invoice.roomNumber}` : 'Chưa xếp'} · {invoice.roomTypeName || 'Chưa cập nhật'}</Descriptions.Item>
+        <Descriptions.Item label="Thời gian lưu trú">
+          {dayjs(invoice.checkIn).format('DD/MM/YYYY')} đến {dayjs(invoice.checkOut).format('DD/MM/YYYY')}
+        </Descriptions.Item>
+      </Descriptions>
+
+      {transfers.length > 0 && (
+        <div style={{ marginBottom: 16, padding: '10px 14px', background: '#f6ffed', border: '1px solid #b7eb8f', borderRadius: 8 }}>
+          <strong style={{ color: '#389e0d' }}>Thông tin chuyển phòng:</strong>
+          {transfers.map((t) => (
+            <div key={t.id} style={{ fontSize: 13, marginTop: 4 }}>
+              • Chuyển từ <strong>Phòng {t.fromRoomNumber || t.fromRoomId}</strong> sang <strong>Phòng {t.toRoomNumber || t.toRoomId}</strong> kể từ ngày {dayjs(t.fromDate).format('DD/MM/YYYY')}
+              {t.reason ? ` (Lý do: ${t.reason})` : ''}
             </div>
-          );
-        })()}
-      </Descriptions.Item>
-      <Descriptions.Item label="Thời gian lưu trú" span={2}>
-        {checkInDate.format('DD/MM/YYYY')} đến {checkOutDate.format('DD/MM/YYYY')} ({nights} đêm)
-      </Descriptions.Item>
-    </Descriptions>
-
-    <div className="invoice-amounts" style={{ marginTop: 16 }}>
-      <AmountRow label="Tiền phòng" value={invoice.roomAmount} />
-
-      {/* Dịch vụ */}
-      {invoice.serviceAmount > 0 && (
-        <>
-          <AmountRow label="Tiền dịch vụ" value={invoice.serviceAmount} />
-          {invoice.services && invoice.services.length > 0 && (
-            <div style={{ paddingLeft: 16, marginBottom: 8 }}>
-              {invoice.services.map((service) => (
-                <div className="invoice-service-item" key={service.serviceId || service.serviceName}>
-                  <span>• {service.serviceName} <small>({service.quantity} × {formatCurrency(service.unitPrice)})</small></span>
-                  <strong>{formatCurrency(service.totalPrice)}</strong>
-                </div>
-              ))}
-            </div>
-          )}
-        </>
+          ))}
+        </div>
       )}
 
-      {/* Phụ thu */}
-      {invoice.surchargeAmount > 0 && (
-        <>
-          <AmountRow label="Phụ thu" value={invoice.surchargeAmount} />
-          <div style={{ paddingLeft: 16, marginBottom: 8 }}>
-            {Number(invoice.lateCheckoutSurcharge || 0) > 0 && (
-              <div className="invoice-service-item">
-                <span>• Phí trả phòng muộn</span>
-                <strong>{formatCurrency(Number(invoice.lateCheckoutSurcharge))}</strong>
-              </div>
-            )}
-            {Number(invoice.occupancySurcharge || 0) > 0 && (
-              <div className="invoice-service-item">
-                <span>• Phụ thu người ở / trẻ em</span>
-                <strong>{formatCurrency(Number(invoice.occupancySurcharge))}</strong>
-              </div>
-            )}
-            {invoice.damages && invoice.damages.length > 0 && invoice.damages.map((d) => (
-              <div className="invoice-service-item" key={d.id || d.itemName}>
-                <span>• {d.itemName} {d.quantity > 1 ? `(${d.quantity} × ${formatCurrency(d.unitPrice)})` : ''}</span>
-                <strong>{formatCurrency(d.totalPrice)}</strong>
-              </div>
-            ))}
+      {nightlyPrices.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontWeight: 600, color: '#1e293b', marginBottom: 8, fontSize: 13 }}>
+            Chi tiết giá phòng từng đêm lưu trú ({nightlyPrices.length} đêm):
           </div>
-        </>
+          <Table
+            rowKey={(r: any) => `${r.stayDate}-${r.roomId || '0'}`}
+            size="small"
+            pagination={false}
+            dataSource={nightlyPrices}
+            columns={[
+              {
+                title: 'Ngày lưu trú',
+                dataIndex: 'stayDate',
+                render: (val: string, r: any) => (
+                  <span>
+                    <strong>{dayjs(val).format('DD/MM/YYYY')}</strong> ({r.dayName || ''})
+                  </span>
+                ),
+              },
+              {
+                title: 'Phân loại ngày',
+                dataIndex: 'priceType',
+                render: (type: string, r: any) => {
+                  if (r.isHoliday || type === 'holiday') return <Tag color="red">Dịp lễ</Tag>;
+                  if (r.isSunday || type === 'sunday') return <Tag color="orange">Chủ nhật</Tag>;
+                  if (r.isSaturday || type === 'weekend') return <Tag color="purple">Thứ 7 / Cuối tuần</Tag>;
+                  return <Tag color="blue">Ngày thường</Tag>;
+                },
+              },
+              {
+                title: 'Phòng',
+                dataIndex: 'roomNumber',
+                render: (num?: string, r?: any) => (
+                  <Tag color="cyan">P.{num || r?.roomId || invoice.roomNumber || '—'}</Tag>
+                ),
+              },
+              {
+                title: 'Đơn giá đêm',
+                dataIndex: 'price',
+                align: 'right' as const,
+                render: (price: number) => <strong style={{ color: '#047857' }}>{formatCurrency(price)}</strong>,
+              },
+              {
+                title: 'Ghi chú / Dịp',
+                dataIndex: 'note',
+                render: (note?: string) => note || '—',
+              },
+            ]}
+          />
+        </div>
       )}
 
-      {/* Giảm giá & Đặt cọc */}
-      {invoice.discountAmount > 0 && <AmountRow label="Giảm giá (Voucher)" value={-invoice.discountAmount} />}
-      {Number(invoice.depositAmount || 0) > 0 && <AmountRow label="Tiền cọc" value={invoice.depositAmount || 0} />}
+      <div className="invoice-amounts">
+        <AmountRow
+          label={`Tiền phòng tiêu chuẩn ${breakdown?.totalNights ? `(${breakdown.totalNights} đêm)` : ''}`}
+          value={breakdown?.baseRoomAmount ?? invoice.roomAmount}
+        />
 
-      {/* Thông tin thanh toán tổng */}
-      <div style={{ borderTop: '1px solid #e8e8e8', paddingTop: 8, marginTop: 8 }}>
-        <AmountRow label="Tổng thanh toán" value={invoice.totalAmount} total />
-        <AmountRow label="Đã thanh toán" value={invoice.paidAmount || 0} />
-        <AmountRow label="Còn phải thanh toán" value={invoice.remainingAmount || 0} />
-        {overpaid > 0 && (
-          <div className="invoice-amount-row" style={{ color: '#389e0d' }}>
-            <span>Thanh toán thừa</span>
-            <strong>{formatCurrency(overpaid)}</strong>
+        {breakdown && breakdown.holidaySurcharge > 0 && (
+          <div className="invoice-service-item" style={{ borderLeftColor: '#ff4d4f' }}>
+            <span>
+              <Tag color="red" style={{ marginRight: 4 }}>Dịp lễ</Tag>
+              Phụ thu giá ngày lễ
+            </span>
+            <strong style={{ color: '#cf1322' }}>+{formatCurrency(breakdown.holidaySurcharge)}</strong>
           </div>
         )}
-      </div>
-    </div>
 
-    <p className="invoice-print-note" style={{ marginTop: 20 }}>Cảm ơn quý khách đã sử dụng dịch vụ của HotelHub.</p>
-  </div>;
+        {breakdown && breakdown.sundaySurcharge > 0 && (
+          <div className="invoice-service-item" style={{ borderLeftColor: '#fa8c16' }}>
+            <span>
+              <Tag color="orange" style={{ marginRight: 4 }}>Chủ nhật</Tag>
+              Phụ thu giá Chủ nhật
+            </span>
+            <strong style={{ color: '#d46b08' }}>+{formatCurrency(breakdown.sundaySurcharge)}</strong>
+          </div>
+        )}
+
+        {breakdown && breakdown.weekendSurcharge > 0 && (
+          <div className="invoice-service-item" style={{ borderLeftColor: '#722ed1' }}>
+            <span>
+              <Tag color="purple" style={{ marginRight: 4 }}>Thứ 7</Tag>
+              Phụ thu giá cuối tuần
+            </span>
+            <strong style={{ color: '#531dab' }}>+{formatCurrency(breakdown.weekendSurcharge)}</strong>
+          </div>
+        )}
+
+        {(invoice.occupancySurcharge ?? 0) > 0 && (
+          <AmountRow label="Phụ thu người lớn / trẻ em" value={invoice.occupancySurcharge || 0} />
+        )}
+
+        {invoice.serviceAmount > 0 && (
+          <>
+            <AmountRow label="Tiền dịch vụ phát sinh" value={invoice.serviceAmount} />
+            {invoice.services?.map((service) => (
+              <div className="invoice-service-item" key={service.serviceId}>
+                <span>
+                  {service.serviceName}
+                  <small>{service.quantity} × {formatCurrency(service.unitPrice)}</small>
+                </span>
+                <strong>{formatCurrency(service.totalPrice)}</strong>
+              </div>
+            ))}
+          </>
+        )}
+
+        {damages.length > 0 && (
+          <>
+            <AmountRow label="Phí bồi thường / Khoản thu khác" value={damages.reduce((sum, d) => sum + d.totalPrice, 0)} />
+            {damages.map((dmg) => (
+              <div className="invoice-service-item" key={dmg.id} style={{ borderLeftColor: '#ff7875' }}>
+                <span>
+                  {dmg.itemName} {dmg.roomNumber ? `(P.${dmg.roomNumber})` : ''}
+                  <small>{dmg.quantity} × {formatCurrency(dmg.unitPrice)}</small>
+                </span>
+                <strong>{formatCurrency(dmg.totalPrice)}</strong>
+              </div>
+            ))}
+          </>
+        )}
+
+        {invoice.discountAmount > 0 && (
+          <AmountRow label="Giảm giá (Voucher)" value={-invoice.discountAmount} />
+        )}
+
+        {(invoice.depositAmount ?? 0) > 0 && (
+          <AmountRow label="Tiền đặt cọc" value={invoice.depositAmount || 0} />
+        )}
+
+        <AmountRow label="Đã thanh toán" value={invoice.paidAmount || 0} />
+        <AmountRow label="Còn phải thanh toán" value={invoice.remainingAmount || 0} />
+        <AmountRow label="Tổng thanh toán" value={invoice.totalAmount} total />
+      </div>
+      <p className="invoice-print-note">Cảm ơn quý khách đã sử dụng dịch vụ của HotelHub.</p>
+    </div>
+  );
 }
 
 function AmountRow({ label, value, total = false }: { label: string; value: number; total?: boolean }) {
-  return <div className={total ? 'invoice-amount-row invoice-amount-total' : 'invoice-amount-row'}><span>{label}</span><strong>{formatCurrency(value)}</strong></div>;
+  return (
+    <div className={total ? 'invoice-amount-row invoice-amount-total' : 'invoice-amount-row'}>
+      <span>{label}</span>
+      <strong>{formatCurrency(value)}</strong>
+    </div>
+  );
 }
 
 export default InvoiceManagement;

@@ -13,7 +13,6 @@ import {
   Tabs,
   Badge,
   Input,
-  Spin,
 } from 'antd';
 import {
   ReloadOutlined,
@@ -25,7 +24,6 @@ import {
   FileTextOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import api from '../../services/api';
 import { confirmTransferPayment, getPayments, refundPayment } from '../../services/paymentService';
 import {
   listRefunds,
@@ -41,7 +39,6 @@ import {
 } from '../../services/walletService';
 import { unwrapList } from '../../utils/unwrapList';
 import type { Payment } from '../../types/payment';
-import { renderRoomTypesSummaryText, getBookingTotalRoomCount } from '../../utils/bookingUtils';
 
 const formatPrice = (price: number) =>
   new Intl.NumberFormat('vi-VN').format(price) + '₫';
@@ -86,37 +83,7 @@ function PaymentManagement() {
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
   const [detailVisible, setDetailVisible] = useState(false);
-  const [detailLoading, setDetailLoading] = useState(false);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [detailSummary, setDetailSummary] = useState<any>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [detailBooking, setDetailBooking] = useState<any>(null);
   const [confirmingPaymentId, setConfirmingPaymentId] = useState<number | null>(null);
-
-  useEffect(() => {
-    if (detailVisible && selectedPayment) {
-      let active = true;
-      setDetailLoading(true);
-      Promise.all([
-        api.get(`/bookings/${selectedPayment.bookingId}/payment-summary`).catch(() => null),
-        api.get(`/bookings/${selectedPayment.bookingId}`).catch(() => null),
-      ]).then(([summaryRes, bookingRes]: [unknown, unknown]) => {
-        if (!active) return;
-        const sumObj = summaryRes as { data?: unknown } | null;
-        const bookObj = bookingRes as { data?: unknown } | null;
-        setDetailSummary(sumObj?.data || sumObj || null);
-        setDetailBooking(bookObj?.data || bookObj || null);
-      }).finally(() => {
-        if (active) setDetailLoading(false);
-      });
-      return () => {
-        active = false;
-      };
-    } else {
-      setDetailSummary(null);
-      setDetailBooking(null);
-    }
-  }, [detailVisible, selectedPayment]);
 
   const [refunds, setRefunds] = useState<RefundRow[]>([]);
   const [refundsLoading, setRefundsLoading] = useState(false);
@@ -389,37 +356,21 @@ function PaymentManagement() {
       key: 'customerName',
     },
     {
-      title: 'Hạng phòng / Phòng',
-      key: 'room_number',
-      render: (_: unknown, record: any) => (
-        <div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: '#1f1f1f' }}>
-            {renderRoomTypesSummaryText(record)}
-          </div>
-          <div style={{ fontSize: 11, color: '#666', marginTop: 2 }}>
-            {record.booking_rooms && record.booking_rooms.length > 0 ? (
-              record.booking_rooms.map((r: any) => r.number).join(', ')
-            ) : record.room_number ? (
-              `Phòng ${record.room_number}`
-            ) : (
-              'Chưa xếp'
-            )}
-          </div>
-        </div>
-      ),
+      title: 'Phòng',
+      dataIndex: 'roomNumber',
+      key: 'roomNumber',
     },
     {
       title: 'Tổng tiền',
       dataIndex: 'totalAmount',
       key: 'totalAmount',
-      render: (amount: number) => <span style={{ whiteSpace: 'nowrap' }}>{formatPrice(amount)}</span>,
+      render: (amount: number) => formatPrice(amount),
     },
     {
-      title: 'Số tiền thanh toán',
+      title: 'Đã trả',
       dataIndex: 'paidAmount',
       key: 'paidAmount',
-      align: 'right' as const,
-      render: (amount: number) => <span style={{ whiteSpace: 'nowrap', fontWeight: 600 }}>{formatPrice(amount)}</span>,
+      render: (amount: number) => formatPrice(amount),
     },
     {
       title: 'Phương thức',
@@ -725,282 +676,64 @@ function PaymentManagement() {
       </Modal>
 
       <Modal
-        title={
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <FileTextOutlined style={{ color: '#a78362' }} />
-            <span>Chi tiết thanh toán — Booking #{selectedPayment?.bookingId}</span>
-          </div>
-        }
+        title="Chi tiết thanh toán"
         open={detailVisible}
         onCancel={() => setDetailVisible(false)}
-        footer={[
-          <Button key="close" onClick={() => setDetailVisible(false)}>
-            Đóng
-          </Button>,
-        ]}
-        width={880}
-        destroyOnHidden
+        footer={null}
+        width={600}
       >
-        {detailLoading ? (
-          <div style={{ textAlign: 'center', padding: '40px 0' }}>
-            <Spin tip="Đang tải chi tiết thanh toán..." />
-          </div>
-        ) : selectedPayment ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-            {/* 1. THÔNG TIN ĐẶT PHÒNG */}
-            <div>
-              <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 10, color: '#2b2420', borderLeft: '3px solid #a78362', paddingLeft: 8 }}>
-                Thông tin đặt phòng
-              </div>
-              <Descriptions column={{ xs: 1, sm: 2 }} size="small" bordered>
-                <Descriptions.Item label="Mã đặt phòng">
-                  <strong>#{selectedPayment.bookingId}</strong>
-                </Descriptions.Item>
-                <Descriptions.Item label="Trạng thái đặt phòng">
-                  {(() => {
-                    const statusKey = detailBooking?.bookingStatus || detailBooking?.status || detailSummary?.bookingStatus || selectedPayment.bookingStatus || '';
-                    const meta = bookingStatusMap[statusKey] || { label: statusKey || '—', color: 'default' };
-                    return <Tag color={meta.color}>{meta.label}</Tag>;
-                  })()}
-                </Descriptions.Item>
-                <Descriptions.Item label="Khách hàng">
-                  <strong>{detailBooking?.customer_name || detailSummary?.customerName || selectedPayment.customerName || 'Khách lẻ'}</strong>
-                </Descriptions.Item>
-                <Descriptions.Item label="Email">
-                  {detailBooking?.customer_email || 'Chưa cập nhật'}
-                </Descriptions.Item>
-                <Descriptions.Item label="Số điện thoại">
-                  {detailBooking?.customer_phone || 'Chưa cập nhật'}
-                </Descriptions.Item>
-                <Descriptions.Item label="Hạng phòng">
-                  {renderRoomTypesSummaryText(detailBooking || selectedPayment)}
-                </Descriptions.Item>
-                <Descriptions.Item label="Số phòng đã đặt">
-                  {getBookingTotalRoomCount(detailBooking || selectedPayment)} phòng
-                </Descriptions.Item>
-                <Descriptions.Item label="Phòng thực tế" span={2}>
-                  {(() => {
-                    const target = detailBooking || selectedPayment;
-                    const summaryList = (target?.roomTypesSummary && target.roomTypesSummary.length > 0)
-                      ? target.roomTypesSummary
-                      : [
-                          {
-                            typeName: target?.room_type_name || selectedPayment?.roomNumber || 'Standard',
-                            quantity: getBookingTotalRoomCount(target),
-                          }
-                        ];
-
-                    const roomsList = detailBooking?.booking_rooms || [];
-
-                    return (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        {summaryList.map((s: any, idx: number) => {
-                          const matchingRooms = roomsList.filter(
-                            (r: any) => (s.roomTypeId && Number(r.roomTypeId) === Number(s.roomTypeId)) || r.typeName === s.typeName
-                          );
-                          return (
-                            <div key={s.roomTypeId || idx}>
-                              <div style={{ fontSize: 12, fontWeight: 600, color: '#1f1f1f' }}>
-                                {s.typeName} ×{s.quantity} {s.roomPrice ? `(${formatPrice(s.roomPrice)}/đêm)` : ''}
-                              </div>
-                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 2 }}>
-                                {matchingRooms.length > 0 ? (
-                                  matchingRooms.map((r: any, rIdx: number) => (
-                                    <Tag key={r.id || rIdx} color="blue" style={{ margin: 0 }}>
-                                      Phòng {r.number}
-                                    </Tag>
-                                  ))
-                                ) : roomsList.length > 0 && idx === 0 ? (
-                                  roomsList.map((r: any, rIdx: number) => (
-                                    <Tag key={r.id || rIdx} color="blue" style={{ margin: 0 }}>
-                                      Phòng {r.number}
-                                    </Tag>
-                                  ))
-                                ) : (
-                                  <span style={{ fontSize: 12, color: '#888' }}>Chưa xếp phòng</span>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    );
-                  })()}
-                </Descriptions.Item>
-                <Descriptions.Item label="Thời gian lưu trú">
-                  {(() => {
-                    const cIn = detailBooking?.check_in ? dayjs(detailBooking.check_in).format('DD/MM/YYYY') : '—';
-                    const cOut = detailBooking?.check_out ? dayjs(detailBooking.check_out).format('DD/MM/YYYY') : '—';
-                    const nights = detailBooking?.check_in && detailBooking?.check_out
-                      ? Math.max(dayjs(detailBooking.check_out).diff(dayjs(detailBooking.check_in), 'day'), 1)
-                      : 1;
-                    return `${cIn} → ${cOut} (${nights} đêm)`;
-                  })()}
-                </Descriptions.Item>
-                <Descriptions.Item label="Số khách">
-                  {(() => {
-                    const adults = Number(detailBooking?.num_adults || 0);
-                    const children = Number(detailBooking?.num_children || 0);
-                    if (adults > 0 || children > 0) {
-                      return `${adults} người lớn${children > 0 ? `, ${children} trẻ em` : ''}`;
-                    }
-                    return 'Theo tiêu chuẩn hạng phòng';
-                  })()}
-                </Descriptions.Item>
-              </Descriptions>
-            </div>
-
-            {/* 2. CHI TIẾT CHI PHÍ */}
-            <div>
-              <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 10, color: '#2b2420', borderLeft: '3px solid #a78362', paddingLeft: 8 }}>
-                Chi tiết chi phí
-              </div>
-              <div style={{ border: '1px solid #f0f0f0', borderRadius: 8, overflow: 'hidden' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 16px', background: '#fafafa', borderBottom: '1px solid #f0f0f0' }}>
-                  <span>Tiền phòng</span>
-                  <strong style={{ whiteSpace: 'nowrap' }}>{formatPrice(selectedPayment.roomAmount)}</strong>
-                </div>
-                {Number(detailSummary?.occupancySurcharge || 0) > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 16px', borderBottom: '1px solid #f0f0f0' }}>
-                    <span>Phụ thu người ở</span>
-                    <strong style={{ whiteSpace: 'nowrap' }}>{formatPrice(Number(detailSummary.occupancySurcharge))}</strong>
-                  </div>
-                )}
-                {Number(selectedPayment.serviceAmount) > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 16px', borderBottom: '1px solid #f0f0f0' }}>
-                    <span>Dịch vụ sử dụng</span>
-                    <strong style={{ whiteSpace: 'nowrap' }}>{formatPrice(selectedPayment.serviceAmount)}</strong>
-                  </div>
-                )}
-                {Number(detailSummary?.damageAmount || 0) > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 16px', borderBottom: '1px solid #f0f0f0' }}>
-                    <span>Phí phát sinh / Hư hỏng</span>
-                    <strong style={{ whiteSpace: 'nowrap' }}>{formatPrice(Number(detailSummary.damageAmount))}</strong>
-                  </div>
-                )}
-                {Number(detailSummary?.lateCheckoutSurcharge || 0) > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 16px', borderBottom: '1px solid #f0f0f0' }}>
-                    <span>Phí trả phòng muộn</span>
-                    <strong style={{ whiteSpace: 'nowrap' }}>{formatPrice(Number(detailSummary.lateCheckoutSurcharge))}</strong>
-                  </div>
-                )}
-                {Number(selectedPayment.discountAmount) > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 16px', borderBottom: '1px solid #f0f0f0', color: '#52c41a' }}>
-                    <span>Giảm giá (Voucher)</span>
-                    <strong style={{ whiteSpace: 'nowrap' }}>-{formatPrice(selectedPayment.discountAmount)}</strong>
-                  </div>
-                )}
-                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', background: '#f6ffed', color: '#1b5e20', fontSize: 16 }}>
-                  <strong>Tổng cộng thanh toán</strong>
-                  <strong style={{ whiteSpace: 'nowrap', fontSize: 17 }}>{formatPrice(selectedPayment.totalAmount)}</strong>
-                </div>
-              </div>
-            </div>
-
-            {/* 3. CHI TIẾT DỊCH VỤ (chỉ status = used) */}
-            {(() => {
-              const usedServices = (detailSummary?.services || []).filter((s: { status?: string }) => s.status === 'used');
-              if (usedServices.length === 0) return null;
-              return (
-                <div>
-                  <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 10, color: '#2b2420', borderLeft: '3px solid #a78362', paddingLeft: 8 }}>
-                    Dịch vụ đã sử dụng
-                  </div>
-                  <div style={{ border: '1px solid #f0f0f0', borderRadius: 8, padding: '8px 16px', background: '#fafafa' }}>
-                    {usedServices.map((s: { id: number; roomNumber?: string; serviceName: string; quantity: number; totalPrice: number | string }) => (
-                      <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px dashed #e8e8e8' }}>
-                        <span>
-                          {s.roomNumber ? <Tag color="blue" style={{ marginRight: 6 }}>Phòng {s.roomNumber}</Tag> : null}
-                          <strong>{s.serviceName}</strong> × {s.quantity}
-                        </span>
-                        <strong style={{ whiteSpace: 'nowrap' }}>{formatPrice(Number(s.totalPrice))}</strong>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })()}
-
-            {/* 4. PHÍ PHÁT SINH / HƯ HỎNG / TRẢ PHÒNG MUỘN (chỉ status = used) */}
-            {(() => {
-              const usedDamages = (detailSummary?.damages || []).filter((d: { status?: string }) => d.status === 'used');
-              const lateFee = Number(detailSummary?.lateCheckoutSurcharge || 0);
-              if (usedDamages.length === 0 && lateFee <= 0) return null;
-              return (
-                <div>
-                  <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 10, color: '#2b2420', borderLeft: '3px solid #a78362', paddingLeft: 8 }}>
-                    Chi tiết phụ thu / Báo hỏng
-                  </div>
-                  <div style={{ border: '1px solid #f0f0f0', borderRadius: 8, padding: '8px 16px', background: '#fff1f0' }}>
-                    {lateFee > 0 && (
-                      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px dashed #ffa39e' }}>
-                        <span><Tag color="red" style={{ marginRight: 6 }}>Trễ giờ</Tag><strong>Phí trả phòng muộn</strong></span>
-                        <strong style={{ whiteSpace: 'nowrap' }}>{formatPrice(lateFee)}</strong>
-                      </div>
-                    )}
-                    {usedDamages.map((d: { id: number; roomNumber?: string; itemName: string; quantity: number; totalPrice: number | string; note?: string }) => (
-                      <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px dashed #ffa39e' }}>
-                        <span>
-                          {d.roomNumber ? <Tag color="orange" style={{ marginRight: 6 }}>Phòng {d.roomNumber}</Tag> : null}
-                          <strong>{d.itemName}</strong> {d.quantity > 1 ? `× ${d.quantity}` : ''} {d.note ? `(${d.note})` : ''}
-                        </span>
-                        <strong style={{ whiteSpace: 'nowrap' }}>{formatPrice(Number(d.totalPrice))}</strong>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })()}
-
-            {/* 5. THÔNG TIN THANH TOÁN */}
-            <div>
-              <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 10, color: '#2b2420', borderLeft: '3px solid #a78362', paddingLeft: 8 }}>
-                Thông tin thanh toán
-              </div>
-              <Descriptions column={{ xs: 1, sm: 2 }} size="small" bordered>
-                <Descriptions.Item label="Mã thanh toán">
-                  #{selectedPayment.id}
-                </Descriptions.Item>
-                <Descriptions.Item label="Phương thức">
-                  <Tag color="blue">{methodLabels[selectedPayment.paymentMethod || ''] || selectedPayment.paymentMethod || 'Khác'}</Tag>
-                </Descriptions.Item>
-                <Descriptions.Item label="Trạng thái thanh toán">
-                  <Tag color={statusMap[selectedPayment.paymentStatus]?.color}>
-                    {statusMap[selectedPayment.paymentStatus]?.label}
-                  </Tag>
-                </Descriptions.Item>
-                <Descriptions.Item label="Mã giao dịch">
-                  {selectedPayment.transactionCode || '—'}
-                </Descriptions.Item>
-                <Descriptions.Item label="Thời gian thanh toán">
-                  {selectedPayment.paymentDate ? dayjs(selectedPayment.paymentDate).format('DD/MM/YYYY HH:mm') : 'Chưa cập nhật'}
-                </Descriptions.Item>
-                <Descriptions.Item label="Đã thanh toán">
-                  <strong style={{ color: '#389e0d', whiteSpace: 'nowrap' }}>{formatPrice(selectedPayment.paidAmount)}</strong>
-                </Descriptions.Item>
-                <Descriptions.Item label="Còn phải thanh toán">
-                  <strong style={{ color: selectedPayment.remainingAmount > 0 ? '#cf1322' : '#595959', whiteSpace: 'nowrap' }}>
-                    {formatPrice(selectedPayment.remainingAmount)}
-                  </strong>
-                </Descriptions.Item>
-                {selectedPayment.paidAmount > selectedPayment.totalAmount && (
-                  <Descriptions.Item label="Thanh toán thừa">
-                    <Tag color="green" style={{ fontSize: 13, padding: '2px 8px' }}>
-                      Thừa: {formatPrice(selectedPayment.paidAmount - selectedPayment.totalAmount)} (Cần hoàn)
-                    </Tag>
-                  </Descriptions.Item>
-                )}
-                {selectedPayment.verificationStatus && (
-                  <Descriptions.Item label="Đối soát giao dịch">
-                    <Tag color={verificationStatusMap[selectedPayment.verificationStatus]?.color}>
-                      {verificationStatusMap[selectedPayment.verificationStatus]?.label || selectedPayment.verificationStatus}
-                    </Tag>
-                  </Descriptions.Item>
-                )}
-              </Descriptions>
-            </div>
-          </div>
-        ) : null}
+        {selectedPayment && (
+          <Descriptions column={1} bordered size="small">
+            <Descriptions.Item label="Mã thanh toán">{selectedPayment.id}</Descriptions.Item>
+            <Descriptions.Item label="Booking ID">{selectedPayment.bookingId}</Descriptions.Item>
+            <Descriptions.Item label="Trạng thái đặt phòng">
+              <Tag color={bookingStatusMap[selectedPayment.bookingStatus || '']?.color}>
+                {bookingStatusMap[selectedPayment.bookingStatus || '']?.label || selectedPayment.bookingStatus || '-'}
+              </Tag>
+            </Descriptions.Item>
+            <Descriptions.Item label="Tiền phòng">
+              {formatPrice(selectedPayment.roomAmount)}
+            </Descriptions.Item>
+            <Descriptions.Item label="Phụ thu người ở">
+              {formatPrice(selectedPayment.surchargeAmount)}
+            </Descriptions.Item>
+            <Descriptions.Item label="Dịch vụ">
+              {formatPrice(selectedPayment.serviceAmount)}
+            </Descriptions.Item>
+            <Descriptions.Item label="Giảm giá">
+              {formatPrice(selectedPayment.discountAmount)}
+            </Descriptions.Item>
+            <Descriptions.Item label="Tổng cộng">
+              {formatPrice(selectedPayment.totalAmount)}
+            </Descriptions.Item>
+            <Descriptions.Item label="Đã thanh toán">
+              {formatPrice(selectedPayment.paidAmount)}
+            </Descriptions.Item>
+            <Descriptions.Item label="Còn lại">
+              {formatPrice(selectedPayment.remainingAmount)}
+            </Descriptions.Item>
+            <Descriptions.Item label="Phương thức">
+              {methodLabels[selectedPayment.paymentMethod || ''] || '-'}
+            </Descriptions.Item>
+            <Descriptions.Item label="Trạng thái thanh toán">
+              <Tag color={statusMap[selectedPayment.paymentStatus]?.color}>
+                {statusMap[selectedPayment.paymentStatus]?.label}
+              </Tag>
+            </Descriptions.Item>
+            {selectedPayment.verificationStatus && (
+              <Descriptions.Item label="Trạng thái đối soát">
+                <Tag color={verificationStatusMap[selectedPayment.verificationStatus]?.color}>
+                  {verificationStatusMap[selectedPayment.verificationStatus]?.label || selectedPayment.verificationStatus}
+                </Tag>
+              </Descriptions.Item>
+            )}
+            {selectedPayment.transactionCode && (
+              <Descriptions.Item label="Mã giao dịch">
+                {selectedPayment.transactionCode}
+              </Descriptions.Item>
+            )}
+          </Descriptions>
+        )}
       </Modal>
 
       <Modal

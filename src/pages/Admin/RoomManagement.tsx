@@ -1,5 +1,4 @@
 import { useState, useEffect, type Key } from 'react';
-import { useSearchParams } from 'react-router-dom';
 import {
   Table,
   Button,
@@ -69,7 +68,6 @@ interface Room {
 }
 
 function RoomManagement() {
-  const [searchParams] = useSearchParams();
   const [rooms, setRooms] = useState<Room[]>([]);
   const [roomTypes, setRoomTypes] = useState<RoomType[]>([]);
   const [bookings, setBookings] = useState<any[]>([]);
@@ -79,14 +77,7 @@ function RoomManagement() {
   const [editingRoom, setEditingRoom] = useState<Room | null>(null);
   const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
   const [form] = Form.useForm();
-  const [searchText, setSearchText] = useState(searchParams.get('search') || searchParams.get('room') || '');
-
-  useEffect(() => {
-    const q = searchParams.get('search') || searchParams.get('room');
-    if (q !== null) {
-      setSearchText(q);
-    }
-  }, [searchParams]);
+  const [searchText, setSearchText] = useState('');
 
   // Advanced filter states
   const [filterRoomTypeId, setFilterRoomTypeId] = useState<number | null>(null);
@@ -602,46 +593,27 @@ function RoomManagement() {
       return;
     }
 
-    // Danh sách booking ở màn hình này có thể đã cũ vài giây, trong khi khách
-    // vẫn đang thanh toán. Để máy chủ quyết định (nó kiểm tra trong giao dịch
-    // có khóa dòng) rồi hiển thị đúng đơn đang vướng.
+    // Check if room is in active bookings (status is not cancelled and not checked_out)
+    const hasActiveBookings = Array.isArray(bookings) && bookings.some(b => {
+      if (!b) return false;
+      const status = b.status || b.bookingStatus;
+      if (!status || ['cancelled', 'checked_out', 'no_show'].includes(status)) return false;
+      const bRoomId = b.room_id || b.roomId;
+      return bRoomId !== undefined && bRoomId !== null && Number(bRoomId) === id;
+    });
+
+    if (hasActiveBookings) {
+      message.error('Không thể xóa phòng đang có đơn đặt phòng (hoặc đã cọc) chưa hoàn thành!');
+      return;
+    }
+
     try {
       await api.delete(`/rooms/${id}`);
       message.success('Xóa phòng thành công');
       fetchRooms();
     } catch (error: unknown) {
       console.error('Error deleting room:', error);
-      const response = axios.isAxiosError(error) ? error.response : undefined;
-      const msg = response?.data?.message;
-      const blocking = response?.data?.details?.blockingBookings as
-        | { id: number; customerName?: string | null; isPaying?: boolean }[]
-        | undefined;
-
-      if (Array.isArray(blocking) && blocking.length > 0) {
-        Modal.warning({
-          title: 'Chưa thể xóa phòng này',
-          width: 520,
-          content: (
-            <div>
-              <p>{msg}</p>
-              <ul style={{ paddingLeft: 18, marginBottom: 0 }}>
-                {blocking.map(item => (
-                  <li key={item.id}>
-                    Đơn #{item.id}
-                    {item.customerName ? ` — ${item.customerName}` : ''}
-                    {item.isPaying && (
-                      <Tag color="red" style={{ marginLeft: 6 }}>đang thanh toán</Tag>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ),
-          okText: 'Đã hiểu'
-        });
-        return;
-      }
-
+      const msg = axios.isAxiosError(error) ? error.response?.data?.message : undefined;
       message.error(msg || 'Lỗi khi xóa phòng');
     }
   };
@@ -730,9 +702,7 @@ function RoomManagement() {
       dataIndex: 'price_per_night',
       key: 'price_per_night',
       sorter: (a: Room, b: Room) => (parseFloat(a.price_per_night as string) || 0) - (parseFloat(b.price_per_night as string) || 0),
-      render: (price: string | number) => (
-        <span style={{ whiteSpace: 'nowrap', fontWeight: 600 }}>{formatPrice(price)}</span>
-      )
+      render: (price: string | number) => formatPrice(price)
     },
     {
       title: 'Sức chứa',
@@ -791,46 +761,43 @@ function RoomManagement() {
       title: 'Thao tác',
       key: 'action',
       render: (_: unknown, record: Room) => (
-        <Space size={[4, 4]} wrap>
-          <Tooltip title="Quản lý vật tư phòng">
-            <Button
-              type="primary"
-              style={{ backgroundColor: '#52c41a', borderColor: '#52c41a' }}
-              icon={<ToolOutlined />}
-              size="small"
-              onClick={() => handleManageItems(record)}
-            />
-          </Tooltip>
-          <Tooltip title="Xem chi tiết phòng">
-            <Button
-              type="primary"
-              icon={<EyeOutlined style={{ color: 'white' }} />}
-              size="small"
-              onClick={() => handleViewDetail(record)}
-            />
-          </Tooltip>
-          <Tooltip title="Chỉnh sửa phòng">
-            <Button
-              type="primary"
-              icon={<EditOutlined />}
-              size="small"
-              onClick={() => handleEdit(record)}
-            />
-          </Tooltip>
+        <Space>
+          <Button
+            type="primary"
+            style={{ backgroundColor: '#52c41a', borderColor: '#52c41a' }}
+            icon={<ToolOutlined />}
+            size="small"
+            onClick={() => handleManageItems(record)}
+            title="Quản lý vật tư"
+          >
+          </Button>
+          <Button
+            type="primary"
+            icon={<EyeOutlined style={{ color: 'white' }} />}
+            size="small"
+            onClick={() => handleViewDetail(record)}
+          >
+          </Button>
+          <Button
+            type="primary"
+            icon={<EditOutlined />}
+            size="small"
+            onClick={() => handleEdit(record)}
+          >
+          </Button>
           <Popconfirm
             title="Bạn có chắc chắn muốn xóa?"
             onConfirm={() => handleDelete(record.id)}
             okText="Xóa"
             cancelText="Hủy"
           >
-            <Tooltip title="Xóa phòng">
-              <Button
-                type="primary"
-                danger
-                icon={<DeleteOutlined />}
-                size="small"
-              />
-            </Tooltip>
+            <Button
+              type="primary"
+              danger
+              icon={<DeleteOutlined />}
+              size="small"
+            >
+            </Button>
           </Popconfirm>
         </Space>
       ),

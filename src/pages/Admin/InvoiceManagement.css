@@ -59,13 +59,13 @@
 .invoice-document-header .ant-typography { margin: 0; }
 .invoice-document-code { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
 .invoice-document-code > strong { color: #1677ff; font-size: 18px; }
-.invoice-amounts { width: min(100%, 390px); margin: 24px auto 0; }
-.invoice-amount-row { display: flex; justify-content: space-between; gap: 24px; padding: 8px 0; color: #475467; }
-.invoice-service-item { display: flex; justify-content: space-between; gap: 24px; margin-left: 12px; padding: 5px 0 5px 10px; border-left: 2px solid #e6f4ff; color: #667085; }
-.invoice-service-item > span { display: flex; flex-direction: column; }
+.invoice-amounts { width: min(100%, 460px); margin: 24px auto 0; }
+.invoice-amount-row { display: flex; justify-content: space-between; gap: 24px; padding: 8px 0; color: #475467; font-size: 14px; }
+.invoice-service-item { display: flex; justify-content: space-between; align-items: center; gap: 24px; margin-left: 12px; padding: 6px 0 6px 12px; border-left: 3px solid #e6f4ff; color: #667085; font-size: 13px; }
+.invoice-service-item > span { display: flex; flex-direction: column; gap: 2px; }
 .invoice-service-item small { color: #98a2b3; }
-.invoice-amount-total { margin-top: 4px; padding-top: 14px; border-top: 1px solid #d0d5dd; color: #101828; font-size: 17px; }
-.invoice-print-note { margin: 28px 0 0; color: #667085; text-align: center; }
+.invoice-amount-total { margin-top: 6px; padding-top: 14px; border-top: 2px solid #1e293b; color: #0f172a; font-size: 18px; font-weight: 700; }
+.invoice-print-note { margin: 32px 0 0; color: #667085; text-align: center; font-style: italic; font-size: 13px; }
 
 @media (max-width: 760px) {
   .invoice-filters { align-items: stretch; flex-direction: column; }
@@ -80,5 +80,6 @@
 @media print {
   body * { visibility: hidden !important; }
   .invoice-print-sheet, .invoice-print-sheet * { visibility: visible !important; }
-  .invoice-print-sheet { position: fixed; inset: 0; width: 100%; padding: 24px; background: white; color: #101828; }
+  .invoice-print-sheet { position: fixed; inset: 0; width: 100%; padding: 28px; background: white; color: #101828; overflow: visible !important; }
 }
+
