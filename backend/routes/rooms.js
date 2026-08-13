@@ -460,24 +460,66 @@ router.post('/', requireAuth, requireStaff, async (req, res) => {
 
 // Update room
 router.put('/:id', requireAuth, requireStaff, async (req, res) => {
+  const connection = await db.getConnection();
+
   try {
     const { id } = req.params;
     const { roomNumber, roomTypeId, floor, area, status, maintenanceNote, maintenanceExpectedCompletion } = req.body;
 
+    await connection.beginTransaction();
+
+    const [currentRows] = await connection.query(
+      'SELECT status FROM rooms WHERE id = ? AND isDeleted = 0 FOR UPDATE',
+      [id]
+    );
+    if (currentRows.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ message: 'Không tìm thấy phòng!' });
+    }
+
     // Check if room number already exists for another room
-    const [existing] = await db.query('SELECT id FROM rooms WHERE roomNumber = ? AND id != ? AND isDeleted = 0', [roomNumber, id]);
+    const [existing] = await connection.query(
+      'SELECT id FROM rooms WHERE roomNumber = ? AND id != ? AND isDeleted = 0',
+      [roomNumber, id]
+    );
     if (existing.length > 0) {
+      await connection.rollback();
       return res.status(400).json({ message: 'Số phòng này đã tồn tại!' });
     }
 
-    await db.query(
+    // Chuyển phòng sang bảo trì cũng khiến khách không dùng được phòng nữa,
+    // nên phải chặn giống như xóa. Trước đây đường này không kiểm tra gì cả.
+    const isBecomingUnavailable = status === 'maintenance' && currentRows[0].status !== 'maintenance';
+    if (isBecomingUnavailable) {
+      const [activeBookings] = await connection.query(ACTIVE_BOOKING_FOR_ROOM_SQL, [id]);
+      if (activeBookings.length > 0) {
+        await connection.rollback();
+        return res.status(409).json({
+          message: describeBlockingBookings(activeBookings).replace('xóa', 'bảo trì'),
+          details: {
+            blockingBookings: activeBookings.map((item) => ({
+              id: item.id,
+              status: item.status,
+              customerName: item.customerName,
+              isPaying: Number(item.hasOpenGatewayOrder) === 1 || Number(item.paidAmount) > 0
+            }))
+          }
+        });
+      }
+    }
+
+    await connection.query(
       'UPDATE rooms SET roomNumber = ?, roomTypeId = ?, floor = ?, area = ?, status = ?, maintenanceNote = ?, maintenanceExpectedCompletion = ? WHERE id = ?',
       [roomNumber, roomTypeId, floor, area, status, maintenanceNote !== undefined ? maintenanceNote : null, maintenanceExpectedCompletion !== undefined ? maintenanceExpectedCompletion : null, id]
     );
+    await connection.commit();
     res.json({ message: 'Cập nhật phòng thành công' });
   } catch (error) {
+    await connection.rollback();
     console.error('Update room error:', error);
     res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
+  } finally {
+    connection.release();
   }
 });
 
