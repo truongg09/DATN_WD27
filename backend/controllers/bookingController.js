@@ -681,7 +681,45 @@ const resetBookingHold = async (req, res) => {
   }
 };
 
+const adminCheckAvailability = async (req, res) => {
+  try {
+    const bookingId = normalizeIdParam(req.params.id);
+    const result = await bookingService.adminCheckAvailabilityForBooking(bookingId, req.body);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
+const adminPreviewModify = async (req, res) => {
+  try {
+    const bookingId = normalizeIdParam(req.params.id);
+    const result = await bookingService.adminPreviewModifyBooking(bookingId, req.body);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
+const adminModifyBooking = async (req, res) => {
+  try {
+    const bookingId = normalizeIdParam(req.params.id);
+    const actor = {
+      userId: req.user?.id || null,
+      role: req.user?.role || 'admin',
+      fullName: req.user?.fullName || 'Admin'
+    };
+    const result = await bookingService.adminModifyBooking(bookingId, req.body, actor);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
 module.exports = {
+  adminCheckAvailability,
+  adminPreviewModify,
+  adminModifyBooking,
   checkAvailability,
   checkTypeAvailability,
   createBooking,
