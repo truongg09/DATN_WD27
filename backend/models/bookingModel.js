@@ -96,6 +96,28 @@ const getOrCreateCustomerId = async (accountId, connection) => {
   return result.insertId;
 };
 
+// Toàn bộ phòng thuộc một đơn kèm tình trạng hiện tại, dùng để xác minh phòng
+// vẫn còn dùng được ngay trước khi ghi nhận tiền. Một đơn có thể gồm nhiều
+// phòng nên phải kiểm tra hết, không chỉ mỗi bookings.room_id.
+const listBookingRoomsStatus = async (bookingId, connection, lock = false) => {
+  const [rows] = await run(connection).query(
+    `
+      SELECT DISTINCT
+        r.id,
+        r.roomNumber,
+        r.status,
+        r.isDeleted
+      FROM bookings b
+      LEFT JOIN booking_details bd ON bd.bookingId = b.id
+      JOIN rooms r ON r.id = COALESCE(bd.roomId, b.room_id)
+      WHERE b.id = ?
+      ${lock ? 'FOR UPDATE' : ''}
+    `,
+    [bookingId]
+  );
+  return rows;
+};
+
 const getRoomWithType = async (roomId, connection, lock = false) => {
   const [rows] = await run(connection).query(
     `
@@ -1325,6 +1347,7 @@ module.exports = {
   getAccountById,
   getOrCreateCustomerId,
   getRoomWithType,
+  listBookingRoomsStatus,
   expireUnpaidBookingHolds,
   getSecuredConflictingBookings,
   getConflictingBookings,
