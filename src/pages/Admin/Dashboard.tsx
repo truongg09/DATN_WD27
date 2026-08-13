@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import ReactApexChart from "react-apexcharts";
 import {
   ConfigProvider,
@@ -288,23 +287,17 @@ function TodayOpsPanel({
 
   if (!data) return null;
 
-  const navigate = useNavigate();
-
   const getTaskStyle = (count: number) => {
     if (count === 0) {
       return {
         color: "#8c8c8c",
-        bg: "#f8f9fa",
-        border: "#e9ecef",
-        badgeBg: "#e9ecef",
+        bg: "#f5f5f5",
       };
     }
 
     return {
       color: "#d46b08",
       bg: "#fff7e6",
-      border: "#ffe7ba",
-      badgeBg: "#ffd591",
     };
   };
 
@@ -318,53 +311,29 @@ function TodayOpsPanel({
     count: number,
     color: string,
     bg: string,
-    borderColor: string,
-    onClick: () => void,
   ) => (
-    <div
-      onClick={onClick}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 12,
-        padding: "12px 14px",
-        borderRadius: 10,
-        background: bg,
-        border: `1px solid ${borderColor}`,
-        cursor: "pointer",
-        transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
-        userSelect: "none",
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.transform = "translateY(-2px)";
-        e.currentTarget.style.boxShadow = "0 6px 16px rgba(0, 0, 0, 0.08)";
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.transform = "translateY(0)";
-        e.currentTarget.style.boxShadow = "none";
-      }}
-    >
+    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
       <div
         style={{
-          width: 36,
-          height: 36,
+          width: 34,
+          height: 34,
           borderRadius: 9,
-          background: color === "#8c8c8c" ? "#e8e8e8" : "#ffe7ba",
-          color: color === "#8c8c8c" ? "#595959" : color,
+          background: bg,
+          color,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          fontSize: 17,
+          fontSize: 16,
           flex: "0 0 auto",
         }}
       >
         {icon}
       </div>
-      <div style={{ flex: 1 }}>
-        <div style={{ fontSize: 19, fontWeight: 700, lineHeight: 1.1, color: count > 0 ? brand.textPrimary : "#8c8c8c" }}>
+      <div>
+        <div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1.1 }}>
           {count}
         </div>
-        <div style={{ fontSize: 12.5, color: brand.textSecondary, marginTop: 2 }}>{label}</div>
+        <div style={{ fontSize: 12, color: brand.textSecondary }}>{label}</div>
       </div>
     </div>
   );
@@ -410,8 +379,6 @@ function TodayOpsPanel({
             data.pendingBookings.count,
             pendingStyle.color,
             pendingStyle.bg,
-            pendingStyle.border,
-            () => navigate("/admin/bookings?status=pending"),
           )}
         </Col>
         <Col xs={24} sm={8}>
@@ -421,8 +388,6 @@ function TodayOpsPanel({
             data.checkInsToday.count,
             checkinStyle.color,
             checkinStyle.bg,
-            checkinStyle.border,
-            () => navigate("/admin/bookings?status=checkin_today"),
           )}
         </Col>
         <Col xs={24} sm={8}>
@@ -432,8 +397,6 @@ function TodayOpsPanel({
             data.checkOutsToday.count,
             checkoutStyle.color,
             checkoutStyle.bg,
-            checkoutStyle.border,
-            () => navigate("/admin/bookings?status=checkout_today"),
           )}
         </Col>
       </Row>
@@ -459,22 +422,7 @@ function TodayOpsPanel({
               <Tag
                 key={room.id}
                 color="success"
-                onClick={() => navigate(`/admin/rooms?search=${room.roomNumber}`)}
-                style={{
-                  padding: "4px 10px",
-                  borderRadius: 8,
-                  cursor: "pointer",
-                  transition: "all 0.15s ease-in-out",
-                  userSelect: "none",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.transform = "translateY(-1px)";
-                  e.currentTarget.style.boxShadow = "0 2px 8px rgba(0,0,0,0.12)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.transform = "translateY(0)";
-                  e.currentTarget.style.boxShadow = "none";
-                }}
+                style={{ padding: "4px 10px", borderRadius: 8 }}
               >
                 {room.roomNumber} · {room.roomTypeName}
               </Tag>

@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Alert, Button, DatePicker, Form, Input, InputNumber, message, Modal, Pagination, Select, Space, Tag, TimePicker, Tooltip } from 'antd';
+import { Alert, Button, DatePicker, Form, Input, InputNumber, message, Modal, Select, Space, Tag, Tooltip } from 'antd';
 import {
   CheckOutlined,
   CloseOutlined,
@@ -17,16 +16,10 @@ import dayjs from 'dayjs';
 import api from '../../services/api';
 import BookingDetailModal from './BookingDetailModal';
 import CheckoutPaymentModal from './CheckoutPaymentModal';
-import { getPolicies, type PoliciesInfo } from '../../services/settingsService';
-import { renderRoomTypesSummaryText, getBookingTotalRoomCount, type RoomTypeSummaryItem } from '../../utils/bookingUtils';
-
-interface BookingRoomItem {
-  bookingDetailId?: number;
-  id?: number | null;
-  number: string;
-  roomTypeId?: number;
-  typeName?: string;
-}
+import { getPolicies } from '../../services/settingsService';
+import type { PoliciesInfo } from '../../services/settingsService';
+import { previewRoomPrice } from '../../services/roomService';
+import type { NightlyPriceItem } from '../../services/roomService';
 
 interface Booking {
   id: number;
@@ -35,11 +28,9 @@ interface Booking {
   customer_phone: string | null;
   room_id?: number | null;
   room_number: string | null;
+  room_type_id?: number | null;
   room_type_name: string | null;
   room_status?: string | null;
-  room_quantity?: number | null;
-  roomTypesSummary?: RoomTypeSummaryItem[];
-  booking_rooms?: BookingRoomItem[];
   check_in: string | null;
   check_out: string | null;
   status: string;
@@ -64,12 +55,247 @@ interface ServiceItem {
 interface RoomItem {
   id: number;
   roomNumber: string;
+  room_type_id?: number;
+  roomTypeId?: number;
   room_type_name?: string;
   price_per_night?: string | number;
   status: string;
 }
 
-type Operation = 'guests' | 'declareGuests' | 'service' | 'damage' | 'extend' | 'transfer' | 'updateCheckInTime' | 'updateCheckOutTime' | null;
+type Operation = 'guests' | 'declareGuests' | 'service' | 'damage' | 'extend' | 'transfer' | null;
+
+const TransferPricePreview: React.FC<{
+  booking: Booking | null;
+  rooms: RoomItem[];
+  form: any;
+}> = ({ booking, rooms, form }) => {
+  const toRoomId = Form.useWatch('toRoomId', form);
+  const fromDate = Form.useWatch('fromDate', form);
+  const toDate = Form.useWatch('toDate', form);
+  const [loading, setLoading] = useState(false);
+  const [previewData, setPreviewData] = useState<{
+    nights: number;
+    prices: NightlyPriceItem[];
+    total: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!toRoomId || !fromDate || !toDate || !dayjs.isDayjs(fromDate) || !dayjs.isDayjs(toDate)) {
+      setPreviewData(null);
+      return;
+    }
+    const checkInStr = fromDate.format('YYYY-MM-DD');
+    const checkOutStr = toDate.format('YYYY-MM-DD');
+    if (checkOutStr <= checkInStr) {
+      setPreviewData(null);
+      return;
+    }
+
+    const targetRoom = rooms.find((r) => r.id === toRoomId);
+    if (!targetRoom) return;
+
+    let cancelled = false;
+    setLoading(true);
+
+    const typeId = targetRoom.room_type_id || targetRoom.roomTypeId;
+    previewRoomPrice({
+      roomTypeId: typeId ? Number(typeId) : undefined,
+      checkIn: checkInStr,
+      checkOut: checkOutStr,
+      fallbackPrice: Number(targetRoom.price_per_night || 0),
+    })
+      .then((res) => {
+        if (!cancelled) setPreviewData(res.data.data);
+      })
+      .catch(() => {
+        if (!cancelled) setPreviewData(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [toRoomId, fromDate, toDate, rooms]);
+
+  if (!toRoomId || !fromDate || !toDate) return null;
+  if (loading) {
+    return (
+      <div style={{ marginTop: 12, padding: '10px 14px', background: '#f8fafc', borderRadius: 8, color: '#64748b', fontSize: 13 }}>
+        Đang tính toán giá phòng mới theo từng ngày (Lễ / Chủ nhật / Ngày thường)...
+      </div>
+    );
+  }
+  if (!previewData) return null;
+
+  const targetRoom = rooms.find((r) => r.id === toRoomId);
+  const oldPricePerNight = Number(booking?.room_price || 0);
+  const oldRemainingTotal = previewData.nights * oldPricePerNight;
+  const priceDifference = previewData.total - oldRemainingTotal;
+
+  return (
+    <div style={{ marginTop: 14, padding: '12px 14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8 }}>
+      <div style={{ fontWeight: 600, color: '#1e293b', marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span>Giá từng đêm của phòng mới ({targetRoom?.roomNumber} - {previewData.nights} đêm):</span>
+        <strong style={{ color: '#047857', fontSize: 15 }}>{new Intl.NumberFormat('vi-VN').format(previewData.total)}₫</strong>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 180, overflowY: 'auto' }}>
+        {previewData.prices.map((night, idx) => (
+          <div
+            key={idx}
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              fontSize: 13,
+              background: '#fff',
+              padding: '6px 10px',
+              borderRadius: 6,
+              border: '1px solid #f1f5f9'
+            }}
+          >
+            <span>
+              <strong>{dayjs(night.date).format('DD/MM/YYYY')}</strong> ({night.dayName})
+              {night.isHoliday && <Tag color="red" style={{ marginLeft: 6 }}>Dịp lễ</Tag>}
+              {night.isSunday && <Tag color="orange" style={{ marginLeft: 6 }}>Chủ nhật</Tag>}
+              {night.isSaturday && <Tag color="purple" style={{ marginLeft: 6 }}>Thứ 7</Tag>}
+              {night.priceType === 'normal' && <Tag color="blue" style={{ marginLeft: 6 }}>Ngày thường</Tag>}
+              {night.note && <span style={{ color: '#64748b', fontSize: 12, marginLeft: 4 }}>({night.note})</span>}
+            </span>
+            <span style={{ fontWeight: 600, color: '#0f172a' }}>
+              {new Intl.NumberFormat('vi-VN').format(night.price)}₫
+            </span>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed #cbd5e1', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
+        <span>Ước tính chênh lệch so với phòng cũ ({previewData.nights} đêm):</span>
+        {priceDifference > 0 ? (
+          <strong style={{ color: '#cf1322' }}>
+            Khách cần bù: +{new Intl.NumberFormat('vi-VN').format(priceDifference)}₫
+          </strong>
+        ) : priceDifference < 0 ? (
+          <strong style={{ color: '#389e0d' }}>
+            Giảm trừ: -{new Intl.NumberFormat('vi-VN').format(Math.abs(priceDifference))}₫
+          </strong>
+        ) : (
+          <strong style={{ color: '#64748b' }}>Không thay đổi giá</strong>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const ExtendPricePreview: React.FC<{
+  booking: Booking | null;
+  form: any;
+}> = ({ booking, form }) => {
+  const newCheckOut = Form.useWatch('checkOut', form);
+  const [loading, setLoading] = useState(false);
+  const [previewData, setPreviewData] = useState<{
+    nights: number;
+    prices: NightlyPriceItem[];
+    total: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!booking?.check_out || !newCheckOut) {
+      setPreviewData(null);
+      return;
+    }
+
+    const currentCheckOutStr = dayjs(booking.check_out).format('YYYY-MM-DD');
+    const newCheckOutStr = dayjs(newCheckOut).format('YYYY-MM-DD');
+
+    if (newCheckOutStr <= currentCheckOutStr) {
+      setPreviewData(null);
+      return;
+    }
+
+    let cancelled = false;
+    setLoading(true);
+
+    const typeId = booking.room_type_id;
+    previewRoomPrice({
+      roomTypeId: typeId ? Number(typeId) : undefined,
+      checkIn: currentCheckOutStr,
+      checkOut: newCheckOutStr,
+      fallbackPrice: Number(booking.room_price || 0),
+    })
+      .then((res) => {
+        if (!cancelled) setPreviewData(res.data.data);
+      })
+      .catch(() => {
+        if (!cancelled) setPreviewData(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [booking, newCheckOut]);
+
+  if (!booking?.check_out || !newCheckOut) return null;
+  if (loading) {
+    return (
+      <div style={{ marginTop: 12, padding: '10px 14px', background: '#f8fafc', borderRadius: 8, color: '#64748b', fontSize: 13 }}>
+        Đang tính toán giá các đêm gia hạn (Lễ / Cuối tuần / Ngày thường)...
+      </div>
+    );
+  }
+  if (!previewData || previewData.nights === 0) return null;
+
+  return (
+    <div style={{ marginTop: 14, padding: '12px 14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8 }}>
+      <div style={{ fontWeight: 600, color: '#166534', marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span>Chi tiết các đêm gia hạn thêm ({previewData.nights} đêm):</span>
+        <strong style={{ color: '#15803d', fontSize: 15 }}>+{new Intl.NumberFormat('vi-VN').format(previewData.total)}₫</strong>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 180, overflowY: 'auto' }}>
+        {previewData.prices.map((night, idx) => (
+          <div
+            key={idx}
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              fontSize: 13,
+              background: '#fff',
+              padding: '6px 10px',
+              borderRadius: 6,
+              border: '1px solid #dcfce7'
+            }}
+          >
+            <span>
+              <strong>{dayjs(night.date).format('DD/MM/YYYY')}</strong> ({night.dayName})
+              {night.isHoliday && <Tag color="red" style={{ marginLeft: 6 }}>Dịp lễ</Tag>}
+              {night.isSunday && <Tag color="orange" style={{ marginLeft: 6 }}>Chủ nhật</Tag>}
+              {night.isSaturday && <Tag color="purple" style={{ marginLeft: 6 }}>Thứ 7</Tag>}
+              {night.priceType === 'normal' && <Tag color="blue" style={{ marginLeft: 6 }}>Ngày thường</Tag>}
+              {night.note && <span style={{ color: '#64748b', fontSize: 12, marginLeft: 4 }}>({night.note})</span>}
+            </span>
+            <span style={{ fontWeight: 600, color: '#0f172a' }}>
+              {new Intl.NumberFormat('vi-VN').format(night.price)}₫
+            </span>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed #86efac', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
+        <span>Tổng tiền phòng dự kiến sau gia hạn:</span>
+        <strong style={{ color: '#0f172a', fontSize: 14 }}>
+          {new Intl.NumberFormat('vi-VN').format(Number(booking?.total_price || 0) + previewData.total)}₫
+        </strong>
+      </div>
+    </div>
+  );
+};
 
 const statusText: Record<string, string> = {
   pending: 'Chờ xác nhận',
@@ -133,8 +359,6 @@ const formatPrice = (price?: string | number | null) => {
 };
 
 function BookingManagement() {
-  const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [services, setServices] = useState<ServiceItem[]>([]);
   const [rooms, setRooms] = useState<RoomItem[]>([]);
@@ -150,83 +374,27 @@ function BookingManagement() {
   const [reassignLoading, setReassignLoading] = useState<Record<number, boolean>>({});
   const [extendingAfterConflict, setExtendingAfterConflict] = useState(false);
 
-  const [filterStatus, setFilterStatus] = useState<string>(
-    searchParams.get('status') || 'all'
-  );
-  const [filterSearch, setFilterSearch] = useState<string>(
-    searchParams.get('search') || ''
-  );
-  const [currentPage, setCurrentPage] = useState<number>(
-    Number(searchParams.get('page')) || 1
-  );
-  const [pageSize, setPageSize] = useState<number>(
-    Number(searchParams.get('limit')) || 8
-  );
-  const [totalCount, setTotalCount] = useState<number>(0);
-
-  useEffect(() => {
-    const statusFromUrl = searchParams.get('status');
-    const searchFromUrl = searchParams.get('search');
-    const pageFromUrl = searchParams.get('page');
-    const limitFromUrl = searchParams.get('limit');
-
-    if (statusFromUrl !== null) setFilterStatus(statusFromUrl);
-    if (searchFromUrl !== null) setFilterSearch(searchFromUrl);
-    if (pageFromUrl !== null) setCurrentPage(Number(pageFromUrl) || 1);
-    if (limitFromUrl !== null) setPageSize(Number(limitFromUrl) || 8);
-  }, [searchParams]);
-
   // Trả về mảng booking vừa tải để nơi gọi (VD: sau khi chuyển phòng) có thể
   // lấy ngay bản ghi mới nhất mà không cần đọc lại state bất đồng bộ.
-  const fetchBookings = async (
-    page = currentPage,
-    limit = pageSize,
-    status = filterStatus,
-    search = filterSearch
-  ): Promise<Booking[]> => {
+  const fetchBookings = async (): Promise<Booking[]> => {
     setLoading(true);
     try {
-      const params: Record<string, any> = {
-        page,
-        limit,
-      };
-      if (status && status !== 'all') {
-        params.status = status;
-      }
-      if (search && search.trim()) {
-        params.search = search.trim();
-      }
-
-      const response: any = await api.get('/bookings', { params });
-      const dataArray = Array.isArray(response?.data)
-        ? response.data
-        : Array.isArray(response)
-          ? response
-          : [];
-
-      const total =
-        typeof response?.total === 'number'
-          ? response.total
-          : typeof response?.data?.total === 'number'
-            ? response.data.total
-            : dataArray.length;
-
-      const mapped = dataArray.map((booking: Booking) => ({
-        ...booking,
-        status: normalizeStatus(booking.status),
-        adults: booking.adults ?? 0,
-        children: booking.children ?? 0,
-      }));
-
+      const response = await api.get('/bookings');
+      const data = Array.isArray(response.data) ? response.data : [];
+      const mapped = data
+        .map((booking: Booking) => ({
+          ...booking,
+          status: normalizeStatus(booking.status),
+          adults: booking.adults ?? 0,
+          children: booking.children ?? 0,
+        }))
+        .filter((booking: Booking) => booking.check_in && booking.check_out);
       setBookings(mapped);
-      setTotalCount(total);
-
       return mapped;
     } catch (error) {
       console.error('Error fetching bookings:', error);
       message.error('Lỗi khi tải danh sách đặt phòng');
       setBookings([]);
-      setTotalCount(0);
       return [];
     } finally {
       setLoading(false);
@@ -245,12 +413,14 @@ function BookingManagement() {
   };
 
   useEffect(() => {
-    fetchBookings(currentPage, pageSize, filterStatus, filterSearch);
+    fetchBookings();
     fetchSupportData();
+    // Chỉ dùng để phát hiện khách đến sớm hơn giờ chuẩn -> hỏi xác nhận
+    // trước khi check-in, không hiển thị note nào khác trong màn hình này.
     getPolicies()
       .then((res) => setPolicies(res.data))
       .catch(() => setPolicies(null));
-  }, [currentPage, pageSize, filterStatus, filterSearch]);
+  }, []);
 
   // Có phải khách đang đến SỚM hơn giờ nhận phòng chuẩn không (so trên đúng
   // ngày check_in của booking). Chỉ true khi hôm nay là ngày nhận phòng và
@@ -314,16 +484,6 @@ function BookingManagement() {
       form.setFieldsValue({
         fromDate: dayjs(),
         toDate: booking.check_out ? dayjs(booking.check_out) : undefined,
-      });
-    }
-    if (type === 'updateCheckInTime') {
-      form.setFieldsValue({
-        requestedCheckInTime: booking.requested_check_in_time ? dayjs(booking.requested_check_in_time, 'HH:mm:ss') : dayjs('14:00', 'HH:mm'),
-      });
-    }
-    if (type === 'updateCheckOutTime') {
-      form.setFieldsValue({
-        requestedCheckOutTime: (booking as any).requested_check_out_time ? dayjs((booking as any).requested_check_out_time, 'HH:mm:ss') : dayjs('12:00', 'HH:mm'),
       });
     }
   };
@@ -470,10 +630,13 @@ function BookingManagement() {
                 </p>
               ) : priceDifference < 0 ? (
                 <p>
-                  Phòng mới rẻ hơn, hệ thống đã điều chỉnh số tiền còn lại.
+                  Phòng mới rẻ hơn, tiền phòng được giảm:{' '}
+                  <strong style={{ color: '#389e0d' }}>{formatPrice(Math.abs(priceDifference))}</strong>.
                 </p>
-              ) : null}
-              {remainingAmount > 0 && (
+              ) : (
+                <p>Giá phòng không thay đổi.</p>
+              )}
+              {priceDifference > 0 && (
                 <p>
                   Số tiền khách còn phải thanh toán: <strong>{formatPrice(remainingAmount)}</strong>.
                 </p>
@@ -481,22 +644,6 @@ function BookingManagement() {
             </div>
           ),
         });
-      }
-
-      if (operation === 'updateCheckInTime') {
-        const timeStr = values.requestedCheckInTime.format('HH:mm:ss');
-        await api.patch(`/bookings/${selectedBooking.id}/arrival-time`, {
-          requestedCheckInTime: timeStr,
-        });
-        message.success('Đã cập nhật giờ check-in dự kiến');
-      }
-
-      if (operation === 'updateCheckOutTime') {
-        const timeStr = values.requestedCheckOutTime.format('HH:mm:ss');
-        await api.patch(`/bookings/${selectedBooking.id}/departure-time`, {
-          requestedCheckOutTime: timeStr,
-        });
-        message.success('Đã cập nhật giờ check-out dự kiến');
       }
 
       closeOperation();
@@ -560,7 +707,7 @@ function BookingManagement() {
       content: (
         <div>
           <p style={{ marginTop: 0 }}>
-            Chính sách hoàn cọc: trên 7 ngày hoàn 100%, từ 3-7 ngày hoàn 50%, dưới 3 ngày không hoàn.
+            Chính sách hoàn cọc: dưới 3 ngày hoàn 100%, từ 3-7 ngày hoàn 50%, trên 7 ngày không hoàn.
           </p>
           <Input.TextArea
             rows={3}
@@ -804,48 +951,35 @@ const handleCheckIn = (booking: Booking) => {
 
     if (operation === 'extend') {
       return (
-        <Form.Item name="checkOut" label="Ngày trả phòng mới" rules={[{ required: true, message: 'Chọn ngày trả mới' }]}>
-          <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
-        </Form.Item>
+        <>
+          <div style={{ marginBottom: 14, padding: '8px 12px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, color: '#334155' }}>
+            Phòng đang ở: <strong>Phòng {selectedBooking?.room_number}</strong> ({selectedBooking?.room_type_name}) · Trả phòng hiện tại: <strong>{formatDate(selectedBooking?.check_out)}</strong>
+          </div>
+          <Form.Item name="checkOut" label="Ngày trả phòng mới" rules={[{ required: true, message: 'Chọn ngày trả mới' }]}>
+            <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
+          </Form.Item>
+          <ExtendPricePreview booking={selectedBooking} form={form} />
+        </>
       );
     }
 
     if (operation === 'transfer') {
-      const activeRooms = selectedBooking?.booking_rooms && selectedBooking.booking_rooms.length > 0
-        ? selectedBooking.booking_rooms
-        : selectedBooking?.room_number
-          ? [{ id: selectedBooking.room_id, number: selectedBooking.room_number, roomTypeId: undefined, typeName: selectedBooking.room_type_name || '' }]
-          : [];
-
       return (
         <>
           <div
             style={{ marginBottom: 16, padding: '10px 12px', background: '#f6ffed', border: '1px solid #b7eb8f', borderRadius: 8 }}
           >
-            <div style={{ color: '#389e0d', fontWeight: 600 }}>Thông tin phòng đặt</div>
+            <div style={{ color: '#389e0d', fontWeight: 600 }}>Phòng đang ở</div>
             <div>
-              {renderRoomTypesSummaryText(selectedBooking as any)} · Đặt dồn {getBookingTotalRoomCount(selectedBooking as any)} phòng
+              Phòng {selectedBooking?.room_number || '—'} · {selectedBooking?.room_type_name || '—'} · Giá đang áp dụng:{' '}
+              <strong>{formatPrice(selectedBooking?.room_price)}</strong>/đêm
             </div>
           </div>
-
-          {activeRooms.length > 1 && (
-            <Form.Item name="fromRoomId" label="Phòng cần chuyển" rules={[{ required: true, message: 'Chọn phòng cần chuyển' }]}>
-              <Select
-                placeholder="Chọn phòng hiện tại trong đơn"
-                options={activeRooms.map((r) => ({
-                  value: r.id,
-                  label: `Phòng ${r.number}${r.typeName ? ` (${r.typeName})` : ''}`,
-                }))}
-              />
-            </Form.Item>
-          )}
-
-          <Form.Item name="toRoomId" label="Phòng chuyển đến" rules={[{ required: true, message: 'Chọn phòng chuyển đến' }]}>
+          <Form.Item name="toRoomId" label="Phòng chuyển đến" rules={[{ required: true, message: 'Chọn phòng' }]}>
             <Select
               showSearch
-              placeholder="Chọn phòng trống chuyển tới"
               options={rooms
-                .filter((room) => !activeRooms.some((ar) => Number(ar.id) === Number(room.id)))
+                .filter((room) => room.id !== selectedBooking?.room_id)
                 .map((room) => ({
                   value: room.id,
                   label: `Phòng ${room.roomNumber} · ${room.room_type_name || ''} · ${formatPrice(room.price_per_night)}/đêm (${room.status})`,
@@ -858,26 +992,11 @@ const handleCheckIn = (booking: Booking) => {
           <Form.Item name="toDate" label="Đến ngày" rules={[{ required: true }]}>
             <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
           </Form.Item>
-          <Form.Item name="reason" label="Lý do chuyển phòng">
-            <Input.TextArea rows={3} />
+          <TransferPricePreview booking={selectedBooking} rooms={rooms} form={form} />
+          <Form.Item name="reason" label="Lý do chuyển phòng" style={{ marginTop: 14 }}>
+            <Input.TextArea rows={3} placeholder="Ví dụ: Khách muốn đổi phòng view đẹp hơn, nâng cấp hạng phòng..." />
           </Form.Item>
         </>
-      );
-    }
-
-    if (operation === 'updateCheckInTime') {
-      return (
-        <Form.Item name="requestedCheckInTime" label="Giờ check-in dự kiến mới" rules={[{ required: true, message: 'Chọn giờ check-in dự kiến' }]}>
-          <TimePicker format="HH:mm" style={{ width: '100%' }} minuteStep={15} />
-        </Form.Item>
-      );
-    }
-
-    if (operation === 'updateCheckOutTime') {
-      return (
-        <Form.Item name="requestedCheckOutTime" label="Giờ check-out dự kiến mới" rules={[{ required: true, message: 'Chọn giờ check-out dự kiến' }]}>
-          <TimePicker format="HH:mm" style={{ width: '100%' }} minuteStep={15} />
-        </Form.Item>
       );
     }
 
@@ -891,66 +1010,16 @@ const handleCheckIn = (booking: Booking) => {
     damage: 'Thêm phí hư hỏng/mất vật dụng',
     extend: 'Gia hạn thời gian ở',
     transfer: 'Chuyển phòng giữa chừng',
-    updateCheckInTime: 'Cập nhật giờ check-in dự kiến',
-    updateCheckOutTime: 'Cập nhật giờ check-out dự kiến',
   };
-
-  const filteredBookings = bookings;
 
   return (
     <div style={{ padding: 24 }}>
       <div style={{ background: '#fff', borderRadius: 16, padding: 24, boxShadow: '0 8px 24px rgba(0,0,0,0.08)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
           <h2 style={{ margin: 0 }}>Quản lý đặt phòng</h2>
-          <Space wrap>
-            <Select
-              style={{ width: 220 }}
-              value={filterStatus}
-              onChange={(val) => {
-                setFilterStatus(val);
-                setCurrentPage(1);
-                setSearchParams({ status: val, search: filterSearch, page: '1', limit: String(pageSize) });
-              }}
-              options={[
-                { value: 'all', label: 'Tất cả trạng thái' },
-                { value: 'pending', label: 'Booking chờ xác nhận' },
-                { value: 'checkin_today', label: 'Khách check-in hôm nay' },
-                { value: 'checkout_today', label: 'Khách check-out hôm nay' },
-                { value: 'confirmed', label: 'Đã xác nhận' },
-                { value: 'checked_in', label: 'Đã check-in' },
-                { value: 'checked_out', label: 'Đã trả phòng' },
-                { value: 'cancelled', label: 'Đã hủy' },
-                { value: 'no_show', label: 'No-show' },
-              ]}
-            />
-            <Input.Search
-              placeholder="Tìm theo tên, SĐT, số phòng, #ID..."
-              allowClear
-              value={filterSearch}
-              onChange={(e) => {
-                const val = e.target.value;
-                setFilterSearch(val);
-                setCurrentPage(1);
-                setSearchParams({ status: filterStatus, search: val, page: '1', limit: String(pageSize) });
-              }}
-              style={{ width: 260 }}
-            />
-            {(filterStatus !== 'all' || filterSearch) && (
-              <Button
-                onClick={() => {
-                  setFilterStatus('all');
-                  setFilterSearch('');
-                  setCurrentPage(1);
-                  setSearchParams({ page: '1', limit: String(pageSize) });
-                }}
-              >
-                Xóa bộ lọc
-              </Button>
-            )}
-            <Button icon={<ReloadOutlined />} onClick={() => fetchBookings(currentPage, pageSize, filterStatus, filterSearch)} loading={loading}>
-              Làm mới
-            </Button>
-          </Space>
+          <Button icon={<ReloadOutlined />} onClick={fetchBookings} loading={loading}>
+            Làm mới
+          </Button>
         </div>
 
         <div style={{ overflowX: 'auto' }}>
@@ -970,166 +1039,89 @@ const handleCheckIn = (booking: Booking) => {
             <tbody>
               {loading ? (
                 <tr><td colSpan={8} style={emptyStyle}>Đang tải dữ liệu...</td></tr>
-              ) : filteredBookings.length === 0 ? (
-                <tr><td colSpan={8} style={emptyStyle}>Không có dữ liệu đặt phòng phù hợp</td></tr>
+              ) : bookings.length === 0 ? (
+                <tr><td colSpan={8} style={emptyStyle}>Không có dữ liệu đặt phòng</td></tr>
               ) : (
-                filteredBookings.map((booking) => {
-                  const roomList =
-                    booking.booking_rooms && booking.booking_rooms.length > 0
-                      ? booking.booking_rooms
-                      : booking.room_number
-                        ? [{ id: booking.room_id, number: booking.room_number }]
-                        : [];
-                  return (
-                    <tr key={booking.id}>
-                      <td style={{ ...tdStyle, fontWeight: 700 }}>#{booking.id}</td>
-                      <td style={tdStyle}>
-                        <strong style={{ color: '#262626' }}>{booking.customer_name || 'N/A'}</strong>
-                        <div style={{ ...smallText, marginTop: 2 }}>{booking.customer_phone || ''}</div>
-                      </td>
-                      <td style={tdStyle}>
-                        {(() => {
-                          const summaryList = (Array.isArray(booking.roomTypesSummary) && booking.roomTypesSummary.length > 0)
-                            ? booking.roomTypesSummary
-                            : [
-                                {
-                                  roomTypeId: booking.room_id ? 1 : undefined,
-                                  typeName: booking.room_type_name || 'Standard',
-                                  quantity: booking.room_quantity || (roomList.length > 0 ? roomList.length : 1),
-                                }
-                              ];
-
-                          return (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                              {summaryList.map((s, idx) => {
-                                const matchingRooms = (booking.booking_rooms || []).filter(
-                                  (r) => (s.roomTypeId && Number(r.roomTypeId) === Number(s.roomTypeId)) || r.typeName === s.typeName
-                                );
-                                return (
-                                  <div key={s.roomTypeId || idx}>
-                                    <div style={{ fontSize: 12, fontWeight: 600, color: '#1f1f1f' }}>
-                                      {s.typeName} ×{s.quantity}
-                                    </div>
-                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 2 }}>
-                                      {matchingRooms.length > 0 ? (
-                                        matchingRooms.map((r, rIdx) => (
-                                          <Tag key={r.id || rIdx} color="blue" style={{ margin: 0, fontSize: 11, borderRadius: 4 }}>
-                                            {r.number}
-                                          </Tag>
-                                        ))
-                                      ) : roomList.length > 0 && idx === 0 ? (
-                                        roomList.map((r, rIdx) => (
-                                          <Tag key={r.id || rIdx} color="blue" style={{ margin: 0, fontSize: 11, borderRadius: 4 }}>
-                                            {r.number}
-                                          </Tag>
-                                        ))
-                                      ) : (
-                                        <span style={{ fontSize: 11, color: '#888' }}>Chưa xếp phòng</span>
-                                      )}
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          );
-                        })()}
-                      </td>
-                      <td style={tdStyle}>
-                        <div style={{ whiteSpace: 'nowrap', fontSize: 13 }}>Nhận: {formatDate(booking.check_in)}</div>
-                        <div style={{ whiteSpace: 'nowrap', fontSize: 12, color: '#666', marginTop: 2 }}>Trả: {formatDate(booking.check_out)}</div>
-                      </td>
-                      <td style={tdStyle}>
-                        <div style={{ whiteSpace: 'nowrap', fontSize: 13 }}>{booking.adults ?? 0} người lớn</div>
-                        <div style={{ whiteSpace: 'nowrap', fontSize: 12, color: '#666', marginTop: 2 }}>{booking.children ?? 0} trẻ em</div>
-                      </td>
-                      <td style={{ ...tdStyle, whiteSpace: 'nowrap', fontWeight: 600, color: '#1f1f1f' }}>
-                        {formatPrice(booking.payable_total ?? booking.total_price)}
-                      </td>
-                      <td style={tdStyle}>
-                        {(() => {
-                          const tag = getBookingDisplayTag(booking);
-                          return <Tag color={tag.color}>{tag.label}</Tag>;
-                        })()}
-                      </td>
-                      <td style={tdStyle}>
-                        <Space size={[4, 4]} wrap style={{ maxWidth: 210 }}>
-                          <Tooltip title="Xem chi tiết đặt phòng">
-                            <Button type="primary" icon={<EyeOutlined style={{ color: 'white' }} />} size="small" onClick={() => navigate(`/admin/bookings/${booking.id}`)}></Button>
+                bookings.map((booking) => (
+                  <tr key={booking.id}>
+                    <td style={tdStyle}>#{booking.id}</td>
+                    <td style={tdStyle}>
+                      <strong>{booking.customer_name || 'N/A'}</strong>
+                      <div style={smallText}>{booking.customer_phone || ''}</div>
+                    </td>
+                    <td style={tdStyle}>
+                      <strong>{booking.room_number ? `Phòng ${booking.room_number}` : 'N/A'}</strong>
+                      <div style={smallText}>{booking.room_type_name || ''}</div>
+                    </td>
+                    <td style={tdStyle}>
+                      <div>Nhận: {formatDate(booking.check_in)}</div>
+                      <div>Trả: {formatDate(booking.check_out)}</div>
+                    </td>
+                    <td style={tdStyle}>{booking.adults ?? 0} người lớn, {booking.children ?? 0} trẻ em</td>
+                    <td style={tdStyle}>{formatPrice(booking.payable_total ?? booking.total_price)}</td>
+                    <td style={tdStyle}>
+                      {(() => {
+                        const tag = getBookingDisplayTag(booking);
+                        return <Tag color={tag.color}>{tag.label}</Tag>;
+                      })()}
+                    </td>
+                    <td style={tdStyle}>
+                      <Space size="small" wrap>
+                        <Tooltip title="Xem chi tiết đặt phòng">
+                          <Button type="primary" icon={<EyeOutlined style={{ color: 'white' }} />} size="small" onClick={() => { setSelectedBooking(booking); setViewModalVisible(true); }}></Button>
+                        </Tooltip>
+                        {['pending', 'confirmed'].includes(booking.status) && (
+                          <Tooltip title="Hủy đặt phòng">
+                            <Button type="primary" icon={<CloseOutlined />} size="small" danger onClick={() => handleCancel(booking.id)}></Button>
                           </Tooltip>
-                          {['pending', 'confirmed'].includes(booking.status) && (
-                            <Tooltip title="Hủy đặt phòng">
-                              <Button type="primary" icon={<CloseOutlined />} size="small" danger onClick={() => handleCancel(booking.id)}></Button>
-                            </Tooltip>
-                          )}
-                          {['pending', 'confirmed'].includes(booking.status) && (
-                            <Tooltip title="Check-in (nhận phòng)">
-                              <Button type="primary" icon={<CheckOutlined />} size="small" onClick={() => handleCheckIn(booking)}></Button>
-                            </Tooltip>
-                          )}
-                          {['pending', 'confirmed'].includes(booking.status) && (
-                            <Tooltip title="Đánh dấu khách không đến (không hoàn tiền, tặng voucher 10%)">
-                              <Button type="primary" danger size="small" onClick={() => handleNoShow(booking)}>No-show</Button>
-                            </Tooltip>
-                          )}
-                          {booking.status === 'checked_in' && (
-                            <Tooltip title="Check-out (trả phòng)">
-                              <Button type="primary" icon={<LogoutOutlined />} size="small" onClick={() => handleCheckOut(booking.id)}></Button>
-                            </Tooltip>
-                          )}
-                          {booking.status === 'checked_in' && (
-                            <Tooltip title="Thêm dịch vụ cho khách">
-                              <Button type="primary" icon={<PlusOutlined />} size="small" onClick={() => openOperation('service', booking)}></Button>
-                            </Tooltip>
-                          )}
-                          {booking.status === 'checked_in' && (
-                            <Tooltip title="Ghi nhận hỏng hóc / đền bù">
-                              <Button type="primary" icon={<ToolOutlined />} size="small" onClick={() => openOperation('damage', booking)}></Button>
-                            </Tooltip>
-                          )}
-                          {['confirmed', 'checked_in'].includes(booking.status) && (
-                            <Tooltip title="Gia hạn thời gian ở">
-                              <Button type="primary" icon={<HomeOutlined />} size="small" onClick={() => openOperation('extend', booking)}></Button>
-                            </Tooltip>
-                          )}
-                          {booking.status === 'checked_in' && (
-                            <Tooltip title="Chuyển phòng">
-                              <Button type="primary" icon={<SwapOutlined />} size="small" onClick={() => openOperation('transfer', booking)}></Button>
-                            </Tooltip>
-                          )}
-                          {booking.status === 'checked_in' && (
-                            <Tooltip title="Khai báo khách ở cùng">
-                              <Button type="primary" icon={<UserAddOutlined />} size="small" onClick={() => openOperation('declareGuests', booking)}></Button>
-                            </Tooltip>
-                          )}
-                        </Space>
-                      </td>
-                    </tr>
-                  );
-                })
+                        )}
+                        {['pending', 'confirmed'].includes(booking.status) && (
+                          <Tooltip title="Check-in (nhận phòng)">
+                            <Button type="primary" icon={<CheckOutlined />} size="small" onClick={() => handleCheckIn(booking)}></Button>
+                          </Tooltip>
+                        )}
+                        {['pending', 'confirmed'].includes(booking.status) && (
+                          <Tooltip title="Đánh dấu khách không đến (không hoàn tiền, tặng voucher 10%)">
+                            <Button type="primary" danger size="small" onClick={() => handleNoShow(booking)}>No-show</Button>
+                          </Tooltip>
+                        )}
+                        {booking.status === 'checked_in' && (
+                          <Tooltip title="Check-out (trả phòng)">
+                            <Button type="primary" icon={<LogoutOutlined />} size="small" onClick={() => handleCheckOut(booking.id)}></Button>
+                          </Tooltip>
+                        )}
+                        {booking.status === 'checked_in' && (
+                          <Tooltip title="Thêm dịch vụ cho khách">
+                            <Button type="primary" icon={<PlusOutlined />} size="small" onClick={() => openOperation('service', booking)}></Button>
+                          </Tooltip>
+                        )}
+                        {booking.status === 'checked_in' && (
+                          <Tooltip title="Ghi nhận hỏng hóc / đền bù">
+                            <Button type="primary" icon={<ToolOutlined />} size="small" onClick={() => openOperation('damage', booking)}></Button>
+                          </Tooltip>
+                        )}
+                        {['confirmed', 'checked_in'].includes(booking.status) && (
+                          <Tooltip title="Gia hạn thời gian ở">
+                            <Button type="primary" icon={<HomeOutlined />} size="small" onClick={() => openOperation('extend', booking)}></Button>
+                          </Tooltip>
+                        )}
+                        {booking.status === 'checked_in' && (
+                          <Tooltip title="Chuyển phòng">
+                            <Button type="primary" icon={<SwapOutlined />} size="small" onClick={() => openOperation('transfer', booking)}></Button>
+                          </Tooltip>
+                        )}
+                        {booking.status === 'checked_in' && (
+                          <Tooltip title="Khai báo khách ở cùng">
+                            <Button type="primary" icon={<UserAddOutlined />} size="small" onClick={() => openOperation('declareGuests', booking)}></Button>
+                          </Tooltip>
+                        )}
+                      </Space>
+                    </td>
+                  </tr>
+                ))
               )}
             </tbody>
           </table>
-        </div>
-
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 20, flexWrap: 'wrap', gap: 12 }}>
-          <div style={{ fontSize: 13, color: '#666' }}>
-            Hiển thị {totalCount > 0 ? (currentPage - 1) * pageSize + 1 : 0} – {totalCount > 0 ? Math.min((currentPage - 1) * pageSize + bookings.length, totalCount) : 0} / {totalCount} đặt phòng
-          </div>
-          <Pagination
-            current={currentPage}
-            pageSize={pageSize}
-            total={totalCount}
-            showSizeChanger={false}
-            onChange={(page) => {
-              setCurrentPage(page);
-              setSearchParams({
-                status: filterStatus,
-                search: filterSearch,
-                page: String(page),
-                limit: String(pageSize),
-              });
-            }}
-          />
         </div>
       </div>
 
@@ -1137,14 +1129,6 @@ const handleCheckIn = (booking: Booking) => {
         bookingId={viewModalVisible ? selectedBooking?.id ?? null : null}
         open={viewModalVisible}
         onClose={() => setViewModalVisible(false)}
-        onOpenUpdateArrivalTimeModal={(b) => {
-          setViewModalVisible(false);
-          openOperation('updateCheckInTime', b);
-        }}
-        onOpenUpdateDepartureTimeModal={(b) => {
-          setViewModalVisible(false);
-          openOperation('updateCheckOutTime', b);
-        }}
       />
 
       <CheckoutPaymentModal
