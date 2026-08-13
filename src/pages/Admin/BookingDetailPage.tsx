@@ -5,7 +5,8 @@ import {
   Popconfirm, Row, Select, Skeleton, Space, Table, Tag, message,
 } from 'antd';
 import {
-  ArrowLeftOutlined, DeleteOutlined, EditOutlined, PlusOutlined, ReloadOutlined,
+  ArrowLeftOutlined, DeleteOutlined, EditOutlined, LoginOutlined, LogoutOutlined,
+  PlusOutlined, ReloadOutlined,
 } from '@ant-design/icons';
 import {
   addBookingDamageCharge, addBookingServiceCharge,
@@ -84,11 +85,30 @@ const chargeStatusOptions = Object.entries(chargeStatusMeta).map(([value, meta])
 }));
 
 // Loại khoản phí phát sinh ngoài dịch vụ.
+const paymentStatusText: Record<string, string> = {
+  unpaid: 'Chưa thanh toán',
+  deposit_paid: 'Đã đặt cọc',
+  paid: 'Đã thanh toán đủ',
+  refunded: 'Đã hoàn tiền',
+};
+
 const chargeTypeMeta: Record<string, string> = {
   damage: 'Hư hỏng / mất đồ',
   extra_fee: 'Phụ phí',
   other: 'Khoản khác',
 };
+
+interface PaymentSnapshot {
+  id?: number;
+  roomAmount?: string | number;
+  serviceAmount?: string | number;
+  surchargeAmount?: string | number;
+  discountAmount?: string | number;
+  totalAmount?: string | number;
+  paidAmount?: string | number;
+  remainingAmount?: string | number;
+  paymentStatus?: string;
+}
 
 interface DamageCharge {
   id: number;
@@ -133,8 +153,8 @@ export interface BookingDetailData {
   damages?: Record<string, unknown>[];
   guests?: Record<string, unknown>[];
   transfers?: Record<string, unknown>[];
-  payments?: Record<string, unknown>[];
-  payment?: Record<string, unknown> | null;
+  payments?: PaymentSnapshot[];
+  payment?: PaymentSnapshot | null;
   booking_rooms?: Record<string, unknown>[];
   history?: Record<string, unknown>[];
 }
@@ -251,6 +271,21 @@ function BookingDetailPage() {
     }
   };
 
+  // ─── Nhận phòng / trả phòng ─────────────────────────────────────
+  const runStayAction = async (action: 'check-in' | 'check-out') => {
+    setWorking(true);
+    try {
+      const response = await api.patch(`/bookings/${bookingId}/${action}`);
+      const msg = (response as unknown as { message?: string }).message;
+      message.success(msg || (action === 'check-in' ? 'Đã nhận phòng' : 'Đã trả phòng'));
+      await loadBooking(true);
+    } catch (err) {
+      showApiError(err, action === 'check-in' ? 'Không thể nhận phòng' : 'Không thể trả phòng');
+    } finally {
+      setWorking(false);
+    }
+  };
+
   // ─── Phí phát sinh / hư hỏng ────────────────────────────────────
   const [damageModalOpen, setDamageModalOpen] = useState(false);
   const [editingDamage, setEditingDamage] = useState<DamageCharge | null>(null);
@@ -328,6 +363,9 @@ function BookingDetailPage() {
   const serviceTotal = serviceCharges.reduce((sum, item) => sum + Number(item.totalPrice || 0), 0);
   const damageCharges = (booking?.damages || []) as unknown as DamageCharge[];
   const damageTotal = damageCharges.reduce((sum, item) => sum + Number(item.totalPrice || 0), 0);
+  const mainPayment: PaymentSnapshot | undefined = booking?.payment || booking?.payments?.[0];
+  const remainingAmount = Number(mainPayment?.remainingAmount || 0);
+  const paymentStatus = String(mainPayment?.paymentStatus || '');
   // Đơn đã kết thúc thì khóa thao tác để không phát sinh thêm chi phí.
   const canEditCharges = !!booking && ['confirmed', 'checked_in'].includes(booking.status);
 
@@ -471,6 +509,87 @@ function BookingDetailPage() {
           </Card>
         </Col>
       </Row>
+
+      <Card size="small" style={{ marginTop: 16 }} title="Thanh toán">
+        <Row gutter={[16, 16]}>
+          <Col xs={24} lg={14}>
+            <Descriptions bordered column={2} size="small">
+              <Descriptions.Item label="Tiền phòng">{money(mainPayment?.roomAmount)}</Descriptions.Item>
+              <Descriptions.Item label="Phụ thu khách">{money(mainPayment?.surchargeAmount)}</Descriptions.Item>
+              <Descriptions.Item label="Dịch vụ">{money(serviceTotal)}</Descriptions.Item>
+              <Descriptions.Item label="Phát sinh / hư hỏng">{money(damageTotal)}</Descriptions.Item>
+              <Descriptions.Item label="Giảm giá">
+                {Number(mainPayment?.discountAmount || 0) > 0
+                  ? `− ${money(mainPayment?.discountAmount)}`
+                  : money(0)}
+              </Descriptions.Item>
+              <Descriptions.Item label="Tổng hóa đơn">
+                <strong>{money(mainPayment?.totalAmount ?? booking.payable_total)}</strong>
+              </Descriptions.Item>
+              <Descriptions.Item label="Đã thanh toán">
+                <span style={{ color: '#389e0d' }}>{money(mainPayment?.paidAmount)}</span>
+              </Descriptions.Item>
+              <Descriptions.Item label="Còn phải trả">
+                <strong style={{ color: remainingAmount > 0 ? '#cf1322' : '#389e0d' }}>
+                  {money(remainingAmount)}
+                </strong>
+              </Descriptions.Item>
+            </Descriptions>
+          </Col>
+
+          <Col xs={24} lg={10}>
+            <Space direction="vertical" style={{ width: '100%' }}>
+              <div>
+                Trạng thái thanh toán:{' '}
+                <Tag color={paymentStatus === 'paid' ? 'green' : paymentStatus === 'refunded' ? 'red' : 'orange'}>
+                  {paymentStatusText[paymentStatus] || 'Chưa có giao dịch'}
+                </Tag>
+              </div>
+
+              {remainingAmount > 0 && booking.status === 'checked_in' && (
+                <Alert
+                  type="warning"
+                  showIcon
+                  message={`Khách còn nợ ${money(remainingAmount)}`}
+                  description="Cần thu đủ trước khi trả phòng."
+                />
+              )}
+
+              <Space wrap>
+                {['pending', 'confirmed'].includes(booking.status) && (
+                  <Popconfirm
+                    title="Xác nhận cho khách nhận phòng?"
+                    okText="Nhận phòng"
+                    cancelText="Thôi"
+                    onConfirm={() => runStayAction('check-in')}
+                  >
+                    <Button type="primary" icon={<LoginOutlined />} loading={working}>
+                      Nhận phòng
+                    </Button>
+                  </Popconfirm>
+                )}
+
+                {booking.status === 'checked_in' && (
+                  <Popconfirm
+                    title="Xác nhận cho khách trả phòng?"
+                    okText="Trả phòng"
+                    cancelText="Thôi"
+                    onConfirm={() => runStayAction('check-out')}
+                  >
+                    <Button type="primary" icon={<LogoutOutlined />} loading={working}>
+                      Trả phòng
+                    </Button>
+                  </Popconfirm>
+                )}
+
+                <Button onClick={() => navigate(`/admin/payments?bookingId=${booking.id}`)}>
+                  Xem giao dịch
+                </Button>
+              </Space>
+            </Space>
+          </Col>
+        </Row>
+      </Card>
 
       <Card
         size="small"
