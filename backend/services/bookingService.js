@@ -1972,7 +1972,7 @@ const addServiceCharge = async (bookingId, payload, actor = null) => {
       `Thêm dịch vụ phát sinh: ${service.serviceName} x${payload.quantity} = ${displayMoney(addedAmount)}${created.status !== "used" ? ` (trạng thái: ${created.status})` : ""}`,
       {
         entityType: "service",
-        entityId: charge?.id ?? null,
+        entityId: created?.id ?? null,
         newValue: {
           id: created.id,
           roomId: payload.roomId || null,
