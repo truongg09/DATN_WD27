@@ -918,6 +918,57 @@ const confirmTransferPayment = async (paymentId, confirmedBy, actor = null) => {
   return result.payment;
 };
 
+// Thử một mã voucher mà KHÔNG ghi gì vào cơ sở dữ liệu, để khách xem trước
+// được giảm bao nhiêu trước khi quyết định áp.
+const previewVoucher = async (paymentId, code, actor) => {
+  const userId = typeof actor === 'object' ? actor?.userId : actor;
+  const userRole = typeof actor === 'object' ? actor?.role : 'customer';
+  const isStaffUser = ['admin', 'employee', 'staff', 'manager', 'receptionist'].includes(userRole);
+
+  const payment = await paymentModel.getPaymentById(paymentId);
+  if (!payment) throw new HttpError(404, 'Không tìm thấy thanh toán');
+
+  const booking = await bookingModel.getBookingById(payment.bookingId);
+  if (!booking) throw new HttpError(404, 'Không tìm thấy đặt phòng');
+  if (!isStaffUser && Number(booking.user_id) !== Number(userId)) {
+    throw new HttpError(403, 'Bạn không có quyền xem voucher của đặt phòng này');
+  }
+
+  const paidAmount = Number(payment.paidAmount || 0);
+  const subtotal = Number(payment.roomAmount || 0)
+    + Number(payment.serviceAmount || 0)
+    + Number(payment.surchargeAmount || 0);
+
+  const evaluation = await voucherService.evaluateVoucherForBooking({
+    code,
+    booking,
+    subtotal,
+    payableCeiling: Math.max(subtotal - paidAmount, 0),
+    userId,
+    userRole
+  });
+
+  return {
+    code: evaluation.voucher.code,
+    discountType: evaluation.voucher.discountType,
+    discountValue: Number(evaluation.voucher.discountValue),
+    maxDiscount: Number(evaluation.voucher.maxDiscount || 0),
+    minBookingAmount: Number(evaluation.voucher.minBookingAmount || 0),
+    validUntil: evaluation.voucher.endDate,
+    roomTypes: evaluation.allowedRoomTypes.map((item) => item.typeName),
+    subtotal,
+    paidAmount,
+    discountAmount: evaluation.discountAmount,
+    // Mức giảm gốc trước khi bị chặn bởi trần giảm hoặc số tiền còn phải trả,
+    // dùng để giải thích cho khách vì sao giảm ít hơn con số ghi trên voucher.
+    rawDiscount: evaluation.rawDiscount,
+    cappedByMaxDiscount: evaluation.cappedByMaxDiscount,
+    cappedByPayable: evaluation.cappedByPayable,
+    totalAfterDiscount: subtotal - evaluation.discountAmount,
+    remainingAfterDiscount: Math.max(subtotal - evaluation.discountAmount - paidAmount, 0)
+  };
+};
+
 const applyVoucher = async (paymentId, code, actor) => {
   const normalizedCode = String(code || '').trim().toUpperCase();
   if (!normalizedCode) throw new HttpError(400, 'Vui lòng nhập mã voucher');
@@ -1063,6 +1114,7 @@ module.exports = {
   getPaymentById,
   getPaymentByBookingId,
   applyVoucher,
+  previewVoucher,
   processPayment,
   confirmPayment,
   refundPayment
