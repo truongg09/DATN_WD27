@@ -1,7 +1,7 @@
 
 const express = require('express');
 const router = express.Router();
-const db = require('../db'); // ⚠️ Thay bằng pool mysql2/promise thực tế của bạn
+const db = require('../config/db');
 
 // ------------------------------------------------------------
 // Helper: chuẩn hoá khoảng ngày từ query string
