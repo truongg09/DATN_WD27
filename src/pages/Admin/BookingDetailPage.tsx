@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  Alert, Breadcrumb, Button, Card, Col, Descriptions, Empty, Form, InputNumber, Modal,
+  Alert, Breadcrumb, Button, Card, Col, Descriptions, Empty, Form, Input, InputNumber, Modal,
   Popconfirm, Row, Select, Skeleton, Space, Table, Tag, message,
 } from 'antd';
 import {
   ArrowLeftOutlined, DeleteOutlined, EditOutlined, PlusOutlined, ReloadOutlined,
 } from '@ant-design/icons';
 import {
-  addBookingServiceCharge, deleteBookingServiceCharge,
+  addBookingDamageCharge, addBookingServiceCharge,
+  deleteBookingDamageCharge, deleteBookingServiceCharge,
+  updateBookingDamageCharge, updateBookingDamageChargeStatus,
   updateBookingServiceCharge, updateBookingServiceChargeStatus,
 } from '../../services/bookingService';
 import dayjs from 'dayjs';
@@ -68,13 +70,38 @@ interface ServiceCharge {
   createdAt?: string | null;
 }
 
-// Trạng thái một dòng dịch vụ trong quá trình phục vụ khách.
-const serviceStatusMeta: Record<string, { label: string; color: string }> = {
-  pending: { label: 'Chờ phục vụ', color: 'orange' },
-  confirmed: { label: 'Đã xác nhận', color: 'blue' },
+// Trạng thái một dòng dịch vụ / khoản phí. Phải khớp đúng danh sách backend
+// chấp nhận (ALLOWED_SERVICE_STATUSES), nếu không thao tác sẽ bị từ chối.
+const chargeStatusMeta: Record<string, { label: string; color: string }> = {
+  unused: { label: 'Chưa sử dụng', color: 'orange' },
   used: { label: 'Đã sử dụng', color: 'green' },
   cancelled: { label: 'Đã hủy', color: 'red' },
 };
+
+const chargeStatusOptions = Object.entries(chargeStatusMeta).map(([value, meta]) => ({
+  value,
+  label: meta.label,
+}));
+
+// Loại khoản phí phát sinh ngoài dịch vụ.
+const chargeTypeMeta: Record<string, string> = {
+  damage: 'Hư hỏng / mất đồ',
+  extra_fee: 'Phụ phí',
+  other: 'Khoản khác',
+};
+
+interface DamageCharge {
+  id: number;
+  chargeType: string;
+  itemName: string;
+  roomNumber?: string | null;
+  quantity: number;
+  unitPrice: string | number;
+  totalPrice: string | number;
+  status: string;
+  note?: string | null;
+  createdAt?: string | null;
+}
 
 export interface BookingDetailData {
   id: number;
@@ -224,6 +251,69 @@ function BookingDetailPage() {
     }
   };
 
+  // ─── Phí phát sinh / hư hỏng ────────────────────────────────────
+  const [damageModalOpen, setDamageModalOpen] = useState(false);
+  const [editingDamage, setEditingDamage] = useState<DamageCharge | null>(null);
+  const [damageForm] = Form.useForm();
+
+  const openDamageModal = (charge?: DamageCharge) => {
+    setEditingDamage(charge || null);
+    damageForm.resetFields();
+    if (charge) {
+      damageForm.setFieldsValue({
+        chargeType: charge.chargeType,
+        itemName: charge.itemName,
+        quantity: charge.quantity,
+        unitPrice: Number(charge.unitPrice),
+        note: charge.note,
+        status: charge.status,
+      });
+    } else {
+      damageForm.setFieldsValue({ chargeType: 'damage', quantity: 1, status: 'used' });
+    }
+    setDamageModalOpen(true);
+  };
+
+  const submitDamage = async () => {
+    const values = await damageForm.validateFields();
+    setWorking(true);
+    try {
+      if (editingDamage) {
+        await updateBookingDamageCharge(bookingId, editingDamage.id, values);
+        message.success('Đã cập nhật khoản phí');
+      } else {
+        await addBookingDamageCharge(bookingId, values);
+        message.success('Đã thêm khoản phí phát sinh');
+      }
+      setDamageModalOpen(false);
+      await loadBooking(true);
+    } catch (err) {
+      showApiError(err, 'Không lưu được khoản phí');
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const changeDamageStatus = async (charge: DamageCharge, status: string) => {
+    try {
+      await updateBookingDamageChargeStatus(bookingId, charge.id, status);
+      message.success('Đã đổi trạng thái khoản phí');
+      await loadBooking(true);
+    } catch (err) {
+      showApiError(err, 'Không đổi được trạng thái');
+    }
+  };
+
+  const removeDamage = async (charge: DamageCharge) => {
+    try {
+      await deleteBookingDamageCharge(bookingId, charge.id);
+      message.success('Đã xóa khoản phí');
+      await loadBooking(true);
+    } catch (err) {
+      showApiError(err, 'Không xóa được khoản phí');
+    }
+  };
+
   const removeService = async (charge: ServiceCharge) => {
     try {
       await deleteBookingServiceCharge(bookingId, charge.id);
@@ -236,6 +326,8 @@ function BookingDetailPage() {
 
   const serviceCharges = (booking?.services || []) as unknown as ServiceCharge[];
   const serviceTotal = serviceCharges.reduce((sum, item) => sum + Number(item.totalPrice || 0), 0);
+  const damageCharges = (booking?.damages || []) as unknown as DamageCharge[];
+  const damageTotal = damageCharges.reduce((sum, item) => sum + Number(item.totalPrice || 0), 0);
   // Đơn đã kết thúc thì khóa thao tác để không phát sinh thêm chi phí.
   const canEditCharges = !!booking && ['confirmed', 'checked_in'].includes(booking.status);
 
@@ -420,10 +512,7 @@ function BookingDetailPage() {
                   style={{ width: 140 }}
                   disabled={!canEditCharges}
                   onChange={(next) => changeServiceStatus(row, next)}
-                  options={Object.entries(serviceStatusMeta).map(([key, meta]) => ({
-                    value: key,
-                    label: meta.label,
-                  }))}
+                  options={chargeStatusOptions}
                 />
               ),
             },
@@ -464,6 +553,137 @@ function BookingDetailPage() {
         />
       </Card>
 
+      <Card
+        size="small"
+        style={{ marginTop: 16 }}
+        title={`Phát sinh và hư hỏng (${damageCharges.length})`}
+        extra={
+          canEditCharges && (
+            <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => openDamageModal()}>
+              Thêm khoản phí
+            </Button>
+          )
+        }
+      >
+        <Table<DamageCharge>
+          rowKey="id"
+          size="small"
+          pagination={false}
+          dataSource={damageCharges}
+          locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Không có khoản phát sinh nào" /> }}
+          scroll={{ x: 900 }}
+          columns={[
+            { title: 'Khoản mục', dataIndex: 'itemName' },
+            {
+              title: 'Loại',
+              dataIndex: 'chargeType',
+              render: (value: string) => <Tag>{chargeTypeMeta[value] || value}</Tag>,
+            },
+            { title: 'Phòng', dataIndex: 'roomNumber', render: (v?: string | null) => v || '—' },
+            { title: 'Đơn giá', dataIndex: 'unitPrice', align: 'right', render: money },
+            { title: 'SL', dataIndex: 'quantity', align: 'center', width: 60 },
+            {
+              title: 'Thành tiền',
+              dataIndex: 'totalPrice',
+              align: 'right',
+              render: (v: string | number) => <strong>{money(v)}</strong>,
+            },
+            {
+              title: 'Trạng thái',
+              dataIndex: 'status',
+              render: (value: string, row) => (
+                <Select
+                  size="small"
+                  value={value}
+                  style={{ width: 140 }}
+                  disabled={!canEditCharges}
+                  onChange={(next) => changeDamageStatus(row, next)}
+                  options={chargeStatusOptions}
+                />
+              ),
+            },
+            { title: 'Ghi chú', dataIndex: 'note', render: (v?: string | null) => v || '—' },
+            { title: 'Thời điểm', dataIndex: 'createdAt', render: dateTime },
+            {
+              title: '',
+              key: 'actions',
+              width: 90,
+              render: (_: unknown, row) =>
+                canEditCharges && (
+                  <Space size={4}>
+                    <Button size="small" icon={<EditOutlined />} onClick={() => openDamageModal(row)} />
+                    <Popconfirm
+                      title="Xóa khoản phí này?"
+                      okText="Xóa"
+                      cancelText="Thôi"
+                      onConfirm={() => removeDamage(row)}
+                    >
+                      <Button size="small" danger icon={<DeleteOutlined />} />
+                    </Popconfirm>
+                  </Space>
+                ),
+            },
+          ]}
+          summary={() =>
+            damageCharges.length > 0 ? (
+              <Table.Summary.Row>
+                <Table.Summary.Cell index={0} colSpan={5}>
+                  <strong>Tổng phát sinh</strong>
+                </Table.Summary.Cell>
+                <Table.Summary.Cell index={5} align="right">
+                  <strong>{money(damageTotal)}</strong>
+                </Table.Summary.Cell>
+                <Table.Summary.Cell index={6} colSpan={4} />
+              </Table.Summary.Row>
+            ) : null
+          }
+        />
+      </Card>
+
+      <Modal
+        title={editingDamage ? 'Sửa khoản phí' : 'Thêm khoản phí phát sinh'}
+        open={damageModalOpen}
+        onCancel={() => setDamageModalOpen(false)}
+        onOk={submitDamage}
+        confirmLoading={working}
+        okText="Lưu"
+        cancelText="Đóng"
+        destroyOnHidden
+      >
+        <Form form={damageForm} layout="vertical">
+          <Form.Item name="chargeType" label="Loại khoản phí" rules={[{ required: true }]}>
+            <Select
+              options={Object.entries(chargeTypeMeta).map(([value, label]) => ({ value, label }))}
+            />
+          </Form.Item>
+          <Form.Item
+            name="itemName"
+            label="Tên khoản phí / vật dụng"
+            rules={[{ required: true, message: 'Nhập tên khoản phí' }]}
+          >
+            <Input placeholder="Ví dụ: Khăn tắm, điều khiển TV, phụ phí dọn phòng..." />
+          </Form.Item>
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item name="quantity" label="Số lượng" rules={[{ required: true, message: 'Nhập số lượng' }]}>
+                <InputNumber min={1} style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="unitPrice" label="Đơn giá" rules={[{ required: true, message: 'Nhập đơn giá' }]}>
+                <InputNumber min={0} step={10000} style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Form.Item name="status" label="Trạng thái">
+            <Select options={chargeStatusOptions} />
+          </Form.Item>
+          <Form.Item name="note" label="Ghi chú">
+            <Input.TextArea rows={3} placeholder="Mô tả tình trạng, lý do thu phí..." />
+          </Form.Item>
+        </Form>
+      </Modal>
+
       <Modal
         title={editingCharge ? 'Sửa dịch vụ' : 'Thêm dịch vụ cho khách'}
         open={serviceModalOpen}
@@ -493,12 +713,7 @@ function BookingDetailPage() {
           </Form.Item>
           {editingCharge && (
             <Form.Item name="status" label="Trạng thái">
-              <Select
-                options={Object.entries(serviceStatusMeta).map(([key, meta]) => ({
-                  value: key,
-                  label: meta.label,
-                }))}
-              />
+              <Select options={chargeStatusOptions} />
             </Form.Item>
           )}
         </Form>
