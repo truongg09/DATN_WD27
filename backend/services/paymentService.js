@@ -60,6 +60,11 @@ const logBookingHistory = async (bookingId, action, description, extra, actor, c
       {
         action,
         description,
+        // Mọi mốc từ luồng thanh toán đều gắn vào nhóm 'payment' trừ khi nơi
+        // gọi chỉ định khác (VD phòng bị gỡ thì gắn vào phòng).
+        entityType: extra?.entityType || 'payment',
+        entityId: extra?.entityId,
+        entityLabel: extra?.entityLabel,
         oldValue: extra?.oldValue,
         newValue: extra?.newValue,
         amount: extra?.amount,
@@ -770,7 +775,7 @@ const refundBecauseRoomRemoved = async (bookingId, payment, removedRooms) => {
       bookingId,
       'room_removed',
       `Phòng ${roomLabel} bị gỡ sau khi khách đã thanh toán. Đã hủy đơn và lập yêu cầu hoàn 100% (${money(paidAmount)})`,
-      { amount: paidAmount },
+      { entityType: 'room', entityLabel: roomLabel, amount: paidAmount },
       null,
       connection
     );
