@@ -103,6 +103,13 @@ const createGatewayOrder = async (paymentId, { paymentMethod, amount, ipAddress 
       throw new HttpError(409, 'Đặt phòng đã hết thời gian giữ chỗ, vui lòng đặt lại');
     }
 
+    // Chặn ngay từ lúc mở phiên, đừng để khách sang tận trang cổng thanh toán
+    // rồi mới phát hiện phòng không còn.
+    const gatewayRooms = await bookingModel.listBookingRoomsStatus(booking.id, connection, true);
+    if (gatewayRooms.some((room) => Number(room.isDeleted) === 1 || room.status === 'maintenance')) {
+      throw new HttpError(409, ROOM_REMOVED_MESSAGE);
+    }
+
     const remainingSeconds = Number(booking.hold_remaining_seconds || 0);
     // Chừa vài giây cho thời gian ký request/gọi API nhưng vẫn truyền đúng
     // mốc holdExpiresAt sang cổng, không tự ý kéo dài thời gian giữ phòng.
@@ -292,6 +299,8 @@ const getPaymentByBookingId = async (bookingId, connection) => {
 };
 
 const ROOM_TAKEN_MESSAGE = 'Phòng vừa được đặt bởi khách khác, vui lòng đặt phòng khác!';
+const ROOM_REMOVED_MESSAGE =
+  'Phòng này vừa được khách sạn ngừng khai thác nên không thể thanh toán. Vui lòng chọn phòng khác, chúng tôi rất xin lỗi vì sự bất tiện này.';
 
 const processPayment = async (paymentId, payload, actor = null) => {
   const connection = await db.getConnection();
@@ -328,6 +337,20 @@ const processPayment = async (paymentId, payload, actor = null) => {
     }
 
     await bookingModel.getRoomWithType(booking.room_id, connection, true);
+
+    // Phòng có thể bị khách sạn gỡ (xóa hoặc chuyển bảo trì) trong lúc khách
+    // đang ở màn hình thanh toán. Không kiểm tra ở đây thì khách trả tiền cho
+    // một phòng không còn tồn tại.
+    const bookingRooms = await bookingModel.listBookingRoomsStatus(booking.id, connection, true);
+    const removedRooms = bookingRooms.filter(
+      (room) => Number(room.isDeleted) === 1 || room.status === 'maintenance'
+    );
+
+    if (removedRooms.length > 0) {
+      throw new HttpError(409, ROOM_REMOVED_MESSAGE, {
+        removedRooms: removedRooms.map((room) => room.roomNumber)
+      });
+    }
 
     if (booking.status === 'cancelled') {
       const lostRace = await bookingModel.getSecuredConflictingBookings(
