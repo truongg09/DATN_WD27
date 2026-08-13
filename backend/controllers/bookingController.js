@@ -194,7 +194,9 @@ const getBookingHistory = async (req, res) => {
     const currentBooking = await bookingService.getBookingById(bookingId);
     ensureBookingAccess(req.user, currentBooking);
 
-    const history = await bookingService.getBookingHistory(bookingId);
+    const history = await bookingService.getBookingHistory(bookingId, {
+      entityType: req.query.entityType ? String(req.query.entityType) : undefined
+    });
     res.json({ data: history });
   } catch (error) {
     sendError(res, error);
@@ -203,6 +205,17 @@ const getBookingHistory = async (req, res) => {
 
 // Bảng kê tiền còn thiếu + thông tin dựng QR. Khách xem được đơn của mình để
 // tự thanh toán trong app; nhân viên xem được mọi đơn để thu tiền tại quầy.
+// Lịch sử thao tác của một phòng (dành cho nhân viên xem lại lịch sử phòng).
+const getRoomHistory = async (req, res) => {
+  try {
+    const roomId = normalizeIdParam(req.params.roomId, 'roomId');
+    const data = await bookingService.getRoomHistory(roomId);
+    res.json({ data });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
 const getPaymentSummary = async (req, res) => {
   try {
     const bookingId = normalizeIdParam(req.params.id);
@@ -727,6 +740,7 @@ module.exports = {
   listMyBookings,
   getBookingById,
   getBookingHistory,
+  getRoomHistory,
   getPaymentSummary,
   requestOutstandingPayment,
   getRefundPreview,
