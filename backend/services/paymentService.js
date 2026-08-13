@@ -858,6 +858,14 @@ const submitTransferConfirmation = async (paymentId, payload, actor = null) => {
     if (!booking || booking.status === 'cancelled') {
       throw new HttpError(409, 'Đặt phòng đã hết thời gian giữ chỗ, vui lòng đặt lại');
     }
+
+    // Không nhận khai báo chuyển khoản cho phòng đã bị gỡ, nếu không lễ tân có
+    // thể duyệt nhầm và ghi nhận tiền cho một phòng không còn tồn tại.
+    const transferRooms = await bookingModel.listBookingRoomsStatus(booking.id, connection, true);
+    if (transferRooms.some((room) => Number(room.isDeleted) === 1 || room.status === 'maintenance')) {
+      throw new HttpError(409, ROOM_REMOVED_MESSAGE);
+    }
+
     if (payload.paymentMethod !== 'bank_transfer') {
       throw new HttpError(400, 'Only bank transfer can be manually verified');
     }
