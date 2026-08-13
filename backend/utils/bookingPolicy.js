@@ -1,4 +1,9 @@
 const LATE_CHECKIN_GRACE_HOUR = 6;
+const HOLD_MINUTES = 15;
+const HOLD_RESET_MINUTES = 15;
+const MAX_HOLD_RESETS = 2;
+const MIN_RESET_COOLDOWN_SECONDS = 60;
+const MAX_TOTAL_HOLD_MINUTES = 45;
 
 const dayString = (value) => {
   if (value instanceof Date) {
@@ -85,6 +90,11 @@ const getMaxLateCheckoutTime = (standardCheckOut, nextBookingCheckInDate, tiers)
 
 module.exports = {
   LATE_CHECKIN_GRACE_HOUR,
+  HOLD_MINUTES,
+  HOLD_RESET_MINUTES,
+  MAX_HOLD_RESETS,
+  MIN_RESET_COOLDOWN_SECONDS,
+  MAX_TOTAL_HOLD_MINUTES,
   dayString,
   getLateCheckInDeadline,
   getCheckOutDeadline,

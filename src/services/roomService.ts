@@ -83,8 +83,61 @@ export const updateRoom = async (
   return api.put(`/rooms/${id}`, data);
 };
 
-export const deleteRoom = async (
-  id: number
-) => {
-  return api.delete(`/rooms/${id}`);
+export interface NightlyPriceItem {
+  date: string;
+  stayDate?: string;
+  price: number;
+  priceType?: 'normal' | 'weekend' | 'sunday' | 'holiday' | 'season' | 'special';
+  note?: string | null;
+  dayOfWeek?: number;
+  dayName?: string;
+  isHoliday?: boolean;
+  isSunday?: boolean;
+  isSaturday?: boolean;
+  isWeekend?: boolean;
+  roomId?: number | null;
+  roomNumber?: string | null;
+}
+
+export interface RoomPriceRule {
+  id: number;
+  roomTypeId: number | null;
+  roomTypeName?: string;
+  roomTypeDefaultPrice?: number;
+  startDate: string;
+  endDate: string;
+  price: number;
+  priceType: 'normal' | 'weekend' | 'sunday' | 'holiday' | 'season' | 'special';
+  note?: string | null;
+}
+
+export const getRoomPrices = async (params?: { roomTypeId?: number; priceType?: string }) => {
+  return api.get<{ data: RoomPriceRule[] }>('/rooms/prices', { params });
+};
+
+export const createRoomPrice = async (data: Partial<RoomPriceRule>) => {
+  return api.post<{ data: RoomPriceRule; message: string }>('/rooms/prices', data);
+};
+
+export const updateRoomPrice = async (id: number, data: Partial<RoomPriceRule>) => {
+  return api.put<{ data: RoomPriceRule; message: string }>(`/rooms/prices/${id}`, data);
+};
+
+export const deleteRoomPrice = async (id: number) => {
+  return api.delete<{ message: string }>(`/rooms/prices/${id}`);
+};
+
+export const previewRoomPrice = async (params: {
+  roomTypeId?: number;
+  checkIn: string;
+  checkOut: string;
+  fallbackPrice?: number;
+}) => {
+  return api.get<{
+    data: {
+      nights: number;
+      prices: NightlyPriceItem[];
+      total: number;
+    };
+  }>('/rooms/price-preview', { params });
 };

@@ -8,54 +8,6 @@ const router = express.Router();
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
-// Các đơn còn ràng buộc với một phòng: đơn chưa kết thúc, hoặc đơn đang có
-// phiên thanh toán mở ở cổng (khách đang đứng ở màn hình trả tiền).
-// Dùng COALESCE(bd.roomId, b.room_id) để không bỏ sót đơn cũ chưa có dòng
-// booking_details, và LEFT JOIN để một đơn nhiều phòng vẫn được nhận diện.
-const ACTIVE_BOOKING_FOR_ROOM_SQL = `
-  SELECT DISTINCT
-    b.id,
-    b.status,
-    COALESCE(b.guest_name, c.fullName) AS customerName,
-    COALESCE(
-      (SELECT p.paidAmount FROM payments p WHERE p.bookingId = b.id ORDER BY p.id DESC LIMIT 1),
-      0
-    ) AS paidAmount,
-    EXISTS (
-      SELECT 1 FROM payment_gateway_orders pgo
-      WHERE pgo.bookingId = b.id AND pgo.status = 'created' AND pgo.expiresAt > NOW()
-    ) AS hasOpenGatewayOrder
-  FROM bookings b
-  LEFT JOIN booking_details bd ON bd.bookingId = b.id
-  LEFT JOIN customers c ON c.id = b.customerId
-  WHERE COALESCE(bd.roomId, b.room_id) = ?
-    AND b.status NOT IN ('cancelled', 'checked_out', 'no_show')
-`;
-
-// Đơn đang có phiên thanh toán mở ở cổng nghĩa là khách đang đứng ở màn hình
-// trả tiền ngay lúc này - đây là trường hợp cần cảnh báo mạnh nhất.
-const isPayingNow = (booking) => Number(booking.hasOpenGatewayOrder) === 1;
-
-// Mô tả ngắn gọn vì sao phòng đang bị khóa, để lễ tân biết vướng đơn nào.
-const describeBlockingBookings = (bookings, action = 'xóa') => {
-  const detail = bookings
-    .slice(0, 3)
-    .map((item) => `#${item.id}${item.customerName ? ` (${item.customerName})` : ''}`)
-    .join(', ');
-  const more = bookings.length > 3 ? ` và ${bookings.length - 3} đơn khác` : '';
-
-  if (bookings.some(isPayingNow)) {
-    return `Không thể ${action} phòng: khách đang thanh toán ngay lúc này (đơn ${detail}${more}). Vui lòng đợi khách hoàn tất hoặc hết thời gian giữ chỗ.`;
-  }
-  if (bookings.some((item) => item.status === 'checked_in')) {
-    return `Không thể ${action} phòng đang có khách lưu trú (đơn ${detail}${more}).`;
-  }
-  if (bookings.some((item) => Number(item.paidAmount) > 0)) {
-    return `Không thể ${action} phòng: đã có khách thanh toán cho phòng này (đơn ${detail}${more}). Hãy hủy đơn và hoàn tiền trước.`;
-  }
-  return `Không thể ${action} phòng đang có đơn giữ chỗ chưa hoàn tất: ${detail}${more}.`;
-};
-
 // Chỉ nhận cặp ngày hợp lệ; thiếu hoặc sai định dạng thì coi như tìm không kèm ngày
 const parseDateRangeQuery = (query) => {
   const { checkIn, checkOut } = query;
@@ -464,128 +416,199 @@ router.post('/', requireAuth, requireStaff, async (req, res) => {
 
 // Update room
 router.put('/:id', requireAuth, requireStaff, async (req, res) => {
-  const connection = await db.getConnection();
-
   try {
     const { id } = req.params;
     const { roomNumber, roomTypeId, floor, area, status, maintenanceNote, maintenanceExpectedCompletion } = req.body;
 
-    await connection.beginTransaction();
-
-    const [currentRows] = await connection.query(
-      'SELECT status FROM rooms WHERE id = ? AND isDeleted = 0 FOR UPDATE',
-      [id]
-    );
-    if (currentRows.length === 0) {
-      await connection.rollback();
-      return res.status(404).json({ message: 'Không tìm thấy phòng!' });
-    }
-
     // Check if room number already exists for another room
-    const [existing] = await connection.query(
-      'SELECT id FROM rooms WHERE roomNumber = ? AND id != ? AND isDeleted = 0',
-      [roomNumber, id]
-    );
+    const [existing] = await db.query('SELECT id FROM rooms WHERE roomNumber = ? AND id != ? AND isDeleted = 0', [roomNumber, id]);
     if (existing.length > 0) {
-      await connection.rollback();
       return res.status(400).json({ message: 'Số phòng này đã tồn tại!' });
     }
 
-    // Chuyển phòng sang bảo trì cũng khiến khách không dùng được phòng nữa,
-    // nên phải chặn giống như xóa. Trước đây đường này không kiểm tra gì cả.
-    const isBecomingUnavailable = status === 'maintenance' && currentRows[0].status !== 'maintenance';
-    if (isBecomingUnavailable) {
-      const [activeBookings] = await connection.query(ACTIVE_BOOKING_FOR_ROOM_SQL, [id]);
-      if (activeBookings.length > 0) {
-        await connection.rollback();
-        return res.status(409).json({
-          message: describeBlockingBookings(activeBookings, 'chuyển bảo trì'),
-          details: {
-            blockingBookings: activeBookings.map((item) => ({
-              id: item.id,
-              status: item.status,
-              customerName: item.customerName,
-              isPaying: isPayingNow(item)
-            }))
-          }
-        });
-      }
-    }
-
-    await connection.query(
+    await db.query(
       'UPDATE rooms SET roomNumber = ?, roomTypeId = ?, floor = ?, area = ?, status = ?, maintenanceNote = ?, maintenanceExpectedCompletion = ? WHERE id = ?',
       [roomNumber, roomTypeId, floor, area, status, maintenanceNote !== undefined ? maintenanceNote : null, maintenanceExpectedCompletion !== undefined ? maintenanceExpectedCompletion : null, id]
     );
-    await connection.commit();
     res.json({ message: 'Cập nhật phòng thành công' });
   } catch (error) {
-    await connection.rollback();
     console.error('Update room error:', error);
     res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
-  } finally {
-    connection.release();
   }
 });
 
 // Delete room
 router.delete('/:id', requireAuth, requireStaff, async (req, res) => {
-  const connection = await db.getConnection();
-
   try {
     const { id } = req.params;
 
-    // Kiểm tra và xóa phải nằm trong cùng một giao dịch, có khóa dòng phòng.
-    // Nếu tách rời, khách vẫn kịp thanh toán xong trong khoảng thời gian giữa
-    // lúc kiểm tra và lúc ghi isDeleted = 1, dẫn tới khách trả tiền cho phòng
-    // vừa bị gỡ khỏi hệ thống.
-    await connection.beginTransaction();
-
-    const [rooms] = await connection.query(
-      'SELECT status, roomNumber FROM rooms WHERE id = ? AND isDeleted = 0 FOR UPDATE',
-      [id]
-    );
+    // Check if the room exists and its status
+    const [rooms] = await db.query('SELECT status, roomNumber FROM rooms WHERE id = ? AND isDeleted = 0', [id]);
     if (rooms.length === 0) {
-      await connection.rollback();
       return res.status(404).json({ message: 'Không tìm thấy phòng!' });
     }
 
     if (rooms[0].status === 'occupied') {
-      await connection.rollback();
       return res.status(400).json({ message: 'Không thể xóa phòng đang có khách ở!' });
     }
 
-    const [activeBookings] = await connection.query(ACTIVE_BOOKING_FOR_ROOM_SQL, [id]);
+    // Check if the room is associated with any active bookings (status is not 'cancelled' and not 'checked_out')
+    const [activeBookings] = await db.query(`
+      SELECT b.id, b.status 
+      FROM bookings b
+      JOIN booking_details bd ON bd.bookingId = b.id
+      WHERE bd.roomId = ? AND b.status NOT IN ('cancelled', 'checked_out')
+    `, [id]);
 
     if (activeBookings.length > 0) {
-      await connection.rollback();
-      return res.status(409).json({
-        message: describeBlockingBookings(activeBookings),
-        details: {
-          roomNumber: rooms[0].roomNumber,
-          blockingBookings: activeBookings.map((item) => ({
-            id: item.id,
-            status: item.status,
-            customerName: item.customerName,
-            isPaying: isPayingNow(item)
-          }))
-        }
-      });
+      return res.status(400).json({ message: 'Không thể xóa phòng đang có đơn đặt phòng (hoặc đã cọc) chưa hoàn thành!' });
     }
 
-    await connection.query('UPDATE rooms SET isDeleted = 1 WHERE id = ?', [id]);
-    await connection.commit();
+    // Perform soft delete
+    await db.query('UPDATE rooms SET isDeleted = 1 WHERE id = ?', [id]);
 
     res.json({ message: 'Xóa phòng thành công' });
   } catch (error) {
-    await connection.rollback();
     console.error('Delete room error:', error);
-    res.status(500).json({
-      message: 'Lỗi khi xóa phòng',
-      details: error.message
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
+  }
+});
+
+// ── Room Prices Management (Bảng giá ngày lễ, cuối tuần / chủ nhật, ngày thường) ──
+
+// Lấy danh sách bảng giá
+router.get('/prices', async (req, res) => {
+  try {
+    const bookingModel = require('../models/bookingModel');
+    const { roomTypeId, priceType } = req.query;
+    const prices = await bookingModel.listAllRoomPrices({
+      roomTypeId: roomTypeId ? Number(roomTypeId) : undefined,
+      priceType: priceType || undefined,
     });
-  } finally {
-    connection.release();
+    res.json({ data: prices });
+  } catch (error) {
+    console.error('List room prices error:', error);
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ', details: error.message });
+  }
+});
+
+// Xem trước tính giá từng đêm (preview)
+router.get('/price-preview', async (req, res) => {
+  try {
+    const bookingService = require('../services/bookingService');
+    const { roomTypeId, checkIn, checkOut, fallbackPrice } = req.query;
+
+    if (!checkIn || !checkOut || !DATE_PATTERN.test(checkIn) || !DATE_PATTERN.test(checkOut) || checkOut <= checkIn) {
+      return res.status(400).json({ message: 'Ngày checkIn / checkOut không hợp lệ (YYYY-MM-DD)' });
+    }
+
+    const nightly = await bookingService.calcNightlyPrices(
+      roomTypeId ? Number(roomTypeId) : null,
+      Number(fallbackPrice || 0),
+      checkIn,
+      checkOut
+    );
+
+    res.json({ data: nightly });
+  } catch (error) {
+    console.error('Preview price error:', error);
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ', details: error.message });
+  }
+});
+
+// Thêm quy tắc giá mới (Admin/Staff)
+router.post('/prices', requireAuth, requireStaff, async (req, res) => {
+  try {
+    const bookingModel = require('../models/bookingModel');
+    const { roomTypeId, startDate, endDate, price, priceType, note } = req.body;
+
+    if (!startDate || !endDate || !DATE_PATTERN.test(startDate) || !DATE_PATTERN.test(endDate) || endDate < startDate) {
+      return res.status(400).json({ message: 'Khoảng ngày áp dụng không hợp lệ (YYYY-MM-DD)' });
+    }
+
+    const numericPrice = Number(price);
+    if (!Number.isFinite(numericPrice) || numericPrice < 0) {
+      return res.status(400).json({ message: 'Đơn giá không hợp lệ' });
+    }
+
+    const validPriceTypes = ['normal', 'weekend', 'sunday', 'saturday', 'holiday', 'season', 'special'];
+    const pType = validPriceTypes.includes(priceType) ? priceType : 'normal';
+
+    const insertId = await bookingModel.createRoomPrice({
+      roomTypeId: roomTypeId ? Number(roomTypeId) : null,
+      startDate,
+      endDate,
+      price: numericPrice,
+      priceType: pType,
+      note: note ? String(note).trim() : null
+    });
+
+    const created = await bookingModel.getRoomPriceById(insertId);
+    res.status(201).json({ data: created, message: 'Thêm cấu hình giá thành công' });
+  } catch (error) {
+    console.error('Create room price error:', error);
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ', details: error.message });
+  }
+});
+
+// Cập nhật quy tắc giá (Admin/Staff)
+router.put('/prices/:id', requireAuth, requireStaff, async (req, res) => {
+  try {
+    const bookingModel = require('../models/bookingModel');
+    const id = Number(req.params.id);
+    const existing = await bookingModel.getRoomPriceById(id);
+    if (!existing) {
+      return res.status(404).json({ message: 'Không tìm thấy cấu hình giá này' });
+    }
+
+    const { roomTypeId, startDate, endDate, price, priceType, note } = req.body;
+
+    if (!startDate || !endDate || !DATE_PATTERN.test(startDate) || !DATE_PATTERN.test(endDate) || endDate < startDate) {
+      return res.status(400).json({ message: 'Khoảng ngày áp dụng không hợp lệ (YYYY-MM-DD)' });
+    }
+
+    const numericPrice = Number(price);
+    if (!Number.isFinite(numericPrice) || numericPrice < 0) {
+      return res.status(400).json({ message: 'Đơn giá không hợp lệ' });
+    }
+
+    const validPriceTypes = ['normal', 'weekend', 'sunday', 'saturday', 'holiday', 'season', 'special'];
+    const pType = validPriceTypes.includes(priceType) ? priceType : 'normal';
+
+    await bookingModel.updateRoomPrice(id, {
+      roomTypeId: roomTypeId ? Number(roomTypeId) : null,
+      startDate,
+      endDate,
+      price: numericPrice,
+      priceType: pType,
+      note: note !== undefined ? (note ? String(note).trim() : null) : existing.note
+    });
+
+    const updated = await bookingModel.getRoomPriceById(id);
+    res.json({ data: updated, message: 'Cập nhật cấu hình giá thành công' });
+  } catch (error) {
+    console.error('Update room price error:', error);
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ', details: error.message });
+  }
+});
+
+// Xóa quy tắc giá (Admin/Staff)
+router.delete('/prices/:id', requireAuth, requireStaff, async (req, res) => {
+  try {
+    const bookingModel = require('../models/bookingModel');
+    const id = Number(req.params.id);
+    const existing = await bookingModel.getRoomPriceById(id);
+    if (!existing) {
+      return res.status(404).json({ message: 'Không tìm thấy cấu hình giá này' });
+    }
+
+    await bookingModel.deleteRoomPrice(id);
+    res.json({ message: 'Đã xóa cấu hình giá' });
+  } catch (error) {
+    console.error('Delete room price error:', error);
+    res.status(500).json({ message: 'Lỗi khi xóa cấu hình giá', details: error.message });
   }
 });
 
 module.exports = router;
+

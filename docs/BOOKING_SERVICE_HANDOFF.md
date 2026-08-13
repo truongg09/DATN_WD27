@@ -15,8 +15,8 @@ Bất kỳ AI/account mới nào chỉ cần:
 
 Không cần audit lại toàn project.
 
-AI/account mới phải làm đúng CURRENT STEP.
-Không tự làm sang bước kế tiếp.
+KHÔNG implement thêm code trong lượt này.
+CHỈ tạo/cập nhật tài liệu.
 
 Phải dựa trên:
 
@@ -492,7 +492,7 @@ Chia nhỏ.
 
 Status:
 
-DONE
+Xác định từ code thực tế.
 
 Files có thể gồm:
 
@@ -604,6 +604,11 @@ BookingDetailModal.tsx: 0 lỗi mới.
 
 Không có lỗi.
 
+---
+
+CURRENT STEP: STEP 5 — BOOKING SERVICE REQUESTS BY ROOM
+
+---
 
 ## STEP 3B.3 — MULTI-ROOM SOURCE CORRECTION
 
@@ -659,7 +664,7 @@ Trả thêm field `booking_rooms` trong response.
 
 # STEP 4 — DAMAGE / EXTRA FEE / OTHER UI
 
-Status: DONE
+Status: IN PROGRESS
 
 Chia nhỏ.
 
@@ -847,7 +852,7 @@ Không có lỗi.
 ## STEP 5A — REVIEW SERVICE REQUEST THEO PHÒNG
 Status: DONE
 
-### Historical Review Findings — BEFORE Step 5B–5D
+### Review Findings:
 - **Current Flow**: Customer chọn `serviceRequests: [{ serviceId, quantity }]` khi đặt phòng (`POST /api/bookings`). Backend lưu vào `booking_service_requests` với `status='confirmed'` (tự động tạo `booking_services` ngay) hoặc `'pending'`. Admin xem danh sách yêu cầu tại Tab "Yêu cầu dịch vụ từ khách" (`ServiceRequestsTab.tsx` via `GET /api/service-requests`), thực hiện `confirm` (`PATCH /api/service-requests/:id/confirm`) hoặc `reject` (`PATCH /api/service-requests/:id/reject`).
 - **Current Statuses**: `'pending'`, `'confirmed'`, `'rejected'`.
 - **roomId Support**: Bảng `booking_service_requests` đã có cột `roomId INT NULL`, tuy nhiên:
@@ -879,7 +884,7 @@ Status: DONE
 
 # STEP 6 — CHECKOUT / PAYMENT SUMMARY
 
-Status: DONE
+Status: IN PROGRESS hoặc TODO dựa trên code thực tế.
 
 Kiểm tra:
 
@@ -920,7 +925,7 @@ status thay đổi → checkout total thay đổi đúng sau refetch.
 
 # STEP 7 — BOOKING SERVICES ADMIN TAB
 
-Status: DONE
+Status dựa trên code thực tế.
 
 File:
 
@@ -946,7 +951,7 @@ không bắt buộc duplicate CRUD từ BookingDetailModal.
 
 # STEP 8 — INVOICE INTEGRATION
 
-Status: DONE (STEP 8A — DONE, STEP 8B — DONE)
+Status: TODO
 
 Review:
 
@@ -1154,9 +1159,14 @@ git diff --stat
 
 Ghi chính xác:
 
-Workspace state changes frequently.
-Always run git status + git diff before starting.
-Do not rely on a stale snapshot here.
+Modified:
+...
+
+Untracked:
+...
+
+Committed:
+...
 
 Không đoán.
 
@@ -1165,33 +1175,32 @@ Không đoán.
 # 11. CURRENT STEP
 
 CURRENT STEP:
-STEP 9A — SERVICE + CHARGE CASES
+STEP 6 — CHECKOUT / PAYMENT SUMMARY
 
 STATUS:
 TODO
 
 PRIMARY FILE:
-- backend/services/bookingService.js / paymentService.js
+- src/pages/Admin/checkout/CheckoutPaymentModal.tsx
 
 DO NOT TOUCH UNLESS REQUIRED:
-- docs/ (chỉ cập nhật sau khi hoàn thành)
+- backend/ (chỉ đụng nếu có bug phát sinh)
 
 ---
 
-# 12. REMAINING STEPS
+# 12. NEXT THREE STEPS
 
-1. 9A — Service + charge cases
-2. 9B — Final checkout/payment/invoice E2E
-3. 10 — Regression smoke test
-4. 11 + 12 — Cleanup + Final Handoff
+1. STEP 6 — Checkout / Payment Summary (CheckoutPaymentModal.tsx)
+2. STEP 7 — Booking Services Admin Tab (BookingServicesTab.tsx)
+3. STEP 8 — Verification & Final E2E Audit
 
 ---
 
 # 13. CURRENT KNOWN TECHNICAL DEBT
 
 ## Existing TypeScript errors
-None currently known.
-Latest npx tsc -b --noEmit: PASS.
+
+Ghi đúng các lỗi hiện còn nếu chúng thực sự tồn tại.
 
 Phân biệt:
 
@@ -1273,97 +1282,48 @@ node --check pass, tsc pass
 Admin room display + confirm verification: listServiceRequests joins booking_details & rooms to prioritize current physical room (resolves room 305 after Admin reassign); displays "Không xác định phòng / Dữ liệu cũ" when roomNumber is NULL; confirmServiceRequest resolves current physical roomId from booking_details via bookingDetailId and creates booking_services with current roomId & bookingDetailId; maintained pending/confirmed/rejected workflow status.
 
 2026-08-11
-Step 7 Follow-up (Checkout Cost Breakdown, Overpayment Display, and Late Fee History Cleanup)
+Step 5C Full Audit
 DONE
-backend/services/bookingService.js, src/pages/Admin/BookingDetailModal.tsx
-node --check PASS, npx tsc PASS, runtime breakdown & overpayment #311 PASS
-Cost Breakdown & Overpayment Fix: Attached late_checkout_surcharge / lateCheckoutSurcharge to getBookingById & getPaymentSummary; rendered 'Phí trả phòng muộn' row in BookingDetailModal.tsx breakdown so visual items sum 100% to totalAmount (room 1.4M + late fee 350k = total 1.75M); calculated overpaidAmount = max(paid - total, 0) and rendered 'Thanh toán thừa: 1.050.000đ (Cần hoàn)' tag & badge; deduplicated checkOut logHistory for late_checkout_fee; cleaned up duplicate test history rows for #311 (retaining 1 valid event).
-
-2026-08-12
-Step 8A — Backend Invoice
-DONE
-backend/models/invoiceModel.js, backend/models/bookingModel.js, docs/BOOKING_SERVICE_HANDOFF.md
-node --check PASS, runtime invoice acceptance verification PASS (#318 & #311)
-Backend Invoice Alignment: Updated INVOICE_SELECT query with GROUP BY i.id to prevent multi-room duplicate invoice rows; updated listInvoiceServices to filter bs.status = 'used' and use snapshot unit price bs.unitPrice; verified payment.totalAmount === invoice.totalAmount for multi-room (#318: 3,450,000 == 3,450,000) and checked_out (#311: 1,750,000 == 1,750,000).
-
-2026-08-12
-Step 8B — Invoice Runtime Verification & Multi-room Display Fix
-DONE
-backend/models/invoiceModel.js, backend/services/invoiceService.js, src/types/invoice.ts, src/pages/Admin/InvoiceManagement.tsx, docs/BOOKING_SERVICE_HANDOFF.md
-node --check PASS, npx tsc PASS, runtime multi-room room list verification PASS (#318 & #311)
-Invoice Multi-room Display Fix: Enriched invoice data with roomQuantity and booking_rooms [{ id, number }]; updated InvoiceManagement.tsx table column "Đặt phòng" to render bookingId, "roomTypeName · X phòng", and room tags [101] [102]; updated InvoiceDetail modal "Phòng" to render "101, 102 · Standard (2 phòng)" for multi-room (#318) and "201 · Superior" for single room (#311). Kept 100% financial formulas and total amounts unchanged.
-
-2026-08-12
-STEP 11 — FINAL CLEANUP
-DONE
-docs/BOOKING_SERVICE_HANDOFF.md
-node --check PASS, backend server boot PASS, npx tsc PASS
-Step 11 Complete: (1) Verified zero leftover debug console.logs, test scripts, or unused imports in production code; (2) Verified all business rules (booking_details multi-room source, stable logical room bookingDetailId, used-only financial calculation, unitPrice snapshot, paymentService recalculation, payment total === invoice total, legacy NULL roomId fallback); (3) Verified mandatory regression fixes (normalizeExtendStayPayload, normalizeUpdateStayPayload, normalizeGuestIdentitiesPayload, logHistory signature, overpaidAmount max(paid-total, 0)); (4) Verified backend server boots cleanly on port 3001 with operational DB sync; (5) Verified frontend npx tsc -b --noEmit passes with 0 errors.
-
-2026-08-12
-FINAL INDEPENDENT AUDIT — PASS (NO PRODUCTION CODE CHANGE REQUIRED)
-DONE
-docs/BOOKING_SERVICE_HANDOFF.md
-node --check PASS, backend server boot PASS, npx tsc PASS, 7-Phase Independent Audit PASS
-Final Audit Complete: (1) 0 Critical, 0 High, 0 Medium, 0 Low findings — production code is 100% clean and correct; (2) Verified multi-room booking_details source of truth, stable logical room bookingDetailId, customer room privacy before check-in; (3) Verified service/charge CRUD, ownership validation, unitPrice snapshot, used-only financial SUMs; (4) Verified payment recalculation sole financial source of truth, 0 double counting; (5) Verified checkout & late fee idempotence retry guard; (6) Verified invoice total === payment total (#318: 3.590.000đ, #311: 1.750.000đ); (7) Verified 3 mandatory validators & logHistory signature intact; (8) NO PRODUCTION CODE CHANGE REQUIRED.
-
-CURRENT STEP:
-COMPLETE
-
-STATUS:
-COMPLETE
-
-REMAINING STEPS:
-None — Feature complete.
+src/pages/Booking/BookingDetail.tsx, src/pages/Booking/BookingHistory.tsx, src/pages/Booking/Payment.tsx, src/pages/Booking/PaymentSandbox.tsx, src/pages/Profile/Profile.tsx, src/pages/Booking/Booking.tsx, src/pages/RoomDetail/RoomDetail.tsx
+npx tsc pass, full src/ re-search pass
+Full frontend physical room audit: searched all of src/ and eliminated physical room leaks before check-in across all Customer surfaces (Booking, BookingHistory, BookingDetail, Payment, PaymentSandbox, Profile, RoomDetail). All remaining roomNumber occurrences are verified Admin-only, checked-in/out only, or internal types/state.
 
 ---
 
 # 16. DEFINITION OF DONE
 
-Feature đã được đánh dấu COMPLETE vì:
+Feature chỉ được đánh dấu COMPLETE khi:
 
 * Database migration ổn
-* Service CRUD PASS
-* Charge CRUD PASS
-* Multi-room source PASS
-* Status logic PASS
-* Payment PASS
-* Checkout PASS
-* Invoice PASS
-* Legacy không crash
-* Backend start PASS
-* Frontend typecheck/build PASS (0 errors)
-* Integration test PASS
-* Regression PASS
+* Service CRUD hoàn chỉnh
+* Charge CRUD hoàn chỉnh
+* Multi-room room source đúng booking_details
+* status logic đúng
+* payment đúng
+* checkout đúng
+* invoice đúng
+* legacy không crash
+* backend npm start pass
+* frontend build/typecheck không có lỗi mới
+* integration test pass
+* regression các booking flow quan trọng pass
 
 ---
 
-# 17. FINAL SUMMARY & EVIDENCE SUMMARY
+Sau khi tạo/cập nhật docs:
 
-## Final Evidence:
-- **Booking #318 (Multi-Room 101/102)**:
-  - `status = checked_out`
-  - `rooms = 101, 102`
-  - `roomAmount = 3.000.000đ`
-  - `serviceAmount = 490.000đ`
-  - `surchargeAmount = 100.000đ`
-  - `final total = 3.590.000đ`
-  - `payment total = 3.590.000đ`
-  - `invoice total = 3.590.000đ`
+1. Đọc lại toàn bộ file.
+2. So với code thực tế.
+3. Không ghi TODO đã hoàn thành hoặc DONE chưa test.
+4. Chạy:
+   git diff -- docs/BOOKING_SERVICE_HANDOFF.md
+5. Báo:
 
-- **Booking #311 (Single-Room 201 Superior)**:
-  - `status = checked_out`
-  - `room = 201`
-  - `roomAmount = 1.400.000đ`
-  - `lateCheckoutSurcharge = 350.000đ`
-  - `invoice/payment total = 1.750.000đ`
+   * file path
+   * CURRENT STEP
+   * số step DONE
+   * số step TODO/IN PROGRESS
 
-## Known Limitations:
-- Legacy `roomId = NULL` records display fallback text `"Không xác định phòng / Dữ liệu cũ"`.
-- Step 9A Case 12 marked `N/A — no existing safe runtime fixture`.
+KHÔNG IMPLEMENT CODE.
 
-## Files Changed:
-- `docs/BOOKING_SERVICE_HANDOFF.md`
-
-## Final Commit Status:
-- `Final commit: pending user confirmation`
+DỪNG.
