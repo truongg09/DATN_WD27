@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Alert, Button, DatePicker, Form, Input, InputNumber, message, Modal, Select, Space, Tag, Tooltip } from 'antd';
 import {
   CheckOutlined,
@@ -360,6 +361,7 @@ const formatPrice = (price?: string | number | null) => {
 };
 
 function BookingManagement() {
+  const navigate = useNavigate();
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [services, setServices] = useState<ServiceItem[]>([]);
   const [rooms, setRooms] = useState<RoomItem[]>([]);
@@ -1072,7 +1074,7 @@ const handleCheckIn = (booking: Booking) => {
                     <td style={tdStyle}>
                       <Space size="small" wrap>
                         <Tooltip title="Xem chi tiết đặt phòng">
-                          <Button type="primary" icon={<EyeOutlined style={{ color: 'white' }} />} size="small" onClick={() => { setSelectedBooking(booking); setViewModalVisible(true); }}></Button>
+                          <Button type="primary" icon={<EyeOutlined style={{ color: 'white' }} />} size="small" onClick={() => navigate(`/admin/bookings/${booking.id}`)}></Button>
                         </Tooltip>
                         <Tooltip title="Quản lý & Chỉnh sửa Booking (Đổi phòng, đổi loại, đổi ngày, thêm/xóa phòng)">
                           <Button
