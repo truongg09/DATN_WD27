@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Alert, Breadcrumb, Button, Card, Col, Descriptions, Empty, Form, Input, InputNumber, Modal,
-  Popconfirm, Row, Select, Skeleton, Space, Table, Tag, message,
+  Popconfirm, Row, Segmented, Select, Skeleton, Space, Table, Tag, Timeline, message,
 } from 'antd';
 import {
   ArrowLeftOutlined, DeleteOutlined, EditOutlined, LoginOutlined, LogoutOutlined,
@@ -85,6 +85,94 @@ const chargeStatusOptions = Object.entries(chargeStatusMeta).map(([value, meta])
 }));
 
 // Loại khoản phí phát sinh ngoài dịch vụ.
+interface HistoryEntry {
+  id: number;
+  action: string;
+  entityType?: string | null;
+  entityId?: number | null;
+  entityLabel?: string | null;
+  description?: string | null;
+  oldValue?: unknown;
+  newValue?: unknown;
+  amount?: string | number | null;
+  performedByName?: string | null;
+  performedByRole?: string | null;
+  createdAt: string;
+}
+
+// Nhóm lịch sử theo đối tượng bị tác động, khớp entityType của máy chủ.
+const historyGroups: { key: string; label: string }[] = [
+  { key: 'all', label: 'Tất cả' },
+  { key: 'booking', label: 'Đơn phòng' },
+  { key: 'stay', label: 'Nhận / trả phòng' },
+  { key: 'room', label: 'Phòng' },
+  { key: 'service', label: 'Dịch vụ' },
+  { key: 'damage', label: 'Phát sinh' },
+  { key: 'payment', label: 'Thanh toán' },
+];
+
+const historyActionText: Record<string, string> = {
+  created: 'Tạo đơn',
+  payment: 'Thanh toán',
+  payment_requested: 'Yêu cầu thanh toán',
+  transfer_confirmation: 'Khách báo chuyển khoản',
+  voucher_applied: 'Áp voucher',
+  refund: 'Hoàn tiền',
+  refund_approved: 'Duyệt hoàn tiền',
+  refund_rejected: 'Từ chối hoàn tiền',
+  service_added: 'Thêm dịch vụ',
+  service_updated: 'Sửa dịch vụ',
+  service_status_updated: 'Đổi trạng thái dịch vụ',
+  service_removed: 'Xóa dịch vụ',
+  damage_added: 'Thêm phát sinh',
+  damage_updated: 'Sửa phát sinh',
+  damage_status_updated: 'Đổi trạng thái phát sinh',
+  damage_removed: 'Xóa phát sinh',
+  extended: 'Gia hạn',
+  stay_updated: 'Đổi thời gian ở',
+  room_transferred: 'Chuyển phòng',
+  room_reassigned: 'Đổi phòng',
+  room_removed: 'Phòng bị gỡ',
+  checked_in: 'Nhận phòng',
+  checked_out: 'Trả phòng',
+  guests_updated: 'Khai báo khách',
+  cancelled: 'Hủy đơn',
+  no_show: 'Khách không đến',
+  late_checkout_fee: 'Phí trả muộn',
+};
+
+const roleText: Record<string, string> = {
+  admin: 'Quản trị viên',
+  employee: 'Nhân viên',
+  staff: 'Nhân viên',
+  customer: 'Khách hàng',
+  system: 'Hệ thống',
+};
+
+// Hiển thị dữ liệu cũ/mới dạng danh sách trường cho dễ đối chiếu.
+const renderValueBox = (title: string, value: unknown, color: string) => {
+  if (value == null) return null;
+  const entries =
+    typeof value === 'object' && !Array.isArray(value)
+      ? Object.entries(value as Record<string, unknown>)
+      : [['', value] as [string, unknown]];
+  if (entries.length === 0) return null;
+
+  return (
+    <div style={{ flex: 1, minWidth: 180 }}>
+      <div style={{ fontSize: 12, color: '#888', marginBottom: 2 }}>{title}</div>
+      <div style={{ background: color, borderRadius: 6, padding: '6px 8px', fontSize: 12 }}>
+        {entries.map(([key, val]) => (
+          <div key={key}>
+            {key && <span style={{ color: '#666' }}>{key}: </span>}
+            <span>{typeof val === 'object' ? JSON.stringify(val) : String(val)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 const paymentStatusText: Record<string, string> = {
   unpaid: 'Chưa thanh toán',
   deposit_paid: 'Đã đặt cọc',
@@ -254,6 +342,7 @@ function BookingDetailPage() {
       }
       setServiceModalOpen(false);
       await loadBooking(true);
+      await loadHistory(historyGroup);
     } catch (err) {
       showApiError(err, 'Không lưu được dịch vụ');
     } finally {
@@ -266,10 +355,37 @@ function BookingDetailPage() {
       await updateBookingServiceChargeStatus(bookingId, charge.id, status);
       message.success('Đã đổi trạng thái dịch vụ');
       await loadBooking(true);
+      await loadHistory(historyGroup);
     } catch (err) {
       showApiError(err, 'Không đổi được trạng thái');
     }
   };
+
+  // ─── Lịch sử thao tác ───────────────────────────────────────────
+  const [historyGroup, setHistoryGroup] = useState('all');
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  const loadHistory = useCallback(
+    async (group: string) => {
+      if (!Number.isInteger(bookingId) || bookingId <= 0) return;
+      setHistoryLoading(true);
+      try {
+        const query = group === 'all' ? '' : `?entityType=${group}`;
+        const response = await api.get(`/bookings/${bookingId}/history${query}`);
+        setHistory((response as unknown as { data: HistoryEntry[] }).data || []);
+      } catch {
+        setHistory([]);
+      } finally {
+        setHistoryLoading(false);
+      }
+    },
+    [bookingId]
+  );
+
+  useEffect(() => {
+    void loadHistory(historyGroup);
+  }, [loadHistory, historyGroup]);
 
   // ─── Nhận phòng / trả phòng ─────────────────────────────────────
   const runStayAction = async (action: 'check-in' | 'check-out') => {
@@ -279,6 +395,7 @@ function BookingDetailPage() {
       const msg = (response as unknown as { message?: string }).message;
       message.success(msg || (action === 'check-in' ? 'Đã nhận phòng' : 'Đã trả phòng'));
       await loadBooking(true);
+      await loadHistory(historyGroup);
     } catch (err) {
       showApiError(err, action === 'check-in' ? 'Không thể nhận phòng' : 'Không thể trả phòng');
     } finally {
@@ -322,6 +439,7 @@ function BookingDetailPage() {
       }
       setDamageModalOpen(false);
       await loadBooking(true);
+      await loadHistory(historyGroup);
     } catch (err) {
       showApiError(err, 'Không lưu được khoản phí');
     } finally {
@@ -334,6 +452,7 @@ function BookingDetailPage() {
       await updateBookingDamageChargeStatus(bookingId, charge.id, status);
       message.success('Đã đổi trạng thái khoản phí');
       await loadBooking(true);
+      await loadHistory(historyGroup);
     } catch (err) {
       showApiError(err, 'Không đổi được trạng thái');
     }
@@ -344,6 +463,7 @@ function BookingDetailPage() {
       await deleteBookingDamageCharge(bookingId, charge.id);
       message.success('Đã xóa khoản phí');
       await loadBooking(true);
+      await loadHistory(historyGroup);
     } catch (err) {
       showApiError(err, 'Không xóa được khoản phí');
     }
@@ -354,6 +474,7 @@ function BookingDetailPage() {
       await deleteBookingServiceCharge(bookingId, charge.id);
       message.success('Đã xóa dịch vụ khỏi đơn');
       await loadBooking(true);
+      await loadHistory(historyGroup);
     } catch (err) {
       showApiError(err, 'Không xóa được dịch vụ');
     }
@@ -757,6 +878,73 @@ function BookingDetailPage() {
             ) : null
           }
         />
+      </Card>
+
+      <Card
+        size="small"
+        style={{ marginTop: 16 }}
+        title={`Lịch sử thao tác (${history.length})`}
+        extra={
+          <Segmented
+            size="small"
+            value={historyGroup}
+            onChange={(value) => setHistoryGroup(String(value))}
+            options={historyGroups.map((group) => ({ value: group.key, label: group.label }))}
+          />
+        }
+      >
+        {historyLoading ? (
+          <Skeleton active paragraph={{ rows: 4 }} />
+        ) : history.length === 0 ? (
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description="Chưa ghi nhận thao tác nào trong nhóm này"
+          />
+        ) : (
+          <Timeline
+            mode="left"
+            items={history.map((entry) => ({
+              color:
+                entry.entityType === 'payment'
+                  ? 'green'
+                  : entry.entityType === 'service'
+                    ? 'cyan'
+                    : entry.entityType === 'damage'
+                      ? 'orange'
+                      : entry.entityType === 'room' || entry.entityType === 'stay'
+                        ? 'blue'
+                        : 'gray',
+              children: (
+                <div>
+                  <Space wrap size={6} style={{ marginBottom: 2 }}>
+                    <Tag>{historyActionText[entry.action] || entry.action}</Tag>
+                    <span style={{ color: '#888', fontSize: 12 }}>{dateTime(entry.createdAt)}</span>
+                    {entry.amount != null && Number(entry.amount) !== 0 && (
+                      <strong>{money(entry.amount)}</strong>
+                    )}
+                    {entry.entityLabel && <Tag color="blue">{entry.entityLabel}</Tag>}
+                  </Space>
+
+                  <div>{entry.description || '—'}</div>
+
+                  {(entry.oldValue != null || entry.newValue != null) && (
+                    <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
+                      {renderValueBox('Trước', entry.oldValue, '#fff1f0')}
+                      {renderValueBox('Sau', entry.newValue, '#f6ffed')}
+                    </div>
+                  )}
+
+                  <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>
+                    Người thao tác: {entry.performedByName || 'Hệ thống'}
+                    {entry.performedByRole
+                      ? ` (${roleText[entry.performedByRole] || entry.performedByRole})`
+                      : ''}
+                  </div>
+                </div>
+              ),
+            }))}
+          />
+        )}
       </Card>
 
       <Modal
