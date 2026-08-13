@@ -90,12 +90,11 @@ router.get('/today', requireAuth, requireStaff, async (req, res) => {
     const rawLimit = Number(req.query.limit);
     const limit = Number.isInteger(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 200) : 50;
 
-    // 1) Booking đang chờ xác nhận (hàng đợi cần xử lý)
+    // 1) Booking đang chờ xác nhận (hàng đợi cần xử lý, không giới hạn theo ngày tạo)
     const [[pendingBookingsCountRow]] = await db.query(`
-      SELECT COUNT(DISTINCT b.id) AS c
+      SELECT COUNT(*) AS c
       FROM bookings b
       WHERE COALESCE(b.bookingStatus, b.status) = 'pending'
-        AND b.status NOT IN ('cancelled', 'no_show', 'checked_in', 'checked_out')
     `);
 
     const [pendingBookings] = await db.query(
@@ -103,68 +102,66 @@ router.get('/today', requireAuth, requireStaff, async (req, res) => {
       SELECT
         b.id,
         b.bookingCode,
-        COALESCE(b.guest_name, MAX(c.fullName), MAX(a.email)) AS guestName,
-        MIN(r.roomNumber) AS roomNumber,
-        MIN(rt.typeName) AS roomTypeName,
+        COALESCE(c.fullName, b.guest_name) AS guestName,
+        r.roomNumber,
+        rt.typeName AS roomTypeName,
         COALESCE(b.created_at, b.createdAt) AS createdAt
       FROM bookings b
-      LEFT JOIN customers c ON c.accountId = b.user_id
-      LEFT JOIN accounts a ON a.id = b.user_id
+      LEFT JOIN customers c ON c.id = b.customerId
       LEFT JOIN booking_details bd ON bd.bookingId = b.id
       LEFT JOIN rooms r ON r.id = COALESCE(bd.roomId, b.room_id)
       LEFT JOIN room_types rt ON rt.id = r.roomTypeId
       WHERE COALESCE(b.bookingStatus, b.status) = 'pending'
-        AND b.status NOT IN ('cancelled', 'no_show', 'checked_in', 'checked_out')
-      GROUP BY b.id
       ORDER BY COALESCE(b.created_at, b.createdAt) ASC
       LIMIT ?
       `,
       [limit]
     );
 
-    // 2) Khách check-in hôm nay (còn cần check-in, trạng thái confirmed hoặc pending)
+    // 2) Khách check-in hôm nay (loại bỏ booking đã hủy / no-show, dùng trạng thái hiệu lực)
     const [checkInsToday] = await db.query(`
       SELECT
         b.id,
         b.bookingCode,
-        COALESCE(b.guest_name, MAX(c.fullName), MAX(a.email)) AS guestName,
-        MIN(r.roomNumber) AS roomNumber,
-        MIN(rt.typeName) AS roomTypeName,
-        DATE(COALESCE(MIN(bd.checkInDate), b.check_in)) AS checkInDate
+        COALESCE(c.fullName, b.guest_name) AS guestName,
+        r.roomNumber,
+        rt.typeName AS roomTypeName,
+        COALESCE(bd.checkInDate, b.check_in) AS checkInDate
       FROM bookings b
-      LEFT JOIN customers c ON c.accountId = b.user_id
-      LEFT JOIN accounts a ON a.id = b.user_id
+      LEFT JOIN customers c ON c.id = b.customerId
       LEFT JOIN booking_details bd ON bd.bookingId = b.id
       LEFT JOIN rooms r ON r.id = COALESCE(bd.roomId, b.room_id)
       LEFT JOIN room_types rt ON rt.id = r.roomTypeId
-      WHERE DATE(COALESCE(bd.checkInDate, b.check_in)) = CURDATE()
-        AND ${BOOKING_EFFECTIVE_STATUS_EXPR} IN ('confirmed', 'pending')
-      GROUP BY b.id
-      ORDER BY MIN(r.roomNumber) ASC
+      WHERE COALESCE(bd.checkInDate, b.check_in) = CURDATE()
+        AND ${BOOKING_EFFECTIVE_STATUS_EXPR} NOT IN ('cancelled', 'no_show')
+      ORDER BY r.roomNumber ASC
     `);
 
-    // 3) Khách check-out hôm nay (hiện đang ở khách sạn, trạng thái checked_in)
+    // 3) Khách check-out hôm nay
     const [checkOutsToday] = await db.query(`
       SELECT
         b.id,
         b.bookingCode,
-        COALESCE(b.guest_name, MAX(c.fullName), MAX(a.email)) AS guestName,
-        MIN(r.roomNumber) AS roomNumber,
-        MIN(rt.typeName) AS roomTypeName,
-        DATE(COALESCE(MIN(bd.checkOutDate), b.check_out)) AS checkOutDate
+        COALESCE(c.fullName, b.guest_name) AS guestName,
+        r.roomNumber,
+        rt.typeName AS roomTypeName,
+        COALESCE(bd.checkOutDate, b.check_out) AS checkOutDate
       FROM bookings b
-      LEFT JOIN customers c ON c.accountId = b.user_id
-      LEFT JOIN accounts a ON a.id = b.user_id
+      LEFT JOIN customers c ON c.id = b.customerId
       LEFT JOIN booking_details bd ON bd.bookingId = b.id
       LEFT JOIN rooms r ON r.id = COALESCE(bd.roomId, b.room_id)
       LEFT JOIN room_types rt ON rt.id = r.roomTypeId
-      WHERE DATE(COALESCE(bd.checkOutDate, b.check_out)) = CURDATE()
-        AND ${BOOKING_EFFECTIVE_STATUS_EXPR} = 'checked_in'
-      GROUP BY b.id
-      ORDER BY MIN(r.roomNumber) ASC
+      WHERE COALESCE(bd.checkOutDate, b.check_out) = CURDATE()
+        AND ${BOOKING_EFFECTIVE_STATUS_EXPR} NOT IN ('cancelled', 'no_show')
+      ORDER BY r.roomNumber ASC
     `);
 
     // 4) Phòng đang trống, có thể xếp khách ngay.
+    // QUAN TRỌNG: KHÔNG dựa vào cột `rooms.status` để xác định phòng trống, vì cột này
+    // không được đồng bộ tự động khi khách check-in/check-out (không có trigger nào cập
+    // nhật nó). Thay vào đó, tính "trống" theo thời gian thực: 1 phòng được coi là trống
+    // nếu KHÔNG có booking còn hiệu lực nào đang phủ ngày hôm nay trên phòng đó, và bản
+    // thân phòng không đang ở trạng thái bảo trì / đã xóa.
     const [availableRooms] = await db.query(`
       SELECT r.id, r.roomNumber, r.floor, rt.typeName AS roomTypeName, rt.defaultPrice
       FROM rooms r
@@ -176,9 +173,9 @@ router.get('/today', requireAuth, requireStaff, async (req, res) => {
           FROM bookings b
           LEFT JOIN booking_details bd ON bd.bookingId = b.id
           WHERE COALESCE(bd.roomId, b.room_id) = r.id
-            AND ${BOOKING_EFFECTIVE_STATUS_EXPR} IN ('confirmed', 'checked_in')
-            AND DATE(COALESCE(bd.checkInDate, b.check_in)) <= CURDATE()
-            AND DATE(COALESCE(bd.checkOutDate, b.check_out)) > CURDATE()
+            AND ${BOOKING_EFFECTIVE_STATUS_EXPR} NOT IN ('cancelled', 'no_show')
+            AND COALESCE(bd.checkInDate, b.check_in) <= CURDATE()
+            AND COALESCE(bd.checkOutDate, b.check_out) > CURDATE()
         )
       ORDER BY r.floor ASC, r.roomNumber ASC
     `);

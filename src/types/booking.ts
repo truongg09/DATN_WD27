@@ -8,6 +8,13 @@ export interface Booking {
     bookingStatus: BookingStatus;
     totalAmount: number;
     createdAt: string;
+    created_at?: string;
+    hold_expires_at?: string;
+    hold_reset_count?: number;
+    last_hold_reset_at?: string;
+    max_hold_resets?: number;
+    can_reset_hold?: boolean;
+    hold_remaining_seconds?: number;
 }
 
 export interface BookingDetail {

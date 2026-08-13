@@ -1,5 +1,3 @@
-import type { RoomTypeSummaryItem } from '../utils/bookingUtils';
-
 export type InvoiceStatus = "draft" | "issued" | "cancelled";
 
 export interface InvoiceServiceItem {
@@ -10,13 +8,62 @@ export interface InvoiceServiceItem {
   totalPrice: number;
 }
 
-export interface InvoiceRoomItem {
-  bookingDetailId?: number;
+export interface InvoiceDamageItem {
   id: number;
-  number: string;
-  roomTypeId?: number;
-  typeName?: string;
-  roomPrice?: number;
+  chargeType: string;
+  itemName: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+  roomNumber?: string;
+  note?: string;
+  createdAt?: string;
+}
+
+export interface InvoiceTransfer {
+  id: number;
+  fromRoomId: number;
+  fromRoomNumber?: string;
+  toRoomId: number;
+  toRoomNumber?: string;
+  fromDate: string;
+  toDate: string;
+  pricePerNight: number;
+  reason?: string;
+  createdAt?: string;
+}
+
+export interface InvoiceNightlyPrice {
+  id?: number;
+  stayDate: string;
+  dayName?: string;
+  price: number;
+  basePrice?: number;
+  surcharge?: number;
+  priceType: string;
+  isHoliday?: boolean;
+  isSunday?: boolean;
+  isSaturday?: boolean;
+  isWeekend?: boolean;
+  note?: string;
+  roomId?: number;
+  roomNumber?: string;
+}
+
+export interface InvoiceBreakdown {
+  basePricePerNight: number;
+  totalNights: number;
+  baseRoomAmount: number;
+  holidaySurcharge: number;
+  sundaySurcharge: number;
+  weekendSurcharge: number;
+  occupancySurcharge: number;
+  damageAmount: number;
+  serviceAmount: number;
+  discountAmount: number;
+  roomAmount: number;
+  surchargeAmount: number;
+  totalAmount: number;
 }
 
 export interface Invoice {
@@ -30,30 +77,18 @@ export interface Invoice {
   customerPhone?: string;
   roomNumber: string;
   roomTypeName: string;
-  roomQuantity?: number;
-  roomTypesSummary?: RoomTypeSummaryItem[];
-  booking_rooms?: InvoiceRoomItem[];
   checkIn: string;
   checkOut: string;
   stayRoomAmount?: number;
   roomAmount: number;
   serviceAmount: number;
   services?: InvoiceServiceItem[];
+  damages?: InvoiceDamageItem[];
+  transfers?: InvoiceTransfer[];
+  nightlyPrices?: InvoiceNightlyPrice[];
+  breakdown?: InvoiceBreakdown;
   surchargeAmount: number;
   occupancySurcharge?: number;
-  lateCheckoutSurcharge?: number;
-  damageAmount?: number;
-  damages?: Array<{
-    id: number;
-    roomId?: number;
-    roomNumber?: string;
-    chargeType?: string;
-    itemName: string;
-    quantity: number;
-    unitPrice: number;
-    totalPrice: number;
-    note?: string;
-  }>;
   childrenCount?: number;
   discountAmount: number;
   depositAmount?: number;
@@ -61,8 +96,7 @@ export interface Invoice {
   remainingAmount?: number;
   totalAmount: number;
   status: InvoiceStatus;
-  paymentStatus?: string;
-  paymentMethod?: string;
   issuedAt: string;
   createdAt: string;
 }
+

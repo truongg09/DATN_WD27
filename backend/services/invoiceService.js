@@ -11,10 +11,25 @@ const buildInvoiceCode = async (connection) => {
   return `HD${year}${month}-${String(sequence).padStart(5, '0')}`;
 };
 
+const DAY_NAMES_VI = [
+  'Chủ nhật',
+  'Thứ hai',
+  'Thứ ba',
+  'Thứ tư',
+  'Thứ năm',
+  'Thứ sáu',
+  'Thứ bảy'
+];
+
 const enrichInvoiceWithServices = async (row, connection) => {
-  if (!row) return null;
   const invoice = formatInvoice(row);
-  const serviceRows = await invoiceModel.listInvoiceServices(invoice.bookingId, connection);
+  const [serviceRows, nightlyRows, transferRows, damageRows] = await Promise.all([
+    invoiceModel.listInvoiceServices(invoice.bookingId, connection),
+    invoiceModel.listInvoiceNightlyPrices(invoice.bookingId, connection),
+    invoiceModel.listInvoiceTransfers(invoice.bookingId, connection),
+    invoiceModel.listInvoiceDamages(invoice.bookingId, connection)
+  ]);
+
   const services = serviceRows.map((service) => ({
     serviceId: Number(service.serviceId),
     serviceName: service.serviceName,
@@ -23,60 +38,142 @@ const enrichInvoiceWithServices = async (row, connection) => {
     totalPrice: Number(service.totalPrice ?? 0)
   }));
 
-  const damageRows = await invoiceModel.listInvoiceDamages(invoice.bookingId, connection);
   const damages = damageRows.map((d) => ({
     id: Number(d.id),
-    roomId: Number(d.roomId || 0),
-    roomNumber: d.roomNumber || '',
-    chargeType: d.chargeType || 'damage',
+    chargeType: d.chargeType,
     itemName: d.itemName,
     quantity: Number(d.quantity ?? 1),
     unitPrice: Number(d.unitPrice ?? 0),
     totalPrice: Number(d.totalPrice ?? 0),
-    note: d.note || ''
+    roomNumber: d.roomNumber,
+    note: d.note,
+    createdAt: d.createdAt
   }));
 
+  const transfers = transferRows.map((t) => ({
+    id: Number(t.id),
+    fromRoomId: Number(t.fromRoomId),
+    fromRoomNumber: t.fromRoomNumber,
+    toRoomId: Number(t.toRoomId),
+    toRoomNumber: t.toRoomNumber,
+    fromDate: t.fromDate,
+    toDate: t.toDate,
+    pricePerNight: Number(t.pricePerNight ?? 0),
+    reason: t.reason,
+    createdAt: t.createdAt
+  }));
+
+  const checkInDate = new Date(invoice.checkIn);
+  const checkOutDate = new Date(invoice.checkOut);
+  const totalNightsCalculated = Math.max(1, Math.round((checkOutDate - checkInDate) / (1000 * 60 * 60 * 24)));
+
+  let effectiveNightlyRows = nightlyRows;
+  const basePricePerNight = invoice.stayRoomAmount && totalNightsCalculated > 0
+    ? Math.round(invoice.stayRoomAmount / totalNightsCalculated)
+    : (row.room_price ? Number(row.room_price) : 0);
+
+  if (effectiveNightlyRows.length === 0 && invoice.checkIn && invoice.checkOut) {
+    try {
+      const bookingService = require('./bookingService');
+      const calcResult = await bookingService.calcNightlyPrices(
+        row.roomTypeId || row.room_type_id,
+        basePricePerNight,
+        invoice.checkIn,
+        invoice.checkOut,
+        connection,
+        row.room_id || row.roomId
+      );
+      effectiveNightlyRows = calcResult.prices.map((p) => ({
+        id: null,
+        stayDate: p.stayDate || p.date,
+        price: p.price,
+        priceType: p.priceType,
+        note: p.note,
+        roomId: row.room_id || row.roomId,
+        roomNumber: row.room_number || invoice.roomNumber
+      }));
+    } catch (calcErr) {
+      console.warn('Fallback calcNightlyPrices in invoiceService warning:', calcErr.message);
+    }
+  }
+
+  const totalNights = effectiveNightlyRows.length || totalNightsCalculated;
+
+  const nightlyPrices = effectiveNightlyRows.map((n) => {
+    const d = new Date(`${n.stayDate}T00:00:00Z`);
+    const day = d.getUTCDay();
+    const isHoliday = n.priceType === 'holiday';
+    const isSunday = day === 0 || n.priceType === 'sunday';
+    const isSaturday = day === 6 || (n.priceType === 'weekend' && !isSunday);
+    const nightPrice = Number(n.price ?? 0);
+    const basePrice = basePricePerNight || nightPrice;
+    const surcharge = Math.max(0, nightPrice - basePrice);
+
+    return {
+      id: n.id,
+      stayDate: n.stayDate,
+      dayName: DAY_NAMES_VI[day] || '',
+      price: nightPrice,
+      basePrice,
+      surcharge,
+      priceType: n.priceType || 'normal',
+      isHoliday,
+      isSunday,
+      isSaturday,
+      isWeekend: isSunday || isSaturday,
+      note: n.note,
+      roomId: n.roomId,
+      roomNumber: n.roomNumber
+    };
+  });
+
+  const baseRoomAmount = nightlyPrices.length > 0 && basePricePerNight > 0
+    ? nightlyPrices.length * basePricePerNight
+    : Number(invoice.roomAmount || 0);
+
+  const holidaySurcharge = nightlyPrices
+    .filter((p) => p.isHoliday)
+    .reduce((sum, p) => sum + Math.max(0, p.price - (basePricePerNight || p.price)), 0);
+
+  const sundaySurcharge = nightlyPrices
+    .filter((p) => p.isSunday && !p.isHoliday)
+    .reduce((sum, p) => sum + Math.max(0, p.price - (basePricePerNight || p.price)), 0);
+
+  const weekendSurcharge = nightlyPrices
+    .filter((p) => p.isSaturday && !p.isHoliday)
+    .reduce((sum, p) => sum + Math.max(0, p.price - (basePricePerNight || p.price)), 0);
+
   const damageAmount = damages.reduce((sum, d) => sum + d.totalPrice, 0);
-  const occupancySurcharge = Number(invoice.occupancySurcharge || 0);
-  const surchargeAmount = Number(invoice.surchargeAmount || 0);
-  const lateCheckoutSurcharge = Math.max(surchargeAmount - occupancySurcharge - damageAmount, 0);
-
-  const bookingRooms = await invoiceModel.listInvoiceRooms(invoice.bookingId, connection);
-  const fallbackRooms = invoice.roomNumber ? [{ id: 0, number: invoice.roomNumber }] : [];
-  const finalRooms = bookingRooms.length > 0 ? bookingRooms : fallbackRooms;
-
-  const roomTypesSummary = Object.values(
-    finalRooms.reduce((acc, r) => {
-      const key = r.roomTypeId || r.typeName || 'Standard';
-      if (!acc[key]) {
-        acc[key] = {
-          roomTypeId: r.roomTypeId,
-          typeName: r.typeName || 'Standard',
-          quantity: 0,
-          roomPrice: Number(r.roomPrice || invoice.room_price || 0)
-        };
-      }
-      acc[key].quantity += 1;
-      return acc;
-    }, {})
-  );
-
-  // Dùng số tiền đã chốt trong invoice; danh sách dịch vụ chỉ dùng để hiển thị.
   const serviceAmount = Number(invoice.serviceAmount || 0);
-  // Tính lại tiền phòng từ đơn giá lưu trú và số đêm. Dữ liệu hóa đơn cũ có
-  // trường hợp đã gộp tiền dịch vụ vào roomAmount nên không dùng số đó làm gốc.
+  const occupancySurcharge = Number(invoice.occupancySurcharge || 0);
   const roomAmount = Number(invoice.roomAmount || 0);
+  const surchargeAmount = Number(invoice.surchargeAmount || 0);
+  const discountAmount = Number(invoice.discountAmount || 0);
   const totalAmount = Number(invoice.totalAmount || 0);
+
+  const breakdown = {
+    basePricePerNight,
+    totalNights,
+    baseRoomAmount,
+    holidaySurcharge,
+    sundaySurcharge,
+    weekendSurcharge,
+    occupancySurcharge,
+    damageAmount,
+    serviceAmount,
+    discountAmount,
+    roomAmount,
+    surchargeAmount,
+    totalAmount
+  };
 
   return {
     ...invoice,
     services,
     damages,
-    damageAmount,
-    lateCheckoutSurcharge,
-    roomQuantity: Math.max(finalRooms.length, Number(row.room_quantity || 1)),
-    roomTypesSummary,
-    booking_rooms: finalRooms,
+    transfers,
+    nightlyPrices,
+    breakdown,
     roomAmount,
     serviceAmount,
     surchargeAmount,
