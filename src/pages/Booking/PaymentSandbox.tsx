@@ -6,7 +6,6 @@ import dayjs from 'dayjs';
 import { getBookingDetail } from '../../services/bookingService';
 import { getPaymentByBookingId, confirmPayment } from '../../services/paymentService';
 import type { Payment } from '../../types/payment';
-import { renderRoomTypesSummaryText } from '../../utils/bookingUtils';
 import './PaymentSandbox.css';
 
 const formatPrice = (price: number) =>
@@ -48,14 +47,8 @@ const PaymentSandbox: React.FC = () => {
           getBookingDetail(bookingId),
           getPaymentByBookingId(bookingId),
         ]);
-        const bookingData = bookingRes.data as Record<string, unknown>;
-        setBooking(bookingData);
+        setBooking(bookingRes.data as Record<string, unknown>);
         setPayment(paymentRes.data);
-        const expiresAt = dayjs(String(bookingData.hold_expires_at));
-        const serverNow = dayjs(String(bookingData.server_now));
-        setCountdown(expiresAt.isValid() && serverNow.isValid()
-          ? Math.max(expiresAt.diff(serverNow, 'second'), 0)
-          : 0);
       } catch {
         message.error('Không thể tải thông tin thanh toán');
         navigate('/booking/history');
@@ -69,16 +62,30 @@ const PaymentSandbox: React.FC = () => {
 
   useEffect(() => {
     if (loading || !booking) return;
+
+    const calculateRemaining = () => {
+      const expiresAt = booking.hold_expires_at
+        ? dayjs(String(booking.hold_expires_at))
+        : dayjs(String(booking.created_at)).add(15, 'minute');
+      return Math.max(0, expiresAt.diff(dayjs(), 'second'));
+    };
+
+    const initialSec = calculateRemaining();
+    if (initialSec <= 0) {
+      message.error('Thời gian giữ phòng cho đơn này đã hết hạn!');
+      navigate(`/booking/${bookingId}/payment`);
+      return;
+    }
+    setCountdown(initialSec);
+
     const timer = setInterval(() => {
-      setCountdown((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          message.error('Giao dịch đã hết hạn thanh toán!');
-          navigate(`/booking/${bookingId}/payment`);
-          return 0;
-        }
-        return prev - 1;
-      });
+      const remaining = calculateRemaining();
+      setCountdown(remaining);
+      if (remaining <= 0) {
+        clearInterval(timer);
+        message.error('Giao dịch đã hết hạn thanh toán!');
+        navigate(`/booking/${bookingId}/payment`);
+      }
     }, 1000);
 
     return () => clearInterval(timer);
@@ -94,11 +101,7 @@ const PaymentSandbox: React.FC = () => {
     if (!payment) return;
     setSubmitting(true);
     try {
-      const response = await confirmPayment(payment.id, {
-        amount,
-        transactionCode: txn,
-        gatewayOrderId: txn,
-      });
+      const response = await confirmPayment(payment.id, { amount, transactionCode: txn });
       const status = response.data.payment.paymentStatus;
       navigate(
         `/booking/${bookingId}?gateway=${method.toLowerCase()}&payment=success&status=${encodeURIComponent(status)}`
@@ -156,7 +159,7 @@ const PaymentSandbox: React.FC = () => {
                 <Descriptions.Item label="Đơn vị chấp nhận">HotelHub Booking</Descriptions.Item>
                 <Descriptions.Item label="Mã đặt phòng">#{bookingId}</Descriptions.Item>
                 <Descriptions.Item label="Hạng phòng">
-                  {renderRoomTypesSummaryText(booking as any)}
+                  {String(booking.room_type_name || 'Đặt phòng')}
                 </Descriptions.Item>
                 <Descriptions.Item label="Khách hàng">{String(booking.customer_name)}</Descriptions.Item>
                 <Descriptions.Item label="Thời gian nhận">{formatDate(String(booking.check_in))}</Descriptions.Item>

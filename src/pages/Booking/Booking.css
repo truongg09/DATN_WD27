@@ -894,8 +894,7 @@
 }
 
 .secondary-time-options {
-  margin-top: 20px;
-  padding-top: 18px;
+  padding-top: 16px;
   border-top: 1px dashed #dfd6cc;
 }
 
@@ -920,7 +919,7 @@
 }
 
 .secondary-options-note {
-  margin: 10px 0 0;
+  margin: -8px 0 0;
   line-height: 1.45;
 }
 

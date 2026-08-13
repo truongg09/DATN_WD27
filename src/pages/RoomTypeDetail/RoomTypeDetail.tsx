@@ -5,7 +5,7 @@ import {
   useParams,
   useSearchParams,
 } from "react-router-dom";
-import { DatePicker, Button, Popover, Typography } from "antd";
+import { DatePicker, Button, Popover, Typography, Tag } from "antd";
 import { UserOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -184,7 +184,7 @@ const RoomTypeDetail: React.FC = () => {
 
   const nights = hasDates ? dateRange[1]!.diff(dateRange[0]!, "day") : 0;
   const totalStay =
-    nights > 0 ? Number(roomType.defaultPrice || 0) * nights : 0;
+    nights > 0 ? Number(roomType.stayAmount || Number(roomType.defaultPrice || 0) * nights) : 0;
   const soldOut = hasDates && (roomType.availableRooms ?? 0) === 0;
   const lowStock = hasDates && !soldOut && (roomType.availableRooms ?? 0) <= 3;
   const maxOcc = roomType.maxOccupancy ?? roomType.capacity;
@@ -335,20 +335,7 @@ const RoomTypeDetail: React.FC = () => {
                 <strong>{adultCapacity} NL + {childCapacity} TE</strong>
               </span>
 
-              <span style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '6px 14px',
-                borderRadius: 999,
-                background: 'linear-gradient(135deg, #fff4e5 0%, #ffe8cc 100%)',
-                color: '#b45309',
-                fontWeight: 600,
-                fontSize: 14,
-                border: '1px solid #fdba74',
-              }}>
-                <FontAwesomeIcon icon={faUserGroup} /> Tối đa {maxOcc} khách/phòng
-              </span>
+              <span><strong>Tối đa:</strong> {maxOcc} khách/phòng</span>
               {roomType.minArea !== null && (
                 <span>
                   <FontAwesomeIcon icon={faExpandArrowsAlt} />{" "}
@@ -458,6 +445,11 @@ const RoomTypeDetail: React.FC = () => {
                   <span className="price-sub" style={{ fontSize: "12px", color: "#888", width: "100%", marginTop: "4px" }}>
                     {formatPrice(Math.round(totalStay / nights))}/phòng/đêm · Chưa gồm phụ thu phát sinh
                   </span>
+                  {roomType.nightlyPrices && (roomType.nightlyPrices as any[]).some((n: any) => n.isHoliday || n.isSunday || n.isSaturday || n.price > Number(roomType.defaultPrice || 0)) && (
+                    <Tag color="orange" style={{ margin: "6px 0 0" }}>
+                      Đã bao gồm biểu giá cuối tuần / ngày lễ
+                    </Tag>
+                  )}
                 </>
               ) : (
                 <>
@@ -555,9 +547,16 @@ const RoomTypeDetail: React.FC = () => {
             </button>
 
             <ul className="widget-perks">
-              <li><FontAwesomeIcon icon={faCheck} /> Xác nhận ngay lập tức</li>
-              <li><FontAwesomeIcon icon={faCheck} /> Giữ phòng 15 phút để thanh toán</li>
-              <li><FontAwesomeIcon icon={faCheck} /> Hoàn 100% khi hủy trên 7 ngày trước nhận phòng</li>
+              <li>
+                <FontAwesomeIcon icon={faCheck} /> Xác nhận ngay lập tức
+              </li>
+              <li>
+                <FontAwesomeIcon icon={faCheck} /> Giữ phòng 15 phút để thanh
+                toán
+              </li>
+              <li>
+                <FontAwesomeIcon icon={faCheck} /> Hoàn 100% khi hủy dưới 3 ngày
+              </li>
             </ul>
           </div>
         </div>

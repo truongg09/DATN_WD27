@@ -162,32 +162,6 @@ body .auth-modal-content .ant-input {
   background: #fff;
 }
 
-body .auth-modal-content .ant-input-affix-wrapper {
-  height: 52px;
-  border-radius: 14px;
-  border: 2px solid #f0f0f0;
-  background: #fff;
-  padding: 0 14px 0 18px;
-  transition: all 0.3s;
-  font-size: 16px;
-  box-shadow: none;
-}
-
-body .auth-modal-content .ant-input-affix-wrapper .ant-input-prefix {
-  margin-right: 10px;
-  color: #ab8965;
-  font-size: 16px;
-}
-
-body .auth-modal-content .ant-input-affix-wrapper .ant-input {
-  height: 100%;
-  padding: 0;
-  border: none;
-  box-shadow: none;
-  background: transparent;
-  font-size: 16px;
-}
-
 body .auth-modal-content .ant-input-password {
   height: 52px;
   border-radius: 14px;
@@ -197,36 +171,27 @@ body .auth-modal-content .ant-input-password {
   transition: all 0.3s;
 }
 
-body .auth-modal-content .ant-input-affix-wrapper.ant-input-password {
-  padding: 0 18px;
-}
-
 body .auth-modal-content .ant-input-password .ant-input {
   height: 100%;
-  padding: 0 10px 0 0;
+  padding: 0 18px;
   border: none;
   box-shadow: none;
   background: transparent;
 }
 
 body .auth-modal-content .ant-input:hover,
-body .auth-modal-content .ant-input-password:hover,
-body .auth-modal-content .ant-input-affix-wrapper:hover {
+body .auth-modal-content .ant-input-password:hover {
   border-color: #ab8965;
 }
 
 body .auth-modal-content .ant-input:focus,
-body .auth-modal-content .ant-input-password:focus-within,
-body .auth-modal-content .ant-input-affix-wrapper:focus,
-body .auth-modal-content .ant-input-affix-wrapper-focused {
+body .auth-modal-content .ant-input-password:focus-within {
   border-color: #ab8965;
-  box-shadow: 0 0 0 4px rgba(171, 137, 101, 0.12);
-  outline: none;
+  box-shadow: 0 0 0 4px rgba(171, 137, 101, 0.1);
 }
 
 body .auth-modal-content .ant-input-password .ant-input-suffix {
-  padding-right: 0;
-  padding-left: 10px;
+  padding-right: 18px;
   color: #999;
   cursor: pointer;
   border: none;
