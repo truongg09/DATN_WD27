@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Alert, Button, DatePicker, Form, Input, InputNumber, message, Modal, Pagination, Select, Space, Tag, TimePicker, Tooltip } from 'antd';
 import {
   CheckOutlined,
@@ -133,6 +133,7 @@ const formatPrice = (price?: string | number | null) => {
 };
 
 function BookingManagement() {
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [services, setServices] = useState<ServiceItem[]>([]);
@@ -1053,7 +1054,7 @@ const handleCheckIn = (booking: Booking) => {
                       <td style={tdStyle}>
                         <Space size={[4, 4]} wrap style={{ maxWidth: 210 }}>
                           <Tooltip title="Xem chi tiết đặt phòng">
-                            <Button type="primary" icon={<EyeOutlined style={{ color: 'white' }} />} size="small" onClick={() => { setSelectedBooking(booking); setViewModalVisible(true); }}></Button>
+                            <Button type="primary" icon={<EyeOutlined style={{ color: 'white' }} />} size="small" onClick={() => navigate(`/admin/bookings/${booking.id}`)}></Button>
                           </Tooltip>
                           {['pending', 'confirmed'].includes(booking.status) && (
                             <Tooltip title="Hủy đặt phòng">
