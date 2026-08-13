@@ -25,11 +25,6 @@ const normalizeVoucherPayload = (body) => {
   if (!Number.isInteger(quantity) || quantity < 1) return { error: 'Số lượng voucher phải là số nguyên dương' };
   if (body.endDate < body.startDate) return { error: 'Ngày kết thúc phải sau ngày bắt đầu' };
 
-  // Danh sách rỗng nghĩa là voucher dùng được cho mọi hạng phòng.
-  const roomTypeIds = Array.isArray(body.roomTypeIds)
-    ? [...new Set(body.roomTypeIds.map(Number).filter((id) => Number.isInteger(id) && id > 0))]
-    : [];
-
   return {
     data: {
       ...body,
@@ -39,19 +34,8 @@ const normalizeVoucherPayload = (body) => {
       maxDiscount: maxDiscount || null,
       minBookingAmount: minBookingAmount || null,
       quantity,
-      roomTypeIds,
     },
   };
-};
-
-// Ghi lại danh sách hạng phòng áp dụng của một voucher.
-const replaceVoucherRoomTypes = async (connection, voucherId, roomTypeIds) => {
-  await connection.query('DELETE FROM voucher_room_types WHERE voucherId = ?', [voucherId]);
-  if (roomTypeIds.length === 0) return;
-  await connection.query(
-    'INSERT INTO voucher_room_types (voucherId, roomTypeId) VALUES ?',
-    [roomTypeIds.map((roomTypeId) => [voucherId, roomTypeId])]
-  );
 };
 
 router.get('/', async (_req, res) => {
@@ -67,18 +51,7 @@ router.get('/', async (_req, res) => {
          quantity,
          startDate,
          endDate,
-         status,
-         (
-           SELECT GROUP_CONCAT(vrt.roomTypeId)
-           FROM voucher_room_types vrt
-           WHERE vrt.voucherId = vouchers.id
-         ) AS roomTypeIds,
-         (
-           SELECT GROUP_CONCAT(rt.typeName SEPARATOR ', ')
-           FROM voucher_room_types vrt
-           JOIN room_types rt ON rt.id = vrt.roomTypeId
-           WHERE vrt.voucherId = vouchers.id
-         ) AS roomTypeNames
+         status
        FROM vouchers
        ORDER BY id DESC`
     );
@@ -99,23 +72,13 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
       return res.status(400).json({ message: 'Thiếu thông tin voucher' });
     }
 
-    const connection = await db.getConnection();
-    try {
-      await connection.beginTransaction();
-      const [result] = await connection.query(
-        `INSERT INTO vouchers (code, discountType, discountValue, maxDiscount, minBookingAmount, quantity, startDate, endDate, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [code, discountType, discountValue, maxDiscount, minBookingAmount, quantity, startDate, endDate, status]
-      );
-      await replaceVoucherRoomTypes(connection, result.insertId, normalized.data.roomTypeIds);
-      await connection.commit();
-      res.status(201).json({ data: { id: result.insertId }, message: 'Tạo voucher thành công' });
-    } catch (error) {
-      await connection.rollback();
-      throw error;
-    } finally {
-      connection.release();
-    }
+    const [result] = await db.query(
+      `INSERT INTO vouchers (code, discountType, discountValue, maxDiscount, minBookingAmount, quantity, startDate, endDate, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [code, discountType, discountValue, maxDiscount, minBookingAmount, quantity, startDate, endDate, status]
+    );
+
+    res.status(201).json({ data: { id: result.insertId }, message: 'Tạo voucher thành công' });
   } catch (error) {
     console.error('Create voucher error:', error);
     if (error.code === 'ER_DUP_ENTRY') {
@@ -136,24 +99,14 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
       return res.status(400).json({ message: 'Thiếu thông tin voucher' });
     }
 
-    const connection = await db.getConnection();
-    try {
-      await connection.beginTransaction();
-      await connection.query(
-        `UPDATE vouchers
-         SET code = ?, discountType = ?, discountValue = ?, maxDiscount = ?, minBookingAmount = ?, quantity = ?, startDate = ?, endDate = ?, status = ?
-         WHERE id = ?`,
-        [code, discountType, discountValue, maxDiscount, minBookingAmount, quantity, startDate, endDate, status || 'active', voucherId]
-      );
-      await replaceVoucherRoomTypes(connection, voucherId, normalized.data.roomTypeIds);
-      await connection.commit();
-      res.json({ message: 'Cập nhật voucher thành công' });
-    } catch (error) {
-      await connection.rollback();
-      throw error;
-    } finally {
-      connection.release();
-    }
+    await db.query(
+      `UPDATE vouchers
+       SET code = ?, discountType = ?, discountValue = ?, maxDiscount = ?, minBookingAmount = ?, quantity = ?, startDate = ?, endDate = ?, status = ?
+       WHERE id = ?`,
+      [code, discountType, discountValue, maxDiscount, minBookingAmount, quantity, startDate, endDate, status || 'active', voucherId]
+    );
+
+    res.json({ message: 'Cập nhật voucher thành công' });
   } catch (error) {
     console.error('Update voucher error:', error);
     if (error.code === 'ER_DUP_ENTRY') {

@@ -78,7 +78,7 @@ setInterval(() => {
   bookingService.expireUnpaidBookingHolds().catch((error) => {
     console.error('Expire booking holds error:', error);
   });
-}, 10 * 1000);
+}, 30 * 1000);
 
 setInterval(() => {
   bookingService.processOverdueCheckIns().catch((error) => {
@@ -90,9 +90,6 @@ const ensureOperationalSchema = require('./ensure-operational-schema');
 
 ensureOperationalSchema().then(() => {
   console.log('Database operational schema sync finished.');
-  bookingService.expireUnpaidBookingHolds().catch((error) => {
-    console.error('Initial booking hold expiration error:', error);
-  });
   bookingService.processOverdueCheckIns().catch((error) => {
     console.error('Initial overdue check-ins processing error:', error);
   });
