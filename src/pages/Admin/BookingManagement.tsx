@@ -21,14 +21,6 @@ import AdminBookingModifyModal from './AdminBookingModifyModal';
 import { getPolicies, type PoliciesInfo } from '../../services/settingsService';
 import { previewRoomPrice, type NightlyPriceItem } from '../../services/roomService';
 
-interface BookingRoomItem {
-  bookingDetailId?: number;
-  id?: number | null;
-  number: string;
-  roomTypeId?: number;
-  typeName?: string;
-}
->>>>>>> 4a81937 (Quản lý Booking Admin - Tích hợp nút chỉnh sửa vào trang danh sách và trang chi tiết)
 
 interface Booking {
   id: number;
@@ -1082,13 +1074,6 @@ const handleCheckIn = (booking: Booking) => {
                         <Tooltip title="Xem chi tiết đặt phòng">
                           <Button type="primary" icon={<EyeOutlined style={{ color: 'white' }} />} size="small" onClick={() => { setSelectedBooking(booking); setViewModalVisible(true); }}></Button>
                         </Tooltip>
-                        {['pending', 'confirmed'].includes(booking.status) && (
-                          <Tooltip title="Hủy đặt phòng">
-                            <Button type="primary" icon={<CloseOutlined />} size="small" danger onClick={() => handleCancel(booking.id)}></Button>
-                          </Tooltip>
-                        <Tooltip title="Xem chi tiết đặt phòng">
-                          <Button type="primary" icon={<EyeOutlined style={{ color: 'white' }} />} size="small" onClick={() => { setSelectedBooking(booking); setViewModalVisible(true); }}></Button>
-                        </Tooltip>
                         <Tooltip title="Quản lý & Chỉnh sửa Booking (Đổi phòng, đổi loại, đổi ngày, thêm/xóa phòng)">
                           <Button
                             type="default"
@@ -1148,8 +1133,7 @@ const handleCheckIn = (booking: Booking) => {
                       </Space>
                     </td>
                   </tr>
-                );
-              })
+                ))
               )}
             </tbody>
           </table>
@@ -1273,7 +1257,7 @@ const handleCheckIn = (booking: Booking) => {
           setAdminModifyBookingId(null);
         }}
         onSuccess={() => {
-          fetchBookings(currentPage, pageSize, filterStatus, filterSearch);
+          fetchBookings();
         }}
       />
     </div>
