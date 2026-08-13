@@ -2640,7 +2640,7 @@ const extendStay = async (bookingId, payload, actor = null) => {
     // Lấy tất cả booking_details thuộc booking (multi-room-type financial source of truth).
     const [bdRows] = await connection.query(
       `SELECT bd.id, bd.bookingId, bd.roomId, bd.roomTypeId, bd.roomPrice,
-              r.price_per_night, rt.defaultPrice
+              rt.defaultPrice
        FROM booking_details bd
        LEFT JOIN rooms r ON bd.roomId = r.id
        LEFT JOIN room_types rt ON bd.roomTypeId = rt.id
@@ -3890,7 +3890,7 @@ const checkOut = async (bookingId, actualCheckOutTimeInput, actor = null) => {
 
         // Multi-room-type safe: Tính tổng giá đêm của tất cả booking_details làm nightlyRate cho booking
         const [bdRowsForRate] = await connection.query(
-          `SELECT bd.id, bd.roomPrice, r.price_per_night, rt.defaultPrice
+          `SELECT bd.id, bd.roomPrice, rt.defaultPrice
            FROM booking_details bd
            LEFT JOIN rooms r ON bd.roomId = r.id
            LEFT JOIN room_types rt ON bd.roomTypeId = rt.id
@@ -3996,7 +3996,7 @@ const checkOut = async (bookingId, actualCheckOutTimeInput, actor = null) => {
       // Multi-room-type safe: Lấy tất cả booking_details để tính chính xác unused nightly total
       const [bdRowsForEarly] = await connection.query(
         `SELECT bd.id, bd.bookingId, bd.roomId, bd.roomTypeId, bd.roomPrice,
-                r.price_per_night, rt.defaultPrice
+                rt.defaultPrice
          FROM booking_details bd
          LEFT JOIN rooms r ON bd.roomId = r.id
          LEFT JOIN room_types rt ON bd.roomTypeId = rt.id
