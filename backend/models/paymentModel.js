@@ -6,8 +6,8 @@ const PAYMENT_SELECT = `
   SELECT
     p.*,
     b.status AS booking_status,
-    COALESCE(b.guest_name, MAX(c.fullName), MAX(a.email)) AS customer_name,
-    MIN(r.roomNumber) AS room_number,
+    COALESCE(b.guest_name, c.fullName, a.email) AS customer_name,
+    r.roomNumber AS room_number,
     pcr.status AS verification_status,
     pcr.amount AS verification_amount,
     pcr.submittedAt AS verification_submitted_at
@@ -56,7 +56,7 @@ const createPayment = async (payload, connection) => {
 
 const getPaymentById = async (paymentId, connection, lock = false) => {
   const [rows] = await run(connection).query(
-    `${PAYMENT_SELECT} WHERE p.id = ? GROUP BY p.id ${lock ? 'FOR UPDATE' : ''}`,
+    `${PAYMENT_SELECT} WHERE p.id = ? ${lock ? 'FOR UPDATE' : ''}`,
     [paymentId]
   );
   return rows[0] || null;
@@ -64,7 +64,7 @@ const getPaymentById = async (paymentId, connection, lock = false) => {
 
 const getPaymentByBookingId = async (bookingId, connection) => {
   const [rows] = await run(connection).query(
-    `${PAYMENT_SELECT} WHERE p.bookingId = ? GROUP BY p.id ORDER BY p.id DESC LIMIT 1`,
+    `${PAYMENT_SELECT} WHERE p.bookingId = ? ORDER BY p.id DESC LIMIT 1`,
     [bookingId]
   );
   return rows[0] || null;
@@ -72,7 +72,7 @@ const getPaymentByBookingId = async (bookingId, connection) => {
 
 const getPaymentByTransactionCode = async (transactionCode, connection) => {
   const [rows] = await run(connection).query(
-    `${PAYMENT_SELECT} WHERE p.transactionCode = ? GROUP BY p.id ORDER BY p.id DESC LIMIT 1`,
+    `${PAYMENT_SELECT} WHERE p.transactionCode = ? ORDER BY p.id DESC LIMIT 1`,
     [transactionCode]
   );
   return rows[0] || null;
@@ -96,34 +96,11 @@ const listPayments = async ({ bookingId, paymentStatus } = {}) => {
     `
       ${PAYMENT_SELECT}
       ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}
-      GROUP BY p.id
       ORDER BY p.id DESC
     `,
     values
   );
-  const uniqueMap = new Map();
-  for (const row of rows) {
-    if (!uniqueMap.has(row.id)) {
-      uniqueMap.set(row.id, {
-        ...row,
-        _roomNumbers: row.room_number ? [String(row.room_number)] : []
-      });
-    } else {
-      const existing = uniqueMap.get(row.id);
-      if (row.room_number && !existing._roomNumbers.includes(String(row.room_number))) {
-        existing._roomNumbers.push(String(row.room_number));
-      }
-    }
-  }
-
-  return Array.from(uniqueMap.values()).map(item => {
-    const joinedRooms = item._roomNumbers.join(', ');
-    delete item._roomNumbers;
-    return {
-      ...item,
-      room_number: joinedRooms || item.room_number
-    };
-  });
+  return rows;
 };
 
 const updatePayment = async (paymentId, fields, connection) => {
@@ -172,38 +149,6 @@ const confirmConfirmationRequest = async (paymentId, confirmedBy, connection) =>
   );
 };
 
-const createGatewayOrder = async (payload, connection) => {
-  await run(connection).query(
-    `UPDATE payment_gateway_orders
-     SET status = 'cancelled'
-     WHERE paymentId = ? AND status = 'created'`,
-    [payload.paymentId]
-  );
-  await run(connection).query(
-    `INSERT INTO payment_gateway_orders
-       (paymentId, bookingId, provider, orderId, amount, status, expiresAt)
-     VALUES (?, ?, ?, ?, ?, 'created', ?)`,
-    [payload.paymentId, payload.bookingId, payload.provider, payload.orderId, payload.amount, payload.expiresAt]
-  );
-};
-
-const getGatewayOrder = async (orderId, connection, lock = false) => {
-  const [rows] = await run(connection).query(
-    `SELECT * FROM payment_gateway_orders WHERE orderId = ? ${lock ? 'FOR UPDATE' : ''}`,
-    [orderId]
-  );
-  return rows[0] || null;
-};
-
-const updateGatewayOrderStatus = async (orderId, status, connection) => {
-  await run(connection).query(
-    `UPDATE payment_gateway_orders
-     SET status = ?, paidAt = CASE WHEN ? = 'paid' THEN COALESCE(paidAt, NOW()) ELSE paidAt END
-     WHERE orderId = ?`,
-    [status, status, orderId]
-  );
-};
-
 module.exports = {
   createPayment,
   getPaymentById,
@@ -213,8 +158,5 @@ module.exports = {
   updatePayment,
   upsertConfirmationRequest,
   getConfirmationRequest,
-  confirmConfirmationRequest,
-  createGatewayOrder,
-  getGatewayOrder,
-  updateGatewayOrderStatus
+  confirmConfirmationRequest
 };

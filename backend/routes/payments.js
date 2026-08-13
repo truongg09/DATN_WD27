@@ -16,7 +16,6 @@ router.get('/gateway/vnpay/ipn', paymentController.vnpayIpn);
 router.get('/gateway/zalopay/return', paymentController.zalopayReturn);
 router.post('/gateway/zalopay/callback', paymentController.zalopayCallback);
 router.get('/booking/:bookingId', requireAuth, requireBookingPaymentAccess, paymentController.getPaymentByBookingId);
-router.post('/:id/preview-voucher', requireAuth, requirePaymentAccess, paymentController.previewVoucher);
 router.post('/:id/apply-voucher', requireAuth, requirePaymentAccess, paymentController.applyVoucher);
 router.post('/:id/gateway-order', requireAuth, requirePaymentAccess, paymentController.createGatewayOrder);
 router.post('/:id/transfer-confirmation', requireAuth, requirePaymentAccess, paymentController.submitTransferConfirmation);

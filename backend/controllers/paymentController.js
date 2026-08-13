@@ -135,8 +135,7 @@ const vnpayReturn = async (req, res) => {
       const payment = await paymentService.getPaymentById(paymentId);
       bookingId = String(payment.bookingId);
     }
-    const isVerified = verifyVnpay(req.query);
-    if (isVerified && req.query.vnp_ResponseCode === '00') {
+    if (verifyVnpay(req.query) && req.query.vnp_ResponseCode === '00') {
       const settledPayment = await paymentService.settleGatewayPayment({
         orderId,
         paymentMethod: 'vnpay',
@@ -148,11 +147,6 @@ const vnpayReturn = async (req, res) => {
       success =
         Number(payment.paidAmount) > 0
         && ['deposit_paid', 'paid'].includes(payment.paymentStatus);
-    } else if (isVerified && orderId) {
-      await paymentService.failGatewayOrder(
-        orderId,
-        req.query.vnp_ResponseCode === '11' ? 'expired' : 'failed'
-      );
     }
   } catch (error) {
     console.error('VNPay return error:', error);
@@ -168,11 +162,6 @@ const vnpayIpn = async (req, res) => {
     if (!verifyVnpay(req.query)) return res.json({ RspCode: '97', Message: 'Invalid signature' });
     if (req.query.vnp_ResponseCode === '00') {
       await paymentService.settleGatewayPayment({ orderId: String(req.query.vnp_TxnRef), paymentMethod: 'vnpay', amount: Number(req.query.vnp_Amount) / 100 });
-    } else {
-      await paymentService.failGatewayOrder(
-        String(req.query.vnp_TxnRef),
-        req.query.vnp_ResponseCode === '11' ? 'expired' : 'failed'
-      );
     }
     res.json({ RspCode: '00', Message: 'Confirm Success' });
   } catch (error) {
@@ -272,20 +261,6 @@ const confirmTransferPayment = async (req, res) => {
   }
 };
 
-const previewVoucher = async (req, res) => {
-  try {
-    const paymentId = normalizeIdParam(req.params.id);
-    const data = await paymentService.previewVoucher(
-      paymentId,
-      req.body?.code,
-      { userId: req.user.userId, role: req.user.role }
-    );
-    res.json({ data });
-  } catch (error) {
-    sendError(res, error);
-  }
-};
-
 const applyVoucher = async (req, res) => {
   try {
     const paymentId = normalizeIdParam(req.params.id);
@@ -314,7 +289,6 @@ module.exports = {
   zalopayReturn,
   zalopayCallback,
   applyVoucher,
-  previewVoucher,
   submitTransferConfirmation,
   confirmTransferPayment,
   refundPayment
