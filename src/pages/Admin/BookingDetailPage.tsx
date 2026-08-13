@@ -1,7 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Alert, Breadcrumb, Button, Card, Col, Descriptions, Row, Skeleton, Space, Tag } from 'antd';
-import { ArrowLeftOutlined, ReloadOutlined } from '@ant-design/icons';
+import {
+  Alert, Breadcrumb, Button, Card, Col, Descriptions, Empty, Form, InputNumber, Modal,
+  Popconfirm, Row, Select, Skeleton, Space, Table, Tag, message,
+} from 'antd';
+import {
+  ArrowLeftOutlined, DeleteOutlined, EditOutlined, PlusOutlined, ReloadOutlined,
+} from '@ant-design/icons';
+import {
+  addBookingServiceCharge, deleteBookingServiceCharge,
+  updateBookingServiceCharge, updateBookingServiceChargeStatus,
+} from '../../services/bookingService';
 import dayjs from 'dayjs';
 import api from '../../services/api';
 
@@ -45,6 +54,26 @@ export const bookingStatusColor: Record<string, string> = {
   checked_out: 'default',
   cancelled: 'red',
   no_show: 'volcano',
+};
+
+interface ServiceCharge {
+  id: number;
+  serviceId: number;
+  serviceName: string;
+  roomNumber?: string | null;
+  unitPrice: string | number;
+  quantity: number;
+  totalPrice: string | number;
+  status: string;
+  createdAt?: string | null;
+}
+
+// Trạng thái một dòng dịch vụ trong quá trình phục vụ khách.
+const serviceStatusMeta: Record<string, { label: string; color: string }> = {
+  pending: { label: 'Chờ phục vụ', color: 'orange' },
+  confirmed: { label: 'Đã xác nhận', color: 'blue' },
+  used: { label: 'Đã sử dụng', color: 'green' },
+  cancelled: { label: 'Đã hủy', color: 'red' },
 };
 
 export interface BookingDetailData {
@@ -125,6 +154,90 @@ function BookingDetailPage() {
   useEffect(() => {
     void loadBooking();
   }, [loadBooking]);
+
+  // ─── Dịch vụ ────────────────────────────────────────────────────
+  const [services, setServices] = useState<{ id: number; serviceName: string; price: number }[]>([]);
+  const [serviceModalOpen, setServiceModalOpen] = useState(false);
+  const [editingCharge, setEditingCharge] = useState<ServiceCharge | null>(null);
+  const [serviceForm] = Form.useForm();
+  const [working, setWorking] = useState(false);
+
+  useEffect(() => {
+    api
+      .get('/services')
+      .then((res) => {
+        const list = (res as unknown as { data?: { id: number; serviceName: string; price: number }[] }).data || [];
+        setServices(list);
+      })
+      .catch(() => setServices([]));
+  }, []);
+
+  const showApiError = (err: unknown, fallback: string) => {
+    const msg = (err as { response?: { data?: { message?: string } } }).response?.data?.message;
+    message.error(msg || fallback);
+  };
+
+  const openServiceModal = (charge?: ServiceCharge) => {
+    setEditingCharge(charge || null);
+    serviceForm.resetFields();
+    if (charge) {
+      serviceForm.setFieldsValue({ quantity: charge.quantity, status: charge.status });
+    } else {
+      serviceForm.setFieldsValue({ quantity: 1 });
+    }
+    setServiceModalOpen(true);
+  };
+
+  const submitService = async () => {
+    const values = await serviceForm.validateFields();
+    setWorking(true);
+    try {
+      if (editingCharge) {
+        await updateBookingServiceCharge(bookingId, editingCharge.id, {
+          quantity: values.quantity,
+          status: values.status,
+        });
+        message.success('Đã cập nhật dịch vụ');
+      } else {
+        await addBookingServiceCharge(bookingId, {
+          serviceId: values.serviceId,
+          quantity: values.quantity,
+        });
+        message.success('Đã thêm dịch vụ vào đơn');
+      }
+      setServiceModalOpen(false);
+      await loadBooking(true);
+    } catch (err) {
+      showApiError(err, 'Không lưu được dịch vụ');
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const changeServiceStatus = async (charge: ServiceCharge, status: string) => {
+    try {
+      await updateBookingServiceChargeStatus(bookingId, charge.id, status);
+      message.success('Đã đổi trạng thái dịch vụ');
+      await loadBooking(true);
+    } catch (err) {
+      showApiError(err, 'Không đổi được trạng thái');
+    }
+  };
+
+  const removeService = async (charge: ServiceCharge) => {
+    try {
+      await deleteBookingServiceCharge(bookingId, charge.id);
+      message.success('Đã xóa dịch vụ khỏi đơn');
+      await loadBooking(true);
+    } catch (err) {
+      showApiError(err, 'Không xóa được dịch vụ');
+    }
+  };
+
+  const serviceCharges = (booking?.services || []) as unknown as ServiceCharge[];
+  const serviceTotal = serviceCharges.reduce((sum, item) => sum + Number(item.totalPrice || 0), 0);
+  // Đơn đã kết thúc thì khóa thao tác để không phát sinh thêm chi phí.
+  const canEditCharges = !!booking && ['confirmed', 'checked_in'].includes(booking.status);
 
   if (loading) {
     return (
@@ -266,6 +379,130 @@ function BookingDetailPage() {
           </Card>
         </Col>
       </Row>
+
+      <Card
+        size="small"
+        style={{ marginTop: 16 }}
+        title={`Dịch vụ đã dùng (${serviceCharges.length})`}
+        extra={
+          canEditCharges && (
+            <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => openServiceModal()}>
+              Thêm dịch vụ
+            </Button>
+          )
+        }
+      >
+        <Table<ServiceCharge>
+          rowKey="id"
+          size="small"
+          pagination={false}
+          dataSource={serviceCharges}
+          locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Chưa có dịch vụ nào" /> }}
+          scroll={{ x: 760 }}
+          columns={[
+            { title: 'Dịch vụ', dataIndex: 'serviceName' },
+            { title: 'Phòng', dataIndex: 'roomNumber', render: (v?: string | null) => v || '—' },
+            { title: 'Đơn giá', dataIndex: 'unitPrice', align: 'right', render: money },
+            { title: 'SL', dataIndex: 'quantity', align: 'center', width: 60 },
+            {
+              title: 'Thành tiền',
+              dataIndex: 'totalPrice',
+              align: 'right',
+              render: (v: string | number) => <strong>{money(v)}</strong>,
+            },
+            {
+              title: 'Trạng thái',
+              dataIndex: 'status',
+              render: (value: string, row) => (
+                <Select
+                  size="small"
+                  value={value}
+                  style={{ width: 140 }}
+                  disabled={!canEditCharges}
+                  onChange={(next) => changeServiceStatus(row, next)}
+                  options={Object.entries(serviceStatusMeta).map(([key, meta]) => ({
+                    value: key,
+                    label: meta.label,
+                  }))}
+                />
+              ),
+            },
+            { title: 'Thời điểm', dataIndex: 'createdAt', render: dateTime },
+            {
+              title: '',
+              key: 'actions',
+              width: 90,
+              render: (_: unknown, row) =>
+                canEditCharges && (
+                  <Space size={4}>
+                    <Button size="small" icon={<EditOutlined />} onClick={() => openServiceModal(row)} />
+                    <Popconfirm
+                      title="Xóa dịch vụ này khỏi đơn?"
+                      okText="Xóa"
+                      cancelText="Thôi"
+                      onConfirm={() => removeService(row)}
+                    >
+                      <Button size="small" danger icon={<DeleteOutlined />} />
+                    </Popconfirm>
+                  </Space>
+                ),
+            },
+          ]}
+          summary={() =>
+            serviceCharges.length > 0 ? (
+              <Table.Summary.Row>
+                <Table.Summary.Cell index={0} colSpan={4}>
+                  <strong>Tổng tiền dịch vụ</strong>
+                </Table.Summary.Cell>
+                <Table.Summary.Cell index={4} align="right">
+                  <strong>{money(serviceTotal)}</strong>
+                </Table.Summary.Cell>
+                <Table.Summary.Cell index={5} colSpan={3} />
+              </Table.Summary.Row>
+            ) : null
+          }
+        />
+      </Card>
+
+      <Modal
+        title={editingCharge ? 'Sửa dịch vụ' : 'Thêm dịch vụ cho khách'}
+        open={serviceModalOpen}
+        onCancel={() => setServiceModalOpen(false)}
+        onOk={submitService}
+        confirmLoading={working}
+        okText="Lưu"
+        cancelText="Đóng"
+        destroyOnHidden
+      >
+        <Form form={serviceForm} layout="vertical">
+          {!editingCharge && (
+            <Form.Item name="serviceId" label="Dịch vụ" rules={[{ required: true, message: 'Chọn dịch vụ' }]}>
+              <Select
+                showSearch
+                optionFilterProp="label"
+                placeholder="Chọn dịch vụ"
+                options={services.map((item) => ({
+                  value: item.id,
+                  label: `${item.serviceName} — ${money(item.price)}`,
+                }))}
+              />
+            </Form.Item>
+          )}
+          <Form.Item name="quantity" label="Số lượng" rules={[{ required: true, message: 'Nhập số lượng' }]}>
+            <InputNumber min={1} style={{ width: '100%' }} />
+          </Form.Item>
+          {editingCharge && (
+            <Form.Item name="status" label="Trạng thái">
+              <Select
+                options={Object.entries(serviceStatusMeta).map(([key, meta]) => ({
+                  value: key,
+                  label: meta.label,
+                }))}
+              />
+            </Form.Item>
+          )}
+        </Form>
+      </Modal>
     </div>
   );
 }
