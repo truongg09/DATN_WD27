@@ -1,8 +1,14 @@
 const db = require('../config/db');
 
 const run = (connection) => connection || db;
-const HOLD_MINUTES = 15;
-const { LATE_CHECKIN_GRACE_HOUR } = require('../utils/bookingPolicy');
+const {
+  LATE_CHECKIN_GRACE_HOUR,
+  HOLD_MINUTES,
+  HOLD_RESET_MINUTES,
+  MAX_HOLD_RESETS,
+  MIN_RESET_COOLDOWN_SECONDS,
+  MAX_TOTAL_HOLD_MINUTES
+} = require('../utils/bookingPolicy');
 
 const BOOKING_SELECT = `
   SELECT
@@ -11,9 +17,8 @@ const BOOKING_SELECT = `
     b.voucherId AS voucher_id,
     b.user_id,
     b.status,
-    COALESCE(b.totalAmount, b.total_price, 0) AS total_price,
-    COALESCE(b.total_price, 0) AS room_total_price,
-    COALESCE(b.totalAmount, b.total_price, 0) AS booking_total_amount,
+    b.total_price,
+    b.totalAmount AS booking_total_amount,
     COALESCE(
       (
         SELECT p.totalAmount
@@ -22,41 +27,39 @@ const BOOKING_SELECT = `
         ORDER BY p.id DESC
         LIMIT 1
       ),
-      b.totalAmount,
       b.total_price,
       0
     ) AS payable_total,
     b.created_at,
-    b.holdExpiresAt AS hold_expires_at,
-    NOW() AS server_now,
-    GREATEST(TIMESTAMPDIFF(SECOND, NOW(), b.holdExpiresAt), 0) AS hold_remaining_seconds,
+    b.hold_expires_at,
+    b.hold_reset_count,
+    b.last_hold_reset_at,
     b.notes,
     b.extraGuestSnapshot AS extra_guest_snapshot,
     b.cancellation_reason,
-    MIN(bd.id) AS detail_id,
-    COALESCE(MIN(bd.roomId), b.room_id) AS room_id,
-    DATE(COALESCE(MIN(bd.checkInDate), b.check_in)) AS check_in,
-    DATE(COALESCE(MIN(bd.checkOutDate), b.check_out)) AS check_out,
-    SUM(COALESCE(bd.adults, 0)) AS adults,
-    SUM(COALESCE(bd.children, 0)) AS children,
-    GREATEST(COUNT(DISTINCT bd.id), 1) AS room_quantity,
-    MIN(bd.roomPrice) AS room_price,
-    SUM(COALESCE(bd.occupancySurcharge, 0)) AS occupancy_surcharge,
-    COALESCE(MIN(bd.requestedCheckInTime), b.requestedCheckInTime) AS requested_check_in_time,
-    COALESCE(MIN(bd.requestedCheckOutTime), b.requestedCheckOutTime) AS requested_check_out_time,
-    COALESCE(MIN(bd.requestedCheckInDayOffset), b.requestedCheckInDayOffset, 0) AS requested_check_in_day_offset,
+    bd.id AS detail_id,
+    bd.roomId AS room_id,
+    DATE(COALESCE(bd.checkInDate, b.check_in)) AS check_in,
+    DATE(COALESCE(bd.checkOutDate, b.check_out)) AS check_out,
+    bd.adults,
+    bd.children,
+    bd.roomPrice AS room_price,
+    COALESCE(bd.occupancySurcharge, 0) AS occupancy_surcharge,
+    COALESCE(bd.requestedCheckInTime, b.requestedCheckInTime) AS requested_check_in_time,
+    COALESCE(bd.requestedCheckOutTime, b.requestedCheckOutTime) AS requested_check_out_time,
+    COALESCE(bd.requestedCheckInDayOffset, b.requestedCheckInDayOffset, 0) AS requested_check_in_day_offset,
     b.actualCheckInTime AS actual_check_in_time,
     b.actualCheckOutTime AS actual_check_out_time,
-    COALESCE(b.guest_name, MAX(c.fullName)) AS customer_name,
-    COALESCE(b.guest_email, MAX(a.email)) AS customer_email,
-    COALESCE(b.guest_phone, MAX(c.phone), MAX(a.phone)) AS customer_phone,
-    GROUP_CONCAT(DISTINCT r.roomNumber ORDER BY r.roomNumber SEPARATOR ', ') AS room_number,
-    MIN(r.floor) AS room_floor,
-    MIN(r.area) AS room_area,
-    MIN(r.status) AS room_status,
-    COALESCE(GROUP_CONCAT(DISTINCT rt.typeName SEPARATOR ', '), 'Đặt phòng') AS room_type_name,
-    MIN(rt.defaultPrice) AS price_per_night,
-    MIN(rt.capacity) AS room_capacity
+    COALESCE(b.guest_name, c.fullName) AS customer_name,
+    COALESCE(b.guest_email, a.email) AS customer_email,
+    COALESCE(b.guest_phone, c.phone, a.phone) AS customer_phone,
+    r.roomNumber AS room_number,
+    r.floor AS room_floor,
+    r.area AS room_area,
+    r.status AS room_status,
+    rt.typeName AS room_type_name,
+    rt.defaultPrice AS price_per_night,
+    rt.capacity AS room_capacity
   FROM bookings b
   LEFT JOIN booking_details bd ON bd.bookingId = b.id
   LEFT JOIN customers c ON c.accountId = b.user_id
@@ -96,28 +99,6 @@ const getOrCreateCustomerId = async (accountId, connection) => {
   return result.insertId;
 };
 
-// Toàn bộ phòng thuộc một đơn kèm tình trạng hiện tại, dùng để xác minh phòng
-// vẫn còn dùng được ngay trước khi ghi nhận tiền. Một đơn có thể gồm nhiều
-// phòng nên phải kiểm tra hết, không chỉ mỗi bookings.room_id.
-const listBookingRoomsStatus = async (bookingId, connection, lock = false) => {
-  const [rows] = await run(connection).query(
-    `
-      SELECT DISTINCT
-        r.id,
-        r.roomNumber,
-        r.status,
-        r.isDeleted
-      FROM bookings b
-      LEFT JOIN booking_details bd ON bd.bookingId = b.id
-      JOIN rooms r ON r.id = COALESCE(bd.roomId, b.room_id)
-      WHERE b.id = ?
-      ${lock ? 'FOR UPDATE' : ''}
-    `,
-    [bookingId]
-  );
-  return rows;
-};
-
 const getRoomWithType = async (roomId, connection, lock = false) => {
   const [rows] = await run(connection).query(
     `
@@ -148,31 +129,21 @@ const getRoomWithType = async (roomId, connection, lock = false) => {
 
 const expireUnpaidBookingHolds = async (connection) => {
   await run(connection).query(
-    `UPDATE payment_gateway_orders
-     SET status = 'expired'
-     WHERE status = 'created'
-       AND DATE_ADD(expiresAt, INTERVAL 60 SECOND) <= NOW()`
-  );
-  const [result] = await run(connection).query(
     `
       UPDATE bookings b
       JOIN payments p ON p.bookingId = b.id
       SET b.status = 'cancelled',
           b.bookingStatus = 'cancelled',
-          b.cancellation_reason = COALESCE(b.cancellation_reason, 'Hết thời gian giữ phòng')
+          b.cancellation_reason = COALESCE(b.cancellation_reason, 'Hết thời gian giữ phòng (quá hạn thanh toán)')
       WHERE b.status IN ('pending', 'confirmed')
         AND p.paymentStatus = 'unpaid'
         AND COALESCE(p.paidAmount, 0) <= 0
-        AND COALESCE(b.holdExpiresAt, DATE_ADD(b.created_at, INTERVAL ${HOLD_MINUTES} MINUTE)) <= NOW()
-        AND NOT EXISTS (
-          SELECT 1 FROM payment_gateway_orders pgo
-          WHERE pgo.bookingId = b.id
-            AND pgo.status = 'created'
-            AND DATE_ADD(pgo.expiresAt, INTERVAL 60 SECOND) > NOW()
+        AND (
+          (b.hold_expires_at IS NOT NULL AND b.hold_expires_at < NOW())
+          OR (b.hold_expires_at IS NULL AND b.created_at < DATE_SUB(NOW(), INTERVAL ${HOLD_MINUTES} MINUTE))
         )
     `
   );
-  return result.affectedRows || 0;
 };
 
 const getSecuredConflictingBookings = async (
@@ -263,7 +234,10 @@ const getConflictingBookings = async (
           OR (
             COALESCE(p.paymentStatus, 'unpaid') = 'unpaid'
             AND COALESCE(p.paidAmount, 0) <= 0
-            AND b.created_at >= DATE_SUB(NOW(), INTERVAL ${HOLD_MINUTES} MINUTE)
+            AND (
+              (b.hold_expires_at IS NOT NULL AND b.hold_expires_at >= NOW())
+              OR (b.hold_expires_at IS NULL AND b.created_at >= DATE_SUB(NOW(), INTERVAL ${HOLD_MINUTES} MINUTE))
+            )
           )
         )
       ${lock ? 'FOR UPDATE' : ''}
@@ -337,7 +311,10 @@ const listAvailableRoomsByType = async (roomTypeId, checkIn, checkOut, connectio
               OR (
                 COALESCE(p.paymentStatus, 'unpaid') = 'unpaid'
                 AND COALESCE(p.paidAmount, 0) <= 0
-                AND b.created_at >= DATE_SUB(NOW(), INTERVAL ${HOLD_MINUTES} MINUTE)
+                AND (
+                  (b.hold_expires_at IS NOT NULL AND b.hold_expires_at >= NOW())
+                  OR (b.hold_expires_at IS NULL AND b.created_at >= DATE_SUB(NOW(), INTERVAL ${HOLD_MINUTES} MINUTE))
+                )
               )
             )
         )
@@ -394,9 +371,9 @@ const createBooking = async (payload, totalPrice, connection, extraGuestSnapshot
       INSERT INTO bookings (
         user_id, customerId, room_id, check_in, check_out, total_price, totalAmount,
         status, bookingStatus, notes, extraGuestSnapshot, guest_name, guest_email, guest_phone,
-        requestedCheckInTime, requestedCheckOutTime, holdExpiresAt
+        requestedCheckInTime, requestedCheckOutTime, hold_expires_at, hold_reset_count
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ${HOLD_MINUTES} MINUTE))
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ${HOLD_MINUTES} MINUTE), 0)
     `,
     [
       payload.userId,
@@ -419,6 +396,19 @@ const createBooking = async (payload, totalPrice, connection, extraGuestSnapshot
   );
 
   return result.insertId;
+};
+
+const updateBookingHold = async (bookingId, { holdExpiresAt, holdResetCount, lastHoldResetAt }, connection) => {
+  await run(connection).query(
+    `
+      UPDATE bookings
+      SET hold_expires_at = ?,
+          hold_reset_count = ?,
+          last_hold_reset_at = ?
+      WHERE id = ?
+    `,
+    [holdExpiresAt, holdResetCount, lastHoldResetAt, bookingId]
+  );
 };
 
 const createBookingDetail = async (bookingId, payload, roomPrice, occupancySurcharge = 0, connection) => {
@@ -857,7 +847,6 @@ const updateBookingStayFull = async (bookingId, payload, connection) => {
 };
 
 const transferBookingRoom = async (booking, toRoom, payload, connection) => {
-  const fromRoomId = payload.fromRoomId || payload.roomId || booking.room_id;
   await run(connection).query(
     `
       INSERT INTO booking_room_transfers
@@ -866,7 +855,7 @@ const transferBookingRoom = async (booking, toRoom, payload, connection) => {
     `,
     [
       booking.id,
-      fromRoomId,
+      booking.room_id,
       toRoom.id,
       payload.fromDate,
       payload.toDate,
@@ -875,52 +864,123 @@ const transferBookingRoom = async (booking, toRoom, payload, connection) => {
     ]
   );
 
-  if (payload.bookingDetailId) {
-    await run(connection).query(
-      'UPDATE booking_details SET roomId = ?, roomPrice = ? WHERE id = ? AND bookingId = ?',
-      [toRoom.id, Number(toRoom.price_per_night || 0), payload.bookingDetailId, booking.id]
-    );
-  } else if (payload.fromRoomId) {
-    await run(connection).query(
-      'UPDATE booking_details SET roomId = ?, roomPrice = ? WHERE roomId = ? AND bookingId = ? LIMIT 1',
-      [toRoom.id, Number(toRoom.price_per_night || 0), payload.fromRoomId, booking.id]
-    );
-  } else {
-    await run(connection).query(
-      'UPDATE booking_details SET roomId = ?, roomPrice = ? WHERE bookingId = ?',
-      [toRoom.id, Number(toRoom.price_per_night || 0), booking.id]
-    );
-  }
-
   await run(connection).query(
     'UPDATE bookings SET room_id = ? WHERE id = ?',
     [toRoom.id, booking.id]
   );
+
+  await run(connection).query(
+    'UPDATE booking_details SET roomId = ?, roomPrice = ? WHERE bookingId = ?',
+    [toRoom.id, Number(toRoom.price_per_night || 0), booking.id]
+  );
 };
 
-// Các khoảng giá theo mùa/thời điểm của một loại phòng (bảng room_prices)
+// Các khoảng giá theo mùa/thời điểm/ngày lễ/cuối tuần của một loại phòng (bảng room_prices)
 const listRoomPriceRanges = async (roomTypeId, connection) => {
   const [rows] = await run(connection).query(
     `
-      SELECT startDate, endDate, price, priceType
+      SELECT id, roomTypeId, startDate, endDate, price, priceType, note
       FROM room_prices
-      WHERE roomTypeId = ?
-      ORDER BY DATEDIFF(endDate, startDate) ASC, id DESC
+      WHERE roomTypeId = ? OR roomTypeId IS NULL
+      ORDER BY (roomTypeId IS NOT NULL) DESC, id DESC
     `,
     [roomTypeId]
   );
   return rows;
 };
 
+const listAllRoomPrices = async (filters = {}, connection) => {
+  const conditions = [];
+  const values = [];
+
+  if (filters.roomTypeId) {
+    conditions.push('(rp.roomTypeId = ? OR rp.roomTypeId IS NULL)');
+    values.push(filters.roomTypeId);
+  }
+  if (filters.priceType) {
+    conditions.push('rp.priceType = ?');
+    values.push(filters.priceType);
+  }
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const [rows] = await run(connection).query(
+    `
+      SELECT rp.id, rp.roomTypeId, rp.startDate, rp.endDate, rp.price, rp.priceType, rp.note,
+             rt.typeName AS roomTypeName, rt.defaultPrice AS roomTypeDefaultPrice
+      FROM room_prices rp
+      LEFT JOIN room_types rt ON rt.id = rp.roomTypeId
+      ${whereClause}
+      ORDER BY rp.startDate DESC, rp.id DESC
+    `,
+    values
+  );
+  return rows;
+};
+
+const getRoomPriceById = async (id, connection) => {
+  const [rows] = await run(connection).query(
+    `
+      SELECT rp.id, rp.roomTypeId, rp.startDate, rp.endDate, rp.price, rp.priceType, rp.note,
+             rt.typeName AS roomTypeName
+      FROM room_prices rp
+      LEFT JOIN room_types rt ON rt.id = rp.roomTypeId
+      WHERE rp.id = ?
+    `,
+    [id]
+  );
+  return rows[0] || null;
+};
+
+const createRoomPrice = async (data, connection) => {
+  const [result] = await run(connection).query(
+    `
+      INSERT INTO room_prices (roomTypeId, startDate, endDate, price, priceType, note)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `,
+    [
+      data.roomTypeId || null,
+      data.startDate,
+      data.endDate,
+      Number(data.price),
+      data.priceType || 'normal',
+      data.note || null
+    ]
+  );
+  return result.insertId;
+};
+
+const updateRoomPrice = async (id, data, connection) => {
+  await run(connection).query(
+    `
+      UPDATE room_prices
+      SET roomTypeId = ?, startDate = ?, endDate = ?, price = ?, priceType = ?, note = ?
+      WHERE id = ?
+    `,
+    [
+      data.roomTypeId || null,
+      data.startDate,
+      data.endDate,
+      Number(data.price),
+      data.priceType || 'normal',
+      data.note || null,
+      id
+    ]
+  );
+};
+
+const deleteRoomPrice = async (id, connection) => {
+  await run(connection).query('DELETE FROM room_prices WHERE id = ?', [id]);
+};
+
 const getBookingById = async (bookingId, connection, lock = false) => {
   const [rows] = await run(connection).query(
-    `${BOOKING_SELECT} WHERE b.id = ? GROUP BY b.id ${lock ? 'FOR UPDATE' : ''}`,
+    `${BOOKING_SELECT} WHERE b.id = ? ${lock ? 'FOR UPDATE' : ''}`,
     [bookingId]
   );
   return rows[0] || null;
 };
 
-const listBookings = async ({ userId, status, search, page, limit } = {}, connection) => {
+const listBookings = async ({ userId, status } = {}) => {
   const conditions = [];
   const values = [];
 
@@ -929,78 +989,20 @@ const listBookings = async ({ userId, status, search, page, limit } = {}, connec
     values.push(userId);
   }
 
-  const BOOKING_STATUS_EXPR = 'COALESCE(b.bookingStatus, b.status)';
-
-  if (status && status !== 'all') {
-    if (status === 'checkin_today') {
-      conditions.push(`DATE(COALESCE(bd.checkInDate, b.check_in)) = CURDATE() AND ${BOOKING_STATUS_EXPR} IN ('confirmed', 'pending')`);
-    } else if (status === 'checkout_today') {
-      conditions.push(`DATE(COALESCE(bd.checkOutDate, b.check_out)) = CURDATE() AND ${BOOKING_STATUS_EXPR} = 'checked_in'`);
-    } else {
-      conditions.push(`${BOOKING_STATUS_EXPR} = ?`);
-      values.push(status);
-    }
+  if (status) {
+    conditions.push('b.status = ?');
+    values.push(status);
   }
 
-  if (search && String(search).trim()) {
-    const term = `%${String(search).trim()}%`;
-    const num = Number(search) || 0;
-    conditions.push('(b.guest_name LIKE ? OR c.fullName LIKE ? OR a.email LIKE ? OR c.phone LIKE ? OR r.roomNumber LIKE ? OR b.id = ?)');
-    values.push(term, term, term, term, term, num);
-  }
-
-  const isPaginated = page !== undefined || limit !== undefined;
-
-  if (!isPaginated) {
-    const [rows] = await run(connection).query(
-      `
-        ${BOOKING_SELECT}
-        ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}
-        GROUP BY b.id
-        ORDER BY b.created_at DESC, b.id DESC
-      `,
-      values
-    );
-    return rows;
-  }
-
-  const [[totalRow]] = await run(connection).query(
-    `
-      SELECT COUNT(DISTINCT b.id) AS total
-      FROM bookings b
-      LEFT JOIN booking_details bd ON bd.bookingId = b.id
-      LEFT JOIN customers c ON c.accountId = b.user_id
-      LEFT JOIN accounts a ON a.id = b.user_id
-      LEFT JOIN rooms r ON r.id = COALESCE(bd.roomId, b.room_id)
-      ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}
-    `,
-    values
-  );
-
-  const pageNum = Math.max(Number(page) || 1, 1);
-  const limitNum = Math.max(Number(limit) || 8, 1);
-  const offset = (pageNum - 1) * limitNum;
-
-  const [rows] = await run(connection).query(
+  const [rows] = await db.query(
     `
       ${BOOKING_SELECT}
       ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}
-      GROUP BY b.id
-      ORDER BY b.created_at DESC, b.id DESC
-      LIMIT ? OFFSET ?
+      ORDER BY b.created_at DESC
     `,
-    [...values, limitNum, offset]
+    values
   );
-
-  const total = Number(totalRow?.total || 0);
-
-  return {
-    data: rows,
-    total,
-    page: pageNum,
-    limit: limitNum,
-    totalPages: Math.ceil(total / limitNum),
-  };
+  return rows;
 };
 
 const updateBookingStatus = async (bookingId, status, connection) => {
@@ -1019,56 +1021,70 @@ const updateRoomStatus = async (roomId, status, connection) => {
   );
 };
 
-// Lưu giá đã chốt của từng đêm. Gọi lúc đặt phòng và khi gia hạn thêm đêm.
+// Lưu giá đã chốt của từng đêm (kèm loại giá, ghi chú và phòng). Gọi lúc đặt phòng, gia hạn và chuyển phòng.
 const saveNightlyPrices = async (bookingId, prices, connection) => {
   if (!Array.isArray(prices) || prices.length === 0) return;
 
-  const values = prices.map((item) => [bookingId, item.date, item.price]);
+  const values = prices.map((item) => [
+    bookingId,
+    item.date || item.stayDate,
+    Number(item.price || 0),
+    item.priceType || 'normal',
+    item.note || null,
+    item.roomId || null
+  ]);
+
   await run(connection).query(
-    `INSERT INTO booking_nightly_prices (bookingId, stayDate, price)
+    `INSERT INTO booking_nightly_prices (bookingId, stayDate, price, priceType, note, roomId)
      VALUES ?
-     ON DUPLICATE KEY UPDATE price = VALUES(price)`,
+     ON DUPLICATE KEY UPDATE
+       price = VALUES(price),
+       priceType = VALUES(priceType),
+       note = VALUES(note),
+       roomId = VALUES(roomId)`,
     [values]
   );
 };
 
-// Giá đã chốt của các đêm trong khoảng [from, to). Trả mảng rỗng với những
-// booking tạo trước khi có bảng này để nơi gọi tự tính lại như cũ.
+// Giá đã chốt của các đêm trong khoảng [from, to) hoặc toàn bộ đặt phòng.
 const listNightlyPrices = async (bookingId, from, to, connection) => {
+  const conditions = ['bnp.bookingId = ?'];
+  const params = [bookingId];
+
+  if (from) {
+    conditions.push('bnp.stayDate >= ?');
+    params.push(from);
+  }
+  if (to) {
+    conditions.push('bnp.stayDate < ?');
+    params.push(to);
+  }
+
   const [rows] = await run(connection).query(
-    `SELECT stayDate, price
-     FROM booking_nightly_prices
-     WHERE bookingId = ? AND stayDate >= ? AND stayDate < ?
-     ORDER BY stayDate ASC`,
-    [bookingId, from, to]
+    `SELECT bnp.id, DATE_FORMAT(bnp.stayDate, '%Y-%m-%d') AS stayDate, bnp.price,
+            COALESCE(bnp.priceType, 'normal') AS priceType, bnp.note, bnp.roomId,
+            r.roomNumber
+     FROM booking_nightly_prices bnp
+     LEFT JOIN rooms r ON r.id = bnp.roomId
+     WHERE ${conditions.join(' AND ')}
+     ORDER BY bnp.stayDate ASC`,
+    params
   );
   return rows;
 };
 
 // Ghi một dòng dấu vết vào lịch sử thao tác của đặt phòng.
 // entry: { action, description, oldValue, newValue, amount, actorId, actorName, actorRole }
-// Loại đối tượng mà một mốc lịch sử gắn vào. 'booking' là mặc định cho các
-// thao tác tác động lên cả đơn (tạo đơn, hủy, gia hạn...).
-const HISTORY_ENTITY_TYPES = ['booking', 'room', 'service', 'damage', 'payment', 'stay'];
-
 const addBookingHistory = async (bookingId, entry, connection) => {
-  const entityType = HISTORY_ENTITY_TYPES.includes(entry.entityType)
-    ? entry.entityType
-    : 'booking';
-
   const [result] = await run(connection).query(
     `
       INSERT INTO booking_history
-        (bookingId, action, entityType, entityId, entityLabel, description, oldValue, newValue,
-         amount, performedBy, performedByName, performedByRole)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (bookingId, action, description, oldValue, newValue, amount, performedBy, performedByName, performedByRole)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       bookingId,
       entry.action,
-      entityType,
-      entry.entityId != null ? entry.entityId : null,
-      entry.entityLabel || null,
       entry.description || null,
       entry.oldValue != null ? JSON.stringify(entry.oldValue) : null,
       entry.newValue != null ? JSON.stringify(entry.newValue) : null,
@@ -1081,78 +1097,41 @@ const addBookingHistory = async (bookingId, entry, connection) => {
   return result.insertId;
 };
 
-const parseHistoryRow = (row) => {
-  let oldValue = null;
-  let newValue = null;
-  try { oldValue = row.oldValue ? JSON.parse(row.oldValue) : null; } catch { oldValue = row.oldValue; }
-  try { newValue = row.newValue ? JSON.parse(row.newValue) : null; } catch { newValue = row.newValue; }
-  return { ...row, oldValue, newValue };
-};
-
-// Lịch sử thao tác trên một phòng, gộp từ mọi đơn đã từng dùng phòng đó.
-const listRoomHistory = async (roomId, connection) => {
+const listBookingHistory = async (bookingId, connection) => {
   const [rows] = await run(connection).query(
     `
-      SELECT h.id, h.bookingId, h.action, h.entityType, h.entityId, h.entityLabel,
-             h.description, h.oldValue, h.newValue, h.amount,
-             h.performedBy, h.performedByName, h.performedByRole, h.createdAt
-      FROM booking_history h
-      WHERE (h.entityType = 'room' AND h.entityId = ?)
-         OR h.bookingId IN (
-           SELECT DISTINCT b.id
-           FROM bookings b
-           LEFT JOIN booking_details bd ON bd.bookingId = b.id
-           WHERE COALESCE(bd.roomId, b.room_id) = ?
-         )
-      ORDER BY h.createdAt DESC, h.id DESC
-      LIMIT 200
-    `,
-    [roomId, roomId]
-  );
-  return rows.map(parseHistoryRow);
-};
-
-const listBookingHistory = async (bookingId, connection, { entityType } = {}) => {
-  const conditions = ['bookingId = ?'];
-  const values = [bookingId];
-  if (entityType) {
-    conditions.push('entityType = ?');
-    values.push(entityType);
-  }
-
-  const [rows] = await run(connection).query(
-    `
-      SELECT id, bookingId, action, entityType, entityId, entityLabel,
-             description, oldValue, newValue, amount,
+      SELECT id, bookingId, action, description, oldValue, newValue, amount,
              performedBy, performedByName, performedByRole, createdAt
       FROM booking_history
-      WHERE ${conditions.join(' AND ')}
+      WHERE bookingId = ?
       ORDER BY createdAt DESC, id DESC
     `,
-    values
+    [bookingId]
   );
-  return rows.map(parseHistoryRow);
+  return rows.map((row) => {
+    let oldValue = null;
+    let newValue = null;
+    try { oldValue = row.oldValue ? JSON.parse(row.oldValue) : null; } catch { oldValue = row.oldValue; }
+    try { newValue = row.newValue ? JSON.parse(row.newValue) : null; } catch { newValue = row.newValue; }
+    return { ...row, oldValue, newValue };
+  });
 };
 
 // Lấy tên hiển thị của người thực hiện thao tác từ tài khoản.
 const getActorDisplayName = async (accountId, connection) => {
   if (!accountId) return null;
-  try {
-    const [rows] = await run(connection).query(
-      `
-        SELECT COALESCE(NULLIF(c.fullName, ''), NULLIF(a.full_name, ''), a.email) AS name
-        FROM accounts a
-        LEFT JOIN customers c ON c.accountId = a.id
-        WHERE a.id = ?
-        LIMIT 1
-      `,
-      [accountId]
-    );
-    return rows[0]?.name || null;
-  } catch (err) {
-    console.error('getActorDisplayName error:', err.message);
-    return null;
-  }
+  const [rows] = await run(connection).query(
+    `
+      SELECT COALESCE(NULLIF(e.fullName, ''), NULLIF(c.fullName, ''), NULLIF(a.full_name, ''), a.email) AS name
+      FROM accounts a
+      LEFT JOIN customers c ON c.accountId = a.id
+      LEFT JOIN employees e ON e.accountId = a.id
+      WHERE a.id = ?
+      LIMIT 1
+    `,
+    [accountId]
+  );
+  return rows[0]?.name || null;
 };
 
 const listEligibleNoShowBookings = async (connection) => {
@@ -1208,23 +1187,6 @@ const updateRequestedCheckInTime = async (bookingId, requestedCheckInTime, dayOf
     await run(connection).query(
       'UPDATE booking_details SET requestedCheckInTime = ?, requestedCheckInDayOffset = ? WHERE bookingId = ?',
       [requestedCheckInTime, dayOffset, bookingId]
-    );
-  }
-};
-
-const updateRequestedCheckOutTime = async (bookingId, requestedCheckOutTime, connection) => {
-  await run(connection).query(
-    'UPDATE bookings SET requestedCheckOutTime = ? WHERE id = ?',
-    [requestedCheckOutTime, bookingId]
-  );
-  const [bd] = await run(connection).query(
-    'SELECT id FROM booking_details WHERE bookingId = ?',
-    [bookingId]
-  );
-  if (bd.length > 0) {
-    await run(connection).query(
-      'UPDATE booking_details SET requestedCheckOutTime = ? WHERE bookingId = ?',
-      [requestedCheckOutTime, bookingId]
     );
   }
 };
@@ -1337,28 +1299,6 @@ const findActiveCheckedInBooking = async (roomId, excludeBookingId, connection) 
 };
 
 const addLateCheckoutCharge = async (bookingId, payload, connection) => {
-  const [existing] = await run(connection).query(
-    'SELECT id FROM booking_late_checkout_charges WHERE bookingId = ? ORDER BY id ASC LIMIT 1',
-    [bookingId]
-  );
-
-  if (existing.length > 0) {
-    const chargeId = existing[0].id;
-    await run(connection).query(
-      `
-        UPDATE booking_late_checkout_charges
-        SET lateMinutes = ?, tierPercent = ?, nightlyRate = ?, totalPrice = ?, note = ?
-        WHERE id = ?
-      `,
-      [payload.lateMinutes, payload.tierPercent, payload.nightlyRate, payload.totalPrice, payload.note || null, chargeId]
-    );
-    await run(connection).query(
-      'DELETE FROM booking_late_checkout_charges WHERE bookingId = ? AND id != ?',
-      [bookingId, chargeId]
-    );
-    return { id: chargeId, totalPrice: payload.totalPrice };
-  }
-
   const [result] = await run(connection).query(
     `
       INSERT INTO booking_late_checkout_charges
@@ -1392,7 +1332,6 @@ module.exports = {
   getAccountById,
   getOrCreateCustomerId,
   getRoomWithType,
-  listBookingRoomsStatus,
   expireUnpaidBookingHolds,
   getSecuredConflictingBookings,
   getConflictingBookings,
@@ -1428,8 +1367,6 @@ module.exports = {
   saveNightlyPrices,
   listNightlyPrices,
   addBookingHistory,
-  listRoomHistory,
-  HISTORY_ENTITY_TYPES,
   listBookingHistory,
   getActorDisplayName,
   getBookingById,
@@ -1440,7 +1377,6 @@ module.exports = {
   listEligibleNoShowBookings,
   getOverdueCheckInCandidates,
   updateRequestedCheckInTime,
-  updateRequestedCheckOutTime,
   getCheckoutLateFeeTiers,
   findNextBookingForRoom,
   findAdjacentBookingsForRoom,
@@ -1450,5 +1386,11 @@ module.exports = {
   updateActualCheckInTime,
   notifyStaffAndAdmins,
   reassignRoomForBooking,
-  findActiveCheckedInBooking
+  findActiveCheckedInBooking,
+  listAllRoomPrices,
+  getRoomPriceById,
+  createRoomPrice,
+  updateRoomPrice,
+  deleteRoomPrice,
+  updateBookingHold
 };
