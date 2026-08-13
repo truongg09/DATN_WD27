@@ -1069,6 +1069,302 @@ const getRefundPolicy = (checkIn, paidAmount = 0) => {
   };
 };
 
+// Phân bổ khách vào danh sách phòng có sức chứa KHÁC NHAU: đổ lần lượt từng
+// phòng tới trần của chính nó. Bản distributeGuestsAcrossRooms cũ giả định mọi
+// phòng cùng một hạng nên không dùng được ở đây.
+const distributeGuestsAcrossMixedRooms = (adults, children, roomSlots) => {
+  const result = roomSlots.map(() => ({ adults: 0, children: 0 }));
+  let remainingAdults = adults;
+  let remainingChildren = children;
+
+  roomSlots.forEach((slot, index) => {
+    const cap = Math.max(1, Number(slot.maxOccupancy) || 2);
+    const takeAdults = Math.min(remainingAdults, cap);
+    result[index].adults = takeAdults;
+    remainingAdults -= takeAdults;
+
+    const left = cap - takeAdults;
+    const takeChildren = Math.min(remainingChildren, left);
+    result[index].children = takeChildren;
+    remainingChildren -= takeChildren;
+  });
+
+  // Còn dư nghĩa là tổng sức chứa không đủ - đã chặn từ trước, đây chỉ là chốt an toàn.
+  if (remainingAdults > 0 || remainingChildren > 0) {
+    throw new HttpError(400, 'Tổng số khách vượt quá sức chứa của các phòng đã chọn');
+  }
+  return result;
+};
+
+// Đơn gồm NHIỀU HẠNG PHÒNG: mỗi hạng giữ giá riêng theo từng đêm, phụ thu khách
+// tính trên tổng sức chứa của tất cả phòng. Phí khách vượt chuẩn lấy theo đơn
+// giá của hạng phòng đầu tiên (hạng chính khách chọn).
+const createMultiTypeBooking = async (payload, actor, connection) => {
+  const customer = await bookingModel.getAccountById(payload.userId, connection);
+  if (!customer) {
+    throw new HttpError(404, "Không tìm thấy khách hàng");
+  }
+
+  await bookingModel.expireUnpaidBookingHolds(connection);
+
+  const dates = getStayDates(payload.checkIn, payload.checkOut);
+  const childrenPolicy = await getChildrenPolicy(connection);
+
+  const groups = [];
+  for (const group of payload.rooms) {
+    const roomType = await getRoomTypeById(group.roomTypeId, connection);
+    if (!roomType) {
+      throw new HttpError(404, `Không tìm thấy hạng phòng (${group.roomTypeId})`);
+    }
+
+    const availableRooms = await bookingModel.listAvailableRoomsByType(
+      group.roomTypeId,
+      payload.checkIn,
+      payload.checkOut,
+      connection,
+      true,
+    );
+    if (availableRooms.length < group.quantity) {
+      throw new HttpError(
+        409,
+        `Hạng phòng ${roomType.typeName} không đủ ${group.quantity} phòng trống trong khoảng ngày đã chọn (chỉ còn ${availableRooms.length} phòng)`,
+      );
+    }
+
+    const nightly = await calcNightlyPrices(
+      group.roomTypeId,
+      Number(roomType.defaultPrice || 0),
+      payload.checkIn,
+      payload.checkOut,
+      connection,
+    );
+
+    groups.push({
+      roomType,
+      quantity: group.quantity,
+      rooms: availableRooms.slice(0, group.quantity),
+      nightly,
+    });
+  }
+
+  if (payload.requestedCheckOutTime) {
+    const tiersForRequest = await bookingModel.getCheckoutLateFeeTiers(connection);
+    if (payload.requestedCheckOutTime > tiersForRequest.standardCheckOutTime) {
+      throw new HttpError(
+        400,
+        `Giờ trả phòng mong muốn không được muộn hơn giờ chuẩn (${tiersForRequest.standardCheckOutTime.slice(0, 5)}). Nếu cần trả phòng muộn, vui lòng liên hệ khách sạn gần ngày ở để được báo phí trả phòng muộn.`,
+      );
+    }
+  }
+
+  // Sức chứa cộng gộp trên toàn bộ phòng thuộc mọi hạng
+  const roomSlots = [];
+  groups.forEach((group) => {
+    for (let i = 0; i < group.quantity; i++) {
+      const rt = group.roomType;
+      roomSlots.push({
+        adultCapacity: Number(rt.adultCapacity ?? rt.capacity ?? 2),
+        childCapacity: Number(rt.childCapacity ?? 1),
+        maxOccupancy: Number(rt.maxOccupancy ?? ((rt.adultCapacity ?? rt.capacity ?? 2) + (rt.childCapacity ?? 1))),
+      });
+    }
+  });
+
+  const ages = Array.isArray(payload.childrenAges) ? payload.childrenAges : [];
+  const freeMaxAge = childrenPolicy?.freeMaxAge ?? 5;
+  const childMaxAge = childrenPolicy?.childMaxAge ?? 11;
+  const adultsFromChildren = ages.filter((age) => Number(age) > childMaxAge).length;
+  const chargeableChildrenCount = ages.filter(
+    (age) => Number(age) > freeMaxAge && Number(age) <= childMaxAge
+  ).length;
+  const effectiveAdults = Number(payload.adults || 0) + adultsFromChildren;
+  const effectiveChildren = Math.max(0, Number(payload.children || 0) - adultsFromChildren);
+
+  const totalAdultCapacity = roomSlots.reduce((sum, slot) => sum + slot.adultCapacity, 0);
+  const totalChildCapacity = roomSlots.reduce((sum, slot) => sum + slot.childCapacity, 0);
+  const totalMaxOccupancy = roomSlots.reduce((sum, slot) => sum + slot.maxOccupancy, 0);
+  const totalGuests = effectiveAdults + effectiveChildren;
+
+  if (totalGuests > totalMaxOccupancy) {
+    throw new HttpError(
+      400,
+      `Tổng số khách (${totalGuests}) vượt quá sức chứa tối đa của ${roomSlots.length} phòng (${totalMaxOccupancy} người). Vui lòng chọn thêm phòng.`,
+    );
+  }
+
+  const primaryType = groups[0].roomType;
+  const nights = Math.max(1, groups[0].nightly.nights || 1);
+  const extraAdults = Math.max(0, effectiveAdults - totalAdultCapacity);
+  const rawExtraChildren = Math.max(0, effectiveChildren - totalChildCapacity);
+  const extraChildren = ages.length > 0
+    ? Math.min(rawExtraChildren, chargeableChildrenCount)
+    : rawExtraChildren;
+  const extraAdultFee = Number(primaryType.extraAdultFee ?? 200000);
+  const childFeePerNight = Number(childrenPolicy?.surchargePerNight ?? primaryType.extraChildFee ?? 100000);
+  const totalExtraGuestFee =
+    extraAdults * extraAdultFee * nights + extraChildren * childFeePerNight * nights;
+
+  const baseStayTotal = groups.reduce(
+    (sum, group) => sum + group.nightly.total * group.quantity,
+    0,
+  );
+  const totalPrice = baseStayTotal + totalExtraGuestFee;
+
+  const distributed = distributeGuestsAcrossMixedRooms(
+    effectiveAdults,
+    effectiveChildren,
+    roomSlots,
+  );
+
+  // bookings.room_id giữ phòng đầu tiên để tương thích các màn hình cũ
+  payload.roomId = groups[0].rooms[0].id;
+  payload.roomTypeId = groups[0].roomType.id;
+
+  const surchargeSnapshot = {
+    multiRoomType: true,
+    roomGroups: groups.map((group) => ({
+      roomTypeId: group.roomType.id,
+      typeName: group.roomType.typeName,
+      quantity: group.quantity,
+      pricePerNight: Number(group.roomType.defaultPrice || 0),
+      stayTotal: group.nightly.total * group.quantity,
+    })),
+    totalAdultCapacity,
+    totalChildCapacity,
+    totalMaxOccupancy,
+    extraAdults,
+    extraChildren,
+    extraAdultFee,
+    extraChildFee: childFeePerNight,
+    totalExtraGuestFee,
+  };
+
+  const bookingId = await bookingModel.createBooking(
+    payload,
+    totalPrice,
+    connection,
+    surchargeSnapshot,
+  );
+
+  const createdBookingDetails = [];
+  let slotIndex = 0;
+  const combinedNightlyByDate = new Map();
+
+  for (const group of groups) {
+    for (const roomItem of group.rooms) {
+      const dist = distributed[slotIndex] || { adults: 0, children: 0 };
+      const detailPayload = {
+        ...payload,
+        roomId: roomItem.id,
+        roomTypeId: group.roomType.id,
+        adults: dist.adults,
+        children: dist.children,
+      };
+      const detailSurcharge = slotIndex === 0 ? totalExtraGuestFee : 0;
+      const detail = await bookingModel.createBookingDetail(
+        bookingId,
+        detailPayload,
+        group.nightly.total / Math.max(1, group.nightly.nights),
+        detailSurcharge,
+        connection,
+      );
+      createdBookingDetails.push(detail);
+      await bookingModel.upsertAvailabilityRows(roomItem.id, bookingId, dates, connection);
+      slotIndex += 1;
+    }
+    group.nightly.prices.forEach((night) => {
+      combinedNightlyByDate.set(
+        night.date,
+        (combinedNightlyByDate.get(night.date) || 0) + night.price * group.quantity,
+      );
+    });
+  }
+
+  // Chốt tổng giá mỗi đêm của cả đơn (cộng mọi phòng) để về sau không tính lại
+  await bookingModel.saveNightlyPrices(
+    bookingId,
+    [...combinedNightlyByDate.entries()].map(([date, price]) => ({ date, price })),
+    connection,
+  );
+
+  let serviceAmount = 0;
+  if (Array.isArray(payload.serviceRequests) && payload.serviceRequests.length > 0) {
+    for (const request of payload.serviceRequests) {
+      let reqBookingDetailId = request.bookingDetailId || null;
+      let reqRoomId = request.roomId || null;
+
+      if (request.roomIndex) {
+        if (request.roomIndex < 1 || request.roomIndex > createdBookingDetails.length) {
+          throw new HttpError(400, `Phòng được chọn (${request.roomIndex}) không hợp lệ`);
+        }
+        const targetDetail = createdBookingDetails[request.roomIndex - 1];
+        if (targetDetail) {
+          reqBookingDetailId = targetDetail.id;
+          reqRoomId = targetDetail.roomId;
+        }
+      }
+
+      const service = await bookingModel.getServiceById(request.serviceId, connection);
+      if (!service) {
+        throw new HttpError(404, `Không tìm thấy dịch vụ (${request.serviceId})`);
+      }
+      const serviceName = String(service.serviceName || "").toLowerCase();
+      if (
+        request.quantity > 1 &&
+        (serviceName.includes("extra bed") || serviceName.includes("giường"))
+      ) {
+        throw new HttpError(400, "Mỗi phòng chỉ được kê tối đa 1 giường phụ");
+      }
+      await bookingModel.addBookingService(bookingId, service, request.quantity, connection, {
+        roomId: reqRoomId,
+        bookingDetailId: reqBookingDetailId,
+      });
+      serviceAmount += Number(service.price) * request.quantity;
+      await connection.query(
+        `INSERT INTO booking_service_requests (bookingId, bookingDetailId, roomId, serviceId, quantity, status) VALUES (?, ?, ?, ?, ?, 'confirmed')`,
+        [bookingId, reqBookingDetailId, reqRoomId, request.serviceId, request.quantity],
+      );
+    }
+  }
+
+  await connection.query("UPDATE bookings SET totalAmount = ? WHERE id = ?", [
+    totalPrice + serviceAmount,
+    bookingId,
+  ]);
+
+  const payment = await paymentService.createPaymentForBooking(
+    bookingId,
+    { serviceAmount },
+    connection,
+  );
+
+  const typeSummary = groups
+    .map((group) => `${group.quantity} ${group.roomType.typeName}`)
+    .join(" + ");
+  await logHistory(
+    bookingId,
+    "created",
+    `Tạo đặt phòng ${typeSummary} từ ${displayDate(payload.checkIn)} đến ${displayDate(payload.checkOut)} (${nights} đêm), tổng tiền ${displayMoney(totalPrice + serviceAmount)}`,
+    {
+      newValue: {
+        rooms: surchargeSnapshot.roomGroups,
+        checkIn: dayString(payload.checkIn),
+        checkOut: dayString(payload.checkOut),
+        totalPrice: totalPrice + serviceAmount,
+      },
+      amount: totalPrice + serviceAmount,
+    },
+    actor,
+    connection,
+  );
+
+  await connection.commit();
+
+  const booking = await bookingModel.getBookingById(bookingId);
+  void emailService.sendBookingConfirmation(booking);
+  return { ...booking, payment };
+};
+
 const createBooking = async (payload, actor) => {
   const connection = await db.getConnection();
 
@@ -1077,6 +1373,14 @@ const createBooking = async (payload, actor) => {
 
     const roomQuantity = Math.max(1, payload.roomQuantity || 1);
     let assignedRooms = [];
+
+    // Đặt nhiều hạng phòng trong một đơn: gán phòng và tính giá theo từng hạng.
+    const isMultiType =
+      !payload.roomId && Array.isArray(payload.rooms) && payload.rooms.length > 1;
+
+    if (isMultiType) {
+      return await createMultiTypeBooking(payload, actor, connection);
+    }
 
     if (!payload.roomId && payload.roomTypeId) {
       const availableRooms = await bookingModel.listAvailableRoomsByType(

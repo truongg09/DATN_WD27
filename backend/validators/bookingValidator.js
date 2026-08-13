@@ -125,24 +125,41 @@ const normalizeBookingPayload = (body, userFromToken) => {
 
   // Khách đặt theo hạng phòng (roomTypeId) - hệ thống tự gán phòng trống;
   // roomId chỉ dùng khi lễ tân/admin chỉ định phòng cụ thể.
-  if (!roomId && !roomTypeId) {
+  if (!roomId && !roomTypeId && !(Array.isArray(body.rooms) && body.rooms.length > 0)) {
     throw new HttpError(400, 'Vui lòng chọn phòng hoặc hạng phòng');
   }
 
-  if (Array.isArray(body.rooms) && body.rooms.length > 1) {
-    const uniqueTypeIds = new Set(
-      body.rooms.map((r) => r.roomTypeId ?? r.room_type_id).filter(Boolean)
-    );
-    if (uniqueTypeIds.size > 1) {
-      throw new HttpError(400, 'Một booking chỉ được đặt các phòng thuộc cùng một hạng phòng');
-    }
+  // Đặt nhiều hạng phòng trong cùng một đơn: rooms = [{roomTypeId, quantity}].
+  // Các dòng trùng hạng được gộp số lượng. Đơn một hạng vẫn đi đường cũ.
+  let roomGroups = null;
+  if (Array.isArray(body.rooms) && body.rooms.length > 0) {
+    const merged = new Map();
+    body.rooms.forEach((item, index) => {
+      const typeId = toPositiveInt(
+        item.roomTypeId ?? item.room_type_id,
+        `rooms[${index}].roomTypeId`
+      );
+      const quantity = toPositiveInt(item.quantity ?? 1, `rooms[${index}].quantity`);
+      merged.set(typeId, (merged.get(typeId) || 0) + quantity);
+    });
+    roomGroups = [...merged.entries()].map(([typeId, quantity]) => ({
+      roomTypeId: typeId,
+      quantity
+    }));
   }
 
   const payload = {
     userId: toPositiveInt(userId, 'userId'),
     roomId: roomId ? toPositiveInt(roomId, 'roomId') : null,
-    roomTypeId: roomTypeId ? toPositiveInt(roomTypeId, 'roomTypeId') : null,
-    roomQuantity: toPositiveInt(body.roomQuantity ?? body.room_quantity ?? 1, 'roomQuantity'),
+    roomTypeId: roomTypeId
+      ? toPositiveInt(roomTypeId, 'roomTypeId')
+      : roomGroups
+        ? roomGroups[0].roomTypeId
+        : null,
+    rooms: roomGroups,
+    roomQuantity: roomGroups
+      ? roomGroups.reduce((sum, group) => sum + group.quantity, 0)
+      : toPositiveInt(body.roomQuantity ?? body.room_quantity ?? 1, 'roomQuantity'),
     checkIn: normalizeDate(checkIn, 'checkIn'),
     checkOut: normalizeDate(checkOut, 'checkOut'),
     adults: toNonNegativeInt(body.adults, 'adults', 1),
