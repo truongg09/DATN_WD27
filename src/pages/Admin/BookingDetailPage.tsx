@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
   Alert, Breadcrumb, Button, Card, Col, Descriptions, Empty, Form, Input, InputNumber, Modal,
   Popconfirm, Row, Segmented, Select, Skeleton, Space, Table, Tag, Timeline, message,
@@ -255,7 +255,10 @@ export interface BookingDetailData {
 function BookingDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const bookingId = Number(id);
+  // Giữ đúng khu vực (/admin hay /staff) khi quay lại danh sách.
+  const areaPrefix = location.pathname.startsWith('/staff') ? '/staff' : '/admin';
 
   const [loading, setLoading] = useState(true);
   const [booking, setBooking] = useState<BookingDetailData | null>(null);
@@ -507,7 +510,7 @@ function BookingDetailPage() {
           message="Không mở được đặt phòng"
           description={error || 'Đặt phòng không tồn tại hoặc đã bị xóa.'}
           action={
-            <Button onClick={() => navigate('/admin/bookings')}>Về danh sách đặt phòng</Button>
+            <Button onClick={() => navigate(`${areaPrefix}/bookings`)}>Về danh sách đặt phòng</Button>
           }
         />
       </div>
@@ -519,8 +522,8 @@ function BookingDetailPage() {
       <Breadcrumb
         style={{ marginBottom: 12 }}
         items={[
-          { title: <a onClick={() => navigate('/admin')}>Trang quản trị</a> },
-          { title: <a onClick={() => navigate('/admin/bookings')}>Đặt phòng</a> },
+          { title: <a onClick={() => navigate(areaPrefix)}>Trang quản trị</a> },
+          { title: <a onClick={() => navigate(`${areaPrefix}/bookings`)}>Đặt phòng</a> },
           { title: `Đơn #${booking.id}` },
         ]}
       />
@@ -536,7 +539,7 @@ function BookingDetailPage() {
         }}
       >
         <Space align="center" wrap>
-          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/admin/bookings')}>
+          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate(`${areaPrefix}/bookings`)}>
             Quay lại
           </Button>
           <h2 style={{ margin: 0 }}>
@@ -703,7 +706,7 @@ function BookingDetailPage() {
                   </Popconfirm>
                 )}
 
-                <Button onClick={() => navigate(`/admin/payments?bookingId=${booking.id}`)}>
+                <Button onClick={() => navigate(`${areaPrefix}/payments?bookingId=${booking.id}`)}>
                   Xem giao dịch
                 </Button>
               </Space>
