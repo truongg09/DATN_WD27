@@ -11,7 +11,8 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { getBookingDetail, resetBookingHold } from '../../services/bookingService';
-import { applyVoucher, createGatewayOrder, getPaymentByBookingId, processPayment, submitTransferConfirmation } from '../../services/paymentService';
+import { applyVoucher, createGatewayOrder, getPaymentByBookingId, previewVoucher, processPayment, submitTransferConfirmation } from '../../services/paymentService';
+import type { VoucherPreview } from '../../services/paymentService';
 import { getPaymentSettings, type PaymentSettings } from '../../services/settingsService';
 import { buildVietQrPayload, findBankByBin, toTransferText } from '../../utils/vietqr';
 import type { Payment, PaymentMethod } from '../../types/payment';
@@ -119,6 +120,9 @@ const PaymentPage: React.FC = () => {
   const [voucherCode, setVoucherCode] = useState('');
   const [applyingVoucher, setApplyingVoucher] = useState(false);
   const [appliedVoucherCode, setAppliedVoucherCode] = useState('');
+  // Kết quả thử mã: cho khách xem giảm bao nhiêu trước khi bấm áp dụng thật.
+  const [voucherPreview, setVoucherPreview] = useState<VoucherPreview | null>(null);
+  const [checkingVoucher, setCheckingVoucher] = useState(false);
 
   useEffect(() => {
     if (!isValidBookingId) {
@@ -309,6 +313,29 @@ const PaymentPage: React.FC = () => {
     }
   };
 
+  // Thử mã trước: chỉ tính toán, chưa ghi nhận gì, để khách cân nhắc.
+  const handleCheckVoucher = async () => {
+    if (!payment) return;
+    const code = voucherCode.trim();
+    if (!code) {
+      message.warning('Vui lòng nhập mã voucher');
+      return;
+    }
+
+    setCheckingVoucher(true);
+    setVoucherPreview(null);
+    try {
+      const response = await previewVoucher(payment.id, code);
+      setVoucherPreview(response.data);
+    } catch (error) {
+      const apiMessage = (error as { response?: { data?: { message?: string } } })
+        .response?.data?.message;
+      message.error(apiMessage || 'Mã giảm giá không dùng được cho đơn này');
+    } finally {
+      setCheckingVoucher(false);
+    }
+  };
+
   const handleApplyVoucher = async () => {
     if (!payment) return;
     const code = voucherCode.trim();
@@ -323,6 +350,7 @@ const PaymentPage: React.FC = () => {
       setPayment(response.data.payment);
       setVoucherCode(response.data.voucher.code);
       setAppliedVoucherCode(response.data.voucher.code);
+      setVoucherPreview(null);
       message.success(
         `Áp dụng voucher thành công, giảm ${formatPrice(response.data.voucher.discountAmount)}`
       );
@@ -714,25 +742,91 @@ const PaymentPage: React.FC = () => {
                       <GiftOutlined />
                       Mã giảm giá
                     </label>
-                    <div className="voucher-apply">
-                      <Input
-                        id="voucher-code"
-                        value={voucherCode}
-                        placeholder="Nhập mã voucher"
-                        maxLength={50}
-                        disabled={Boolean(appliedVoucherCode)}
-                        onChange={(event) => setVoucherCode(event.target.value.toUpperCase())}
-                        onPressEnter={handleApplyVoucher}
+
+                    {/* Voucher chỉ trừ vào lần thanh toán cuối nên khi khách mới
+                        đang đóng cọc thì chưa dùng được. Nói trước để khách không
+                        nhập mã rồi nhận lỗi. */}
+                    {isDepositMode ? (
+                      <Alert
+                        type="info"
+                        showIcon
+                        message="Mã giảm giá dùng ở lần thanh toán cuối"
+                        description="Tiền cọc giữ phòng tính trên giá gốc. Sau khi đặt cọc xong, bạn quay lại đây nhập mã để trừ vào số tiền còn lại."
                       />
-                      <Button
-                        type="primary"
-                        loading={applyingVoucher}
-                        disabled={Boolean(appliedVoucherCode)}
-                        onClick={handleApplyVoucher}
-                      >
-                        {appliedVoucherCode ? 'Đã áp dụng' : 'Áp dụng'}
-                      </Button>
-                    </div>
+                    ) : (
+                      <>
+                        <div className="voucher-apply">
+                          <Input
+                            id="voucher-code"
+                            value={voucherCode}
+                            placeholder="Nhập mã voucher"
+                            maxLength={50}
+                            disabled={Boolean(appliedVoucherCode)}
+                            onChange={(event) => {
+                              setVoucherCode(event.target.value.toUpperCase());
+                              setVoucherPreview(null);
+                            }}
+                            onPressEnter={handleCheckVoucher}
+                          />
+                          <Button
+                            loading={checkingVoucher}
+                            disabled={Boolean(appliedVoucherCode)}
+                            onClick={handleCheckVoucher}
+                          >
+                            Kiểm tra
+                          </Button>
+                          <Button
+                            type="primary"
+                            loading={applyingVoucher}
+                            disabled={Boolean(appliedVoucherCode)}
+                            onClick={handleApplyVoucher}
+                          >
+                            {appliedVoucherCode ? 'Đã áp dụng' : 'Áp dụng'}
+                          </Button>
+                        </div>
+
+                        {voucherPreview && !appliedVoucherCode && (
+                          <Alert
+                            type="success"
+                            showIcon
+                            style={{ marginTop: 8 }}
+                            message={`Mã ${voucherPreview.code} giảm ${formatPrice(voucherPreview.discountAmount)}`}
+                            description={
+                              <div style={{ fontSize: 13 }}>
+                                <div>
+                                  Mức giảm:{' '}
+                                  {voucherPreview.discountType === 'percentage'
+                                    ? `${voucherPreview.discountValue}% giá trị đơn`
+                                    : formatPrice(voucherPreview.discountValue)}
+                                  {voucherPreview.maxDiscount > 0 &&
+                                    ` (tối đa ${formatPrice(voucherPreview.maxDiscount)})`}
+                                </div>
+                                {voucherPreview.cappedByMaxDiscount && (
+                                  <div>
+                                    Đã chạm mức giảm tối đa nên chỉ giảm{' '}
+                                    {formatPrice(voucherPreview.discountAmount)} thay vì{' '}
+                                    {formatPrice(voucherPreview.rawDiscount)}.
+                                  </div>
+                                )}
+                                {voucherPreview.cappedByPayable && (
+                                  <div>
+                                    Mức giảm được tính trong phạm vi số tiền bạn còn phải trả.
+                                  </div>
+                                )}
+                                {voucherPreview.roomTypes.length > 0 && (
+                                  <div>Áp dụng cho hạng phòng: {voucherPreview.roomTypes.join(', ')}</div>
+                                )}
+                                <div style={{ marginTop: 4 }}>
+                                  Sau khi áp dụng bạn còn phải trả{' '}
+                                  <strong>{formatPrice(voucherPreview.remainingAfterDiscount)}</strong>.
+                                </div>
+                              </div>
+                            }
+                          />
+                        )}
+                      </>
+                    )}
+
                     {appliedVoucherCode && (
                       <small>
                         <CheckCircleFilled /> Mã {appliedVoucherCode} đã được áp dụng

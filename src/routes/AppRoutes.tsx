@@ -36,6 +36,7 @@ import Dashboard from "../pages/Admin/Dashboard";
 import RoomManagement from "../pages/Admin/RoomManagement";
 import RoomTypeManagement from "../pages/Admin/RoomTypeManagement";
 import BookingManagement from "../pages/Admin/BookingManagement";
+import BookingDetailPage from "../pages/Admin/BookingDetailPage";
 import CustomerManagement from "../pages/Admin/CustomerManagement";
 import CustomerDetail from "../pages/Admin/CustomerDetail";
 import ServiceManagement from "../pages/Admin/ServiceManagement";
@@ -104,6 +105,11 @@ const AppRoutes = () => {
           <Route
             path="bookings"
             element={<BookingManagement />}
+          />
+
+          <Route
+            path="bookings/:id"
+            element={<BookingDetailPage />}
           />
 
           <Route path="customers">

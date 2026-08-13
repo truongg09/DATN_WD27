@@ -31,6 +31,30 @@ export const getPaymentByBookingId = async (bookingId: number) => {
   return api.get(`/payments/booking/${bookingId}`) as Promise<ApiResponse<Payment>>;
 };
 
+export interface VoucherPreview {
+  code: string;
+  discountType: string;
+  discountValue: number;
+  maxDiscount: number;
+  minBookingAmount: number;
+  validUntil: string;
+  roomTypes: string[];
+  subtotal: number;
+  paidAmount: number;
+  discountAmount: number;
+  rawDiscount: number;
+  cappedByMaxDiscount: boolean;
+  cappedByPayable: boolean;
+  totalAfterDiscount: number;
+  remainingAfterDiscount: number;
+}
+
+export const previewVoucher = async (id: number, code: string) => {
+  return api.post(`/payments/${id}/preview-voucher`, { code }) as Promise<
+    ApiResponse<VoucherPreview>
+  >;
+};
+
 export const applyVoucher = async (id: number, code: string) => {
   return api.post(`/payments/${id}/apply-voucher`, { code }) as Promise<
     ApiResponse<{
