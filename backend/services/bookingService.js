@@ -1479,12 +1479,26 @@ const getBookingById = async (bookingId) => {
   };
 };
 
-const getBookingHistory = async (bookingId) => {
+const getBookingHistory = async (bookingId, options = {}) => {
   const booking = await bookingModel.getBookingById(bookingId);
   if (!booking) {
     throw new HttpError(404, "Không tìm thấy đặt phòng");
   }
-  return bookingModel.listBookingHistory(bookingId);
+  return bookingModel.listBookingHistory(bookingId, undefined, {
+    entityType: options.entityType,
+  });
+};
+
+// Lịch sử thao tác của một phòng, gộp từ mọi đơn từng dùng phòng đó.
+const getRoomHistory = async (roomId) => {
+  const room = await bookingModel.getRoomWithType(roomId);
+  if (!room) {
+    throw new HttpError(404, "Không tìm thấy phòng");
+  }
+  return {
+    room: { id: room.id, roomNumber: room.roomNumber, roomTypeName: room.room_type_name },
+    history: await bookingModel.listRoomHistory(roomId),
+  };
 };
 
 // Bảng kê số tiền khách còn phải trả khi trả phòng, kèm thông tin dựng mã QR.
@@ -4106,6 +4120,7 @@ module.exports = {
   listBookings,
   getBookingById,
   getBookingHistory,
+  getRoomHistory,
   logHistory,
   getPaymentSummary,
   requestOutstandingPayment,

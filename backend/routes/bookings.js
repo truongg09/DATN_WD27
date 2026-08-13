@@ -13,6 +13,8 @@ router.get('/me', requireAuth, bookingController.listMyBookings);
 router.get('/', requireAuth, bookingController.listBookings);
 router.get('/:id', requireAuth, bookingController.getBookingById);
 router.get('/:id/history', requireAuth, bookingController.getBookingHistory);
+// Lịch sử thao tác của một phòng, gộp từ mọi đơn từng dùng phòng đó
+router.get('/room-history/:roomId', requireAuth, requireStaff, bookingController.getRoomHistory);
 router.get('/:id/payment-summary', requireAuth, bookingController.getPaymentSummary);
 router.post('/:id/payment-request', requireAuth, requireStaff, bookingController.requestOutstandingPayment);
 router.get('/:id/refund-preview', requireAuth, bookingController.getRefundPreview);
