@@ -602,27 +602,46 @@ function RoomManagement() {
       return;
     }
 
-    // Check if room is in active bookings (status is not cancelled and not checked_out)
-    const hasActiveBookings = Array.isArray(bookings) && bookings.some(b => {
-      if (!b) return false;
-      const status = b.status || b.bookingStatus;
-      if (!status || ['cancelled', 'checked_out', 'no_show'].includes(status)) return false;
-      const bRoomId = b.room_id || b.roomId;
-      return bRoomId !== undefined && bRoomId !== null && Number(bRoomId) === id;
-    });
-
-    if (hasActiveBookings) {
-      message.error('Không thể xóa phòng đang có đơn đặt phòng (hoặc đã cọc) chưa hoàn thành!');
-      return;
-    }
-
+    // Danh sách booking ở màn hình này có thể đã cũ vài giây, trong khi khách
+    // vẫn đang thanh toán. Để máy chủ quyết định (nó kiểm tra trong giao dịch
+    // có khóa dòng) rồi hiển thị đúng đơn đang vướng.
     try {
       await api.delete(`/rooms/${id}`);
       message.success('Xóa phòng thành công');
       fetchRooms();
     } catch (error: unknown) {
       console.error('Error deleting room:', error);
-      const msg = axios.isAxiosError(error) ? error.response?.data?.message : undefined;
+      const response = axios.isAxiosError(error) ? error.response : undefined;
+      const msg = response?.data?.message;
+      const blocking = response?.data?.details?.blockingBookings as
+        | { id: number; customerName?: string | null; isPaying?: boolean }[]
+        | undefined;
+
+      if (Array.isArray(blocking) && blocking.length > 0) {
+        Modal.warning({
+          title: 'Chưa thể xóa phòng này',
+          width: 520,
+          content: (
+            <div>
+              <p>{msg}</p>
+              <ul style={{ paddingLeft: 18, marginBottom: 0 }}>
+                {blocking.map(item => (
+                  <li key={item.id}>
+                    Đơn #{item.id}
+                    {item.customerName ? ` — ${item.customerName}` : ''}
+                    {item.isPaying && (
+                      <Tag color="red" style={{ marginLeft: 6 }}>đang thanh toán</Tag>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ),
+          okText: 'Đã hiểu'
+        });
+        return;
+      }
+
       message.error(msg || 'Lỗi khi xóa phòng');
     }
   };
