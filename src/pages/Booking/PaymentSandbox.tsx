@@ -76,7 +76,7 @@ const PaymentSandbox: React.FC = () => {
       navigate(`/booking/${bookingId}/payment`);
       return;
     }
-    setCountdown(initialSec);
+    const initialTimer = window.setTimeout(() => setCountdown(initialSec), 0);
 
     const timer = setInterval(() => {
       const remaining = calculateRemaining();
@@ -88,7 +88,10 @@ const PaymentSandbox: React.FC = () => {
       }
     }, 1000);
 
-    return () => clearInterval(timer);
+    return () => {
+      window.clearTimeout(initialTimer);
+      clearInterval(timer);
+    };
   }, [loading, booking, bookingId, navigate]);
 
   const formatCountdown = (seconds: number) => {
@@ -101,7 +104,11 @@ const PaymentSandbox: React.FC = () => {
     if (!payment) return;
     setSubmitting(true);
     try {
-      const response = await confirmPayment(payment.id, { amount, transactionCode: txn });
+      const response = await confirmPayment(payment.id, {
+        amount,
+        transactionCode: txn,
+        gatewayOrderId: txn,
+      });
       const status = response.data.payment.paymentStatus;
       navigate(
         `/booking/${bookingId}?gateway=${method.toLowerCase()}&payment=success&status=${encodeURIComponent(status)}`

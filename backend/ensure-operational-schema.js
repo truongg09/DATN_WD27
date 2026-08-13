@@ -443,6 +443,25 @@ const ensureOperationalSchema = async () => {
     )
   `);
 
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS payment_gateway_orders (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      paymentId INT NOT NULL,
+      bookingId INT NOT NULL,
+      provider ENUM('vnpay', 'zalopay') NOT NULL,
+      orderId VARCHAR(100) NOT NULL UNIQUE,
+      amount DECIMAL(15,2) NOT NULL,
+      status ENUM('created', 'paid', 'expired', 'failed', 'cancelled') NOT NULL DEFAULT 'created',
+      expiresAt DATETIME NOT NULL,
+      paidAt DATETIME NULL,
+      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_gateway_orders_payment (paymentId, status),
+      INDEX idx_gateway_orders_expiry (status, expiresAt),
+      FOREIGN KEY (paymentId) REFERENCES payments(id) ON DELETE CASCADE,
+      FOREIGN KEY (bookingId) REFERENCES bookings(id) ON DELETE CASCADE
+    )
+  `);
+
   // Ví của khách: tiền hoàn được cộng vào ví (refund_credit), khách rút ra (withdrawal).
   // Số dư khả dụng = tổng credit approved - tổng withdrawal (pending + approved).
   await db.query(`

@@ -163,8 +163,8 @@ const PaymentPage: React.FC = () => {
 
   useEffect(() => {
     if (!booking || payment?.paymentStatus !== 'unpaid') {
-      setHoldRemainingMs(0);
-      return;
+      const resetTimer = window.setTimeout(() => setHoldRemainingMs(0), 0);
+      return () => window.clearTimeout(resetTimer);
     }
 
     const updateRemaining = () => {
@@ -179,8 +179,8 @@ const PaymentPage: React.FC = () => {
 
   useEffect(() => {
     if (!booking?.last_hold_reset_at) {
-      setCooldownSeconds(0);
-      return;
+      const resetTimer = window.setTimeout(() => setCooldownSeconds(0), 0);
+      return () => window.clearTimeout(resetTimer);
     }
     const updateCooldown = () => {
       const elapsedMs = dayjs().diff(dayjs(String(booking.last_hold_reset_at)));
@@ -199,7 +199,7 @@ const PaymentPage: React.FC = () => {
     ? dayjs().diff(dayjs(String(booking.created_at)), 'minute') >= MAX_TOTAL_HOLD_MINUTES
     : false;
   const requiredDepositAmount = payment
-    ? Math.min(Math.ceil(payment.totalAmount * 0.3), payment.remainingAmount)
+    ? payment.requiredDepositAmount
     : 0;
   const paymentAmount = payment
     ? paymentAmountMode === 'deposit' && !hasDeposit
@@ -241,7 +241,7 @@ const PaymentPage: React.FC = () => {
       noRefundUntil: checkInDay.subtract(8, 'day'),
       checkInDay,
     };
-  }, [booking?.check_in, payment?.paidAmount]);
+  }, [booking, payment]);
 
   const transferContent = useMemo(() => {
     const prefix = paymentSettings?.transferPrefix || 'HB';
@@ -473,6 +473,22 @@ const PaymentPage: React.FC = () => {
                 Đặt phòng khác
               </Button>
             }
+          />
+        )}
+
+        {payment.gatewayStatus && payment.gatewayStatus !== 'paid' && (
+          <Alert
+            className="payment-alert"
+            type={payment.gatewayStatus === 'created' ? 'info' : 'warning'}
+            showIcon
+            message={payment.gatewayStatus === 'created'
+              ? 'Giao dịch đang chờ thanh toán'
+              : payment.gatewayStatus === 'expired'
+                ? 'Giao dịch đã hết hạn'
+                : payment.gatewayStatus === 'cancelled'
+                  ? 'Giao dịch đã được thay thế'
+                  : 'Giao dịch thanh toán thất bại'}
+            description={payment.gatewayOrderId ? `Mã giao dịch: ${payment.gatewayOrderId}` : undefined}
           />
         )}
 
