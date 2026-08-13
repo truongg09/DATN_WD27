@@ -20,6 +20,11 @@ export interface Payment {
     verificationStatus?: "pending" | "confirmed" | "rejected";
     verificationAmount?: number;
     verificationSubmittedAt?: string;
+    requiredDepositAmount: number;
+    gatewayOrderId?: string;
+    gatewayProvider?: "vnpay" | "zalopay";
+    gatewayStatus?: "created" | "paid" | "expired" | "failed" | "cancelled";
+    gatewayExpiresAt?: string;
     /** Booking lifecycle: pending, confirmed, checked_in, checked_out, cancelled. */
     bookingStatus?: string;
     customerName?: string;

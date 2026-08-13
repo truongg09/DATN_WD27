@@ -129,6 +129,10 @@ const getRoomWithType = async (roomId, connection, lock = false) => {
 
 const expireUnpaidBookingHolds = async (connection) => {
   await run(connection).query(
+    `UPDATE payment_gateway_orders SET status = 'expired'
+      WHERE status = 'created' AND DATE_ADD(expiresAt, INTERVAL 60 SECOND) <= NOW()`
+  );
+  await run(connection).query(
     `
       UPDATE bookings b
       JOIN payments p ON p.bookingId = b.id
@@ -141,6 +145,11 @@ const expireUnpaidBookingHolds = async (connection) => {
         AND (
           (b.hold_expires_at IS NOT NULL AND b.hold_expires_at < NOW())
           OR (b.hold_expires_at IS NULL AND b.created_at < DATE_SUB(NOW(), INTERVAL ${HOLD_MINUTES} MINUTE))
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM payment_gateway_orders pgo
+           WHERE pgo.bookingId = b.id AND pgo.status = 'created'
+             AND DATE_ADD(pgo.expiresAt, INTERVAL 60 SECOND) > NOW()
         )
     `
   );
@@ -245,6 +254,21 @@ const getConflictingBookings = async (
     values
   );
   return rows;
+};
+
+const getBookingRoomStays = async (bookingId, connection, lock = false) => {
+  const [rows] = await run(connection).query(
+    `SELECT roomId, DATE(checkInDate) AS checkIn, DATE(checkOutDate) AS checkOut
+       FROM booking_details WHERE bookingId = ? ${lock ? 'FOR UPDATE' : ''}`,
+    [bookingId]
+  );
+  if (rows.length) return rows;
+  const [fallback] = await run(connection).query(
+    `SELECT room_id AS roomId, DATE(check_in) AS checkIn, DATE(check_out) AS checkOut
+       FROM bookings WHERE id = ? ${lock ? 'FOR UPDATE' : ''}`,
+    [bookingId]
+  );
+  return fallback.filter((row) => row.roomId);
 };
 
 const cancelCompetingUnpaidBookings = async (
@@ -1335,6 +1359,7 @@ module.exports = {
   expireUnpaidBookingHolds,
   getSecuredConflictingBookings,
   getConflictingBookings,
+  getBookingRoomStays,
   cancelCompetingUnpaidBookings,
   listAvailableRoomsByType,
   listRoomTypeAvailability,

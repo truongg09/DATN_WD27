@@ -21,6 +21,14 @@ const formatPayment = (row) => {
       ? undefined
       : Number(row.verification_amount),
     verificationSubmittedAt: row.verification_submitted_at || undefined,
+    requiredDepositAmount: Math.min(
+      Math.ceil(Number(row.totalAmount ?? 0) * 0.3),
+      Number(row.remainingAmount ?? 0)
+    ),
+    gatewayOrderId: row.gateway_order_id || undefined,
+    gatewayProvider: row.gateway_provider || undefined,
+    gatewayStatus: row.gateway_status || undefined,
+    gatewayExpiresAt: row.gateway_expires_at || undefined,
     customerName: row.customer_name,
     roomNumber: row.room_number,
     bookingStatus: row.booking_status
