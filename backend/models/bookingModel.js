@@ -37,17 +37,17 @@ const BOOKING_SELECT = `
     b.notes,
     b.extraGuestSnapshot AS extra_guest_snapshot,
     b.cancellation_reason,
-    bd.id AS detail_id,
-    bd.roomId AS room_id,
-    DATE(COALESCE(bd.checkInDate, b.check_in)) AS check_in,
-    DATE(COALESCE(bd.checkOutDate, b.check_out)) AS check_out,
-    bd.adults,
-    bd.children,
-    bd.roomPrice AS room_price,
-    COALESCE(bd.occupancySurcharge, 0) AS occupancy_surcharge,
-    COALESCE(bd.requestedCheckInTime, b.requestedCheckInTime) AS requested_check_in_time,
-    COALESCE(bd.requestedCheckOutTime, b.requestedCheckOutTime) AS requested_check_out_time,
-    COALESCE(bd.requestedCheckInDayOffset, b.requestedCheckInDayOffset, 0) AS requested_check_in_day_offset,
+    MIN(bd.id) AS detail_id,
+    MIN(bd.roomId) AS room_id,
+    DATE(COALESCE(MIN(bd.checkInDate), b.check_in)) AS check_in,
+    DATE(COALESCE(MAX(bd.checkOutDate), b.check_out)) AS check_out,
+    CAST(SUM(bd.adults) AS SIGNED) AS adults,
+    CAST(SUM(bd.children) AS SIGNED) AS children,
+    SUM(bd.roomPrice) AS room_price,
+    COALESCE(SUM(bd.occupancySurcharge), 0) AS occupancy_surcharge,
+    COALESCE(MIN(bd.requestedCheckInTime), b.requestedCheckInTime) AS requested_check_in_time,
+    COALESCE(MAX(bd.requestedCheckOutTime), b.requestedCheckOutTime) AS requested_check_out_time,
+    COALESCE(MIN(bd.requestedCheckInDayOffset), b.requestedCheckInDayOffset, 0) AS requested_check_in_day_offset,
     b.actualCheckInTime AS actual_check_in_time,
     b.actualCheckOutTime AS actual_check_out_time,
     COALESCE(b.guest_name, MAX(c.fullName)) AS customer_name,
@@ -999,7 +999,7 @@ const deleteRoomPrice = async (id, connection) => {
 
 const getBookingById = async (bookingId, connection, lock = false) => {
   const [rows] = await run(connection).query(
-    `${BOOKING_SELECT} WHERE b.id = ? ${lock ? 'FOR UPDATE' : ''}`,
+    `${BOOKING_SELECT} WHERE b.id = ? GROUP BY b.id ${lock ? 'FOR UPDATE' : ''}`,
     [bookingId]
   );
   return rows[0] || null;
@@ -1023,6 +1023,7 @@ const listBookings = async ({ userId, status } = {}) => {
     `
       ${BOOKING_SELECT}
       ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}
+      GROUP BY b.id
       ORDER BY b.created_at DESC
     `,
     values
@@ -1100,16 +1101,28 @@ const listNightlyPrices = async (bookingId, from, to, connection) => {
 
 // Ghi một dòng dấu vết vào lịch sử thao tác của đặt phòng.
 // entry: { action, description, oldValue, newValue, amount, actorId, actorName, actorRole }
+// Loại đối tượng mà một mốc lịch sử gắn vào. 'booking' là mặc định cho các
+// thao tác tác động lên cả đơn (tạo đơn, hủy, gia hạn...).
+const HISTORY_ENTITY_TYPES = ['booking', 'room', 'service', 'damage', 'payment', 'stay'];
+
 const addBookingHistory = async (bookingId, entry, connection) => {
+  const entityType = HISTORY_ENTITY_TYPES.includes(entry.entityType)
+    ? entry.entityType
+    : 'booking';
+
   const [result] = await run(connection).query(
     `
       INSERT INTO booking_history
-        (bookingId, action, description, oldValue, newValue, amount, performedBy, performedByName, performedByRole)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (bookingId, action, entityType, entityId, entityLabel, description, oldValue, newValue,
+         amount, performedBy, performedByName, performedByRole)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       bookingId,
       entry.action,
+      entityType,
+      entry.entityId != null ? entry.entityId : null,
+      entry.entityLabel || null,
       entry.description || null,
       entry.oldValue != null ? JSON.stringify(entry.oldValue) : null,
       entry.newValue != null ? JSON.stringify(entry.newValue) : null,
@@ -1122,24 +1135,57 @@ const addBookingHistory = async (bookingId, entry, connection) => {
   return result.insertId;
 };
 
-const listBookingHistory = async (bookingId, connection) => {
+const parseHistoryRow = (row) => {
+  let oldValue = null;
+  let newValue = null;
+  try { oldValue = row.oldValue ? JSON.parse(row.oldValue) : null; } catch { oldValue = row.oldValue; }
+  try { newValue = row.newValue ? JSON.parse(row.newValue) : null; } catch { newValue = row.newValue; }
+  return { ...row, oldValue, newValue };
+};
+
+// Lịch sử thao tác trên một phòng, gộp từ mọi đơn đã từng dùng phòng đó.
+const listRoomHistory = async (roomId, connection) => {
   const [rows] = await run(connection).query(
     `
-      SELECT id, bookingId, action, description, oldValue, newValue, amount,
+      SELECT h.id, h.bookingId, h.action, h.entityType, h.entityId, h.entityLabel,
+             h.description, h.oldValue, h.newValue, h.amount,
+             h.performedBy, h.performedByName, h.performedByRole, h.createdAt
+      FROM booking_history h
+      WHERE (h.entityType = 'room' AND h.entityId = ?)
+         OR h.bookingId IN (
+           SELECT DISTINCT b.id
+           FROM bookings b
+           LEFT JOIN booking_details bd ON bd.bookingId = b.id
+           WHERE COALESCE(bd.roomId, b.room_id) = ?
+         )
+      ORDER BY h.createdAt DESC, h.id DESC
+      LIMIT 200
+    `,
+    [roomId, roomId]
+  );
+  return rows.map(parseHistoryRow);
+};
+
+const listBookingHistory = async (bookingId, connection, { entityType } = {}) => {
+  const conditions = ['bookingId = ?'];
+  const values = [bookingId];
+  if (entityType) {
+    conditions.push('entityType = ?');
+    values.push(entityType);
+  }
+
+  const [rows] = await run(connection).query(
+    `
+      SELECT id, bookingId, action, entityType, entityId, entityLabel,
+             description, oldValue, newValue, amount,
              performedBy, performedByName, performedByRole, createdAt
       FROM booking_history
-      WHERE bookingId = ?
+      WHERE ${conditions.join(' AND ')}
       ORDER BY createdAt DESC, id DESC
     `,
-    [bookingId]
+    values
   );
-  return rows.map((row) => {
-    let oldValue = null;
-    let newValue = null;
-    try { oldValue = row.oldValue ? JSON.parse(row.oldValue) : null; } catch { oldValue = row.oldValue; }
-    try { newValue = row.newValue ? JSON.parse(row.newValue) : null; } catch { newValue = row.newValue; }
-    return { ...row, oldValue, newValue };
-  });
+  return rows.map(parseHistoryRow);
 };
 
 // Lấy tên hiển thị của người thực hiện thao tác từ tài khoản.
@@ -1147,10 +1193,9 @@ const getActorDisplayName = async (accountId, connection) => {
   if (!accountId) return null;
   const [rows] = await run(connection).query(
     `
-      SELECT COALESCE(NULLIF(e.fullName, ''), NULLIF(c.fullName, ''), NULLIF(a.full_name, ''), a.email) AS name
+      SELECT COALESCE(NULLIF(c.fullName, ''), NULLIF(a.full_name, ''), a.email) AS name
       FROM accounts a
       LEFT JOIN customers c ON c.accountId = a.id
-      LEFT JOIN employees e ON e.accountId = a.id
       WHERE a.id = ?
       LIMIT 1
     `,
@@ -1457,6 +1502,8 @@ module.exports = {
   saveNightlyPrices,
   listNightlyPrices,
   addBookingHistory,
+  listRoomHistory,
+  HISTORY_ENTITY_TYPES,
   listBookingHistory,
   getActorDisplayName,
   getBookingById,

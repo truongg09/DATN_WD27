@@ -91,6 +91,10 @@ const logHistory = async (
     {
       action,
       description,
+      // Đối tượng bị tác động, để trang chi tiết lọc lịch sử theo từng mảng.
+      entityType: extra?.entityType,
+      entityId: extra?.entityId,
+      entityLabel: extra?.entityLabel,
       oldValue: extra?.oldValue,
       newValue: extra?.newValue,
       amount: extra?.amount,
@@ -1587,12 +1591,26 @@ const getBookingById = async (bookingId) => {
   };
 };
 
-const getBookingHistory = async (bookingId) => {
+const getBookingHistory = async (bookingId, options = {}) => {
   const booking = await bookingModel.getBookingById(bookingId);
   if (!booking) {
     throw new HttpError(404, "Không tìm thấy đặt phòng");
   }
-  return bookingModel.listBookingHistory(bookingId);
+  return bookingModel.listBookingHistory(bookingId, undefined, {
+    entityType: options.entityType,
+  });
+};
+
+// Lịch sử thao tác của một phòng, gộp từ mọi đơn từng dùng phòng đó.
+const getRoomHistory = async (roomId) => {
+  const room = await bookingModel.getRoomWithType(roomId);
+  if (!room) {
+    throw new HttpError(404, "Không tìm thấy phòng");
+  }
+  return {
+    room: { id: room.id, roomNumber: room.roomNumber, roomTypeName: room.room_type_name },
+    history: await bookingModel.listRoomHistory(roomId),
+  };
 };
 
 // Bảng kê số tiền khách còn phải trả khi trả phòng, kèm thông tin dựng mã QR.
@@ -2036,6 +2054,8 @@ const addServiceCharge = async (bookingId, payload, actor = null) => {
       "service_added",
       `Thêm dịch vụ phát sinh: ${service.serviceName} x${payload.quantity} = ${displayMoney(addedAmount)}${created.status !== "used" ? ` (trạng thái: ${created.status})` : ""}`,
       {
+        entityType: "service",
+        entityId: created?.id ?? null,
         newValue: {
           id: created.id,
           roomId: payload.roomId || null,
@@ -2147,6 +2167,8 @@ const updateServiceCharge = async (
       "service_updated",
       `Sửa dịch vụ ${oldCharge.serviceName || "(dịch vụ)"}: x${oldQty} → x${newQty}`,
       {
+        entityType: "service",
+        entityId: serviceChargeId,
         oldValue: {
           quantity: oldQty,
           totalPrice: oldTotal,
@@ -2217,6 +2239,8 @@ const updateServiceChargeStatus = async (
       "service_status_updated",
       `Đổi trạng thái dịch vụ ${oldCharge.serviceName || "(dịch vụ)"}: ${oldCharge.status} → ${status}`,
       {
+        entityType: "service",
+        entityId: serviceChargeId,
         oldValue: { status: oldCharge.status },
         newValue: { status },
       },
@@ -2277,6 +2301,8 @@ const deleteServiceCharge = async (
       "service_removed",
       `Đã hủy dịch vụ ${charge.serviceName || "(dịch vụ)"} (x${charge.quantity})`,
       {
+        entityType: "service",
+        entityId: serviceChargeId,
         oldValue: {
           id: serviceChargeId,
           serviceName: charge.serviceName,
@@ -2359,6 +2385,8 @@ const addDamageCharge = async (bookingId, payload, actor = null) => {
       "damage_added",
       `Ghi nhận khoản phí/hư hỏng: ${payload.itemName} x${payload.quantity} = ${displayMoney(damage.totalPrice)}${payload.note ? ` (${payload.note})` : ""}`,
       {
+        entityType: "damage",
+        entityId: damage?.id ?? null,
         newValue: {
           itemName: payload.itemName,
           quantity: payload.quantity,
@@ -2433,6 +2461,8 @@ const updateDamageCharge = async (
       "damage_updated",
       `Sửa khoản phí/hư hỏng: ${current.itemName}`,
       {
+        entityType: "damage",
+        entityId: chargeId,
         oldValue: current,
         newValue: payload,
       },
@@ -2494,6 +2524,8 @@ const updateDamageChargeStatus = async (
       "damage_status_updated",
       `Đổi trạng thái khoản phí ${current.itemName}: ${current.status} → ${status}`,
       {
+        entityType: "damage",
+        entityId: chargeId,
         oldValue: { status: current.status },
         newValue: { status },
       },
@@ -2554,6 +2586,8 @@ const deleteDamageCharge = async (
       "damage_removed",
       `Hủy khoản phí ${current.itemName}`,
       {
+        entityType: "damage",
+        entityId: chargeId,
         oldValue: current,
       },
       actor,
@@ -2721,6 +2755,8 @@ const extendStay = async (bookingId, payload, actor = null) => {
       "extended",
       `Gia hạn ngày ở: trả phòng từ ${displayDate(currentCheckOut)} chuyển thành ${displayDate(payload.checkOut)} (+${addedNights} đêm, +${displayMoney(addedAmount)}${addedSurcharge > 0 ? ` gồm phụ thu khách ${displayMoney(addedSurcharge)}` : ""})`,
       {
+        entityType: "stay",
+        entityId: null,
         oldValue: {
           checkOut: currentCheckOut,
           totalPrice: Number(booking.total_price || 0),
@@ -2950,6 +2986,8 @@ const updateStay = async (bookingId, payload, actor = null) => {
       "stay_updated",
       `Cập nhật đặt phòng: ${diffStr} (tổng tiền phòng ${diffTotal >= 0 ? "tăng" : "giảm"} ${displayMoney(Math.abs(diffTotal))})`,
       {
+        entityType: "stay",
+        entityId: null,
         oldValue: {
           checkIn: oldCheckIn,
           checkOut: oldCheckOut,
@@ -3072,6 +3110,8 @@ const reassignConflictingBooking = async (bookingId, payload, actor = null) => {
       "room_reassigned",
       `Đổi phòng từ ${currentRoom?.roomNumber || booking.room_id} sang ${newRoom.roomNumber} (đặt phòng chưa nhận phòng — xử lý do xung đột lịch với yêu cầu gia hạn của phòng cũ)`,
       {
+        entityType: "room",
+        entityId: booking.room_id,
         oldValue: {
           roomId: booking.room_id,
           roomNumber: currentRoom?.roomNumber,
@@ -3292,6 +3332,8 @@ const transferRoom = async (bookingId, payload, actor = null) => {
       "room_transferred",
       `Chuyển phòng từ ${fromRoom?.roomNumber || booking.room_id} sang ${toRoom.roomNumber} kể từ ngày ${displayDate(splitDate)}${payload.reason ? `. Lý do: ${payload.reason}` : ""}. Chi tiết các đêm mới: ${nightlyDetailNotes}. ${priceDifference > 0 ? `Khách cần bù: ${displayMoney(priceDifference)}` : priceDifference < 0 ? `Giảm trừ: ${displayMoney(Math.abs(priceDifference))}` : 'Không đổi giá'}. Tổng tiền phòng mới: ${displayMoney(newTotalPrice)}`,
       {
+        entityType: "room",
+        entityId: toRoom.id,
         oldValue: {
           roomId: booking.room_id,
           roomNumber: fromRoom?.roomNumber,
@@ -3456,6 +3498,8 @@ const checkIn = async (bookingId, payload = {}, actor = null) => {
       "checked_in",
       `Khách nhận phòng (${timingLabel})${Array.isArray(payload.guests) && payload.guests.length > 0 ? `. Khách lưu trú: ${payload.guests.map((g) => g.fullName).join(", ")}` : ""}`,
       {
+        entityType: "stay",
+        entityId: booking.room_id,
         oldValue: { status: booking.status },
         newValue: { status: "checked_in", checkInTiming, lateCheckIn: wasLate },
       },
@@ -3945,6 +3989,8 @@ const checkOut = async (bookingId, actualCheckOutTimeInput, actor = null) => {
       "checked_out",
       `Khách trả phòng${earlyCheckout ? ` sớm ${earlyCheckout.unusedNights} đêm (dự kiến ${displayDate(checkOutDay)}). Tạo yêu cầu hoàn 50% = ${displayMoney(earlyCheckout.refundAmount)} chờ duyệt` : ""}`,
       {
+        entityType: "stay",
+        entityId: booking.room_id,
         oldValue: { status: "checked_in", checkOut: checkOutDay },
         newValue: { status: "checked_out", actualCheckOut: today },
         amount: earlyCheckout ? earlyCheckout.refundAmount : null,
@@ -4092,9 +4138,36 @@ const resetBookingHold = async (bookingId, actor) => {
       booking.id,
       "hold_reset",
       `Gia hạn thời gian giữ phòng lần ${newResetCount}/${MAX_HOLD_RESETS} (+${HOLD_RESET_MINUTES} phút, còn ${remainingResets} lần gia hạn)`,
-      { hold_reset_count: newResetCount, hold_expires_at: newExpiresAt },
+      {
+        entityType: "booking",
+        entityId: null, hold_reset_count: newResetCount, hold_expires_at: newExpiresAt },
       actor,
-=======
+      connection
+    );
+
+    await connection.commit();
+
+    return {
+      bookingId: booking.id,
+      holdExpiresAt: newExpiresAt,
+      hold_expires_at: newExpiresAt,
+      holdResetCount: newResetCount,
+      hold_reset_count: newResetCount,
+      maxHoldResets: MAX_HOLD_RESETS,
+      max_hold_resets: MAX_HOLD_RESETS,
+      remainingResets,
+      holdRemainingSeconds,
+      canResetHold: remainingResets > 0,
+      message: `Gia hạn thời gian giữ phòng thành công! Thời gian giữ phòng mới đến ${newExpiresAt.toLocaleTimeString('vi-VN')} (còn ${remainingResets} lần gia hạn)`
+    };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
 const adminCheckAvailabilityForBooking = async (bookingId, payload) => {
   const checkIn = dayString(payload.checkIn);
   const checkOut = dayString(payload.checkOut);
@@ -4370,6 +4443,7 @@ module.exports = {
   listBookings,
   getBookingById,
   getBookingHistory,
+  getRoomHistory,
   logHistory,
   getPaymentSummary,
   requestOutstandingPayment,
