@@ -2,6 +2,7 @@ const db = require('../config/db');
 const paymentModel = require('../models/paymentModel');
 const bookingModel = require('../models/bookingModel');
 const invoiceService = require('./invoiceService');
+const voucherService = require('./voucherService');
 const emailService = require('./emailService');
 const HttpError = require('../utils/httpError');
 const { formatPayment } = require('../utils/formatters');
@@ -946,26 +947,23 @@ const applyVoucher = async (paymentId, code, actor) => {
     }
     if (booking.voucher_id || booking.voucherId) throw new HttpError(409, 'Đặt phòng đã áp dụng voucher');
 
-    const [voucherRows] = await connection.query(
-      `SELECT * FROM vouchers
-       WHERE UPPER(code) = ? AND status = 'active'
-         AND startDate <= CURDATE() AND endDate >= CURDATE()
-       FOR UPDATE`,
-      [normalizedCode]
-    );
-    const voucher = voucherRows[0];
-    if (!voucher) throw new HttpError(404, 'Mã voucher không tồn tại hoặc đã hết hạn');
-    if (Number(voucher.quantity) <= 0) throw new HttpError(409, 'Voucher đã hết lượt sử dụng');
-
-    const [assignmentRows] = await connection.query(
-      'SELECT id, userId, isUsed FROM customer_vouchers WHERE voucherId = ? FOR UPDATE',
-      [voucher.id]
-    );
-    const customerVoucher = assignmentRows.find((row) => Number(row.userId) === Number(userId));
-    if (assignmentRows.length > 0 && !customerVoucher && !isStaff) {
-      throw new HttpError(403, 'Voucher này dành riêng cho khách hàng khác');
+    // Voucher chỉ dùng ở lần thanh toán cuối (hoặc lúc trả phòng), không dùng
+    // để bớt tiền cọc giữ phòng. Cọc là khoản cam kết giữ phòng nên phải tính
+    // trên giá gốc; giảm giá được trừ vào phần thanh toán còn lại.
+    const hasPaidDeposit = Number(payment.paidAmount || 0) > 0;
+    const isAtCheckout = ['checked_in', 'checked_out'].includes(booking.status);
+    if (!hasPaidDeposit && !isAtCheckout) {
+      throw new HttpError(
+        409,
+        'Voucher chỉ được áp dụng ở lần thanh toán cuối. Vui lòng thanh toán tiền cọc giữ phòng trước, mã giảm giá sẽ được trừ vào số tiền còn lại.'
+      );
     }
-    if (customerVoucher?.isUsed) throw new HttpError(409, 'Voucher đã được sử dụng');
+
+    // Khóa dòng voucher trước khi kiểm tra để hai khách dùng cùng lúc không
+    // cùng trừ được một lượt cuối cùng.
+    await connection.query('SELECT id FROM vouchers WHERE UPPER(code) = ? FOR UPDATE', [
+      normalizedCode
+    ]);
 
     const guestSurcharge = Number(booking.occupancy_surcharge || 0);
     const roomAmount = Math.max(Number(booking.room_total_price || 0) - guestSurcharge, 0);
@@ -973,28 +971,25 @@ const applyVoucher = async (paymentId, code, actor) => {
     const damageSurcharge = await bookingModel.sumDamageCharges(payment.bookingId, connection);
     const surchargeAmount = guestSurcharge + damageSurcharge;
     const subtotal = roomAmount + serviceAmount + surchargeAmount;
-
-    if (subtotal < Number(voucher.minBookingAmount || 0)) {
-      throw new HttpError(
-        400,
-        `Đơn hàng tối thiểu để dùng voucher là ${Number(voucher.minBookingAmount).toLocaleString('vi-VN')}đ`
-      );
-    }
-
-    let discountAmount = voucher.discountType === 'percentage'
-      ? Math.round(subtotal * Number(voucher.discountValue) / 100)
-      : Math.round(Number(voucher.discountValue));
-    if (Number(voucher.maxDiscount) > 0) {
-      discountAmount = Math.min(discountAmount, Number(voucher.maxDiscount));
-    }
-    discountAmount = Math.min(Math.max(discountAmount, 0), subtotal);
-
-    const totalAmount = subtotal - discountAmount;
     const paidAmount = Number(payment.paidAmount || 0);
-    if (totalAmount < paidAmount) {
-      throw new HttpError(409, 'Giá trị voucher vượt quá số tiền còn phải thanh toán');
-    }
-    const remainingAmount = totalAmount - paidAmount;
+
+    // Giảm giá chỉ được trừ vào phần chưa trả. Phần khách đã đóng (tiền cọc)
+    // giữ nguyên, đúng nguyên tắc voucher không làm giảm tiền cọc.
+    const evaluation = await voucherService.evaluateVoucherForBooking(
+      {
+        code: normalizedCode,
+        booking,
+        subtotal,
+        payableCeiling: Math.max(subtotal - paidAmount, 0),
+        userId,
+        userRole
+      },
+      connection
+    );
+
+    const { voucher, customerVoucher, discountAmount } = evaluation;
+    const totalAmount = subtotal - discountAmount;
+    const remainingAmount = Math.max(totalAmount - paidAmount, 0);
 
     const newPaymentStatus = remainingAmount <= 0
       ? 'paid'
