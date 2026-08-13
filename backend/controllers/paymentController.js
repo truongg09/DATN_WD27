@@ -269,6 +269,20 @@ const confirmTransferPayment = async (req, res) => {
   }
 };
 
+const previewVoucher = async (req, res) => {
+  try {
+    const paymentId = normalizeIdParam(req.params.id);
+    const data = await paymentService.previewVoucher(
+      paymentId,
+      req.body?.code,
+      { userId: req.user.userId, role: req.user.role }
+    );
+    res.json({ data });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
 const applyVoucher = async (req, res) => {
   try {
     const paymentId = normalizeIdParam(req.params.id);
@@ -297,6 +311,7 @@ module.exports = {
   zalopayReturn,
   zalopayCallback,
   applyVoucher,
+  previewVoucher,
   submitTransferConfirmation,
   confirmTransferPayment,
   refundPayment
