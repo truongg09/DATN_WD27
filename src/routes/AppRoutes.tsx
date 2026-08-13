@@ -19,7 +19,6 @@ import About from "../pages/About/About";
 import Login from "../pages/Login/Login";
 import Register from "../pages/Register/Register";
 import ForgotPassword from "../pages/ForgotPassword/ForgotPassword";
-import ResetPassword from "../pages/ResetPassword/ResetPassword";
 
 import Booking from "../pages/Booking/Booking";
 import BookingHistory from "../pages/Booking/BookingHistory";
@@ -37,7 +36,6 @@ import Dashboard from "../pages/Admin/Dashboard";
 import RoomManagement from "../pages/Admin/RoomManagement";
 import RoomTypeManagement from "../pages/Admin/RoomTypeManagement";
 import BookingManagement from "../pages/Admin/BookingManagement";
-import BookingDetailPage from "../pages/Admin/BookingDetailPage";
 import CustomerManagement from "../pages/Admin/CustomerManagement";
 import CustomerDetail from "../pages/Admin/CustomerDetail";
 import ServiceManagement from "../pages/Admin/ServiceManagement";
@@ -88,7 +86,6 @@ const AppRoutes = () => {
         <Route path="login" element={<Login />} />
         <Route path="register" element={<Register />} />
         <Route path="forgot-password" element={<ForgotPassword />} />
-        <Route path="reset-password" element={<ResetPassword />} />
       </Route>
 
       {/* ADMIN */}
@@ -107,11 +104,6 @@ const AppRoutes = () => {
           <Route
             path="bookings"
             element={<BookingManagement />}
-          />
-
-          <Route
-            path="bookings/:id"
-            element={<BookingDetailPage />}
           />
 
           <Route path="customers">
