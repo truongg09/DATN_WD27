@@ -44,22 +44,6 @@ const ensureOperationalSchema = async () => {
     await db.query('ALTER TABLE bookings ADD COLUMN cancellation_reason TEXT NULL AFTER notes');
   }
 
-  // Thời hạn giữ phòng là dữ liệu nghiệp vụ phía server, không suy ra ở trình duyệt.
-  if (!bookingColumns.some((column) => column.Field === 'holdExpiresAt')) {
-    await db.query('ALTER TABLE bookings ADD COLUMN holdExpiresAt DATETIME NULL AFTER created_at');
-    await db.query(`
-      UPDATE bookings b
-      LEFT JOIN payments p ON p.id = (
-        SELECT p2.id FROM payments p2 WHERE p2.bookingId = b.id ORDER BY p2.id DESC LIMIT 1
-      )
-      SET b.holdExpiresAt = DATE_ADD(b.created_at, INTERVAL 15 MINUTE)
-      WHERE b.holdExpiresAt IS NULL
-        AND b.status IN ('pending', 'confirmed')
-        AND COALESCE(p.paymentStatus, 'unpaid') = 'unpaid'
-        AND COALESCE(p.paidAmount, 0) = 0
-    `);
-  }
-
   // Giờ khách mong muốn nhận/trả phòng (khai lúc đặt) + giờ khách thực sự
   // nhận phòng (ghi lúc check-in, đối xứng với actualCheckOutTime đã có).
   // Cần cho tính năng phân loại check-in sớm/đúng giờ/muộn.
@@ -88,6 +72,27 @@ const ensureOperationalSchema = async () => {
       'ALTER TABLE bookings ADD COLUMN extraGuestSnapshot JSON NULL AFTER notes'
     );
   }
+  if (!bookingColumns.some((column) => column.Field === 'hold_expires_at')) {
+    await db.query(
+      'ALTER TABLE bookings ADD COLUMN hold_expires_at DATETIME NULL DEFAULT NULL AFTER check_out'
+    );
+  }
+  if (!bookingColumns.some((column) => column.Field === 'hold_reset_count')) {
+    await db.query(
+      'ALTER TABLE bookings ADD COLUMN hold_reset_count INT NOT NULL DEFAULT 0 AFTER hold_expires_at'
+    );
+  }
+  if (!bookingColumns.some((column) => column.Field === 'last_hold_reset_at')) {
+    await db.query(
+      'ALTER TABLE bookings ADD COLUMN last_hold_reset_at DATETIME NULL DEFAULT NULL AFTER hold_reset_count'
+    );
+  }
+  // Khởi tạo hold_expires_at cho các đơn cũ chưa có giá trị
+  await db.query(`
+    UPDATE bookings
+    SET hold_expires_at = DATE_ADD(created_at, INTERVAL 15 MINUTE)
+    WHERE hold_expires_at IS NULL AND created_at IS NOT NULL
+  `);
 
   await db.query(
     `UPDATE vouchers SET discountType = 'percentage' WHERE discountType = 'percent'`
@@ -438,27 +443,6 @@ const ensureOperationalSchema = async () => {
     )
   `);
 
-  // Mỗi lần chuyển sang VNPay/ZaloPay có một hạn dùng đồng bộ với hạn giữ phòng.
-  // Bảng riêng giúp callback idempotent và cho tác vụ hết hạn nhận biết giao dịch
-  // đang chờ kết quả từ cổng mà không phải thêm trạng thái booking mới.
-  await db.query(`
-    CREATE TABLE IF NOT EXISTS payment_gateway_orders (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      paymentId INT NOT NULL,
-      bookingId INT NOT NULL,
-      provider ENUM('vnpay', 'zalopay') NOT NULL,
-      orderId VARCHAR(100) NOT NULL UNIQUE,
-      amount DECIMAL(15,2) NOT NULL,
-      status ENUM('created', 'paid', 'expired', 'failed', 'cancelled') NOT NULL DEFAULT 'created',
-      expiresAt DATETIME NOT NULL,
-      paidAt DATETIME NULL,
-      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-      INDEX idx_gateway_orders_expiry (status, expiresAt),
-      FOREIGN KEY (paymentId) REFERENCES payments(id) ON DELETE CASCADE,
-      FOREIGN KEY (bookingId) REFERENCES bookings(id) ON DELETE CASCADE
-    )
-  `);
-
   // Ví của khách: tiền hoàn được cộng vào ví (refund_credit), khách rút ra (withdrawal).
   // Số dư khả dụng = tổng credit approved - tổng withdrawal (pending + approved).
   await db.query(`
@@ -488,58 +472,6 @@ const ensureOperationalSchema = async () => {
       settingKey VARCHAR(100) PRIMARY KEY,
       settingValue TEXT NOT NULL,
       updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-    )
-  `);
-
-  // Luồng đặt nhiều hạng phòng đọc booking_details.roomTypeId nhưng cột này
-  // chưa từng được tạo, khiến check-out và phát hành hóa đơn văng lỗi SQL.
-  // Tạo cột rồi lấp dữ liệu cũ theo hạng phòng của chính phòng đã đặt.
-  const [bookingDetailTables2] = await db.query('SHOW TABLES LIKE "booking_details"');
-  if (bookingDetailTables2.length > 0) {
-    const [detailColumns] = await db.query('DESCRIBE booking_details');
-    if (!detailColumns.some((column) => column.Field === 'roomTypeId')) {
-      await db.query('ALTER TABLE booking_details ADD COLUMN roomTypeId INT NULL AFTER roomId');
-    }
-    await db.query(`
-      UPDATE booking_details bd
-      JOIN rooms r ON r.id = bd.roomId
-      SET bd.roomTypeId = r.roomTypeId
-      WHERE bd.roomTypeId IS NULL
-    `);
-  }
-
-  // Liên kết mỗi mốc lịch sử với đối tượng bị tác động (phòng, dịch vụ, phí
-  // phát sinh, thanh toán...). Nhờ vậy trang chi tiết lọc được lịch sử theo
-  // từng mảng thay vì chỉ xem một dòng thời gian chung.
-  const [historyTables] = await db.query('SHOW TABLES LIKE "booking_history"');
-  if (historyTables.length > 0) {
-    const [historyColumns] = await db.query('DESCRIBE booking_history');
-    const hasHistoryColumn = (name) => historyColumns.some((column) => column.Field === name);
-
-    if (!hasHistoryColumn('entityType')) {
-      await db.query(
-        "ALTER TABLE booking_history ADD COLUMN entityType VARCHAR(30) NOT NULL DEFAULT 'booking' AFTER action"
-      );
-    }
-    if (!hasHistoryColumn('entityId')) {
-      await db.query('ALTER TABLE booking_history ADD COLUMN entityId INT NULL AFTER entityType');
-    }
-    if (!hasHistoryColumn('entityLabel')) {
-      await db.query('ALTER TABLE booking_history ADD COLUMN entityLabel VARCHAR(255) NULL AFTER entityId');
-    }
-  }
-
-  // Giới hạn voucher theo hạng phòng. Không có dòng nào cho một voucher nghĩa
-  // là voucher đó dùng được cho mọi hạng phòng, nên các voucher cũ giữ nguyên
-  // hành vi sau khi nâng cấp.
-  await db.query(`
-    CREATE TABLE IF NOT EXISTS voucher_room_types (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      voucherId INT NOT NULL,
-      roomTypeId INT NOT NULL,
-      UNIQUE KEY uniq_voucher_room_type (voucherId, roomTypeId),
-      FOREIGN KEY (voucherId) REFERENCES vouchers(id) ON DELETE CASCADE,
-      FOREIGN KEY (roomTypeId) REFERENCES room_types(id) ON DELETE CASCADE
     )
   `);
 
@@ -608,20 +540,96 @@ const ensureOperationalSchema = async () => {
     }
   }
 
-  // Giá từng đêm được CHỐT tại thời điểm đặt. Nếu không lưu lại, các thao tác
-  // sau này (chuyển phòng) sẽ tra lại room_prices hiện hành và tính lại cả
-  // những đêm khách đã ở theo bảng giá mới.
+  // Bảng giá phòng theo ngày lễ, cuối tuần / chủ nhật và ngày thường
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS room_prices (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      roomTypeId INT NULL,
+      startDate DATE NOT NULL,
+      endDate DATE NOT NULL,
+      price DECIMAL(15,2) NOT NULL,
+      priceType VARCHAR(50) NOT NULL DEFAULT 'normal',
+      note VARCHAR(255) NULL,
+      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (roomTypeId) REFERENCES room_types(id) ON DELETE CASCADE
+    )
+  `);
+
+  const [rpColumns] = await db.query('DESCRIBE room_prices');
+  if (!rpColumns.some((col) => col.Field === 'note')) {
+    await db.query('ALTER TABLE room_prices ADD COLUMN note VARCHAR(255) NULL AFTER priceType');
+  }
+
+  // Giá từng đêm được CHỐT tại thời điểm đặt. Lưu kèm loại giá (ngày lễ, chủ nhật...) và phòng tương ứng.
   await db.query(`
     CREATE TABLE IF NOT EXISTS booking_nightly_prices (
       id INT AUTO_INCREMENT PRIMARY KEY,
       bookingId INT NOT NULL,
       stayDate DATE NOT NULL,
       price DECIMAL(15,2) NOT NULL DEFAULT 0,
+      priceType VARCHAR(50) NOT NULL DEFAULT 'normal',
+      note VARCHAR(255) NULL,
+      roomId INT NULL,
       createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
       UNIQUE KEY uniq_booking_night (bookingId, stayDate),
       FOREIGN KEY (bookingId) REFERENCES bookings(id) ON DELETE CASCADE
     )
   `);
+
+  const [bnpColumns] = await db.query('DESCRIBE booking_nightly_prices');
+  if (!bnpColumns.some((col) => col.Field === 'priceType')) {
+    await db.query("ALTER TABLE booking_nightly_prices ADD COLUMN priceType VARCHAR(50) NOT NULL DEFAULT 'normal' AFTER price");
+  }
+  if (!bnpColumns.some((col) => col.Field === 'note')) {
+    await db.query('ALTER TABLE booking_nightly_prices ADD COLUMN note VARCHAR(255) NULL AFTER priceType');
+  }
+  if (!bnpColumns.some((col) => col.Field === 'roomId')) {
+    await db.query('ALTER TABLE booking_nightly_prices ADD COLUMN roomId INT NULL AFTER note');
+  }
+
+  // Tự động đồng bộ / tạo bảng giá từng đêm cho các đơn đặt phòng cũ chưa có
+  try {
+    const [missingNightlyBookings] = await db.query(`
+      SELECT b.id, b.room_id, b.check_in, b.check_out, b.total_price,
+             COALESCE(MAX(bd.roomPrice), MAX(rt.defaultPrice), 0) AS room_price,
+             COALESCE(MAX(r.roomTypeId), MAX(rt.id)) AS roomTypeId,
+             MAX(rt.defaultPrice) AS defaultPrice
+      FROM bookings b
+      LEFT JOIN booking_details bd ON bd.bookingId = b.id
+      LEFT JOIN rooms r ON r.id = COALESCE(bd.roomId, b.room_id)
+      LEFT JOIN room_types rt ON rt.id = r.roomTypeId
+      WHERE b.check_in IS NOT NULL AND b.check_out IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM booking_nightly_prices bnp WHERE bnp.bookingId = b.id)
+      GROUP BY b.id, b.room_id, b.check_in, b.check_out, b.total_price
+    `);
+
+    if (missingNightlyBookings.length > 0) {
+      const bookingService = require('./services/bookingService');
+      const bookingModel = require('./models/bookingModel');
+      for (const mb of missingNightlyBookings) {
+        try {
+          const checkInStr = mb.check_in instanceof Date ? mb.check_in.toISOString().slice(0, 10) : String(mb.check_in).slice(0, 10);
+          const checkOutStr = mb.check_out instanceof Date ? mb.check_out.toISOString().slice(0, 10) : String(mb.check_out).slice(0, 10);
+          const calc = await bookingService.calcNightlyPrices(
+            mb.roomTypeId,
+            Number(mb.room_price || mb.defaultPrice || 0),
+            checkInStr,
+            checkOutStr,
+            db,
+            mb.room_id
+          );
+          if (calc.prices && calc.prices.length > 0) {
+            await bookingModel.saveNightlyPrices(mb.id, calc.prices, db);
+          }
+        } catch (itemErr) {
+          console.warn(`Backfill nightly prices for booking #${mb.id} warning:`, itemErr.message);
+        }
+      }
+      console.log(`Đã đồng bộ biểu giá từng đêm cho ${missingNightlyBookings.length} đơn đặt phòng cũ.`);
+    }
+  } catch (syncErr) {
+    console.warn('Backfill missing nightly prices error:', syncErr.message);
+  }
 
   // Dấu vết lịch sử thao tác trên từng đặt phòng: ai làm gì, lúc nào.
   // Mọi hành động (đặt, gia hạn, chuyển phòng, thêm dịch vụ, check-in/out,
@@ -825,10 +833,8 @@ const ensureOperationalSchema = async () => {
         `INSERT INTO cancellation_policies
           (id, nearTierMaxDays, nearTierPercent, midTierMaxDays, midTierPercent, farTierPercent,
            noShowGraceHours, noShowVoucherPercent, hotelCancelRefundPercent, standardCheckInTime, standardCheckOutTime)
-         VALUES (1, 3, 0.00, 7, 50.00, 100.00, 6, 10.00, 100.00, '14:00:00', '12:00:00')`
+         VALUES (1, 3, 100.00, 7, 50.00, 0.00, 6, 10.00, 100.00, '14:00:00', '12:00:00')`
       );
-    } else {
-      await db.query(`UPDATE cancellation_policies SET farTierPercent = 100.00, nearTierPercent = 0.00 WHERE id = 1 AND (farTierPercent = 0.00 OR nearTierPercent = 100.00)`);
     }
   } catch (err) {
     console.error('Lỗi khi khởi tạo cancellation_policies:', err.message);

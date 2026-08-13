@@ -61,8 +61,6 @@ const formatInvoice = (row) => {
     remainingAmount: Number(row.remaining_amount ?? 0),
     totalAmount: Number(row.totalAmount ?? 0),
     status: row.status,
-    paymentStatus: row.payment_status || null,
-    paymentMethod: row.payment_method || null,
     issuedAt: row.invoiceDate,
     createdAt: row.invoiceDate
   };
