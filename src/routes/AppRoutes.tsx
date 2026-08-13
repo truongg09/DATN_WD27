@@ -165,6 +165,11 @@ const AppRoutes = () => {
             element={<BookingManagement />}
           />
 
+          <Route
+            path="bookings/:id"
+            element={<BookingDetailPage />}
+          />
+
           <Route path="customers">
             <Route index element={<CustomerManagement />} />
             <Route path=":id" element={<CustomerDetail />} />
