@@ -177,11 +177,9 @@ const SearchForm: React.FC = () => {
                   onChange={(val) => handleAgeChange(index, val)}
                   size="small"
                 >
-                  {Array.from({ length: 18 }, (_, i) => (
-                    <Option key={i} value={i}>
-                      {i === 0 ? 'Dưới 1 tuổi' : `${i} tuổi`}
-                    </Option>
-                  ))}
+                  <Option value={4}>Dưới 5 tuổi</Option>
+                  <Option value={8}>Từ 6-11 tuổi</Option>
+                  <Option value={12}>Trên 11 tuổi</Option>
                 </Select>
               </div>
             ))}
