@@ -50,16 +50,17 @@ const BOOKING_SELECT = `
     COALESCE(bd.requestedCheckInDayOffset, b.requestedCheckInDayOffset, 0) AS requested_check_in_day_offset,
     b.actualCheckInTime AS actual_check_in_time,
     b.actualCheckOutTime AS actual_check_out_time,
-    COALESCE(b.guest_name, c.fullName) AS customer_name,
-    COALESCE(b.guest_email, a.email) AS customer_email,
-    COALESCE(b.guest_phone, c.phone, a.phone) AS customer_phone,
-    r.roomNumber AS room_number,
-    r.floor AS room_floor,
-    r.area AS room_area,
-    r.status AS room_status,
-    rt.typeName AS room_type_name,
-    rt.defaultPrice AS price_per_night,
-    rt.capacity AS room_capacity
+    COALESCE(b.guest_name, MAX(c.fullName)) AS customer_name,
+    COALESCE(b.guest_email, MAX(a.email)) AS customer_email,
+    COALESCE(b.guest_phone, MAX(c.phone), MAX(a.phone)) AS customer_phone,
+    GROUP_CONCAT(DISTINCT r.roomNumber ORDER BY r.roomNumber SEPARATOR ', ') AS room_number,
+    MIN(r.floor) AS room_floor,
+    MIN(r.area) AS room_area,
+    MIN(r.status) AS room_status,
+    COALESCE(MIN(bd.roomTypeId), MIN(r.roomTypeId), MIN(rt.id)) AS room_type_id,
+    COALESCE(GROUP_CONCAT(DISTINCT rt.typeName SEPARATOR ', '), 'Đặt phòng') AS room_type_name,
+    MIN(rt.defaultPrice) AS price_per_night,
+    MIN(rt.capacity) AS room_capacity
   FROM bookings b
   LEFT JOIN booking_details bd ON bd.bookingId = b.id
   LEFT JOIN customers c ON c.accountId = b.user_id
@@ -1352,6 +1353,67 @@ const updateActualCheckInTime = async (bookingId, time, connection) => {
   await run(connection).query('UPDATE bookings SET actualCheckInTime = ? WHERE id = ?', [time, bookingId]);
 };
 
+const getBookingDetailsWithRoomInfo = async (bookingId, connection) => {
+  const [rows] = await run(connection).query(
+    `SELECT bd.*, r.roomNumber AS room_number, COALESCE(bd.roomTypeId, r.roomTypeId, rt.id) AS room_type_id, rt.typeName AS room_type_name, rt.capacity AS room_capacity, rt.defaultPrice AS default_price
+     FROM booking_details bd
+     LEFT JOIN rooms r ON bd.roomId = r.id
+     LEFT JOIN room_types rt ON bd.roomTypeId = rt.id OR r.roomTypeId = rt.id
+     WHERE bd.bookingId = ?`,
+    [bookingId]
+  );
+  return rows;
+};
+
+const replaceBookingDetails = async (bookingId, detailsList, connection) => {
+  await run(connection).query(
+    `DELETE FROM booking_details WHERE bookingId = ?`,
+    [bookingId]
+  );
+  for (const detail of detailsList) {
+    await run(connection).query(
+      `INSERT INTO booking_details (bookingId, roomId, roomTypeId, checkInDate, checkOutDate, adults, children, roomPrice, occupancySurcharge, requestedCheckInTime, requestedCheckOutTime, requestedCheckInDayOffset)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        bookingId,
+        detail.roomId || null,
+        detail.roomTypeId || null,
+        detail.checkInDate,
+        detail.checkOutDate,
+        detail.adults || 1,
+        detail.children || 0,
+        detail.roomPrice || 0,
+        detail.occupancySurcharge || 0,
+        detail.requestedCheckInTime || null,
+        detail.requestedCheckOutTime || null,
+        detail.requestedCheckInDayOffset || 0
+      ]
+    );
+  }
+};
+
+const listAvailableRoomsIgnoringBooking = async (checkIn, checkOut, ignoreBookingId, connection) => {
+  const [rows] = await run(connection).query(
+    `SELECT r.*, rt.typeName AS room_type_name, rt.capacity AS room_capacity, rt.defaultPrice AS default_price
+     FROM rooms r
+     JOIN room_types rt ON r.roomTypeId = rt.id
+     WHERE r.status != 'maintenance'
+     AND r.id NOT IN (
+       SELECT bd.roomId
+       FROM booking_details bd
+       JOIN bookings b ON b.id = bd.bookingId
+       WHERE b.id != ?
+       AND b.status NOT IN ('cancelled', 'completed', 'checked_out')
+       AND bd.roomId IS NOT NULL
+       AND bd.checkInDate < ?
+       AND bd.checkOutDate > ?
+     )
+     ORDER BY r.roomNumber ASC`,
+    [ignoreBookingId || 0, checkOut, checkIn]
+  );
+  return rows;
+};
+
 module.exports = {
   getAccountById,
   getOrCreateCustomerId,
@@ -1361,6 +1423,9 @@ module.exports = {
   getConflictingBookings,
   getBookingRoomStays,
   cancelCompetingUnpaidBookings,
+  getBookingDetailsWithRoomInfo,
+  replaceBookingDetails,
+  listAvailableRoomsIgnoringBooking,
   listAvailableRoomsByType,
   listRoomTypeAvailability,
   listRoomPriceRanges,
