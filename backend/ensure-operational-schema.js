@@ -491,6 +491,27 @@ const ensureOperationalSchema = async () => {
     )
   `);
 
+  // Liên kết mỗi mốc lịch sử với đối tượng bị tác động (phòng, dịch vụ, phí
+  // phát sinh, thanh toán...). Nhờ vậy trang chi tiết lọc được lịch sử theo
+  // từng mảng thay vì chỉ xem một dòng thời gian chung.
+  const [historyTables] = await db.query('SHOW TABLES LIKE "booking_history"');
+  if (historyTables.length > 0) {
+    const [historyColumns] = await db.query('DESCRIBE booking_history');
+    const hasHistoryColumn = (name) => historyColumns.some((column) => column.Field === name);
+
+    if (!hasHistoryColumn('entityType')) {
+      await db.query(
+        "ALTER TABLE booking_history ADD COLUMN entityType VARCHAR(30) NOT NULL DEFAULT 'booking' AFTER action"
+      );
+    }
+    if (!hasHistoryColumn('entityId')) {
+      await db.query('ALTER TABLE booking_history ADD COLUMN entityId INT NULL AFTER entityType');
+    }
+    if (!hasHistoryColumn('entityLabel')) {
+      await db.query('ALTER TABLE booking_history ADD COLUMN entityLabel VARCHAR(255) NULL AFTER entityId');
+    }
+  }
+
   // Giới hạn voucher theo hạng phòng. Không có dòng nào cho một voucher nghĩa
   // là voucher đó dùng được cho mọi hạng phòng, nên các voucher cũ giữ nguyên
   // hành vi sau khi nâng cấp.
