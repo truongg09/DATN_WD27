@@ -3,6 +3,7 @@ import { Table, Button, Modal, Form, Input, InputNumber, DatePicker, message, Sp
 import { PlusOutlined, ReloadOutlined, EditOutlined, DeleteOutlined, CalendarOutlined, GiftOutlined, DollarOutlined, EyeOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import { getVouchers, createVoucher, updateVoucher, deleteVoucher } from '../../services/voucherService';
+import api from '../../services/api';
 
 const formatPercentage = (value: string | number) =>
   `${Number(value).toLocaleString('vi-VN', { maximumFractionDigits: 2 })}%`;
@@ -18,7 +19,12 @@ type AdminVoucher = {
   startDate: string;
   endDate: string;
   status: string;
+  // Chuỗi id ngăn cách bởi dấu phẩy do backend gộp lại; rỗng nghĩa là mọi hạng phòng
+  roomTypeIds?: string | null;
+  roomTypeNames?: string | null;
 };
+
+type RoomTypeOption = { id: number; typeName: string };
 
 type VoucherFormValues = {
   code: string;
@@ -29,6 +35,7 @@ type VoucherFormValues = {
   quantity: number;
   dateRange: [Dayjs, Dayjs];
   status: string;
+  roomTypeIds?: number[];
 };
 
 function VoucherManagement() {
@@ -41,6 +48,10 @@ function VoucherManagement() {
   const [submitLoading, setSubmitLoading] = useState(false);
   const [form] = Form.useForm<VoucherFormValues>();
   const selectedDiscountType = Form.useWatch('discountType', form);
+  const [roomTypes, setRoomTypes] = useState<RoomTypeOption[]>([]);
+
+  const parseRoomTypeIds = (value?: string | null) =>
+    value ? value.split(',').map(Number).filter(Boolean) : [];
 
   const fetchVouchers = async () => {
     setLoading(true);
@@ -55,8 +66,19 @@ function VoucherManagement() {
     }
   };
 
+  const fetchRoomTypes = async () => {
+    try {
+      const response = await api.get('/rooms/types');
+      const list = (response as unknown as { data?: RoomTypeOption[] }).data || [];
+      setRoomTypes(list.map((item) => ({ id: item.id, typeName: item.typeName })));
+    } catch (error) {
+      console.error('Error fetching room types:', error);
+    }
+  };
+
   useEffect(() => {
     void fetchVouchers();
+    void fetchRoomTypes();
   }, []);
 
   const openCreateModal = () => {
@@ -76,6 +98,7 @@ function VoucherManagement() {
       quantity: voucher.quantity,
       dateRange: [dayjs(voucher.startDate), dayjs(voucher.endDate)],
       status: voucher.status,
+      roomTypeIds: parseRoomTypeIds(voucher.roomTypeIds),
     });
     setModalVisible(true);
   };
@@ -111,6 +134,7 @@ function VoucherManagement() {
         startDate: values.dateRange[0].format('YYYY-MM-DD'),
         endDate: values.dateRange[1].format('YYYY-MM-DD'),
         status: values.status,
+        roomTypeIds: values.roomTypeIds || [],
       };
 
       if (editingVoucher) {
@@ -169,6 +193,20 @@ function VoucherManagement() {
           <div style={{ fontSize: 12, color: '#666' }}>Kết thúc: {dayjs(record.endDate).format('DD/MM/YYYY')}</div>
         </div>
       ),
+    },
+    {
+      title: 'Hạng phòng áp dụng',
+      key: 'roomTypes',
+      render: (_: object, record: AdminVoucher) =>
+        record.roomTypeNames ? (
+          <span>
+            {record.roomTypeNames.split(', ').map(name => (
+              <Tag key={name} color="blue" style={{ marginBottom: 4 }}>{name}</Tag>
+            ))}
+          </span>
+        ) : (
+          <Tag>Mọi hạng phòng</Tag>
+        ),
     },
     {
       title: 'Trạng thái',
@@ -412,6 +450,20 @@ function VoucherManagement() {
               </Form.Item>
             </Col>
           </Row>
+
+          <Form.Item
+            name="roomTypeIds"
+            label="Áp dụng cho hạng phòng"
+            extra="Để trống nghĩa là voucher dùng được cho mọi hạng phòng"
+          >
+            <Select
+              mode="multiple"
+              allowClear
+              placeholder="Tất cả hạng phòng"
+              optionFilterProp="label"
+              options={roomTypes.map(item => ({ value: item.id, label: item.typeName }))}
+            />
+          </Form.Item>
 
           <Form.Item
             name="quantity"
