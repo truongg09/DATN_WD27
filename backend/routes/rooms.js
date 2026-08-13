@@ -13,13 +13,14 @@ const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 // Dùng COALESCE(bd.roomId, b.room_id) để không bỏ sót đơn cũ chưa có dòng
 // booking_details, và LEFT JOIN để một đơn nhiều phòng vẫn được nhận diện.
 const ACTIVE_BOOKING_FOR_ROOM_SQL = `
-  SELECT
+  SELECT DISTINCT
     b.id,
     b.status,
-    b.holdExpiresAt,
     COALESCE(b.guest_name, c.fullName) AS customerName,
-    COALESCE(p.paidAmount, 0) AS paidAmount,
-    COALESCE(p.paymentStatus, 'unpaid') AS paymentStatus,
+    COALESCE(
+      (SELECT p.paidAmount FROM payments p WHERE p.bookingId = b.id ORDER BY p.id DESC LIMIT 1),
+      0
+    ) AS paidAmount,
     EXISTS (
       SELECT 1 FROM payment_gateway_orders pgo
       WHERE pgo.bookingId = b.id AND pgo.status = 'created' AND pgo.expiresAt > NOW()
@@ -27,29 +28,32 @@ const ACTIVE_BOOKING_FOR_ROOM_SQL = `
   FROM bookings b
   LEFT JOIN booking_details bd ON bd.bookingId = b.id
   LEFT JOIN customers c ON c.id = b.customerId
-  LEFT JOIN payments p ON p.id = (
-    SELECT p2.id FROM payments p2 WHERE p2.bookingId = b.id ORDER BY p2.id DESC LIMIT 1
-  )
   WHERE COALESCE(bd.roomId, b.room_id) = ?
     AND b.status NOT IN ('cancelled', 'checked_out', 'no_show')
-  GROUP BY b.id
 `;
 
-// Mô tả ngắn gọn vì sao phòng đang bị khoá, để lễ tân biết vướng đơn nào.
-const describeBlockingBookings = (bookings) => {
-  const paying = bookings.filter(
-    (item) => Number(item.hasOpenGatewayOrder) === 1 || Number(item.paidAmount) > 0
-  );
+// Đơn đang có phiên thanh toán mở ở cổng nghĩa là khách đang đứng ở màn hình
+// trả tiền ngay lúc này - đây là trường hợp cần cảnh báo mạnh nhất.
+const isPayingNow = (booking) => Number(booking.hasOpenGatewayOrder) === 1;
+
+// Mô tả ngắn gọn vì sao phòng đang bị khóa, để lễ tân biết vướng đơn nào.
+const describeBlockingBookings = (bookings, action = 'xóa') => {
   const detail = bookings
     .slice(0, 3)
     .map((item) => `#${item.id}${item.customerName ? ` (${item.customerName})` : ''}`)
     .join(', ');
   const more = bookings.length > 3 ? ` và ${bookings.length - 3} đơn khác` : '';
 
-  if (paying.length > 0) {
-    return `Khách đang thanh toán cho phòng này (đơn ${detail}${more}). Vui lòng đợi khách hoàn tất hoặc hủy đơn trước.`;
+  if (bookings.some(isPayingNow)) {
+    return `Không thể ${action} phòng: khách đang thanh toán ngay lúc này (đơn ${detail}${more}). Vui lòng đợi khách hoàn tất hoặc hết thời gian giữ chỗ.`;
   }
-  return `Phòng đang có đơn đặt chưa hoàn tất: ${detail}${more}. Hãy xử lý các đơn này trước.`;
+  if (bookings.some((item) => item.status === 'checked_in')) {
+    return `Không thể ${action} phòng đang có khách lưu trú (đơn ${detail}${more}).`;
+  }
+  if (bookings.some((item) => Number(item.paidAmount) > 0)) {
+    return `Không thể ${action} phòng: đã có khách thanh toán cho phòng này (đơn ${detail}${more}). Hãy hủy đơn và hoàn tiền trước.`;
+  }
+  return `Không thể ${action} phòng đang có đơn giữ chỗ chưa hoàn tất: ${detail}${more}.`;
 };
 
 // Chỉ nhận cặp ngày hợp lệ; thiếu hoặc sai định dạng thì coi như tìm không kèm ngày
@@ -495,13 +499,13 @@ router.put('/:id', requireAuth, requireStaff, async (req, res) => {
       if (activeBookings.length > 0) {
         await connection.rollback();
         return res.status(409).json({
-          message: describeBlockingBookings(activeBookings).replace('xóa', 'bảo trì'),
+          message: describeBlockingBookings(activeBookings, 'chuyển bảo trì'),
           details: {
             blockingBookings: activeBookings.map((item) => ({
               id: item.id,
               status: item.status,
               customerName: item.customerName,
-              isPaying: Number(item.hasOpenGatewayOrder) === 1 || Number(item.paidAmount) > 0
+              isPaying: isPayingNow(item)
             }))
           }
         });
@@ -562,7 +566,7 @@ router.delete('/:id', requireAuth, requireStaff, async (req, res) => {
             id: item.id,
             status: item.status,
             customerName: item.customerName,
-            isPaying: Number(item.hasOpenGatewayOrder) === 1 || Number(item.paidAmount) > 0
+            isPaying: isPayingNow(item)
           }))
         }
       });
