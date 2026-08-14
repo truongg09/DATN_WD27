@@ -5,8 +5,6 @@ import {
   Modal,
   Form,
   Input,
-  InputNumber,
-  DatePicker,
   Select,
   message,
   Popconfirm,
@@ -17,21 +15,21 @@ import {
 } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined, EyeOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import type { Dayjs } from 'dayjs';
 import axios from 'axios';
 import api from '../../services/api';
 
 const { Option } = Select;
 
+// Nhân viên được lưu thẳng trong bảng accounts (role 'staff' hoặc 'admin'),
+// không có bảng employees riêng. `position` do máy chủ suy ra từ role.
 interface Employee {
   id: number;
   accountId: number;
   fullName: string;
   phone: string;
   position: string;
-  salary: number;
-  hireDate: string;
   email: string;
+  role: string;
   status: string;
   created_at: string;
 }
@@ -40,9 +38,7 @@ interface EmployeeFormValues {
   fullName: string;
   email: string;
   phone: string;
-  position: string;
-  salary: number;
-  hireDate: Dayjs;
+  role: string;
   status: string;
   password?: string;
 }
@@ -85,9 +81,7 @@ function EmployeeManagement() {
       fullName: employee.fullName,
       email: employee.email,
       phone: employee.phone,
-      position: employee.position,
-      salary: employee.salary,
-      hireDate: dayjs(employee.hireDate),
+      role: employee.role,
       status: employee.status
     });
     setModalVisible(true);
@@ -112,17 +106,11 @@ function EmployeeManagement() {
 
   const handleSubmit = async (values: EmployeeFormValues) => {
     try {
-      // Format hireDate to ISO string
-      const submitValues = {
-        ...values,
-        hireDate: values.hireDate ? values.hireDate.format('YYYY-MM-DD') : null
-      };
-
       if (editingEmployee) {
-        await api.put(`/employees/${editingEmployee.id}`, submitValues);
+        await api.put(`/employees/${editingEmployee.id}`, values);
         message.success('Cập nhật nhân viên thành công');
       } else {
-        await api.post('/employees', submitValues);
+        await api.post('/employees', values);
         message.success('Thêm nhân viên thành công');
       }
       setModalVisible(false);
@@ -281,33 +269,21 @@ function EmployeeManagement() {
             <Input placeholder="Nhập số điện thoại" />
           </Form.Item>
 
+          {/* Chức vụ chính là quyền của tài khoản, nên chọn từ danh sách cố định
+              thay vì gõ tự do — gõ sai một chữ là tài khoản mất quyền vào khu
+              quản trị. */}
           <Form.Item
-            name="position"
+            name="role"
             label="Chức vụ"
-            rules={[{ required: true, message: 'Vui lòng nhập chức vụ' }]}
+            initialValue="staff"
+            rules={[{ required: true, message: 'Vui lòng chọn chức vụ' }]}
           >
-            <Input placeholder="Nhập chức vụ" />
-          </Form.Item>
-
-          <Form.Item
-            name="salary"
-            label="Lương"
-            rules={[{ required: true, message: 'Vui lòng nhập lương' }]}
-          >
-            <InputNumber
-              style={{ width: '100%' }}
-              placeholder="Nhập lương"
-              formatter={(value) => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-              parser={(value) => value?.replace(/\$\s?|(,*)/g, '') ?? ''}
+            <Select
+              options={[
+                { value: 'staff', label: 'Nhân viên' },
+                { value: 'admin', label: 'Quản trị viên' }
+              ]}
             />
-          </Form.Item>
-
-          <Form.Item
-            name="hireDate"
-            label="Ngày vào làm"
-            rules={[{ required: true, message: 'Vui lòng chọn ngày vào làm' }]}
-          >
-            <DatePicker style={{ width: '100%' }} />
           </Form.Item>
 
           {!editingEmployee && (
@@ -364,8 +340,6 @@ function EmployeeManagement() {
             <Descriptions.Item label="Email">{selectedEmployee.email}</Descriptions.Item>
             <Descriptions.Item label="Số điện thoại">{selectedEmployee.phone}</Descriptions.Item>
             <Descriptions.Item label="Chức vụ">{selectedEmployee.position}</Descriptions.Item>
-            <Descriptions.Item label="Lương">{selectedEmployee.salary.toLocaleString('vi-VN')} VND</Descriptions.Item>
-            <Descriptions.Item label="Ngày vào làm">{dayjs(selectedEmployee.hireDate).format('DD/MM/YYYY')}</Descriptions.Item>
             <Descriptions.Item label="Trạng thái">
               <span style={{
                 color: selectedEmployee.status === 'active' ? '#52c41a' : '#ff4d4f',

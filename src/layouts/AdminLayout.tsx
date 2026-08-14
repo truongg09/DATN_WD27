@@ -107,6 +107,7 @@ function AdminLayout() {
               </NavLink>
             </li>
             <li><NavLink to="/admin/customers">Khách hàng</NavLink></li>
+            <li><NavLink to="/admin/employees">Nhân viên</NavLink></li>
             <li>
               <NavLink to="/admin/services">
                 {withBadge(
