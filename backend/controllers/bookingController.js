@@ -653,12 +653,22 @@ const rejectServiceRequest = async (req, res) => {
   try {
     const db = require('../config/db');
     const requestId = normalizeIdParam(req.params.id);
-    
-    await db.query(
-      'UPDATE booking_service_requests SET status = ? WHERE id = ?',
-      ['rejected', requestId]
+
+    // Chỉ đổi được yêu cầu còn đang chờ. Câu lệnh cũ không lọc theo trạng thái
+    // và không xét affectedRows nên luôn báo thành công, kể cả khi id không tồn
+    // tại hoặc yêu cầu đã được xác nhận trước đó — tức là đè ngược confirmed
+    // thành rejected trong khi tiền dịch vụ đã tính vào đơn.
+    const [result] = await db.query(
+      "UPDATE booking_service_requests SET status = 'rejected' WHERE id = ? AND status = 'pending'",
+      [requestId]
     );
-    
+
+    if (result.affectedRows === 0) {
+      return res.status(409).json({
+        message: 'Yêu cầu không tồn tại hoặc đã được xử lý trước đó'
+      });
+    }
+
     res.json({ message: 'Đã từ chối yêu cầu dịch vụ' });
   } catch (error) {
     console.error('Error rejecting service request:', error);
