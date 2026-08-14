@@ -45,6 +45,7 @@ import {
   type WalletTransaction
 } from "../../services/walletService";
 import { VIETQR_BANKS } from "../../utils/vietqr";
+import { getBookingStatusMeta } from "../../constants/bookingStatus";
 import dayjs from "dayjs";
 
 const { Title, Text } = Typography;
@@ -86,7 +87,11 @@ function Profile() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [form] = Form.useForm();
-  
+  // Form đổi mật khẩu là một Form riêng. Trước đây nó gọi form.resetFields() của
+  // form hồ sơ (đã bị gỡ khỏi cây khi chuyển tab) nên các ô mật khẩu vẫn còn
+  // nguyên nội dung sau khi đổi thành công.
+  const [passwordForm] = Form.useForm();
+
   // State quản lý tab đang chọn trong sidebar
   const [activeTab, setActiveTab] = useState<string>("profile-edit");
   const [profile, setProfile] = useState<CustomerProfile | null>(null);
@@ -553,22 +558,8 @@ function Profile() {
                       dataIndex: "bookingStatus",
                       key: "bookingStatus",
                       render: (status) => {
-                        let color = "gold";
-                        let text = "Chờ xác nhận";
-                        if (status === "confirmed") {
-                          color = "blue";
-                          text = "Đã xác nhận";
-                        } else if (status === "checked_in") {
-                          color = "green";
-                          text = "Đã check-in";
-                        } else if (status === "checked_out") {
-                          color = "gray";
-                          text = "Đã trả phòng";
-                        } else if (status === "cancelled") {
-                          color = "red";
-                          text = "Đã hủy";
-                        }
-                        return <Tag color={color}>{text}</Tag>;
+                        const meta = getBookingStatusMeta(status);
+                        return <Tag color={meta.color}>{meta.label}</Tag>;
                       }
                     }
                   ]}
@@ -779,9 +770,6 @@ function Profile() {
                           )}
                         </div>
                       )
-                    },
-                    {
-                      title: "Thao tác",
                     }
                   ]}
                 />
@@ -982,6 +970,7 @@ function Profile() {
               <div style={{ maxWidth: "450px" }}>
                 <Title level={3} style={{ marginBottom: "24px", color: "#2b2420" }}>Đổi mật khẩu tài khoản</Title>
                 <Form
+                  form={passwordForm}
                   layout="vertical"
                   onFinish={async (values) => {
                     try {
@@ -990,7 +979,7 @@ function Profile() {
                         newPassword: values.newPassword
                       });
                       message.success("Đổi mật khẩu thành công!");
-                      form.resetFields();
+                      passwordForm.resetFields();
                     } catch (error: any) {
                       message.error(error.response?.data?.message || "Đổi mật khẩu thất bại!");
                     }
