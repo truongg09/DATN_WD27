@@ -255,8 +255,11 @@ function VoucherManagement() {
   const activeVouchers = vouchers.filter(v => v.status === 'active' && !isExpired(v.endDate)).length;
   const expiredVouchers = vouchers.filter(v => isExpired(v.endDate)).length;
 
+  // Khung nội dung của AdminLayout đã có sẵn padding 24 và nền riêng. Đặt thêm
+  // padding cùng minHeight 100vh ở đây làm trang luôn cao hơn khung chứa, sinh
+  // ra một thanh cuộn dọc thừa.
   return (
-    <div style={{ padding: 24, background: '#f8f6f2', minHeight: '100vh' }}>
+    <div>
       <div style={{ marginBottom: 24 }}>
         <h1 style={{ fontSize: 24, fontWeight: 'bold', marginBottom: 8, color: '#2b2420' }}>Quản lý Voucher</h1>
         <p style={{ color: '#8d8478', margin: 0 }}>Tạo và quản lý các mã giảm giá cho khách hàng</p>

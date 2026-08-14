@@ -928,19 +928,11 @@ function RoomManagement() {
                 >
                   <Row gutter={[16, 16]}>
                     {rooms.map(room => {
-                      let color = 'green';
-                      let statusText = 'Trống sạch';
-                      if (room.status === 'occupied') {
-                        color = 'red';
-                        statusText = 'Đang ở';
-                      } else if (room.status === 'reserved') {
-                        color = 'blue';
-                        statusText = 'Đã cọc';
-                      } else if (room.status === 'maintenance') {
-                        const isCleaning = room.maintenanceNote && room.maintenanceNote.toLowerCase().includes('dọn');
-                        color = isCleaning ? 'purple' : 'orange';
-                        statusText = isCleaning ? 'Chờ dọn dẹp' : 'Bảo trì';
-                      }
+                      // Dùng chung getRoomStatusMeta với bảng danh sách. Trước
+                      // đây sơ đồ tự gán màu riêng nên cùng một phòng "Đang ở"
+                      // hiện xanh dương ở bảng nhưng lại đỏ ở sơ đồ, còn "Bảo
+                      // trì" thì ngược lại — nhìn hai chỗ ra hai kết luận khác nhau.
+                      const { color, text: statusText } = getRoomStatusMeta(room);
 
                       return (
                         <Col key={room.id} xs={12} sm={8} md={6} lg={4}>
