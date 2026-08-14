@@ -33,6 +33,3 @@ export const register = async (data: RegisterRequest): Promise<AuthResponse> => 
   return api.post("/auth/register", data);
 };
 
-export const getProfile = async () => {
-  return api.get("/auth/profile");
-};
