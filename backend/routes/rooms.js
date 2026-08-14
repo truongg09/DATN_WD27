@@ -284,6 +284,51 @@ router.delete('/types/:id', requireAuth, requireStaff, async (req, res) => {
   }
 });
 
+// ── Bảng giá theo ngày lễ / cuối tuần / ngày thường ──
+// THỨ TỰ QUAN TRỌNG: các đường dẫn tĩnh phải đứng TRƯỚC router.get('/:id').
+// Nếu đặt sau, Express khớp '/:id' với chuỗi 'prices' hoặc 'price-preview' rồi
+// trả về "Không tìm thấy phòng", khiến cả bảng giá lẫn xem trước giá chết câm.
+
+// Lấy danh sách bảng giá
+router.get('/prices', async (req, res) => {
+  try {
+    const bookingModel = require('../models/bookingModel');
+    const { roomTypeId, priceType } = req.query;
+    const prices = await bookingModel.listAllRoomPrices({
+      roomTypeId: roomTypeId ? Number(roomTypeId) : undefined,
+      priceType: priceType || undefined,
+    });
+    res.json({ data: prices });
+  } catch (error) {
+    console.error('List room prices error:', error);
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ', details: error.message });
+  }
+});
+
+// Xem trước tính giá từng đêm (preview)
+router.get('/price-preview', async (req, res) => {
+  try {
+    const bookingService = require('../services/bookingService');
+    const { roomTypeId, checkIn, checkOut, fallbackPrice } = req.query;
+
+    if (!checkIn || !checkOut || !DATE_PATTERN.test(checkIn) || !DATE_PATTERN.test(checkOut) || checkOut <= checkIn) {
+      return res.status(400).json({ message: 'Ngày checkIn / checkOut không hợp lệ (YYYY-MM-DD)' });
+    }
+
+    const nightly = await bookingService.calcNightlyPrices(
+      roomTypeId ? Number(roomTypeId) : null,
+      Number(fallbackPrice || 0),
+      checkIn,
+      checkOut
+    );
+
+    res.json({ data: nightly });
+  } catch (error) {
+    console.error('Preview price error:', error);
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ', details: error.message });
+  }
+});
+
 // Get room by id
 router.get('/:id', async (req, res) => {
   try {
@@ -471,48 +516,6 @@ router.delete('/:id', requireAuth, requireStaff, async (req, res) => {
   } catch (error) {
     console.error('Delete room error:', error);
     res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
-  }
-});
-
-// ── Room Prices Management (Bảng giá ngày lễ, cuối tuần / chủ nhật, ngày thường) ──
-
-// Lấy danh sách bảng giá
-router.get('/prices', async (req, res) => {
-  try {
-    const bookingModel = require('../models/bookingModel');
-    const { roomTypeId, priceType } = req.query;
-    const prices = await bookingModel.listAllRoomPrices({
-      roomTypeId: roomTypeId ? Number(roomTypeId) : undefined,
-      priceType: priceType || undefined,
-    });
-    res.json({ data: prices });
-  } catch (error) {
-    console.error('List room prices error:', error);
-    res.status(500).json({ message: 'Lỗi máy chủ nội bộ', details: error.message });
-  }
-});
-
-// Xem trước tính giá từng đêm (preview)
-router.get('/price-preview', async (req, res) => {
-  try {
-    const bookingService = require('../services/bookingService');
-    const { roomTypeId, checkIn, checkOut, fallbackPrice } = req.query;
-
-    if (!checkIn || !checkOut || !DATE_PATTERN.test(checkIn) || !DATE_PATTERN.test(checkOut) || checkOut <= checkIn) {
-      return res.status(400).json({ message: 'Ngày checkIn / checkOut không hợp lệ (YYYY-MM-DD)' });
-    }
-
-    const nightly = await bookingService.calcNightlyPrices(
-      roomTypeId ? Number(roomTypeId) : null,
-      Number(fallbackPrice || 0),
-      checkIn,
-      checkOut
-    );
-
-    res.json({ data: nightly });
-  } catch (error) {
-    console.error('Preview price error:', error);
-    res.status(500).json({ message: 'Lỗi máy chủ nội bộ', details: error.message });
   }
 });
 
