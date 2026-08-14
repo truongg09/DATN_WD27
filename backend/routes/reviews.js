@@ -1,8 +1,17 @@
 const express = require("express");
 const db = require("../config/db");
-const { optionalAuth, requireAuth } = require("../middleware/auth");
+const { optionalAuth, requireAuth, isStaff } = require("../middleware/auth");
 
 const router = express.Router();
+
+// Tra mã khách hàng từ tài khoản đang đăng nhập. Dùng để chỉ cho phép thao tác
+// trên đánh giá của chính mình, thay vì tin vào customerId do client gửi lên.
+const getCustomerIdOfCurrentUser = async (req) => {
+  const [rows] = await db.query("SELECT id FROM customers WHERE accountId = ?", [
+    req.user?.userId,
+  ]);
+  return rows.length > 0 ? Number(rows[0].id) : null;
+};
 
 // Chặn mọi request không phải admin/staff cho các thao tác quản trị
 // (duyệt/từ chối, ẩn/hiện, phản hồi, xóa phản hồi, xóa review vĩnh viễn).
@@ -184,9 +193,9 @@ router.get("/booking/:bookingId", async (req, res) => {
 // Create a review
 // Đánh giá mới luôn ở trạng thái "pending" (chờ duyệt) - KHÔNG hiển thị công
 // khai ngay. Admin/staff phải duyệt (PATCH /:id/status) thì mới hiển thị.
-router.post("/", async (req, res) => {
+router.post("/", requireAuth, async (req, res) => {
   try {
-    const { bookingId, customerId, rating, comment, images } = req.body;
+    const { bookingId, rating, comment, images } = req.body;
 
     if (!bookingId || !rating) {
       return res
@@ -216,6 +225,17 @@ router.post("/", async (req, res) => {
 
     const booking = bookings[0];
 
+    // Chỉ chủ đơn mới được đánh giá. Trước đây customerId lấy thẳng từ body nên
+    // ai cũng gửi được đánh giá đứng tên khách khác.
+    if (!isStaff(req.user)) {
+      const currentCustomerId = await getCustomerIdOfCurrentUser(req);
+      if (!currentCustomerId || currentCustomerId !== Number(booking.customerId)) {
+        return res
+          .status(403)
+          .json({ message: "Bạn chỉ có thể đánh giá đơn đặt phòng của mình" });
+      }
+    }
+
     if (booking.status !== "checked_out") {
       return res
         .status(400)
@@ -233,7 +253,7 @@ router.post("/", async (req, res) => {
         .json({ message: "Đặt phòng này đã được đánh giá" });
     }
 
-    const reviewCustomerId = customerId || booking.customerId;
+    const reviewCustomerId = booking.customerId;
     const imagesJson =
       Array.isArray(images) && images.length > 0 ? JSON.stringify(images) : null;
 
@@ -266,7 +286,7 @@ router.post("/", async (req, res) => {
 });
 
 // Update a review (nội dung/rating - dùng cho khách chỉnh sửa review của họ)
-router.put("/:id", async (req, res) => {
+router.put("/:id", requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
     const { rating, comment, images } = req.body;
@@ -277,13 +297,24 @@ router.put("/:id", async (req, res) => {
 
     // Lấy đầy đủ thông tin review cũ để so sánh (không chỉ id như trước)
     const [existingRows] = await db.query(
-      "SELECT id, status, rating, comment, images FROM reviews WHERE id = ?",
+      "SELECT id, customerId, status, rating, comment, images FROM reviews WHERE id = ?",
       [id],
     );
     if (existingRows.length === 0) {
       return res.status(404).json({ message: "Không tìm thấy đánh giá" });
     }
     const existing = existingRows[0];
+
+    // Câu UPDATE bên dưới chỉ lọc theo id nên nếu không đối chiếu chủ sở hữu ở
+    // đây thì ai cũng sửa được đánh giá của người khác.
+    if (!isStaff(req.user)) {
+      const currentCustomerId = await getCustomerIdOfCurrentUser(req);
+      if (!currentCustomerId || currentCustomerId !== Number(existing.customerId)) {
+        return res
+          .status(403)
+          .json({ message: "Bạn chỉ có thể sửa đánh giá của mình" });
+      }
+    }
 
     let existingImages = [];
     if (existing.images) {
