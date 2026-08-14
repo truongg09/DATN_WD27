@@ -209,7 +209,10 @@ function RoomTypeManagement() {
     setPriceLoading(true);
     try {
       const res = await getRoomPrices(typeId ? { roomTypeId: typeId } : undefined);
-      setPriceRules(res.data?.data || []);
+      // Interceptor trong services/api.ts đã bóc sẵn body, nên res chính là
+      // { data: [...] }. Bóc thêm một lần nữa thì luôn ra undefined và bảng giá
+      // hiện rỗng dù máy chủ trả đủ dữ liệu.
+      setPriceRules(res.data || []);
     } catch {
       message.error('Không thể tải danh sách bảng giá');
     } finally {

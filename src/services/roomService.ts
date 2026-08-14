@@ -111,8 +111,13 @@ export interface RoomPriceRule {
   note?: string | null;
 }
 
+// Interceptor ở services/api.ts trả thẳng phần body, nên kiểu trả về của hai
+// hàm dưới đây khai theo body chứ không phải AxiosResponse. Khai sai khiến nơi
+// gọi viết res.data.data và luôn nhận undefined mà TypeScript không báo.
 export const getRoomPrices = async (params?: { roomTypeId?: number; priceType?: string }) => {
-  return api.get<{ data: RoomPriceRule[] }>('/rooms/prices', { params });
+  return api.get('/rooms/prices', { params }) as unknown as Promise<{
+    data: RoomPriceRule[];
+  }>;
 };
 
 export const createRoomPrice = async (data: Partial<RoomPriceRule>) => {
@@ -133,11 +138,11 @@ export const previewRoomPrice = async (params: {
   checkOut: string;
   fallbackPrice?: number;
 }) => {
-  return api.get<{
+  return api.get('/rooms/price-preview', { params }) as unknown as Promise<{
     data: {
       nights: number;
       prices: NightlyPriceItem[];
       total: number;
     };
-  }>('/rooms/price-preview', { params });
+  }>;
 };
