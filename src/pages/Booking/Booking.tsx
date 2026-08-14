@@ -1297,10 +1297,18 @@ const Booking: React.FC = () => {
                       + Đặt thêm hạng phòng khác
                     </Button>
                   )}
+                  {/* Chưa chọn ngày thì chưa có số đêm, hiện "0đ (0 đêm)" chỉ gây
+                      khó hiểu nên nhắc khách chọn ngày trước. */}
                   {extraRoomTypes.length > 0 && (
                     <small style={{ color: '#64748b', display: 'block', marginTop: 6 }}>
-                      Tạm tính phần đặt thêm: {formatMoney(extraRoomsAmount)} ({nights} đêm).
-                      Giá chính xác theo ngày lễ/cuối tuần sẽ do hệ thống chốt khi xác nhận.
+                      {nights > 0 ? (
+                        <>
+                          Tạm tính phần đặt thêm: {formatMoney(extraRoomsAmount)} cho {nights} đêm.
+                          Giá ngày lễ và cuối tuần sẽ được hệ thống tính lại khi xác nhận.
+                        </>
+                      ) : (
+                        <>Chọn ngày nhận và trả phòng để xem tạm tính cho phần đặt thêm.</>
+                      )}
                     </small>
                   )}
                 </div>
