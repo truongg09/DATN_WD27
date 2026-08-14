@@ -36,6 +36,7 @@ const refundRoutes = require('./routes/refunds');
 const walletRoutes = require('./routes/wallet');
 const reportRoutes = require('./routes/reports');
 const uploadRoutes = require('./routes/upload');
+const employeeRoutes = require('./routes/employees');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/rooms', roomRoutes);
@@ -57,6 +58,7 @@ app.use('/api/refunds', refundRoutes);
 app.use('/api/wallet', walletRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/upload', uploadRoutes);
+app.use('/api/employees', employeeRoutes);
 
 // Test endpoint
 app.get('/api/health', (req, res) => {
