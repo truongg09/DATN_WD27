@@ -1,5 +1,5 @@
 ﻿import { useEffect, useState } from 'react';
-import { Table, Button, Modal, Form, Input, InputNumber, DatePicker, message, Space, Card, Tag, Popconfirm, Select, Row, Col, Statistic, Descriptions } from 'antd';
+import { Table, Button, Modal, Form, Input, InputNumber, DatePicker, message, Space, Card, Tag, Popconfirm, Select, Row, Col, Statistic, Descriptions, Tooltip } from 'antd';
 import { PlusOutlined, ReloadOutlined, EditOutlined, DeleteOutlined, CalendarOutlined, GiftOutlined, DollarOutlined, EyeOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import { getVouchers, createVoucher, updateVoucher, deleteVoucher } from '../../services/voucherService';
@@ -218,35 +218,30 @@ function VoucherManagement() {
     {
       title: 'Thao tác',
       key: 'action',
+      // Cùng quy ước với các bảng khác: một nút chính tô đậm, thao tác phụ dùng
+      // nút viền, thao tác xóa dùng tone đỏ.
       render: (_: object, record: AdminVoucher) => (
-        <Space>
-          <Button
-            type="primary"
-            icon={<EyeOutlined style={{ color: 'white' }} />}
-            size="small"
-            onClick={() => handleViewDetail(record)}
-          >
-          </Button>
-          <Button
-            type="primary"
-            icon={<EditOutlined />}
-            size="small"
-            onClick={() => openEditModal(record)}
-          >
-          </Button>
+        <Space size={4}>
+          <Tooltip title="Xem chi tiết voucher">
+            <Button
+              type="primary"
+              size="small"
+              icon={<EyeOutlined />}
+              onClick={() => handleViewDetail(record)}
+            />
+          </Tooltip>
+          <Tooltip title="Sửa voucher">
+            <Button size="small" icon={<EditOutlined />} onClick={() => openEditModal(record)} />
+          </Tooltip>
           <Popconfirm
             title="Bạn có chắc chắn muốn xóa?"
             onConfirm={() => handleDelete(record.id)}
             okText="Xóa"
             cancelText="Hủy"
           >
-            <Button
-              type="primary"
-              danger
-              icon={<DeleteOutlined />}
-              size="small"
-            >
-            </Button>
+            <Tooltip title="Xóa voucher">
+              <Button danger size="small" icon={<DeleteOutlined />} />
+            </Tooltip>
           </Popconfirm>
         </Space>
       ),
