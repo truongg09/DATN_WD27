@@ -11,6 +11,7 @@ import { createReview, getReviews, updateReview } from '../../services/reviewSer
 import api from '../../services/api';
 import type { Payment } from '../../types/payment';
 import type { Invoice } from '../../types/invoice';
+import { BOOKING_STATUS_META } from '../../constants/bookingStatus';
 import './BookingDetail.css';
 
 const MAX_REVIEW_IMAGES = 5;
@@ -74,14 +75,8 @@ const formatDate = (date: string | Date) => {
   return dayjs(date).format('DD/MM/YYYY');
 };
 
-const bookingStatusMap: Record<string, { label: string; color: string }> = {
-  pending: { label: 'Chờ xác nhận', color: 'gold' },
-  confirmed: { label: 'Đã xác nhận', color: 'blue' },
-  checked_in: { label: 'Đang ở', color: 'green' },
-  checked_out: { label: 'Đã trả phòng', color: 'default' },
-  cancelled: { label: 'Đã hủy', color: 'red' },
-  no_show: { label: 'Khách không đến (No-show)', color: 'volcano' },
-};
+// Dùng chung bảng nhãn ở constants/bookingStatus cho khớp các trang còn lại.
+const bookingStatusMap = BOOKING_STATUS_META;
 
 const getBookingDisplayTag = (b: Record<string, unknown> | null) => {
   if (!b) return { label: 'N/A', color: 'default' };

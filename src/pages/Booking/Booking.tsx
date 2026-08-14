@@ -43,6 +43,7 @@ import type { RoomTypeSearchResult } from "../../services/roomService";
 import { getServices } from "../../services/serviceService";
 import type { Service } from "../../types/service";
 import { unwrapList } from "../../utils/unwrapList";
+import { BOOKING_STATUS_META } from "../../constants/bookingStatus";
 import {
   getRoomTypeCardImage,
   handleRoomImageError,
@@ -128,13 +129,8 @@ interface DateAvailability {
   totalAmount?: number;
 }
 
-const bookingStatusMap: Record<string, { label: string; className: string }> = {
-  pending: { label: "Chờ xác nhận", className: "pending" },
-  confirmed: { label: "Đã xác nhận", className: "confirmed" },
-  checked_in: { label: "Đang ở", className: "checked-in" },
-  checked_out: { label: "Đã trả phòng", className: "checked-out" },
-  cancelled: { label: "Đã hủy", className: "cancelled" },
-};
+// Dùng chung bảng nhãn ở constants/bookingStatus để không sót trạng thái no_show.
+const bookingStatusMap = BOOKING_STATUS_META;
 
 const roomStatusMap: Record<string, { label: string; className: string }> = {
   available: { label: "Còn trống", className: "available" },

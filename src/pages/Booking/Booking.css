@@ -154,6 +154,18 @@
   background: #fee4e2;
 }
 
+/* Đơn khách không đến: tone cam đậm để tách khỏi "Đã hủy" (đỏ) và "Chờ xác
+   nhận" (vàng), vì đây là hai trạng thái dễ bị nhầm với nhau nhất. */
+.history-status.no-show {
+  color: #9a3412;
+  background: #ffedd5;
+}
+
+.history-status.unknown {
+  color: #475467;
+  background: #eef2f6;
+}
+
 .history-card h3 {
   margin: 16px 0 12px;
   color: #232323;

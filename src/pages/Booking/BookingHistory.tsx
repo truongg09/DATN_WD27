@@ -62,6 +62,7 @@ import type { Payment } from '../../types/payment';
 import type { Service } from '../../types/service';
 import api from '../../services/api';
 import BookingDetailModal from '../Admin/BookingDetailModal';
+import { BOOKING_STATUS_META } from '../../constants/bookingStatus';
 import './BookingHistory.css';
 
 const MAX_REVIEW_IMAGES = 5;
@@ -183,13 +184,8 @@ const formatHoldTime = (milliseconds: number) => {
   return `${minutes}:${seconds.toString().padStart(2, '0')}`;
 };
 
-const bookingStatusMap: Record<string, { label: string; color: string }> = {
-  pending: { label: 'Chờ xác nhận', color: 'gold' },
-  confirmed: { label: 'Đã xác nhận', color: 'blue' },
-  checked_in: { label: 'Đang ở', color: 'green' },
-  checked_out: { label: 'Đã trả phòng', color: 'default' },
-  cancelled: { label: 'Đã hủy', color: 'red' },
-};
+// Dùng chung bảng nhãn ở constants/bookingStatus để không sót trạng thái no_show.
+const bookingStatusMap = BOOKING_STATUS_META;
 
 const paymentStatusMap: Record<string, { label: string; color: string }> = {
   unpaid: { label: 'Chưa thanh toán', color: 'orange' },
