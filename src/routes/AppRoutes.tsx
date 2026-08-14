@@ -20,6 +20,7 @@ import Login from "../pages/Login/Login";
 import Register from "../pages/Register/Register";
 import ForgotPassword from "../pages/ForgotPassword/ForgotPassword";
 import ResetPassword from "../pages/ForgotPassword/ResetPassword";
+import EmployeeManagement from "../pages/Admin/EmployeeManagement";
 
 import Booking from "../pages/Booking/Booking";
 import BookingHistory from "../pages/Booking/BookingHistory";
@@ -118,6 +119,10 @@ const AppRoutes = () => {
             <Route index element={<CustomerManagement />} />
             <Route path=":id" element={<CustomerDetail />} />
           </Route>
+
+          {/* Trang quản lý nhân viên đã có sẵn nhưng chưa từng được khai route
+              nên không có đường dẫn nào mở được. */}
+          <Route path="employees" element={<EmployeeManagement />} />
 
           <Route
             path="services"
