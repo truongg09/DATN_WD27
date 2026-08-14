@@ -1,5 +1,6 @@
 const express = require('express');
 const db = require('../config/db');
+const { requireAuth, requireStaff } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -7,7 +8,10 @@ const router = express.Router();
 // Services are added to bookings through the booking flow
 // (POST /api/bookings/:id/services), which also recalculates payments,
 // so this endpoint only exposes a consolidated listing for management.
-router.get('/', async (_req, res) => {
+//
+// Bảng này kèm tên khách, số phòng và trạng thái đơn của cả khách sạn nên chỉ
+// nhân viên mới được xem.
+router.get('/', requireAuth, requireStaff, async (_req, res) => {
   try {
     const [rows] = await db.query(`
       SELECT bs.id, bs.bookingId, bs.roomId, bs.serviceId, bs.quantity,
