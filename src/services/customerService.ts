@@ -65,4 +65,3 @@ export const lockCustomer = async (id: number, reason: string) =>
 
 export const getCustomers = async () => api.get('/customers');
 
-export const getCustomerById = async (id: number) => api.get(`/customers/${id}`);

@@ -17,7 +17,6 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../../services/api';
-import BookingDetailModal from './BookingDetailModal';
 import CheckoutPaymentModal from './CheckoutPaymentModal';
 import AdminBookingModifyModal from './AdminBookingModifyModal';
 import { getPolicies, type PoliciesInfo } from '../../services/settingsService';
@@ -377,7 +376,6 @@ function BookingManagement() {
   const [services, setServices] = useState<ServiceItem[]>([]);
   const [rooms, setRooms] = useState<RoomItem[]>([]);
   const [loading, setLoading] = useState(false);
-  const [viewModalVisible, setViewModalVisible] = useState(false);
   const [checkoutBookingId, setCheckoutBookingId] = useState<number | null>(null);
 
   const [adminModifyModalOpen, setAdminModifyModalOpen] = useState(false);
@@ -1232,11 +1230,10 @@ const handleCheckIn = (booking: Booking) => {
         )}
       </div>
 
-      <BookingDetailModal
-        bookingId={viewModalVisible ? selectedBooking?.id ?? null : null}
-        open={viewModalVisible}
-        onClose={() => setViewModalVisible(false)}
-      />
+      {/* Trang này xem chi tiết bằng cách chuyển sang /bookings/:id, không dùng
+          modal nữa. Khối BookingDetailModal cũ đã bị gỡ vì viewModalVisible chỉ
+          từng được gán false nên modal không bao giờ mở được. Bản thân file
+          BookingDetailModal vẫn giữ vì trang lịch sử đặt phòng còn dùng. */}
 
       <CheckoutPaymentModal
         bookingId={checkoutBookingId}
