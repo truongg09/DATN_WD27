@@ -108,7 +108,9 @@ const TransferPricePreview: React.FC<{
       fallbackPrice: Number(targetRoom.price_per_night || 0),
     })
       .then((res) => {
-        if (!cancelled) setPreviewData(res.data.data);
+        // Interceptor đã bóc body nên res là { data: {...} }; bóc hai lần thì
+        // khung xem trước giá luôn trống.
+        if (!cancelled) setPreviewData(res.data);
       })
       .catch(() => {
         if (!cancelled) setPreviewData(null);
@@ -229,7 +231,7 @@ const ExtendPricePreview: React.FC<{
       fallbackPrice: Number(booking.room_price || 0),
     })
       .then((res) => {
-        if (!cancelled) setPreviewData(res.data.data);
+        if (!cancelled) setPreviewData(res.data);
       })
       .catch(() => {
         if (!cancelled) setPreviewData(null);
