@@ -1275,7 +1275,6 @@ const createMultiTypeBooking = async (payload, actor, connection) => {
         connection,
       );
       createdBookingDetails.push(detail);
-      await bookingModel.upsertAvailabilityRows(roomItem.id, bookingId, dates, connection);
       slotIndex += 1;
     }
     group.nightly.prices.forEach((night) => {
@@ -1479,12 +1478,6 @@ const createBooking = async (payload, actor) => {
         connection
       );
       createdBookingDetails.push(detail);
-      await bookingModel.upsertAvailabilityRows(
-        roomItem.id,
-        bookingId,
-        dates,
-        connection
-      );
     }
     // Chốt giá từng đêm để thao tác về sau không tính lại theo bảng giá mới.
     await bookingModel.saveNightlyPrices(bookingId, nightly.prices, connection);
@@ -3596,22 +3589,9 @@ const transferRoom = async (bookingId, payload, actor = null) => {
       connection,
     );
 
-    // Cập nhật room_availability: giải phóng phòng cũ, giữ phòng mới từ splitDate -> stayEnd
-    const newDates = getStayDates(splitDate, stayEnd);
-    if (newDates.length > 0) {
-      await connection.query(
-        `UPDATE room_availability
-         SET booking_id = NULL, status = 'available'
-         WHERE room_id = ? AND booking_id = ? AND date >= ? AND date < ?`,
-        [booking.room_id, bookingId, splitDate, stayEnd]
-      );
-      await bookingModel.upsertAvailabilityRows(
-        toRoom.id,
-        bookingId,
-        newDates,
-        connection
-      );
-    }
+    // Không còn bảng room_availability: tồn kho phòng được suy ra từ bookings và
+    // booking_details. Khối cũ truy vấn thẳng vào bảng đã bỏ nên mọi lần chuyển
+    // phòng đều dừng ở lỗi 500 trước khi kịp lưu gì.
 
     await bookingModel.updateBookingStay(
       bookingId,

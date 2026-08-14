@@ -461,8 +461,6 @@ const createBookingDetail = async (bookingId, payload, roomPrice, occupancySurch
   return { id: result.insertId, roomId: payload.roomId };
 };
 
-const upsertAvailabilityRows = async () => {};
-
 const getServiceById = async (serviceId, connection) => {
   const [rows] = await run(connection).query(
     'SELECT id, serviceName, price FROM services WHERE id = ?',
@@ -1478,7 +1476,6 @@ module.exports = {
   getBookedAvailabilityRows,
   createBooking,
   createBookingDetail,
-  upsertAvailabilityRows,
   getServiceById,
   validateRoomInBooking,
   addBookingService,
