@@ -233,19 +233,68 @@ const VARIABLE_HOLIDAYS_VI = [
   { start: '2030-02-01', end: '2030-02-09', name: 'Tết Nguyên Đán 2030' },
   { start: '2030-04-11', end: '2030-04-12', name: 'Giỗ tổ Hùng Vương (10/3 ÂL)' },
   { start: '2030-04-30', end: '2030-05-03', name: 'Kỳ nghỉ 30/4 - 1/5' },
-  { start: '2030-08-31', end: '2030-09-03', name: 'Kỳ nghỉ Quốc khánh 2/9' }
+  { start: '2030-08-31', end: '2030-09-03', name: 'Kỳ nghỉ Quốc khánh 2/9' },
+
+  // Năm 2031
+  { start: '2031-01-22', end: '2031-01-30', name: 'Tết Nguyên Đán 2031' },
+  { start: '2031-04-01', end: '2031-04-02', name: 'Giỗ tổ Hùng Vương (10/3 ÂL)' },
+  { start: '2031-04-30', end: '2031-05-04', name: 'Kỳ nghỉ 30/4 - 1/5' },
+  { start: '2031-08-30', end: '2031-09-02', name: 'Kỳ nghỉ Quốc khánh 2/9' },
+
+  // Năm 2032
+  { start: '2032-02-10', end: '2032-02-18', name: 'Tết Nguyên Đán 2032' },
+  { start: '2032-04-19', end: '2032-04-20', name: 'Giỗ tổ Hùng Vương (10/3 ÂL)' },
+  { start: '2032-04-30', end: '2032-05-02', name: 'Kỳ nghỉ 30/4 - 1/5' },
+  { start: '2032-09-01', end: '2032-09-05', name: 'Kỳ nghỉ Quốc khánh 2/9' },
+
+  // Năm 2033
+  { start: '2033-01-30', end: '2033-02-07', name: 'Tết Nguyên Đán 2033' },
+  { start: '2033-04-08', end: '2033-04-09', name: 'Giỗ tổ Hùng Vương (10/3 ÂL)' },
+  { start: '2033-04-30', end: '2033-05-03', name: 'Kỳ nghỉ 30/4 - 1/5' },
+  { start: '2033-09-01', end: '2033-09-04', name: 'Kỳ nghỉ Quốc khánh 2/9' },
+
+  // Năm 2034
+  { start: '2034-02-18', end: '2034-02-26', name: 'Tết Nguyên Đán 2034' },
+  { start: '2034-04-27', end: '2034-04-28', name: 'Giỗ tổ Hùng Vương (10/3 ÂL)' },
+  { start: '2034-04-29', end: '2034-05-03', name: 'Kỳ nghỉ 30/4 - 1/5' },
+  { start: '2034-09-01', end: '2034-09-03', name: 'Kỳ nghỉ Quốc khánh 2/9' },
+
+  // Năm 2035
+  { start: '2035-02-07', end: '2035-02-15', name: 'Tết Nguyên Đán 2035' },
+  { start: '2035-04-16', end: '2035-04-17', name: 'Giỗ tổ Hùng Vương (10/3 ÂL)' },
+  { start: '2035-04-30', end: '2035-05-02', name: 'Kỳ nghỉ 30/4 - 1/5' },
+  { start: '2035-09-01', end: '2035-09-04', name: 'Kỳ nghỉ Quốc khánh 2/9' }
 ];
 
+// Năm cuối cùng có dữ liệu lễ âm lịch. Qua mốc này mà chưa bổ sung thì Tết
+// Nguyên Đán sẽ lặng lẽ bán theo giá ngày thường, nên phải cảnh báo ra log.
+const LAST_VARIABLE_HOLIDAY_YEAR = Math.max(
+  ...VARIABLE_HOLIDAYS_VI.map((item) => Number(item.start.slice(0, 4)))
+);
+const warnedMissingHolidayYears = new Set();
+
 const checkHolidayDate = (dateStr) => {
-  const mmdd = dateStr.slice(5, 10);
-  if (FIXED_HOLIDAYS_VI[mmdd]) {
-    return { isHoliday: true, name: FIXED_HOLIDAYS_VI[mmdd] };
-  }
+  // Xét các dịp theo từng năm TRƯỚC. Nếu tra bảng dương lịch cố định trước thì
+  // mùng 1 Tết 2026 (14/02) bị gắn nhãn "Lễ Tình nhân" thay vì "Tết Nguyên Đán".
   const variable = VARIABLE_HOLIDAYS_VI.find(
     (item) => item.start <= dateStr && dateStr <= item.end
   );
   if (variable) {
     return { isHoliday: true, name: variable.name };
+  }
+
+  const year = Number(dateStr.slice(0, 4));
+  if (year > LAST_VARIABLE_HOLIDAY_YEAR && !warnedMissingHolidayYears.has(year)) {
+    warnedMissingHolidayYears.add(year);
+    console.warn(
+      `[gia-phong] Chưa khai ngày lễ âm lịch cho năm ${year} (mới có tới ${LAST_VARIABLE_HOLIDAY_YEAR}). ` +
+        'Tết Nguyên Đán và Giỗ tổ Hùng Vương năm này đang được tính như ngày thường.'
+    );
+  }
+
+  const mmdd = dateStr.slice(5, 10);
+  if (FIXED_HOLIDAYS_VI[mmdd]) {
+    return { isHoliday: true, name: FIXED_HOLIDAYS_VI[mmdd] };
   }
   return { isHoliday: false, name: '' };
 };
