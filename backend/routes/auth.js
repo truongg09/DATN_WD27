@@ -1,7 +1,9 @@
 const express = require('express');
 const bcrypt = require('bcrypt');
+const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const db = require('../config/db');
+const emailService = require('../services/emailService');
 const { JWT_SECRET, JWT_EXPIRES_IN } = require('../config/jwt');
 
 const router = express.Router();
@@ -178,5 +180,111 @@ router.post('/change-password', requireAuth, async (req, res) => {
   }
 });
 
+// ── Quên mật khẩu ──────────────────────────────────────────────────────────
+// Màn hình /forgot-password trước đây chỉ hiện thông báo thành công giả, backend
+// không hề có endpoint nào. Hai route dưới đây làm đúng luồng: gửi liên kết kèm
+// token dùng một lần, hết hạn sau ít phút.
+
+const RESET_TOKEN_TTL_MINUTES = 30;
+const hashResetToken = (token) => crypto.createHash('sha256').update(token).digest('hex');
+
+router.post('/forgot-password', async (req, res) => {
+  // Luôn trả cùng một câu trả lời dù email có tồn tại hay không, để không ai
+  // dùng màn hình này để dò xem địa chỉ nào đã đăng ký.
+  const genericResponse = {
+    message: 'Nếu email tồn tại trong hệ thống, chúng tôi đã gửi liên kết đặt lại mật khẩu.'
+  };
+
+  try {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    if (!email) {
+      return res.status(400).json({ message: 'Vui lòng nhập email' });
+    }
+
+    const [accounts] = await db.query(
+      'SELECT id, email, status FROM accounts WHERE LOWER(email) = ? LIMIT 1',
+      [email]
+    );
+    const account = accounts[0];
+    if (!account || account.status === 'locked') {
+      return res.json(genericResponse);
+    }
+
+    const [customers] = await db.query(
+      'SELECT fullName FROM customers WHERE accountId = ? LIMIT 1',
+      [account.id]
+    );
+    const customer = customers[0] || null;
+
+    // Vô hiệu hóa các token cũ chưa dùng để mỗi lần yêu cầu chỉ còn một liên kết
+    // hợp lệ.
+    await db.query(
+      'UPDATE password_reset_tokens SET usedAt = NOW() WHERE accountId = ? AND usedAt IS NULL',
+      [account.id]
+    );
+
+    const token = crypto.randomBytes(32).toString('hex');
+    await db.query(
+      `INSERT INTO password_reset_tokens (accountId, tokenHash, expiresAt)
+       VALUES (?, ?, DATE_ADD(NOW(), INTERVAL ? MINUTE))`,
+      [account.id, hashResetToken(token), RESET_TOKEN_TTL_MINUTES]
+    );
+
+    const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
+    await emailService.sendPasswordResetEmail({
+      to: account.email,
+      name: customer?.fullName || '',
+      resetUrl: `${frontendUrl}/reset-password?token=${token}`,
+      expiresInMinutes: RESET_TOKEN_TTL_MINUTES
+    });
+
+    if (!emailService.isEmailConfigured()) {
+      // Máy chủ chưa cấu hình SMTP thì email bị bỏ qua im lặng. Ghi log để người
+      // chạy thử tại máy vẫn lấy được liên kết mà không phải dò trong cơ sở dữ liệu.
+      console.info(`[auth] Liên kết đặt lại mật khẩu cho ${account.email}: ${frontendUrl}/reset-password?token=${token}`);
+    }
+
+    return res.json(genericResponse);
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    return res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
+  }
+});
+
+router.post('/reset-password', async (req, res) => {
+  try {
+    const { token, newPassword } = req.body || {};
+    if (!token || !newPassword) {
+      return res.status(400).json({ message: 'Thiếu mã đặt lại hoặc mật khẩu mới' });
+    }
+    if (String(newPassword).length < 6) {
+      return res.status(400).json({ message: 'Mật khẩu mới phải có ít nhất 6 ký tự!' });
+    }
+
+    const [rows] = await db.query(
+      `SELECT id, accountId FROM password_reset_tokens
+       WHERE tokenHash = ? AND usedAt IS NULL AND expiresAt > NOW()
+       LIMIT 1`,
+      [hashResetToken(String(token))]
+    );
+    if (rows.length === 0) {
+      return res.status(400).json({
+        message: 'Liên kết đặt lại mật khẩu không hợp lệ hoặc đã hết hạn. Vui lòng yêu cầu lại.'
+      });
+    }
+
+    const hashedPassword = await bcrypt.hash(String(newPassword), 10);
+    await db.query('UPDATE accounts SET password = ? WHERE id = ?', [
+      hashedPassword,
+      rows[0].accountId
+    ]);
+    await db.query('UPDATE password_reset_tokens SET usedAt = NOW() WHERE id = ?', [rows[0].id]);
+
+    return res.json({ message: 'Đặt lại mật khẩu thành công! Bạn có thể đăng nhập ngay.' });
+  } catch (error) {
+    console.error('Reset password error:', error);
+    return res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
+  }
+});
 
 module.exports = router;
