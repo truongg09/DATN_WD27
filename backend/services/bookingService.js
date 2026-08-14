@@ -270,7 +270,6 @@ const calcNightlyPrices = async (
 ) => {
   const nights = getStayDates(dayString(checkIn), dayString(checkOut));
   const ranges = await bookingModel.listRoomPriceRanges(roomTypeId || null, connection);
-  const basePriceValue = Number(fallbackPrice || 0);
 
   // Lấy thông tin hạng phòng để nhận diện hạng sang
   let roomTypeInfo = null;
@@ -285,6 +284,13 @@ const calcNightlyPrices = async (
       roomTypeInfo = null;
     }
   }
+
+  // Nơi gọi không truyền giá gốc thì lấy giá niêm yết của hạng phòng. Thiếu bước
+  // này, giá mỗi đêm chỉ còn đúng phần phụ thu (VD ngày lễ ra 100.000đ thay vì
+  // giá phòng + 100.000đ).
+  const basePriceValue = Number(fallbackPrice || 0) > 0
+    ? Number(fallbackPrice)
+    : Number(roomTypeInfo?.defaultPrice || 0);
 
   const isLuxury = isLuxuryRoomType(roomTypeInfo, basePriceValue);
   const weekendHolidaySurcharge = isLuxury ? 200000 : 100000;
