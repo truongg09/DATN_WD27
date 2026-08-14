@@ -54,7 +54,46 @@ const replaceVoucherRoomTypes = async (connection, voucherId, roomTypeIds) => {
   );
 };
 
-router.get('/', async (_req, res) => {
+// Voucher dành riêng cho khách đang đăng nhập: các mã được tặng riêng cho họ
+// (VD voucher đền bù khi khách sạn hủy phòng) cộng với các mã công khai còn
+// hiệu lực. Trước đây trang Hồ sơ gọi thẳng GET '/' nên khách nhìn thấy cả
+// voucher đền bù tặng riêng người khác.
+router.get('/me', requireAuth, async (req, res) => {
+  try {
+    const [vouchers] = await db.query(
+      `SELECT DISTINCT
+         v.id, v.code, v.discountType, v.discountValue, v.maxDiscount,
+         v.minBookingAmount, v.startDate, v.endDate, v.status,
+         cv.source AS grantedSource,
+         (cv.id IS NOT NULL) AS isPersonal,
+         (
+           SELECT GROUP_CONCAT(rt.typeName SEPARATOR ', ')
+           FROM voucher_room_types vrt
+           JOIN room_types rt ON rt.id = vrt.roomTypeId
+           WHERE vrt.voucherId = v.id
+         ) AS roomTypeNames
+       FROM vouchers v
+       LEFT JOIN customer_vouchers cv
+         ON cv.voucherId = v.id AND cv.userId = ? AND cv.isUsed = 0
+       WHERE v.status = 'active'
+         AND NOW() BETWEEN v.startDate AND v.endDate
+         AND (
+           cv.id IS NOT NULL
+           OR NOT EXISTS (SELECT 1 FROM customer_vouchers cv2 WHERE cv2.voucherId = v.id)
+         )
+       ORDER BY isPersonal DESC, v.endDate ASC`,
+      [req.user.userId]
+    );
+    res.json({ data: vouchers });
+  } catch (error) {
+    console.error('List my vouchers error:', error);
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
+  }
+});
+
+// Danh sách đầy đủ phục vụ màn hình quản trị (kèm số lượng còn lại, mã đã hết
+// hạn...) nên chỉ quản trị viên được xem.
+router.get('/', requireAuth, requireAdmin, async (_req, res) => {
   try {
     const [vouchers] = await db.query(
       `SELECT
