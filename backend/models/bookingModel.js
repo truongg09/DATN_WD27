@@ -1367,14 +1367,48 @@ const findActiveCheckedInBooking = async (roomId, excludeBookingId, connection) 
   return rows[0] || null;
 };
 
+// Mỗi đơn chỉ có đúng một lần trả phòng nên cũng chỉ có một khoản phí trễ giờ.
+// Trước đây hàm này INSERT thẳng, nên lễ tân bấm "Trả phòng" lần thứ hai là
+// thêm một dòng nữa và tiền phí nhân lên theo số lần bấm.
 const addLateCheckoutCharge = async (bookingId, payload, connection) => {
+  const values = [
+    payload.lateMinutes,
+    payload.tierPercent,
+    payload.nightlyRate,
+    payload.totalPrice,
+    payload.note || null,
+  ];
+
+  const [existing] = await run(connection).query(
+    'SELECT id FROM booking_late_checkout_charges WHERE bookingId = ? ORDER BY id LIMIT 1',
+    [bookingId]
+  );
+
+  if (existing.length > 0) {
+    const chargeId = existing[0].id;
+    await run(connection).query(
+      `
+        UPDATE booking_late_checkout_charges
+        SET lateMinutes = ?, tierPercent = ?, nightlyRate = ?, totalPrice = ?, note = ?
+        WHERE id = ?
+      `,
+      [...values, chargeId]
+    );
+    // Dọn các dòng thừa do lần bấm trước sinh ra, nếu có.
+    await run(connection).query(
+      'DELETE FROM booking_late_checkout_charges WHERE bookingId = ? AND id <> ?',
+      [bookingId, chargeId]
+    );
+    return { id: chargeId, totalPrice: payload.totalPrice };
+  }
+
   const [result] = await run(connection).query(
     `
       INSERT INTO booking_late_checkout_charges
         (bookingId, lateMinutes, tierPercent, nightlyRate, totalPrice, note)
       VALUES (?, ?, ?, ?, ?, ?)
     `,
-    [bookingId, payload.lateMinutes, payload.tierPercent, payload.nightlyRate, payload.totalPrice, payload.note || null]
+    [bookingId, ...values]
   );
   return { id: result.insertId, totalPrice: payload.totalPrice };
 };
