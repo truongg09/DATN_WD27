@@ -154,14 +154,15 @@ function Profile() {
     }
   };
 
-  // Fetch danh sách vouchers khuyến mãi
+  // Fetch danh sách vouchers khuyến mãi.
+  // Gọi /vouchers/me chứ không phải /vouchers: endpoint kia là danh sách quản
+  // trị và trả về cả voucher đền bù tặng riêng cho khách khác.
   const fetchVouchers = async () => {
     try {
-      const response = await api.get("/vouchers");
+      const response = await api.get("/vouchers/me");
       const data = response.data?.data || response.data || [];
       if (Array.isArray(data)) {
-        // Chỉ hiện vouchers còn hoạt động
-        setVouchers(data.filter((v: any) => v.status === "active"));
+        setVouchers(data);
       }
     } catch (error) {
       console.error("Error fetching vouchers:", error);
