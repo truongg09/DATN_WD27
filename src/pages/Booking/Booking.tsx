@@ -37,6 +37,7 @@ import {
   getRoomById,
   getRoomTypes,
   getRoomTypeDetail,
+  previewRoomPrice,
 } from "../../services/roomService";
 import type { RoomTypeSearchResult } from "../../services/roomService";
 import { getServices } from "../../services/serviceService";
@@ -163,6 +164,11 @@ const Booking: React.FC = () => {
   const [extraRoomTypes, setExtraRoomTypes] = useState<
     { roomTypeId: number; quantity: number }[]
   >([]);
+  // Giá mỗi đêm của các hạng đặt thêm do máy chủ tính (đã gồm phụ thu ngày lễ và
+  // cuối tuần), khóa theo id hạng phòng.
+  const [extraTypeStayAmount, setExtraTypeStayAmount] = useState<
+    Record<number, number>
+  >({});
   const [services, setServices] = useState<Service[]>([]);
   // Mỗi dòng là một lượt chọn riêng (key tự tăng), nên cùng một dịch vụ có thể
   // xuất hiện nhiều dòng cho các phòng khác nhau.
@@ -595,14 +601,51 @@ const Booking: React.FC = () => {
     return unitPrice * activeRoomQuantity;
   };
 
-  // Tạm tính cho các hạng đặt thêm theo giá niêm yết; số chính xác (giá theo
-  // ngày lễ/cuối tuần) do máy chủ tính khi tạo đơn.
+  // Tạm tính cho các hạng đặt thêm. Ưu tiên tiền phòng do máy chủ tính (đã gồm
+  // phụ thu ngày lễ và cuối tuần), chỉ khi chưa có mới tạm lấy giá niêm yết.
   const extraRoomsAmount = extraRoomTypes.reduce((total, line) => {
+    const stayAmount = extraTypeStayAmount[line.roomTypeId];
+    if (stayAmount > 0) {
+      return total + stayAmount * line.quantity;
+    }
     const type = roomTypes.find((t) => t.id === line.roomTypeId);
     return total + Number(type?.defaultPrice || 0) * nights * line.quantity;
   }, 0);
   const totalSelectedRooms =
     activeRoomQuantity + extraRoomTypes.reduce((sum, line) => sum + line.quantity, 0);
+
+  // Hỏi máy chủ tiền phòng thật của từng hạng đặt thêm để khách nhìn thấy ngay
+  // phần tăng giá ngày lễ / cuối tuần, thay vì chỉ nhân giá niêm yết với số đêm.
+  const extraTypeIdsKey = extraRoomTypes
+    .map((line) => line.roomTypeId)
+    .filter(Boolean)
+    .sort((a, b) => a - b)
+    .join(',');
+  useEffect(() => {
+    const typeIds = extraTypeIdsKey ? extraTypeIdsKey.split(',').map(Number) : [];
+    const checkIn = dateRange[0]?.format('YYYY-MM-DD');
+    const checkOut = dateRange[1]?.format('YYYY-MM-DD');
+    if (typeIds.length === 0 || !checkIn || !checkOut) {
+      setExtraTypeStayAmount({});
+      return;
+    }
+
+    let cancelled = false;
+    Promise.all(
+      typeIds.map((roomTypeId) =>
+        previewRoomPrice({ roomTypeId, checkIn, checkOut })
+          .then((res) => [roomTypeId, Number(res.data?.total || 0)] as const)
+          .catch(() => [roomTypeId, 0] as const),
+      ),
+    ).then((entries) => {
+      if (cancelled) return;
+      setExtraTypeStayAmount(Object.fromEntries(entries));
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [extraTypeIdsKey, dateRange]);
 
   const serviceAmount = serviceRequests.reduce((total, request) => {
     if (!request.serviceId) return total;
