@@ -1927,11 +1927,15 @@ const getBookingById = async (bookingId) => {
     .reduce((sum, p) => sum + Math.max(0, p.price - basePricePerNight), 0);
 
   const occupancySurcharge = Number(booking.occupancy_surcharge || 0);
+  // Chỉ cộng dòng đang ở trạng thái 'used', giống sumBookingServices và
+  // sumDamageCharges bên model. Lọc theo "khác cancelled" thì các dòng chờ xác
+  // nhận hoặc bị từ chối vẫn lọt vào, khiến số tiền hiện trên màn hình thanh
+  // toán không khớp số thật sự phải trả.
   const serviceAmount = services
-    .filter((s) => s.status !== 'cancelled')
+    .filter((s) => s.status === 'used')
     .reduce((sum, s) => sum + Number(s.totalPrice || 0), 0);
   const damageAmount = damages
-    .filter((d) => d.status !== 'cancelled')
+    .filter((d) => d.status === 'used')
     .reduce((sum, d) => sum + Number(d.totalPrice || 0), 0);
 
   const priceBreakdown = {
@@ -2063,14 +2067,17 @@ const getPaymentSummary = async (bookingId) => {
     surchargeAmount: Number(
       payment?.surchargeAmount || booking.occupancy_surcharge || 0,
     ),
-    serviceAmount: services.reduce(
-      (sum, item) => sum + Number(item.totalPrice || 0),
-      0,
-    ),
-    damageAmount: damages.reduce(
-      (sum, item) => sum + Number(item.totalPrice || 0),
-      0,
-    ),
+    // Chỉ cộng dòng 'used' cho khớp sumBookingServices / sumDamageCharges — hai
+    // hàm quyết định số tiền thật sự phải trả. Trước đây cộng hết mọi dòng nên
+    // dịch vụ đã hủy hoặc còn chờ duyệt vẫn hiện vào tổng, khiến con số trên màn
+    // hình trả phòng lệch với số tiền in trên mã QR.
+    serviceAmount: services
+      .filter((item) => item.status === 'used')
+      .reduce((sum, item) => sum + Number(item.totalPrice || 0), 0),
+    damageAmount: damages
+      .filter((item) => item.status === 'used')
+      .reduce((sum, item) => sum + Number(item.totalPrice || 0), 0),
+    // Vẫn trả về đủ danh sách kèm status để màn hình hiển thị được cả dòng đã hủy.
     services,
     damages,
     canCheckOut: remainingAmount <= 0,
