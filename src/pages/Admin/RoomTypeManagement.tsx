@@ -496,30 +496,30 @@ function RoomTypeManagement() {
       title: 'Thao tác',
       key: 'actions',
       width: 200,
+      // Cùng quy ước với các bảng khác: một nút chính tô đậm, thao tác phụ dùng
+      // nút viền, thao tác xóa dùng tone đỏ.
       render: (_: unknown, record: RoomType) => (
-        <Space>
+        <Space size={4}>
           <Tooltip title="Xem chi tiết hạng phòng">
             <Button
               type="primary"
-              icon={<EyeOutlined style={{ color: 'white' }} />}
+              icon={<EyeOutlined />}
               size="small"
               onClick={() => handleViewDetail(record)}
             />
           </Tooltip>
-          <Tooltip title="Cấu hình bảng giá (Lễ / Chủ nhật / Ngày thường)">
-            <Button
-              style={{ backgroundColor: '#f59e0b', color: '#fff', borderColor: '#f59e0b' }}
-              icon={<DollarCircleOutlined />}
-              size="small"
-              onClick={() => handleOpenPricingModal(record)}
-            />
-          </Tooltip>
           <Tooltip title="Chỉnh sửa hạng phòng">
             <Button
-              type="primary"
               icon={<EditOutlined />}
               size="small"
               onClick={() => handleEdit(record)}
+            />
+          </Tooltip>
+          <Tooltip title="Cấu hình bảng giá (Lễ / Chủ nhật / Ngày thường)">
+            <Button
+              icon={<DollarCircleOutlined />}
+              size="small"
+              onClick={() => handleOpenPricingModal(record)}
             />
           </Tooltip>
           <Popconfirm
@@ -529,12 +529,9 @@ function RoomTypeManagement() {
             okText="Xóa"
             cancelText="Hủy"
           >
-            <Button
-              type="primary"
-              danger
-              icon={<DeleteOutlined />}
-              size="small"
-            />
+            <Tooltip title="Xóa hạng phòng">
+              <Button danger icon={<DeleteOutlined />} size="small" />
+            </Tooltip>
           </Popconfirm>
         </Space>
       ),

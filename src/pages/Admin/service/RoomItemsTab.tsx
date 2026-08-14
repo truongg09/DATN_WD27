@@ -12,6 +12,7 @@ import {
   Space,
   Card,
   Tag,
+  Tooltip,
   Descriptions,
 } from 'antd';
 import {
@@ -191,32 +192,30 @@ function RoomItemsTab() {
       title: 'Hành động',
       key: 'action',
       width: 200,
+      // Cùng quy ước với các bảng khác: một nút chính tô đậm, thao tác phụ dùng
+      // nút viền, thao tác xóa dùng tone đỏ.
       render: (_: unknown, record: RoomItem) => (
-        <Space>
-          <Button
-            type="primary"
-            icon={<EyeOutlined style={{ color: 'white' }} />}
-            size="small"
-            onClick={() => handleViewDetail(record)}
-          />
-          <Button
-            type="primary"
-            icon={<EditOutlined />}
-            size="small"
-            onClick={() => handleEdit(record)}
-          />
+        <Space size={4}>
+          <Tooltip title="Xem chi tiết vật dụng">
+            <Button
+              type="primary"
+              icon={<EyeOutlined />}
+              size="small"
+              onClick={() => handleViewDetail(record)}
+            />
+          </Tooltip>
+          <Tooltip title="Sửa vật dụng">
+            <Button icon={<EditOutlined />} size="small" onClick={() => handleEdit(record)} />
+          </Tooltip>
           <Popconfirm
             title="Bạn có chắc chắn muốn xóa?"
             onConfirm={() => handleDelete(record.id)}
             okText="Xóa"
             cancelText="Hủy"
           >
-            <Button
-              type="primary"
-              danger
-              icon={<DeleteOutlined />}
-              size="small"
-            />
+            <Tooltip title="Xóa vật dụng">
+              <Button danger icon={<DeleteOutlined />} size="small" />
+            </Tooltip>
           </Popconfirm>
         </Space>
       ),

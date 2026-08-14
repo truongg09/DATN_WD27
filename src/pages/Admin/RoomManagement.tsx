@@ -760,44 +760,34 @@ function RoomManagement() {
     {
       title: 'Thao tác',
       key: 'action',
+      // Cùng quy ước với các bảng khác: một nút chính tô đậm, thao tác phụ dùng
+      // nút viền, thao tác xóa dùng tone đỏ. Không đặt mã màu cứng để nút không
+      // lệch tone khi đổi chủ đề.
       render: (_: unknown, record: Room) => (
-        <Space>
-          <Button
-            type="primary"
-            style={{ backgroundColor: '#52c41a', borderColor: '#52c41a' }}
-            icon={<ToolOutlined />}
-            size="small"
-            onClick={() => handleManageItems(record)}
-            title="Quản lý vật tư"
-          >
-          </Button>
-          <Button
-            type="primary"
-            icon={<EyeOutlined style={{ color: 'white' }} />}
-            size="small"
-            onClick={() => handleViewDetail(record)}
-          >
-          </Button>
-          <Button
-            type="primary"
-            icon={<EditOutlined />}
-            size="small"
-            onClick={() => handleEdit(record)}
-          >
-          </Button>
+        <Space size={4}>
+          <Tooltip title="Xem chi tiết phòng">
+            <Button
+              type="primary"
+              size="small"
+              icon={<EyeOutlined />}
+              onClick={() => handleViewDetail(record)}
+            />
+          </Tooltip>
+          <Tooltip title="Sửa thông tin phòng">
+            <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)} />
+          </Tooltip>
+          <Tooltip title="Quản lý vật tư trong phòng">
+            <Button size="small" icon={<ToolOutlined />} onClick={() => handleManageItems(record)} />
+          </Tooltip>
           <Popconfirm
             title="Bạn có chắc chắn muốn xóa?"
             onConfirm={() => handleDelete(record.id)}
             okText="Xóa"
             cancelText="Hủy"
           >
-            <Button
-              type="primary"
-              danger
-              icon={<DeleteOutlined />}
-              size="small"
-            >
-            </Button>
+            <Tooltip title="Xóa phòng">
+              <Button danger size="small" icon={<DeleteOutlined />} />
+            </Tooltip>
           </Popconfirm>
         </Space>
       ),
@@ -816,19 +806,12 @@ function RoomManagement() {
             >
               Làm mới
             </Button>
-            <Button 
-              type="primary" 
-              style={{ backgroundColor: '#ab8965', borderColor: '#ab8965' }}
-              icon={<PlusOutlined />} 
-              onClick={handleOpenBulkModal}
-            >
+            {/* Thêm hàng loạt là thao tác phụ nên dùng nút viền, tránh hai nút
+                tô đậm cạnh nhau và bỏ mã màu cứng gây lệch tone. */}
+            <Button icon={<PlusOutlined />} onClick={handleOpenBulkModal}>
               Thêm hàng loạt
             </Button>
-            <Button 
-              type="primary" 
-              icon={<PlusOutlined />} 
-              onClick={handleAdd}
-            >
+            <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
               Thêm phòng mới
             </Button>
           </Space>
