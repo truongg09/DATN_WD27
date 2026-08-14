@@ -538,9 +538,24 @@ const Booking: React.FC = () => {
     }
   }, [selectedRoom, isSpecificRoomMode, totalGuests, minRequiredRooms]);
 
-  const totalAdultCapacity = adultCap * activeRoomQuantity;
-  const totalChildCapacity = childCap * activeRoomQuantity;
-  const totalMaxOccupancy = maxOcc * activeRoomQuantity;
+  // Sức chứa phải cộng cả các hạng đặt thêm, nếu không thì khách đặt 1 Standard
+  // + 1 Family cho 6 người vẫn bị báo vượt sức chứa và không bấm đặt được.
+  const extraRoomsCapacity = extraRoomTypes.reduce(
+    (acc, line) => {
+      const type = roomTypes.find((t) => t.id === line.roomTypeId);
+      if (!type) return acc;
+      return {
+        adults: acc.adults + Number(type.adultCapacity || 0) * line.quantity,
+        children: acc.children + Number(type.childCapacity || 0) * line.quantity,
+        maxOccupancy: acc.maxOccupancy + Number(type.maxOccupancy || 0) * line.quantity,
+      };
+    },
+    { adults: 0, children: 0, maxOccupancy: 0 },
+  );
+
+  const totalAdultCapacity = adultCap * activeRoomQuantity + extraRoomsCapacity.adults;
+  const totalChildCapacity = childCap * activeRoomQuantity + extraRoomsCapacity.children;
+  const totalMaxOccupancy = maxOcc * activeRoomQuantity + extraRoomsCapacity.maxOccupancy;
 
   const extraAdults = Math.max(0, effectiveAdults - totalAdultCapacity);
   const rawExtraChildren = Math.max(0, effectiveChildren - totalChildCapacity);
@@ -609,6 +624,24 @@ const Booking: React.FC = () => {
   }, 0);
   const totalSelectedRooms =
     activeRoomQuantity + extraRoomTypes.reduce((sum, line) => sum + line.quantity, 0);
+
+  // Giảm số phòng thì các dòng dịch vụ đang trỏ tới phòng vừa bị bỏ phải kéo về
+  // trong khoảng hợp lệ, nếu không máy chủ trả 400 "Phòng được chọn không hợp lệ"
+  // mà trên màn hình vẫn thấy số phòng cũ.
+  useEffect(() => {
+    setServiceRequests((prev) => {
+      let changed = false;
+      const next = prev.map((line) => {
+        const clamped = Math.min(Math.max(line.roomIndex ?? 1, 1), totalSelectedRooms);
+        if (clamped !== line.roomIndex) {
+          changed = true;
+          return { ...line, roomIndex: clamped };
+        }
+        return line;
+      });
+      return changed ? next : prev;
+    });
+  }, [totalSelectedRooms]);
 
   // Hỏi máy chủ tiền phòng thật của từng hạng đặt thêm để khách nhìn thấy ngay
   // phần tăng giá ngày lễ / cuối tuần, thay vì chỉ nhân giá niêm yết với số đêm.
@@ -872,7 +905,12 @@ const Booking: React.FC = () => {
           .map(({ serviceId, quantity, roomIndex }) => ({
             serviceId,
             quantity,
-            roomIndex,
+            // Đơn một phòng thì không cần chỉ định phòng nào. Kẹp lại trong
+            // khoảng hợp lệ để không gửi lên số phòng đã bị bỏ đi.
+            roomIndex:
+              totalSelectedRooms > 1
+                ? Math.min(Math.max(roomIndex ?? 1, 1), totalSelectedRooms)
+                : undefined,
           })),
         requestedCheckInTime: data.requestedCheckInTime || null,
         requestedCheckOutTime: data.requestedCheckOutTime || null,
@@ -1149,6 +1187,13 @@ const Booking: React.FC = () => {
                     label: type.typeName,
                   }))}
                   onChange={(roomTypeId) => {
+                    // Nếu hạng vừa chọn đang nằm trong danh sách đặt thêm thì
+                    // phải bỏ nó ra, không thì cùng một hạng bị tính hai lần và
+                    // số phòng lẫn tiền của đơn đều nhân đôi.
+                    setExtraRoomTypes((prev) =>
+                      prev.filter((line) => line.roomTypeId !== roomTypeId),
+                    );
+
                     const params = new URLSearchParams(searchParams);
 
                     params.delete("id");
