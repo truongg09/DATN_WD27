@@ -976,7 +976,14 @@ const applyVoucher = async (paymentId, code, actor) => {
     const roomAmount = Math.max(Number(booking.total_price || 0) - guestSurcharge, 0);
     const serviceAmount = await bookingModel.sumBookingServices(payment.bookingId, connection);
     const damageSurcharge = await bookingModel.sumDamageCharges(payment.bookingId, connection);
-    const surchargeAmount = guestSurcharge + damageSurcharge;
+    // Phải cộng cả phí trả phòng muộn giống recalculatePaymentForBooking. Thiếu
+    // khoản này thì áp voucher sau khi khách trả phòng muộn sẽ ghi đè tổng tiền
+    // và xóa luôn phí trễ giờ khỏi hóa đơn.
+    const lateCheckoutSurcharge = await bookingModel.sumLateCheckoutCharges(
+      payment.bookingId,
+      connection
+    );
+    const surchargeAmount = guestSurcharge + damageSurcharge + lateCheckoutSurcharge;
     const subtotal = roomAmount + serviceAmount + surchargeAmount;
     const paidAmount = Number(payment.paidAmount || 0);
 
