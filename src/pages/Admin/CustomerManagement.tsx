@@ -15,6 +15,7 @@ import {
   Space,
   Avatar,
   Dropdown,
+  Tooltip,
   Empty
 } from 'antd';
 import type { MenuProps } from 'antd';
@@ -348,24 +349,21 @@ function CustomerManagement() {
           onClick={(e) => e.stopPropagation()}
           style={{ display: 'flex', justifyContent: 'center' }}
         >
-          <Button
-            type="primary"
-            icon={<EyeOutlined style={{ color: 'white' }} />}
-            size="small"
-            onClick={() => handleViewDetail(record.id)}
-          />
-          <Button
-            type="primary"
-            icon={<EditOutlined />}
-            size="small"
-            onClick={() => handleEdit(record)}
-          />
-          <Dropdown menu={{ items: getRowMenu(record) }} trigger={['click']} placement="bottomRight">
+          {/* Cùng quy ước với các bảng khác: một nút chính tô đậm, thao tác
+              phụ dùng nút viền. */}
+          <Tooltip title="Xem chi tiết khách hàng">
             <Button
               type="primary"
-              icon={<MoreOutlined />}
+              icon={<EyeOutlined />}
               size="small"
+              onClick={() => handleViewDetail(record.id)}
             />
+          </Tooltip>
+          <Tooltip title="Sửa thông tin khách hàng">
+            <Button icon={<EditOutlined />} size="small" onClick={() => handleEdit(record)} />
+          </Tooltip>
+          <Dropdown menu={{ items: getRowMenu(record) }} trigger={['click']} placement="bottomRight">
+            <Button icon={<MoreOutlined />} size="small" />
           </Dropdown>
         </Space>
       )

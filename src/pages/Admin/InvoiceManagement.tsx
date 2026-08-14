@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Card, DatePicker, Descriptions, Empty, Input, Modal, Select, Table, Tag, Typography, message } from 'antd';
+import { Alert, Button, Card, DatePicker, Descriptions, Empty, Input, Modal, Select, Table, Tag, Tooltip, Typography, message } from 'antd';
 import { EyeOutlined, PrinterOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import { getInvoices } from '../../services/invoiceService';
@@ -66,7 +66,9 @@ function InvoiceManagement() {
     { title: 'Ngày phát hành', dataIndex: 'issuedAt', key: 'issuedAt', width: 165, sorter: (a: Invoice, b: Invoice) => dayjs(a.issuedAt).valueOf() - dayjs(b.issuedAt).valueOf(), render: formatDateTime },
     { title: 'Tổng tiền', dataIndex: 'totalAmount', key: 'totalAmount', width: 165, align: 'right' as const, sorter: (a: Invoice, b: Invoice) => a.totalAmount - b.totalAmount, render: (value: number) => <strong className="invoice-total">{formatCurrency(value)}</strong> },
     { title: 'Trạng thái', dataIndex: 'status', key: 'status', width: 135, render: (value: InvoiceStatus) => { const meta = STATUS_META[value] || { label: value, color: 'default' }; return <Tag color={meta.color}>{meta.label}</Tag>; } },
-    { title: 'Thao tác', key: 'actions', width: 115, fixed: 'right' as const, render: (_: unknown, invoice: Invoice) => <Button icon={<EyeOutlined />} onClick={() => setSelectedInvoice(invoice)}>Chi tiết</Button> },
+    // Cùng quy ước với các bảng khác: nút xem chi tiết là nút chính tô đậm, cỡ nhỏ,
+    // chỉ icon và mô tả nằm ở tooltip.
+    { title: 'Thao tác', key: 'actions', width: 90, fixed: 'right' as const, render: (_: unknown, invoice: Invoice) => <Tooltip title="Xem chi tiết hóa đơn"><Button type="primary" size="small" icon={<EyeOutlined />} onClick={() => setSelectedInvoice(invoice)} /></Tooltip> },
   ];
 
   return <div className="invoice-management">

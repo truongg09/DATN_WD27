@@ -13,6 +13,7 @@ import {
   Tabs,
   Badge,
   Input,
+  Tooltip,
 } from 'antd';
 import {
   ReloadOutlined,
@@ -397,17 +398,21 @@ function PaymentManagement() {
     {
       title: 'Thao tác',
       key: 'actions',
+      // Cùng quy ước với các bảng khác: một nút chính tô đậm, thao tác phụ dùng
+      // nút viền, thao tác không hoàn tác được dùng tone đỏ.
       render: (_: unknown, record: Payment) => (
-        <Space>
-          <Button
-            type="primary"
-            icon={<EyeOutlined style={{ color: 'white' }} />}
-            size="small"
-            onClick={() => {
-              setSelectedPayment(record);
-              setDetailVisible(true);
-            }}
-          />
+        <Space size={4}>
+          <Tooltip title="Xem chi tiết giao dịch">
+            <Button
+              type="primary"
+              icon={<EyeOutlined />}
+              size="small"
+              onClick={() => {
+                setSelectedPayment(record);
+                setDetailVisible(true);
+              }}
+            />
+          </Tooltip>
           {record.verificationStatus === 'pending' && (
             <Popconfirm
               title={`Xác nhận đã nhận ${formatPrice(Number(record.verificationAmount || 0))}?`}
@@ -416,12 +421,13 @@ function PaymentManagement() {
               okText="Xác nhận"
               cancelText="Hủy"
             >
-              <Button
-                type="primary"
-                icon={<CheckOutlined />}
-                size="small"
-                loading={confirmingPaymentId === record.id}
-              />
+              <Tooltip title="Xác nhận đã nhận tiền chuyển khoản">
+                <Button
+                  icon={<CheckOutlined />}
+                  size="small"
+                  loading={confirmingPaymentId === record.id}
+                />
+              </Tooltip>
             </Popconfirm>
           )}
           {record.paymentStatus === 'paid' && (
@@ -431,12 +437,9 @@ function PaymentManagement() {
               okText="Hoàn tiền"
               cancelText="Hủy"
             >
-              <Button
-                type="primary"
-                danger
-                icon={<RollbackOutlined />}
-                size="small"
-              />
+              <Tooltip title="Hoàn tiền cho khách">
+                <Button danger icon={<RollbackOutlined />} size="small" />
+              </Tooltip>
             </Popconfirm>
           )}
         </Space>
