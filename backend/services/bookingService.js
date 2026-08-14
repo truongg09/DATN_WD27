@@ -399,6 +399,34 @@ const calcNightlyPrices = async (
       };
     }
 
+    // Quy tắc giá theo mùa / sự kiện phải tra TRƯỚC nhánh cuối tuần. Nhánh cuối
+    // tuần luôn return nên nếu để nguyên ở bước 3, một đêm vừa thuộc mùa cao
+    // điểm vừa rơi vào Thứ 7 hay Chủ nhật sẽ bỏ qua giá mùa và chỉ tính phụ thu
+    // cuối tuần — đúng những đêm đắt nhất năm lại bán rẻ nhất.
+    const seasonRange = ranges.find(
+      (item) =>
+        ['season', 'special', 'event'].includes(item.priceType) &&
+        dayString(item.startDate) <= night &&
+        night <= dayString(item.endDate)
+    );
+    const seasonPrice = seasonRange ? Number(seasonRange.price || 0) : 0;
+
+    // Đêm cuối tuần nằm trong mùa cao điểm thì lấy mức cao hơn giữa hai quy tắc.
+    // Quy tắc mùa không dùng để hạ giá cuối tuần xuống dưới mức phụ thu chuẩn.
+    const withSeasonFloor = (result) => {
+      if (seasonPrice <= result.price) {
+        return result;
+      }
+      return {
+        ...result,
+        price: seasonPrice,
+        surcharge: Math.max(0, seasonPrice - basePriceValue),
+        note: seasonRange.note
+          ? `${seasonRange.note} (áp cho ${result.isSaturday ? 'Thứ 7' : 'Chủ nhật'})`
+          : `Giá theo mùa/sự kiện (áp cho ${result.isSaturday ? 'Thứ 7' : 'Chủ nhật'})`
+      };
+    };
+
     // 2. Ưu tiên thứ hai: Chủ nhật hoặc Cuối tuần (Sunday / Saturday / Weekend)
     if (dayInfo.isSunday) {
       const sundayRange = ranges.find(
@@ -409,7 +437,7 @@ const calcNightlyPrices = async (
       );
       if (sundayRange && Number(sundayRange.price || 0) > 0) {
         const price = Number(sundayRange.price);
-        return {
+        return withSeasonFloor({
           date: night,
           stayDate: night,
           price,
@@ -424,7 +452,7 @@ const calcNightlyPrices = async (
           isSaturday: false,
           isWeekend: true,
           roomId: roomId ? Number(roomId) : null
-        };
+        });
       }
 
       const weekendRange = ranges.find(
@@ -435,7 +463,7 @@ const calcNightlyPrices = async (
       );
       if (weekendRange && Number(weekendRange.price || 0) > 0) {
         const price = Number(weekendRange.price);
-        return {
+        return withSeasonFloor({
           date: night,
           stayDate: night,
           price,
@@ -450,12 +478,12 @@ const calcNightlyPrices = async (
           isSaturday: false,
           isWeekend: true,
           roomId: roomId ? Number(roomId) : null
-        };
+        });
       }
 
       // Giá cuối tuần Chủ nhật mặc định (+100k phòng thường, +200k phòng hạng sang)
       const price = basePriceValue + weekendHolidaySurcharge;
-      return {
+      return withSeasonFloor({
         date: night,
         stayDate: night,
         price,
@@ -470,7 +498,7 @@ const calcNightlyPrices = async (
         isSaturday: false,
         isWeekend: true,
         roomId: roomId ? Number(roomId) : null
-      };
+      });
     } else if (dayInfo.isSaturday) {
       const satRange = ranges.find(
         (item) =>
@@ -480,7 +508,7 @@ const calcNightlyPrices = async (
       );
       if (satRange && Number(satRange.price || 0) > 0) {
         const price = Number(satRange.price);
-        return {
+        return withSeasonFloor({
           date: night,
           stayDate: night,
           price,
@@ -495,12 +523,12 @@ const calcNightlyPrices = async (
           isSaturday: true,
           isWeekend: true,
           roomId: roomId ? Number(roomId) : null
-        };
+        });
       }
 
       // Giá cuối tuần Thứ 7 mặc định (+100k phòng thường, +200k phòng hạng sang)
       const price = basePriceValue + weekendHolidaySurcharge;
-      return {
+      return withSeasonFloor({
         date: night,
         stayDate: night,
         price,
@@ -515,16 +543,11 @@ const calcNightlyPrices = async (
         isSaturday: true,
         isWeekend: true,
         roomId: roomId ? Number(roomId) : null
-      };
+      });
     }
 
     // 3. Ưu tiên thứ ba: Giá theo mùa / sự kiện (Special / Season)
-    const seasonRange = ranges.find(
-      (item) =>
-        ['season', 'special', 'event'].includes(item.priceType) &&
-        dayString(item.startDate) <= night &&
-        night <= dayString(item.endDate)
-    );
+    // seasonRange đã được tra ở trên để nhánh cuối tuần dùng chung.
     if (seasonRange) {
       const price = Number(seasonRange.price);
       return {
