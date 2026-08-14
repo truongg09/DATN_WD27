@@ -1405,7 +1405,10 @@ const Booking: React.FC = () => {
                   <Select
                     value={adults}
                     onChange={(value) => setValue("adults", value)}
-                    options={Array.from({ length: 5 }, (_, i) => ({
+                    // Danh sách phải phủ được giá trị nhận từ URL. Cố định 5 mục
+                    // thì khách vào bằng liên kết có adults=7 sẽ thấy antd in
+                    // trơ số 7 mà không chọn lại được vì không có mục nào khớp.
+                    options={Array.from({ length: Math.max(5, adults) }, (_, i) => ({
                       value: i + 1,
                       label: `${i + 1} người lớn`,
                     }))}
@@ -1418,7 +1421,7 @@ const Booking: React.FC = () => {
                   <Select
                     value={children}
                     onChange={(value) => setValue("children", value)}
-                    options={Array.from({ length: 5 }, (_, i) => ({
+                    options={Array.from({ length: Math.max(5, children + 1) }, (_, i) => ({
                       value: i,
                       label: i === 0 ? "Không có trẻ em" : `${i} trẻ em`,
                     }))}
@@ -1446,10 +1449,13 @@ const Booking: React.FC = () => {
                             prev.map((item, i) => (i === index ? value : item)),
                           )
                         }
-                        options={Array.from({ length: 12 }, (_, ageOption) => ({
-                          value: ageOption,
-                          label: `${ageOption} tuổi`,
-                        }))}
+                        options={Array.from(
+                          { length: Math.max(12, (typeof age === "number" ? age : 0) + 1) },
+                          (_, ageOption) => ({
+                            value: ageOption,
+                            label: `${ageOption} tuổi`,
+                          }),
+                        )}
                         size="large"
                         style={{ width: "100%" }}
                       />
