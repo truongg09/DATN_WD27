@@ -921,6 +921,25 @@ const ensureOperationalSchema = async () => {
     console.error('Lỗi khi khởi tạo booking_late_checkout_charges:', err.message);
   }
 
+  // Lưu yêu cầu đặt lại mật khẩu. Chỉ giữ bản băm của token để người đọc được
+  // cơ sở dữ liệu cũng không chiếm được tài khoản.
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS password_reset_tokens (
+        id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        accountId INT NOT NULL,
+        tokenHash CHAR(64) NOT NULL,
+        expiresAt DATETIME NOT NULL,
+        usedAt DATETIME DEFAULT NULL,
+        createdAt TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_reset_token (tokenHash),
+        KEY idx_reset_account (accountId)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+    `);
+  } catch (err) {
+    console.error('Lỗi khi khởi tạo password_reset_tokens:', err.message);
+  }
+
   // Trước đây không nơi nào ghi bookingCode nên toàn bộ đơn cũ đang để trống.
   // Điền lại theo id để hóa đơn và các màn hình tra cứu có mã hiển thị.
   try {

@@ -219,4 +219,53 @@ const sendPaymentConfirmation = (booking, payment) => {
   });
 };
 
-module.exports = { sendBookingConfirmation, sendPaymentConfirmation };
+// Email đặt lại mật khẩu không gắn với đơn nào nên dùng bố cục riêng, không tái
+// sử dụng emailLayout (bố cục đó luôn kèm nút "Xem chi tiết đặt phòng").
+const sendPasswordResetEmail = ({ to, name, resetUrl, expiresInMinutes }) => send({
+  to,
+  subject: '[HotelHub] Đặt lại mật khẩu',
+  html: `
+  <!doctype html>
+  <html lang="vi">
+    <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Đặt lại mật khẩu</title></head>
+    <body style="margin:0;padding:0;background:#f4f1ed;font-family:Arial,'Helvetica Neue',sans-serif;color:#2f2924">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f4f1ed">
+        <tr><td align="center" style="padding:32px 12px">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0"
+            style="max-width:620px;background:#ffffff;border-radius:18px;overflow:hidden;box-shadow:0 10px 30px rgba(64,48,34,.08)">
+            <tr><td style="background:#a98561;padding:26px 34px;color:#fff;font-size:25px;font-weight:700">HotelHub</td></tr>
+            <tr><td style="padding:38px 34px 8px">
+              <h1 style="margin:0 0 12px;font-size:26px;line-height:1.25;color:#201b17">Đặt lại mật khẩu</h1>
+              <p style="margin:0;color:#655b53;font-size:15px;line-height:1.7">
+                Xin chào <strong>${escapeHtml(name || 'Quý khách')}</strong>, chúng tôi nhận được yêu cầu đặt lại mật khẩu
+                cho tài khoản này. Nhấn nút bên dưới để chọn mật khẩu mới. Liên kết có hiệu lực trong
+                <strong>${Number(expiresInMinutes)} phút</strong> và chỉ dùng được một lần.
+              </p>
+            </td></tr>
+            <tr><td align="center" style="padding:26px 34px">
+              <a href="${resetUrl}"
+                style="display:inline-block;background:#a98561;color:#fff;text-decoration:none;font-size:15px;font-weight:700;padding:14px 26px;border-radius:10px">
+                Đặt lại mật khẩu
+              </a>
+            </td></tr>
+            <tr><td style="padding:0 34px 30px;color:#81766d;font-size:13px;line-height:1.7">
+              Nếu nút không bấm được, hãy sao chép liên kết sau vào trình duyệt:<br>
+              <span style="color:#8d6b4d;word-break:break-all">${escapeHtml(resetUrl)}</span>
+            </td></tr>
+            <tr><td style="background:#faf8f5;border-top:1px solid #eee7df;padding:24px 34px;color:#81766d;font-size:12px;line-height:1.7">
+              Nếu bạn không yêu cầu đặt lại mật khẩu, hãy bỏ qua email này — mật khẩu hiện tại vẫn giữ nguyên.<br>
+              Cần hỗ trợ? Liên hệ <a href="mailto:${escapeHtml(SUPPORT_EMAIL)}" style="color:#8d6b4d">${escapeHtml(SUPPORT_EMAIL)}</a>.
+            </td></tr>
+          </table>
+        </td></tr>
+      </table>
+    </body>
+  </html>`
+});
+
+module.exports = {
+  sendBookingConfirmation,
+  sendPaymentConfirmation,
+  sendPasswordResetEmail,
+  isEmailConfigured: isConfigured
+};
