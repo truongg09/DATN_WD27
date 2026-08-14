@@ -420,6 +420,14 @@ const createBooking = async (payload, totalPrice, connection, extraGuestSnapshot
     ]
   );
 
+  // Sinh mã đơn ngay sau khi có id. Cột bookingCode có sẵn trong bảng và được
+  // hiển thị khắp nơi (hóa đơn, email, tra cứu) nhưng chưa chỗ nào ghi vào, nên
+  // mọi đơn đều mang mã rỗng. Dựa vào id nên chắc chắn không trùng.
+  await run(connection).query(
+    "UPDATE bookings SET bookingCode = CONCAT('BK', LPAD(?, 6, '0')) WHERE id = ?",
+    [result.insertId, result.insertId]
+  );
+
   return result.insertId;
 };
 

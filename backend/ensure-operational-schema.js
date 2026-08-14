@@ -920,6 +920,18 @@ const ensureOperationalSchema = async () => {
   } catch (err) {
     console.error('Lỗi khi khởi tạo booking_late_checkout_charges:', err.message);
   }
+
+  // Trước đây không nơi nào ghi bookingCode nên toàn bộ đơn cũ đang để trống.
+  // Điền lại theo id để hóa đơn và các màn hình tra cứu có mã hiển thị.
+  try {
+    await db.query(`
+      UPDATE bookings
+      SET bookingCode = CONCAT('BK', LPAD(id, 6, '0'))
+      WHERE bookingCode IS NULL OR bookingCode = ''
+    `);
+  } catch (err) {
+    console.error('Lỗi khi điền bookingCode cho đơn cũ:', err.message);
+  }
 };
 
 module.exports = ensureOperationalSchema;
