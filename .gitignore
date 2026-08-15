@@ -39,3 +39,6 @@ lerna-debug.log*
 
 # Cache
 .cache/
+
+# Thu muc nhap khi thu nghiem, khong thuoc ma nguon du an
+scratch/
