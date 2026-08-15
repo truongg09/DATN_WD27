@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { Alert, Button, DatePicker, Form, Input, InputNumber, message, Modal, Pagination, Select, Space, Tag, Tooltip } from 'antd';
 import {
   CheckOutlined,
@@ -372,6 +372,11 @@ function BookingManagement() {
   // Trang này dùng chung cho cả /admin lẫn /staff; điều hướng nội bộ phải giữ
   // đúng khu vực đang đứng, nếu không nhân viên bấm vào sẽ bị chặn bởi AdminRoute.
   const areaPrefix = location.pathname.startsWith('/staff') ? '/staff' : '/admin';
+  // Bộ lọc nhận từ đường dẫn để các ô "Việc cần làm hôm nay" ở Bảng điều khiển
+  // bấm vào là nhảy thẳng sang đúng nhóm đơn cần xử lý.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const statusFilter = searchParams.get('status') || '';
+  const dueFilter = searchParams.get('due') || '';
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [services, setServices] = useState<ServiceItem[]>([]);
   const [rooms, setRooms] = useState<RoomItem[]>([]);
@@ -1022,6 +1027,40 @@ const handleCheckIn = (booking: Booking) => {
     return null;
   };
 
+  // Lọc theo đúng ý nghĩa mà Bảng điều khiển đang đếm, để con số ở ô "Việc cần
+  // làm hôm nay" khớp với số dòng hiện ra sau khi bấm vào.
+  const hasFilter = Boolean(statusFilter || dueFilter);
+  const today = dayjs().format('YYYY-MM-DD');
+  const filteredBookings = bookings.filter((booking) => {
+    const status = normalizeStatus(booking.status);
+    if (statusFilter && status !== statusFilter) return false;
+    if (dueFilter) {
+      // Đơn đã hủy hoặc khách không đến thì không còn là việc phải xử lý hôm nay.
+      if (['cancelled', 'no_show'].includes(status)) return false;
+      const target = dueFilter === 'checkin' ? booking.check_in : booking.check_out;
+      if (!target || dayjs(target).format('YYYY-MM-DD') !== today) return false;
+    }
+    return true;
+  });
+
+  const filterLabel = statusFilter
+    ? `Trạng thái: ${statusText[statusFilter] || statusFilter}`
+    : dueFilter === 'checkin'
+      ? 'Khách nhận phòng hôm nay'
+      : dueFilter === 'checkout'
+        ? 'Khách trả phòng hôm nay'
+        : '';
+
+  const clearFilter = () => {
+    setSearchParams({});
+    setPage(1);
+  };
+
+  // Kẹp lại trang đang xem thay vì đặt lại bằng useEffect: lọc xong danh sách
+  // ngắn đi thì trang cũ có thể vượt quá số trang mới và bảng hiện ra trống trơn.
+  const totalPages = Math.max(1, Math.ceil(filteredBookings.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+
   const operationTitle: Record<Exclude<Operation, null>, string> = {
     guests: 'Xác minh CCCD và danh sách người ở',
     declareGuests: 'Khai báo khách lưu trú',
@@ -1041,6 +1080,31 @@ const handleCheckIn = (booking: Booking) => {
           </Button>
         </div>
 
+        {hasFilter && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              flexWrap: 'wrap',
+              marginBottom: 16,
+              padding: '10px 14px',
+              background: '#fff7e6',
+              border: '1px solid #ffe0b2',
+              borderRadius: 10,
+            }}
+          >
+            <span style={{ fontSize: 13, color: '#8c6d3f' }}>Đang lọc:</span>
+            <Tag color="orange" style={{ margin: 0 }}>{filterLabel}</Tag>
+            <span style={{ fontSize: 13, color: '#8c6d3f' }}>
+              {filteredBookings.length} đơn
+            </span>
+            <Button size="small" onClick={clearFilter}>
+              Xem tất cả đơn
+            </Button>
+          </div>
+        )}
+
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', background: '#fff' }}>
             <thead>
@@ -1058,11 +1122,17 @@ const handleCheckIn = (booking: Booking) => {
             <tbody>
               {loading ? (
                 <tr><td colSpan={8} style={emptyStyle}>Đang tải dữ liệu...</td></tr>
-              ) : bookings.length === 0 ? (
-                <tr><td colSpan={8} style={emptyStyle}>Không có dữ liệu đặt phòng</td></tr>
+              ) : filteredBookings.length === 0 ? (
+                <tr>
+                  <td colSpan={8} style={emptyStyle}>
+                    {hasFilter
+                      ? 'Không có đơn nào khớp bộ lọc đang chọn'
+                      : 'Không có dữ liệu đặt phòng'}
+                  </td>
+                </tr>
               ) : (
-                bookings
-                  .slice((page - 1) * pageSize, page * pageSize)
+                filteredBookings
+                  .slice((currentPage - 1) * pageSize, currentPage * pageSize)
                   .map((booking) => (
                   <tr key={booking.id}>
                     <td style={tdStyle}>#{booking.id}</td>
@@ -1212,12 +1282,12 @@ const handleCheckIn = (booking: Booking) => {
           </table>
         </div>
 
-        {bookings.length > 0 && (
+        {filteredBookings.length > 0 && (
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
             <Pagination
-              current={page}
+              current={currentPage}
               pageSize={pageSize}
-              total={bookings.length}
+              total={filteredBookings.length}
               showSizeChanger
               pageSizeOptions={[10, 20, 50]}
               showTotal={(total, range) => `${range[0]}-${range[1]} / ${total} đơn`}
