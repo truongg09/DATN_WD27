@@ -44,6 +44,7 @@ import { getServices } from "../../services/serviceService";
 import type { Service } from "../../types/service";
 import { unwrapList } from "../../utils/unwrapList";
 import { BOOKING_STATUS_META } from "../../constants/bookingStatus";
+import api from "../../services/api";
 import {
   getRoomTypeCardImage,
   handleRoomImageError,
@@ -184,7 +185,7 @@ const Booking: React.FC = () => {
   } = useForm<BookingFormData>({
     defaultValues: {
       roomId: 0,
-      guestName: user?.fullName || user?.email?.split("@")[0] || "",
+      guestName: user?.fullName || "",
       guestEmail: user?.email || "",
       guestPhone: user?.phone || "",
       adults: 2,
@@ -221,12 +222,46 @@ const Booking: React.FC = () => {
     });
   }, [children]);
 
+  // Điền sẵn thông tin liên hệ của tài khoản đang đăng nhập.
+  //
+  // `user` chỉ là bản chụp lúc đăng nhập, nằm trong localStorage: khách sửa họ
+  // tên hay số điện thoại ở trang Hồ sơ thì nó không đổi theo, và số điện thoại
+  // chỉ lấy từ bảng accounts nên thường trống trong khi hồ sơ khách có đủ. Vì
+  // vậy hỏi máy chủ lấy hồ sơ mới nhất, chỉ dùng bản chụp làm phương án dự phòng.
   useEffect(() => {
-    if (user) {
-      setValue("guestName", user.fullName || user.email?.split("@")[0] || "");
-      setValue("guestEmail", user.email || "");
-      setValue("guestPhone", user.phone || "");
-    }
+    if (!user) return;
+
+    const snapshotName = user.fullName || "";
+    const snapshotPhone = user.phone || "";
+    setValue("guestName", snapshotName);
+    setValue("guestEmail", user.email || "");
+    setValue("guestPhone", snapshotPhone);
+
+    if (!user.id) return;
+
+    let cancelled = false;
+    api
+      .get(`/customers/by-account/${user.id}`)
+      .then((response) => {
+        if (cancelled) return;
+        const res = response as { data?: Record<string, unknown> };
+        const profile = (res.data?.data || res.data || res) as Record<string, unknown>;
+        if (!profile) return;
+
+        // Chỉ ghi đè khi máy chủ thật sự có dữ liệu, tránh xóa mất thông tin
+        // khách đang gõ dở hoặc bản chụp đang dùng tạm.
+        const fullName = String(profile.fullName || "").trim();
+        const phone = String(profile.phone || "").trim();
+        if (fullName) setValue("guestName", fullName);
+        if (phone) setValue("guestPhone", phone);
+      })
+      .catch(() => {
+        // Không lấy được hồ sơ thì giữ nguyên bản chụp, khách vẫn tự nhập được.
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [user, setValue]);
 
   useEffect(() => {
