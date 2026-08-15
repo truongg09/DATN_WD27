@@ -1230,6 +1230,8 @@ const getOverdueCheckInCandidates = async (connection) => {
         COALESCE(bd.requestedCheckOutTime, b.requestedCheckOutTime) AS requested_check_out_time,
         COALESCE(bd.requestedCheckInDayOffset, b.requestedCheckInDayOffset, 0) AS requested_check_in_day_offset,
         b.actualCheckInTime AS actual_check_in_time,
+        b.created_at,
+        b.hold_expires_at,
         COALESCE(b.totalAmount, b.total_price, 0) AS total_amount,
         COALESCE(p.paidAmount, 0) AS paid_amount,
         COALESCE(p.remainingAmount, 0) AS remaining_amount,

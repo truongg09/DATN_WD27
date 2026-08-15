@@ -4028,8 +4028,27 @@ const processOverdueCheckIns = async () => {
       const checkOutDate = candidate.check_out;
       const requestedCheckOutTime = candidate.requested_check_out_time || '12:00:00';
 
-      const lateCheckInDeadline = getLateCheckInDeadline(checkInDate, requestedCheckInTime, 6, requestedCheckInDayOffset);
+      const standardLateDeadline = getLateCheckInDeadline(checkInDate, requestedCheckInTime, 6, requestedCheckInDayOffset);
       const checkOutDeadline = getCheckOutDeadline(checkOutDate, requestedCheckOutTime);
+
+      // Khách đặt phòng ngay trong ngày nhận phòng, sau giờ chốt check-in muộn
+      // (VD đặt lúc 20:11 trong khi hạn là 20:00) thì đơn vừa tạo đã quá hạn.
+      // Không kèm điều kiện này, lần quét kế tiếp đánh no-show chỉ sau vài giây,
+      // khách còn chưa kịp thanh toán. Người đặt muộn là người đang trên đường
+      // tới, nên tính hạn từ lúc đặt cộng đúng khoảng ân hạn.
+      const createdAt = candidate.created_at ? new Date(candidate.created_at) : null;
+      const lateCheckInDeadline =
+        createdAt && createdAt > standardLateDeadline
+          ? new Date(createdAt.getTime() + LATE_CHECKIN_GRACE_HOUR * 3600000)
+          : standardLateDeadline;
+
+      // Đơn còn trong thời gian giữ chỗ chờ thanh toán thuộc luồng hết hạn giữ
+      // phòng (sẽ tự hủy), không phải khách không đến.
+      const holdExpiresAt = candidate.hold_expires_at ? new Date(candidate.hold_expires_at) : null;
+      if (holdExpiresAt && holdExpiresAt > now && Number(candidate.paid_amount || 0) <= 0) {
+        results.push({ bookingId: candidate.id, status: 'held', reason: 'Còn trong thời gian giữ chỗ chờ thanh toán' });
+        continue;
+      }
 
       const totalAmount = Number(candidate.payment_total_amount || candidate.total_amount || 0);
       const paidAmount = Number(candidate.paid_amount || 0);
