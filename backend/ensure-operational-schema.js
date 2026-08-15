@@ -940,6 +940,59 @@ const ensureOperationalSchema = async () => {
     console.error('Lỗi khi khởi tạo password_reset_tokens:', err.message);
   }
 
+  // Sửa các đơn bị đánh No-show oan.
+  //
+  // Job quét đơn quá hạn từng không xét thời điểm đặt, nên đơn đặt trong ngày
+  // nhận phòng mà sau giờ chốt check-in muộn (VD đặt 20:11 khi hạn là 20:00) bị
+  // đánh no-show chỉ vài giây sau khi tạo, trước cả lúc khách kịp trả tiền.
+  // Chỉ mở lại những đơn chắc chắn sai: đã trả đủ tiền VÀ ngày trả phòng chưa
+  // tới. Theo đúng luật của chính đoạn mã đó, đơn trả đủ tiền chỉ được chuyển
+  // no-show sau khi hết hạn trả phòng, nên các đơn này không thể đúng được.
+  try {
+    // Ngày trả phòng thật nằm ở booking_details; cột bookings.check_out có thể
+    // NULL. Phải lấy từ booking_details trước, và đơn nào không tra ra được ngày
+    // thì bỏ qua chứ không đoán là hôm nay — đoán sai sẽ mở lại cả những đơn
+    // no-show hoàn toàn đúng của các kỳ nghỉ đã kết thúc từ lâu.
+    const [wrongNoShow] = await db.query(`
+      SELECT b.id
+      FROM bookings b
+      JOIN payments p ON p.id = (SELECT MAX(p2.id) FROM payments p2 WHERE p2.bookingId = b.id)
+      WHERE COALESCE(b.bookingStatus, b.status) = 'no_show'
+        AND b.actualCheckInTime IS NULL
+        AND COALESCE(p.paidAmount, 0) > 0
+        AND COALESCE(p.remainingAmount, 0) <= 0
+        AND p.paymentStatus = 'paid'
+        AND COALESCE(
+              (SELECT MAX(DATE(bd.checkOutDate)) FROM booking_details bd WHERE bd.bookingId = b.id),
+              DATE(b.check_out)
+            ) >= CURDATE()
+    `);
+
+    for (const row of wrongNoShow) {
+      await db.query(
+        "UPDATE bookings SET status = 'confirmed', bookingStatus = 'confirmed' WHERE id = ?",
+        [row.id]
+      );
+      await db.query(
+        `INSERT INTO booking_history
+           (bookingId, action, description, oldValue, newValue, performedByName, performedByRole)
+         VALUES (?, 'status_change', ?, ?, ?, 'system', 'system')`,
+        [
+          row.id,
+          'Đơn đã thanh toán đủ và chưa tới ngày trả phòng nhưng bị đánh No-show do lỗi quét đơn quá hạn. Hệ thống trả lại trạng thái Đã xác nhận.',
+          JSON.stringify({ status: 'no_show' }),
+          JSON.stringify({ status: 'confirmed' })
+        ]
+      );
+    }
+
+    if (wrongNoShow.length > 0) {
+      console.log(`Đã trả lại trạng thái cho ${wrongNoShow.length} đơn bị đánh No-show oan.`);
+    }
+  } catch (err) {
+    console.error('Lỗi khi sửa các đơn bị đánh No-show oan:', err.message);
+  }
+
   // Trước đây không nơi nào ghi bookingCode nên toàn bộ đơn cũ đang để trống.
   // Điền lại theo id để hóa đơn và các màn hình tra cứu có mã hiển thị.
   try {
