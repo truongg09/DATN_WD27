@@ -10,12 +10,17 @@ const router = express.Router();
 
 router.post('/register', async (req, res) => {
   try {
-    const { email, phone, password, dob, gender } = req.body;
+    const { fullName, email, phone, password, dob, gender } = req.body;
+    const trimmedFullName = String(fullName || '').trim();
 
-    if (!email || !phone || !password) {
+    if (!trimmedFullName || !email || !phone || !password) {
       return res.status(400).json({
-        message: 'Vui lòng nhập đầy đủ email, số điện thoại và mật khẩu'
+        message: 'Vui lòng nhập đầy đủ họ tên, email, số điện thoại và mật khẩu'
       });
+    }
+
+    if (trimmedFullName.length < 2) {
+      return res.status(400).json({ message: 'Họ và tên phải có ít nhất 2 ký tự' });
     }
 
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -36,24 +41,44 @@ router.post('/register', async (req, res) => {
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    const [result] = await db.query(
-      `
-        INSERT INTO accounts (email, phone, password, role, status)
-        VALUES (?, ?, ?, 'customer', 'active')
-      `,
-      [email, phone, hashedPassword]
-    );
 
-    const accountId = result.insertId;
+    // Ghi họ tên vào cả hai bảng: accounts.full_name dùng cho màn hình quản trị
+    // nhân viên và các chỗ chỉ có tài khoản, customers.fullName dùng cho hồ sơ
+    // khách và hiển thị trên đơn đặt phòng.
+    //
+    // Tạo tài khoản và hồ sơ khách trong cùng một transaction. Nếu lệnh thứ hai
+    // hỏng mà lệnh đầu đã chạy thì tài khoản vẫn đăng nhập được nhưng không có
+    // hồ sơ, kéo theo lỗi ở khắp nơi về sau.
+    const connection = await db.getConnection();
+    let accountId;
+    try {
+      await connection.beginTransaction();
 
-    // Tạo bản ghi customer tương ứng
-    await db.query(
-      `
-        INSERT INTO customers (accountId, fullName, phone, dateOfBirth, gender)
-        VALUES (?, ?, ?, ?, ?)
-      `,
-      [accountId, email.split('@')[0], phone, dob || null, gender || null]
-    );
+      const [result] = await connection.query(
+        `
+          INSERT INTO accounts (full_name, email, phone, password, role, status)
+          VALUES (?, ?, ?, ?, 'customer', 'active')
+        `,
+        [trimmedFullName, email, phone, hashedPassword]
+      );
+
+      accountId = result.insertId;
+
+      await connection.query(
+        `
+          INSERT INTO customers (accountId, fullName, phone, dateOfBirth, gender)
+          VALUES (?, ?, ?, ?, ?)
+        `,
+        [accountId, trimmedFullName, phone, dob || null, gender || null]
+      );
+
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
 
     const token = jwt.sign(
       { userId: accountId, email, role: 'customer' },
@@ -68,7 +93,7 @@ router.post('/register', async (req, res) => {
         id: accountId,
         email,
         phone,
-        fullName: email.split('@')[0],
+        fullName: trimmedFullName,
         role: 'customer'
       }
     });
