@@ -78,14 +78,19 @@ router.get('/monthly', requireAuth, async (req, res) => {
           MONTH(COALESCE(b.created_at, b.createdAt)) AS bucket,
           COUNT(DISTINCT b.id) AS bookingsCount,
           SUM(CASE WHEN ${CANCELLED_EXPR} THEN 1 ELSE 0 END) AS cancelledCount,
-          -- Doanh thu ghi nhận (billed) chỉ tính đơn còn hiệu lực. Đơn đã hủy /
-          -- khách không đến không tạo ra doanh thu, kể cả khi đã phát sinh hóa đơn.
-          COALESCE(SUM(CASE WHEN ${CANCELLED_EXPR} THEN 0 ELSE pay.roomAmount END), 0) AS roomRevenue,
-          COALESCE(SUM(CASE WHEN ${CANCELLED_EXPR} THEN 0 ELSE pay.serviceAmount END), 0) AS serviceRevenue,
-          -- Tiền thực thu giữ nguyên mọi đơn: đây là tiền đã vào két. Khoản đã
-          -- hoàn cho khách đã được trừ khỏi payments.paidAmount lúc duyệt hoàn.
+          -- Tiền phòng ghi nhận (chỉ đơn lưu trú)
+          COALESCE(SUM(CASE WHEN COALESCE(b.bookingStatus, b.status) IN ('checked_in', 'checked_out') THEN pay.roomAmount ELSE 0 END), 0) AS roomRevenue,
+          -- Tiền dịch vụ ghi nhận (chỉ đơn lưu trú)
+          COALESCE(SUM(CASE WHEN COALESCE(b.bookingStatus, b.status) IN ('checked_in', 'checked_out') THEN pay.serviceAmount ELSE 0 END), 0) AS serviceRevenue,
+          -- Phụ thu ghi nhận (chỉ đơn lưu trú)
+          COALESCE(SUM(CASE WHEN COALESCE(b.bookingStatus, b.status) IN ('checked_in', 'checked_out') THEN pay.surchargeAmount ELSE 0 END), 0) AS surchargeRevenue,
+          -- Giảm giá ghi nhận (chỉ đơn lưu trú)
+          COALESCE(SUM(CASE WHEN COALESCE(b.bookingStatus, b.status) IN ('checked_in', 'checked_out') THEN pay.discountAmount ELSE 0 END), 0) AS discountAmount,
+          -- Doanh thu giữ lại từ đơn hủy & khách không đến (tiền cọc/phạt không hoàn)
+          COALESCE(SUM(CASE WHEN ${CANCELLED_EXPR} THEN pay.paidAmount ELSE 0 END), 0) AS retainedCancellationRevenue,
+          -- Tiền thực thu: tổng tiền đã vào két
           COALESCE(SUM(pay.paidAmount), 0) AS paidAmount,
-          -- Công nợ chỉ tính đơn còn hiệu lực: khách hủy phòng thì không còn nợ.
+          -- Công nợ: chỉ tính đơn lưu trú còn hiệu lực
           COALESCE(SUM(CASE WHEN ${CANCELLED_EXPR} THEN 0 ELSE pay.remainingAmount END), 0) AS remainingAmount
         FROM bookings b
         LEFT JOIN (
@@ -93,8 +98,11 @@ router.get('/monthly', requireAuth, async (req, res) => {
             bookingId,
             SUM(roomAmount) AS roomAmount,
             SUM(serviceAmount) AS serviceAmount,
+            SUM(surchargeAmount) AS surchargeAmount,
+            SUM(discountAmount) AS discountAmount,
             SUM(paidAmount) AS paidAmount,
-            SUM(remainingAmount) AS remainingAmount
+            SUM(remainingAmount) AS remainingAmount,
+            SUM(totalAmount) AS totalAmount
           FROM payments
           GROUP BY bookingId
         ) pay ON pay.bookingId = b.id
@@ -157,8 +165,8 @@ router.get('/monthly', requireAuth, async (req, res) => {
 
         const bookedNights = Number(row?.bookedNights) || 0;
         const maxNights = totalRooms * daysInMonth;
-        const occupancyRate = maxNights > 0 ? Math.round((bookedNights / maxNights) * 100) : 0;
-        return { month: monthIndex0 + 1, occupancyRate, bookedNights };
+        const occupancyRate = maxNights > 0 ? Number(((bookedNights / maxNights) * 100).toFixed(2)) : 0;
+        return { month: monthIndex0 + 1, occupancyRate, bookedNights, maxNights };
       })
     );
 
@@ -169,18 +177,32 @@ router.get('/monthly', requireAuth, async (req, res) => {
       const custRow = newCustomerRows.find((r) => Number(r.bucket) === m);
       const occRow = occupancyByMonth.find((r) => r.month === m);
 
+      const roomRevenue = Number(revRow?.roomRevenue) || 0;
+      const serviceRevenue = Number(revRow?.serviceRevenue) || 0;
+      const surchargeRevenue = Number(revRow?.surchargeRevenue) || 0;
+      const discountAmount = Number(revRow?.discountAmount) || 0;
+      const retainedCancellationRevenue = Number(revRow?.retainedCancellationRevenue) || 0;
+      const totalRevenue =
+        Math.max(0, roomRevenue + serviceRevenue + surchargeRevenue - discountAmount) +
+        retainedCancellationRevenue;
+
       return {
         month: m,
         label: `Tháng ${m}`,
         bookingsCount: Number(revRow?.bookingsCount) || 0,
         cancelledCount: Number(revRow?.cancelledCount) || 0,
-        roomRevenue: Number(revRow?.roomRevenue) || 0,
-        serviceRevenue: Number(revRow?.serviceRevenue) || 0,
-        totalRevenue: (Number(revRow?.roomRevenue) || 0) + (Number(revRow?.serviceRevenue) || 0),
+        roomRevenue,
+        serviceRevenue,
+        surchargeRevenue,
+        discountAmount,
+        retainedCancellationRevenue,
+        totalRevenue,
         paidAmount: Number(revRow?.paidAmount) || 0,
         remainingAmount: Number(revRow?.remainingAmount) || 0,
         newCustomers: Number(custRow?.total) || 0,
-        occupancyRate: occRow?.occupancyRate || 0
+        occupancyRate: occRow?.occupancyRate || 0,
+        bookedNights: occRow?.bookedNights || 0,
+        maxNights: occRow?.maxNights || 0
       };
     });
 
@@ -266,20 +288,32 @@ router.get('/monthly', requireAuth, async (req, res) => {
     const yearSummary = monthly.reduce(
       (acc, m) => {
         acc.totalRevenue += m.totalRevenue;
+        acc.totalRoomRevenue += m.roomRevenue;
+        acc.totalServiceRevenue += m.serviceRevenue;
+        acc.totalSurchargeRevenue += m.surchargeRevenue;
+        acc.totalDiscountAmount += m.discountAmount;
+        acc.totalRetainedCancellationRevenue += m.retainedCancellationRevenue;
         acc.totalPaid += m.paidAmount;
         acc.totalBookings += m.bookingsCount;
         acc.totalCancelled += m.cancelledCount;
         acc.totalNewCustomers += m.newCustomers;
-        acc.occupancySum += m.occupancyRate;
+        acc.totalBookedNights += m.bookedNights || 0;
+        acc.totalMaxNights += m.maxNights || 0;
         return acc;
       },
       {
         totalRevenue: 0,
+        totalRoomRevenue: 0,
+        totalServiceRevenue: 0,
+        totalSurchargeRevenue: 0,
+        totalDiscountAmount: 0,
+        totalRetainedCancellationRevenue: 0,
         totalPaid: 0,
         totalBookings: 0,
         totalCancelled: 0,
         totalNewCustomers: 0,
-        occupancySum: 0
+        totalBookedNights: 0,
+        totalMaxNights: 0
       }
     );
 
@@ -288,6 +322,11 @@ router.get('/monthly', requireAuth, async (req, res) => {
       year,
       summary: {
         totalRevenue: yearSummary.totalRevenue,
+        totalRoomRevenue: yearSummary.totalRoomRevenue,
+        totalServiceRevenue: yearSummary.totalServiceRevenue,
+        totalSurchargeRevenue: yearSummary.totalSurchargeRevenue,
+        totalDiscountAmount: yearSummary.totalDiscountAmount,
+        totalRetainedCancellationRevenue: yearSummary.totalRetainedCancellationRevenue,
         totalPaid: yearSummary.totalPaid,
         totalOutstanding: Number(outstandingRow?.totalOutstanding) || 0,
         totalBookings: yearSummary.totalBookings,
@@ -297,7 +336,10 @@ router.get('/monthly', requireAuth, async (req, res) => {
             ? Math.round((yearSummary.totalCancelled / yearSummary.totalBookings) * 100)
             : 0,
         newCustomers: yearSummary.totalNewCustomers,
-        avgOccupancyRate: Math.round(yearSummary.occupancySum / 12),
+        avgOccupancyRate:
+          yearSummary.totalMaxNights > 0
+            ? Number(((yearSummary.totalBookedNights / yearSummary.totalMaxNights) * 100).toFixed(2))
+            : 0,
         totalDamageFees: Number(damageRow?.totalDamage) || 0
       },
       monthly,

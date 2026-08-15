@@ -708,10 +708,13 @@
   }
 
   .stay-dates-card,
-  .guest-configuration-card {
+  .guest-configuration-card,
+  .room-selection-card,
+  .add-room-type-btn-wrap,
+  .extra-rooms-stay-note {
     margin-right: 18px;
     margin-left: 18px;
-    padding: 16px;
+    padding: 18px;
   }
 
   .booking-section:not(.stay-guests-section) h2 {
@@ -751,10 +754,19 @@
   }
 
   .stay-dates-card,
-  .guest-configuration-card {
+  .guest-configuration-card,
+  .room-selection-card,
+  .add-room-type-btn-wrap,
+  .extra-rooms-stay-note {
     margin-right: 12px;
     margin-left: 12px;
     padding: 14px;
+  }
+
+  .room-policy-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
   }
 
   .child-age-grid {
@@ -827,55 +839,74 @@
   display: flex;
   align-items: stretch;
   width: fit-content;
+  height: 40px;
   overflow: hidden;
-  border: 1px solid #ded1c3;
-  border-radius: 10px;
+  border: 1px solid #d9d9d9;
+  border-radius: 8px;
   background: #fff;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.room-quantity-row:hover {
+  border-color: #b39371;
 }
 
 .quantity-stepper-button {
   width: 38px;
   border: 0;
-  color: #65472d;
-  background: #f8f2eb;
-  font-size: 20px;
+  color: #334155;
+  background: #f8fafc;
+  font-size: 18px;
   line-height: 1;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s, color 0.2s;
 }
 
 .quantity-stepper-button:hover:not(:disabled) {
-  background: #ede1d4;
+  background: #f1f5f9;
+  color: #0f172a;
 }
 
 .quantity-stepper-button:disabled {
-  color: #b8aaa0;
+  color: #cbd5e1;
+  background: #f8fafc;
   cursor: not-allowed;
 }
 
 .room-quantity-input {
-  width: 46px !important;
+  width: 44px !important;
+  height: 100% !important;
 }
 
 .room-quantity-input .ant-input-number-input {
-  padding: 0 4px;
-  font-weight: 700;
+  height: 38px;
+  padding: 0 2px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #1e293b;
   text-align: center;
 }
 
 .room-quantity-input.ant-input-number {
-  border-top: 0;
-  border-bottom: 0;
+  border: 0;
+  border-left: 1px solid #f1f5f9;
   border-radius: 0;
+  background: #fff;
+  box-shadow: none !important;
 }
 
 .room-quantity-unit {
   display: inline-flex;
   align-items: center;
-  padding: 0 12px 0 10px;
-  color: #513c2b;
+  padding: 0 10px 0 2px;
+  color: #64748b;
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 500;
   background: #fff;
+  border-right: 1px solid #f1f5f9;
 }
 
 .room-availability-helper,
@@ -1087,6 +1118,122 @@
 
 .specific-room-notice p {
   margin: 0;
+}
+
+/* Unified room selection cards */
+.room-cards-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.room-selection-card {
+  margin: 18px 30px 0;
+  padding: 22px 24px;
+  border: 1px solid #ece7e1;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 4px 14px rgba(74, 51, 32, 0.03);
+}
+
+.room-card-title-wrap {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.room-card-title {
+  color: #3f3024;
+  font-size: 16px;
+  font-weight: 750;
+}
+
+.room-card-subtitle {
+  color: #84776a;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.btn-remove-room-card {
+  color: #cf1322 !important;
+  font-weight: 600 !important;
+  font-size: 13px !important;
+  padding: 0 !important;
+  height: auto !important;
+}
+
+.btn-remove-room-card:hover {
+  color: #a8071a !important;
+}
+
+.room-card-policy-box {
+  margin-top: 16px;
+  padding: 12px 16px;
+  background: #faf7f2;
+  border: 1px solid #ede3d8;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.room-policy-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  color: #513c2b;
+}
+
+.room-policy-label {
+  font-weight: 600;
+  color: #6d5845;
+}
+
+.room-policy-val {
+  font-weight: 700;
+  color: #2e2118;
+}
+
+.room-policy-children-note {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px dashed #e4d8cc;
+  font-size: 12px;
+  color: #84776a;
+  line-height: 1.45;
+}
+
+.add-room-type-btn-wrap {
+  margin: 18px 30px 0;
+}
+
+.btn-add-room-type {
+  height: 44px;
+  font-weight: 600;
+  color: #845b36;
+  border-color: #d8c2aa;
+  border-radius: 10px;
+}
+
+.btn-add-room-type:hover {
+  color: #5c3c21 !important;
+  border-color: #845b36 !important;
+  background: #faf5ef !important;
+}
+
+.extra-rooms-stay-note {
+  margin: 10px 30px 0;
+  font-size: 13px;
+  color: #64748b;
+  line-height: 1.45;
+}
+
+.section-subtitle-note {
+  margin: -14px 0 18px;
+  font-size: 13px;
+  color: #756a60;
+  line-height: 1.4;
 }
 
 
