@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import ReactApexChart from "react-apexcharts";
 import {
   ConfigProvider,
@@ -269,6 +270,12 @@ function TodayOpsPanel({
   data: TodayOpsResponse | null;
   loading: boolean;
 }) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  // Bảng điều khiển dùng chung cho cả /admin lẫn /staff nên lối tắt phải giữ
+  // đúng khu vực đang đứng, không thì nhân viên bấm vào sẽ bị AdminRoute chặn.
+  const areaPrefix = location.pathname.startsWith("/staff") ? "/staff" : "/admin";
+
   if (loading) {
     return (
       <div
@@ -305,14 +312,48 @@ function TodayOpsPanel({
   const checkinStyle = getTaskStyle(data.checkInsToday.count);
   const checkoutStyle = getTaskStyle(data.checkOutsToday.count);
 
+  // Mỗi ô là một lối tắt sang danh sách đơn đã lọc sẵn đúng nhóm việc đó, thay
+  // vì chỉ hiện con số rồi để người dùng tự đi tìm.
   const stat = (
     icon: React.ReactNode,
     label: string,
     count: number,
     color: string,
     bg: string,
+    to: string,
   ) => (
-    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+    <div
+      role="link"
+      tabIndex={0}
+      onClick={() => navigate(to)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          navigate(to);
+        }
+      }}
+      title={
+        count > 0
+          ? `Xem ${count} đơn: ${label.toLowerCase()}`
+          : `Không có đơn nào: ${label.toLowerCase()}`
+      }
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 12,
+        padding: "8px 10px",
+        margin: "-8px -10px",
+        borderRadius: 10,
+        cursor: "pointer",
+        transition: "background 0.15s",
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = "#faf7f2";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = "transparent";
+      }}
+    >
       <div
         style={{
           width: 34,
@@ -379,6 +420,7 @@ function TodayOpsPanel({
             data.pendingBookings.count,
             pendingStyle.color,
             pendingStyle.bg,
+            `${areaPrefix}/bookings?status=pending`,
           )}
         </Col>
         <Col xs={24} sm={8}>
@@ -388,6 +430,7 @@ function TodayOpsPanel({
             data.checkInsToday.count,
             checkinStyle.color,
             checkinStyle.bg,
+            `${areaPrefix}/bookings?due=checkin`,
           )}
         </Col>
         <Col xs={24} sm={8}>
@@ -397,17 +440,30 @@ function TodayOpsPanel({
             data.checkOutsToday.count,
             checkoutStyle.color,
             checkoutStyle.bg,
+            `${areaPrefix}/bookings?due=checkout`,
           )}
         </Col>
       </Row>
 
       <div style={{ borderTop: `1px solid ${brand.border}`, paddingTop: 12 }}>
         <div
+          role="link"
+          tabIndex={0}
+          onClick={() => navigate(`${areaPrefix}/rooms`)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              navigate(`${areaPrefix}/rooms`);
+            }
+          }}
+          title="Mở trang quản lý phòng"
           style={{
             fontSize: 13,
             fontWeight: 600,
             marginBottom: 8,
             color: brand.textPrimary,
+            cursor: "pointer",
+            display: "inline-block",
           }}
         >
           Phòng đang trống ({data.availableRooms.count})
