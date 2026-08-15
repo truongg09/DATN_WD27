@@ -7,6 +7,7 @@ const voucherService = require('./voucherService');
 const emailService = require('./emailService');
 const HttpError = require('../utils/httpError');
 const { formatPayment } = require('../utils/formatters');
+const { getCheckOutDeadline } = require('../utils/bookingPolicy');
 
 const GATEWAY_PAYMENT_MINUTES = 15;
 
@@ -491,6 +492,28 @@ const processPayment = async (paymentId, payload, actor = null) => {
     // hỏng mà bị đưa ngược về 'confirmed' thì không check-out được nữa.
     if (['pending', 'confirmed'].includes(booking.status)) {
       await bookingModel.updateBookingStatus(booking.id, 'confirmed', connection);
+    } else if (booking.status === 'no_show') {
+      // Khách đã bị đánh no-show nhưng nay trả tiền và kỳ nghỉ vẫn chưa kết
+      // thúc thì rõ ràng họ vẫn đến. Không mở lại thì đơn kẹt ở no-show vĩnh
+      // viễn, lễ tân không check-in được dù khách đã thanh toán đủ.
+      const stayDeadline = getCheckOutDeadline(
+        booking.check_out,
+        booking.requested_check_out_time
+      );
+      if (new Date() <= stayDeadline) {
+        await bookingModel.updateBookingStatus(booking.id, 'confirmed', connection);
+        await logBookingHistory(
+          booking.id,
+          'status_change',
+          'Khách đã thanh toán nên đơn được mở lại từ trạng thái No-show về Đã xác nhận.',
+          {
+            oldValue: { status: 'no_show' },
+            newValue: { status: 'confirmed' }
+          },
+          actor,
+          connection
+        );
+      }
     }
     await bookingModel.cancelCompetingUnpaidBookings(
       booking.room_id,
