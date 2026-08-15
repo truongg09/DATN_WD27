@@ -2098,6 +2098,60 @@ const Booking: React.FC = () => {
                     </div>
                   </div>
 
+                  {extraRoomTypes.map((line, index) => {
+                    const type = roomTypes.find(
+                      (roomType) => roomType.id === line.roomTypeId,
+                    );
+                    if (!type) return null;
+
+                    const typeAdultCapacity = Number(
+                      type.adultCapacity ?? type.capacity ?? 2,
+                    );
+                    const typeChildCapacity = Number(type.childCapacity ?? 1);
+                    const typeMaxOccupancy = Number(
+                      type.maxOccupancy ??
+                        typeAdultCapacity + typeChildCapacity,
+                    );
+
+                    return (
+                      <div
+                        className="selected-room selected-extra-room"
+                        key={line.id}
+                      >
+                        <img
+                          src={getRoomTypeCardImage(type.typeName)}
+                          alt={type.typeName}
+                          onError={(event) =>
+                            handleRoomImageError(event, type.typeName)
+                          }
+                        />
+                        <div className="room-summary-info">
+                          <div className="room-summary-heading">
+                            <h4>
+                              Phòng #{index + 2} · {type.typeName}
+                            </h4>
+                          </div>
+                          <p className="room-summary-meta">
+                            {line.quantity} phòng đã chọn
+                          </p>
+                          <p>
+                            <FontAwesomeIcon icon={faBed} /> Khách: {line.adults}{" "}
+                            NL + {line.children} TE
+                          </p>
+                          <p>
+                            <FontAwesomeIcon icon={faExpandArrowsAlt} /> Sức
+                            chứa tối đa: {typeMaxOccupancy * line.quantity}{" "}
+                            khách
+                          </p>
+                          <p>
+                            {formatPrice(Number(type.defaultPrice || 0))} /
+                            phòng / đêm
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+
                   <div className="capacity-preview-box">
                     <span className="capacity-preview-title">Sức chứa</span>
                     <div className="capacity-spec-row">

@@ -442,6 +442,14 @@
   border-radius: 10px;
 }
 
+.selected-extra-room {
+  margin-top: -4px;
+}
+
+.selected-extra-room .room-summary-info {
+  min-width: 0;
+}
+
 .room-summary-info h4 {
   font-size: 16px;
   color: #3d2c20;
