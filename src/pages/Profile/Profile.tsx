@@ -84,7 +84,7 @@ interface VoucherItem {
 }
 
 function Profile() {
-  const { user, logout } = useAuth();
+  const { user, logout, updateUser } = useAuth();
   const navigate = useNavigate();
   const [form] = Form.useForm();
   // Form đổi mật khẩu là một Form riêng. Trước đây nó gọi form.resetFields() của
@@ -272,6 +272,13 @@ function Profile() {
 
       await api.post("/customers/update", payload);
       message.success("Cập nhật hồ sơ thành công!");
+      // Đồng bộ luôn vào phiên đăng nhập để tên trên đầu trang và phần điền sẵn
+      // ở form đặt phòng đổi theo ngay, không phải đăng nhập lại.
+      updateUser({
+        fullName: values.fullName,
+        phone: values.phone,
+        email: values.email,
+      });
       fetchProfile();
     } catch (error: any) {
       console.error("Update profile error:", error);
