@@ -18,6 +18,7 @@ interface AuthContextType {
   token: string | null;
   isAuthenticated: boolean;
   login: (data: LoginData) => void;
+  updateUser: (patch: Partial<User>) => void;
   logout: () => void;
 }
 
@@ -44,6 +45,18 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     localStorage.setItem("token", data.token);
   };
 
+  // Thông tin người dùng chỉ được chụp lại một lần lúc đăng nhập rồi nằm yên
+  // trong localStorage. Sửa họ tên hay số điện thoại ở trang Hồ sơ mà không gọi
+  // hàm này thì cả ứng dụng vẫn hiện dữ liệu cũ cho tới lần đăng nhập kế tiếp.
+  const updateUser = (patch: Partial<User>) => {
+    setUser((current) => {
+      if (!current) return current;
+      const next = { ...current, ...patch };
+      localStorage.setItem("user", JSON.stringify(next));
+      return next;
+    });
+  };
+
   const logout = () => {
     setUser(null);
     setToken(null);
@@ -58,6 +71,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         token,
         isAuthenticated: !!token,
         login,
+        updateUser,
         logout,
       }}
     >
