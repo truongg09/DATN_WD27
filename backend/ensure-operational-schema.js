@@ -235,6 +235,22 @@ const ensureOperationalSchema = async () => {
         'ALTER TABLE booking_details ADD COLUMN requestedCheckInDayOffset INT NOT NULL DEFAULT 0 AFTER requestedCheckOutTime'
       );
     }
+    // Hạng phòng của từng dòng, cần cho đơn đặt nhiều hạng khác nhau. Câu truy
+    // vấn danh sách đặt phòng đọc cột này (BOOKING_SELECT), nên thiếu nó là
+    // GET /api/bookings trả 500 và cả trang quản lý đặt phòng trắng xóa. Bản
+    // hotelbookingdb.sql chưa có cột này nên máy nào import mới cũng dính.
+    if (!bookingDetailColumns.some((column) => column.Field === 'roomTypeId')) {
+      await db.query(
+        'ALTER TABLE booking_details ADD COLUMN roomTypeId INT NULL DEFAULT NULL AFTER roomId'
+      );
+      // Suy ngược hạng phòng cho dữ liệu cũ từ chính phòng đã xếp.
+      await db.query(`
+        UPDATE booking_details bd
+        JOIN rooms r ON r.id = bd.roomId
+        SET bd.roomTypeId = r.roomTypeId
+        WHERE bd.roomTypeId IS NULL
+      `);
+    }
   }
 
   await db.query(`
