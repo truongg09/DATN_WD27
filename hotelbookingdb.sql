@@ -220,6 +220,7 @@ CREATE TABLE `booking_details` (
   `id` int NOT NULL,
   `bookingId` int DEFAULT NULL,
   `roomId` int DEFAULT NULL,
+  `roomTypeId` int DEFAULT NULL,
   `checkInDate` date DEFAULT NULL,
   `checkOutDate` date DEFAULT NULL,
   `requestedCheckInTime` time DEFAULT NULL,
