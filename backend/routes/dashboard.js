@@ -214,27 +214,33 @@ const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 // mode: 'month' | 'year' | 'custom'
 // customFrom/customTo: chuỗi 'YYYY-MM-DD' lấy từ query khi mode = custom
-// Trả thêm `fallback: true` nếu custom range không hợp lệ và phải rơi về tháng hiện tại,
-// để phía FE biết mà thông báo cho người dùng thay vì âm thầm hiển thị sai khoảng đã chọn.
-function getDateRange(mode, customFrom, customTo) {
+// queryMonth: 1-12 (khi muốn xem cụ thể một tháng trong năm)
+// queryYear: YYYY (mặc định là năm hiện tại)
+function getDateRange(mode, customFrom, customTo, queryMonth, queryYear) {
   const now = new Date();
   let from;
   let to;
   let fallback = false;
 
+  const targetYear = queryYear && !isNaN(Number(queryYear)) ? Number(queryYear) : now.getFullYear();
+  const parsedMonth = queryMonth !== undefined && queryMonth !== null && queryMonth !== '' && !isNaN(Number(queryMonth)) && Number(queryMonth) >= 1 && Number(queryMonth) <= 12
+    ? Number(queryMonth) - 1
+    : null;
+
   if (mode === 'year') {
-    from = new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
-    to = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+    from = new Date(targetYear, 0, 1, 0, 0, 0, 0);
+    to = new Date(targetYear, 11, 31, 23, 59, 59, 999);
   } else if (mode === 'custom' && DATE_ONLY_PATTERN.test(customFrom) && DATE_ONLY_PATTERN.test(customTo) && customFrom <= customTo) {
     const [fy, fm, fd] = customFrom.split('-').map(Number);
     const [ty, tm, td] = customTo.split('-').map(Number);
     from = new Date(fy, fm - 1, fd, 0, 0, 0, 0);
     to = new Date(ty, tm - 1, td, 23, 59, 59, 999);
   } else {
-    // custom không hợp lệ (hoặc mode = month) -> fallback về tháng hiện tại
+    // mode = 'month' (nếu có queryMonth thì lấy tháng đó, không thì lấy tháng hiện tại)
+    const m = parsedMonth !== null ? parsedMonth : now.getMonth();
+    from = new Date(targetYear, m, 1, 0, 0, 0, 0);
+    to = new Date(targetYear, m + 1, 0, 23, 59, 59, 999);
     if (mode === 'custom') fallback = true;
-    from = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
-    to = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
   }
 
   return { from: formatLocalDateTime(from), to: formatLocalDateTime(to), fromDate: from, toDate: to, fallback };
@@ -322,7 +328,7 @@ function mapSeriesRows(rows, mode, categories) {
 router.get('/', requireAuth, requireStaff, async (req, res) => {
   try {
     const mode = ['year', 'custom'].includes(req.query.mode) ? req.query.mode : 'month';
-    const { from, to, fromDate, toDate, fallback } = getDateRange(mode, req.query.from, req.query.to);
+    const { from, to, fromDate, toDate, fallback } = getDateRange(mode, req.query.from, req.query.to, req.query.month, req.query.year);
     const categories = buildCategories(mode, fromDate, toDate);
     const periodDays = daysInRange(fromDate, toDate);
 
@@ -344,61 +350,71 @@ router.get('/', requireAuth, requireStaff, async (req, res) => {
           ? "DATE_FORMAT(COALESCE(b.created_at, b.createdAt), '%Y-%m-%d')"
           : 'DAY(COALESCE(b.created_at, b.createdAt))';
 
-    // Payments không có sẵn roomTypeId -> phải join qua bookings/booking_details/rooms để lọc.
-    // Điều kiện roomTypeId để rỗng ('') khi không lọc, có giá trị khi có lọc.
-    const revenueRoomTypeFilter = roomTypeId
+    // Lọc theo loại phòng bằng EXISTS để multi-room an toàn, không fan-out
+    const bookingRoomTypeFilter = roomTypeId
       ? `
         AND EXISTS (
           SELECT 1
-          FROM booking_details bd2
-          JOIN rooms r2 ON r2.id = COALESCE(bd2.roomId, pb.room_id)
-          WHERE bd2.bookingId = pb.id
-          AND r2.roomTypeId = ?
+          FROM booking_details bbd
+          JOIN rooms br ON br.id = COALESCE(bbd.roomId, b.room_id)
+          WHERE bbd.bookingId = b.id
+            AND br.roomTypeId = ?
         )
       `
       : '';
 
-    const bookingRoomTypeJoin = `
-      LEFT JOIN booking_details bbd ON bbd.bookingId = b.id
-      LEFT JOIN rooms br ON br.id = COALESCE(bbd.roomId, b.room_id)
-    `;
-    const bookingRoomTypeFilter = roomTypeId ? 'AND br.roomTypeId = ?' : '';
-
-    const revenueParams = [from, to, ...(roomTypeId ? [roomTypeId] : [])];
     const bookingParams = [from, to, ...(roomTypeId ? [roomTypeId] : [])];
 
+    // Doanh thu nhận diện theo cùng chuẩn với trang Báo cáo:
+    // - Đơn lưu trú (checked_in, checked_out): phòng + dịch vụ + phụ thu - giảm giá
+    // - Đơn hủy / no_show: tiền phạt/cọc thực tế giữ lại sau hoàn tiền (paidAmount)
+    // - Tiền thực thu: tổng tiền đã vào két (paidAmount của mọi thanh toán hợp lệ)
+    // - Doanh thu tiền phòng (chỉ đơn lưu trú): dùng để tính ADR/RevPAR chính xác
     const [[revenueKpi]] = await db.query(
       `
-        SELECT COALESCE(SUM(p.paidAmount), 0) AS total
-        FROM payments p
-        LEFT JOIN bookings pb ON pb.id = p.bookingId
-        WHERE p.paymentStatus = 'paid'
-          AND p.paymentDate >= ?
-          AND p.paymentDate <= ?
-          ${revenueRoomTypeFilter}
+        SELECT
+          COALESCE(SUM(
+            CASE
+              WHEN ${BOOKING_EFFECTIVE_STATUS_EXPR} IN ('checked_in', 'checked_out') THEN
+                GREATEST(0, COALESCE(pay.roomAmount, 0) + COALESCE(pay.serviceAmount, 0) + COALESCE(pay.surchargeAmount, 0) - COALESCE(pay.discountAmount, 0))
+              WHEN ${BOOKING_EFFECTIVE_STATUS_EXPR} IN ('cancelled', 'no_show') THEN
+                COALESCE(pay.paidAmount, 0)
+              ELSE 0
+            END
+          ), 0) AS totalRevenue,
+          COALESCE(SUM(pay.paidAmount), 0) AS totalCollected,
+          COALESCE(SUM(
+            CASE
+              WHEN ${BOOKING_EFFECTIVE_STATUS_EXPR} IN ('checked_in', 'checked_out') THEN
+                COALESCE(pay.roomAmount, 0)
+              ELSE 0
+            END
+          ), 0) AS roomRevenue
+        FROM bookings b
+        LEFT JOIN (
+          SELECT
+            bookingId,
+            SUM(roomAmount) AS roomAmount,
+            SUM(serviceAmount) AS serviceAmount,
+            SUM(surchargeAmount) AS surchargeAmount,
+            SUM(discountAmount) AS discountAmount,
+            SUM(paidAmount) AS paidAmount,
+            SUM(remainingAmount) AS remainingAmount,
+            SUM(totalAmount) AS totalAmount
+          FROM payments
+          GROUP BY bookingId
+        ) pay ON pay.bookingId = b.id
+        WHERE COALESCE(b.created_at, b.createdAt) >= ?
+          AND COALESCE(b.created_at, b.createdAt) <= ?
+          ${bookingRoomTypeFilter}
       `,
-      revenueParams
-    );
-
-    // Doanh thu riêng phần tiền phòng (không tính dịch vụ/phụ thu) -> dùng để tính ADR chính xác hơn
-    const [[roomRevenueKpi]] = await db.query(
-      `
-        SELECT COALESCE(SUM(p.roomAmount), 0) AS total
-        FROM payments p
-        LEFT JOIN bookings pb ON pb.id = p.bookingId
-        WHERE p.paymentStatus = 'paid'
-          AND p.paymentDate >= ?
-          AND p.paymentDate <= ?
-          ${revenueRoomTypeFilter}
-      `,
-      revenueParams
+      bookingParams
     );
 
     const [[bookingKpi]] = await db.query(
       `
         SELECT COUNT(DISTINCT b.id) AS total
         FROM bookings b
-        ${bookingRoomTypeJoin}
         WHERE COALESCE(b.created_at, b.createdAt) >= ?
           AND COALESCE(b.created_at, b.createdAt) <= ?
           ${bookingRoomTypeFilter}
@@ -410,7 +426,6 @@ router.get('/', requireAuth, requireStaff, async (req, res) => {
       `
         SELECT COUNT(DISTINCT b.id) AS total
         FROM bookings b
-        ${bookingRoomTypeJoin}
         WHERE COALESCE(b.created_at, b.createdAt) >= ?
           AND COALESCE(b.created_at, b.createdAt) <= ?
           AND ${BOOKING_EFFECTIVE_STATUS_EXPR} = 'cancelled'
@@ -470,10 +485,10 @@ router.get('/', requireAuth, requireStaff, async (req, res) => {
 
     const bookedNights = Number(bookedNightsRow?.bookedNights) || 0;
     const maxNights = totalRooms * periodDays;
-    const occupancyRate = maxNights > 0 ? Math.round((bookedNights / maxNights) * 100) : 0;
+    const occupancyRate = maxNights > 0 ? Number(((bookedNights / maxNights) * 100).toFixed(2)) : 0;
 
     // ADR = doanh thu phòng / số đêm đã bán ra. RevPAR = doanh thu phòng / (tổng phòng x số ngày trong kỳ)
-    const roomRevenueTotal = Number(roomRevenueKpi?.total) || 0;
+    const roomRevenueTotal = Number(revenueKpi?.roomRevenue) || 0;
     const adr = bookedNights > 0 ? Math.round(roomRevenueTotal / bookedNights) : 0;
     const revpar = maxNights > 0 ? Math.round(roomRevenueTotal / maxNights) : 0;
 
@@ -489,35 +504,53 @@ router.get('/', requireAuth, requireStaff, async (req, res) => {
         SELECT AVG(rev.rating) AS avgRating
         FROM reviews rev
         LEFT JOIN bookings b ON b.id = rev.bookingId
-        ${roomTypeId ? bookingRoomTypeJoin : ''}
         WHERE rev.createdAt >= ?
           AND rev.createdAt <= ?
-          ${roomTypeId ? 'AND br.roomTypeId = ?' : ''}
+          ${bookingRoomTypeFilter}
       `,
-      roomTypeId ? [from, to, roomTypeId] : [from, to]
+      bookingParams
     );
     const avgRating = ratingRow?.avgRating != null ? Number(Number(ratingRow.avgRating).toFixed(1)) : null;
 
+    // Chuỗi doanh thu theo thời gian (reconcile 100% với revenueTotal)
     const [revenueRows] = await db.query(
       `
-        SELECT ${revenueGroupExpr} AS bucket, COALESCE(SUM(p.paidAmount), 0) AS total
-        FROM payments p
-        LEFT JOIN bookings pb ON pb.id = p.bookingId
-        WHERE p.paymentStatus = 'paid'
-          AND p.paymentDate >= ?
-          AND p.paymentDate <= ?
-          ${revenueRoomTypeFilter}
+        SELECT
+          ${bookingGroupExpr} AS bucket,
+          COALESCE(SUM(
+            CASE
+              WHEN ${BOOKING_EFFECTIVE_STATUS_EXPR} IN ('checked_in', 'checked_out') THEN
+                GREATEST(0, COALESCE(pay.roomAmount, 0) + COALESCE(pay.serviceAmount, 0) + COALESCE(pay.surchargeAmount, 0) - COALESCE(pay.discountAmount, 0))
+              WHEN ${BOOKING_EFFECTIVE_STATUS_EXPR} IN ('cancelled', 'no_show') THEN
+                COALESCE(pay.paidAmount, 0)
+              ELSE 0
+            END
+          ), 0) AS total
+        FROM bookings b
+        LEFT JOIN (
+          SELECT
+            bookingId,
+            SUM(roomAmount) AS roomAmount,
+            SUM(serviceAmount) AS serviceAmount,
+            SUM(surchargeAmount) AS surchargeAmount,
+            SUM(discountAmount) AS discountAmount,
+            SUM(paidAmount) AS paidAmount
+          FROM payments
+          GROUP BY bookingId
+        ) pay ON pay.bookingId = b.id
+        WHERE COALESCE(b.created_at, b.createdAt) >= ?
+          AND COALESCE(b.created_at, b.createdAt) <= ?
+          ${bookingRoomTypeFilter}
         GROUP BY bucket
         ORDER BY bucket
       `,
-      revenueParams
+      bookingParams
     );
 
     const [bookingRows] = await db.query(
       `
         SELECT ${bookingGroupExpr} AS bucket, COUNT(DISTINCT b.id) AS total
         FROM bookings b
-        ${bookingRoomTypeJoin}
         WHERE COALESCE(b.created_at, b.createdAt) >= ?
           AND COALESCE(b.created_at, b.createdAt) <= ?
           ${bookingRoomTypeFilter}
@@ -533,15 +566,15 @@ router.get('/', requireAuth, requireStaff, async (req, res) => {
           COALESCE(NULLIF(TRIM(p.paymentMethod), ''), 'Khác') AS label,
           COUNT(*) AS total
         FROM payments p
-        LEFT JOIN bookings pb ON pb.id = p.bookingId
+        LEFT JOIN bookings b ON b.id = p.bookingId
         WHERE p.paymentStatus = 'paid'
           AND p.paymentDate >= ?
           AND p.paymentDate <= ?
-          ${revenueRoomTypeFilter}
+          ${bookingRoomTypeFilter}
         GROUP BY label
         ORDER BY total DESC
       `,
-      revenueParams
+      bookingParams
     );
 
     const [topRoomTypeRows] = await db.query(
@@ -563,20 +596,21 @@ router.get('/', requireAuth, requireStaff, async (req, res) => {
       roomTypeId ? [from, to, roomTypeId] : [from, to]
     );
 
-    // Doanh thu theo từng loại phòng (khi đang lọc 1 loại phòng cụ thể thì chỉ còn 1 cột)
+    // Doanh thu theo từng loại phòng (tính trực tiếp từ booking_details x số đêm, tránh fan-out với payments)
     const [revenueByRoomTypeRows] = await db.query(
       `
         SELECT
           COALESCE(rt.typeName, 'Không rõ') AS label,
-          COALESCE(SUM(p.paidAmount), 0) AS total
-        FROM payments p
-        LEFT JOIN bookings pb ON pb.id = p.bookingId
-        LEFT JOIN booking_details bd ON bd.bookingId = pb.id
-        LEFT JOIN rooms r ON r.id = COALESCE(bd.roomId, pb.room_id)
-        LEFT JOIN room_types rt ON rt.id = r.roomTypeId
-        WHERE p.paymentStatus = 'paid'
-          AND p.paymentDate >= ?
-          AND p.paymentDate <= ?
+          COALESCE(SUM(
+            bd.roomPrice * GREATEST(1, DATEDIFF(bd.checkOutDate, bd.checkInDate))
+          ), 0) AS total
+        FROM bookings b
+        JOIN booking_details bd ON bd.bookingId = b.id
+        LEFT JOIN rooms r ON r.id = COALESCE(bd.roomId, b.room_id)
+        LEFT JOIN room_types rt ON rt.id = COALESCE(bd.roomTypeId, r.roomTypeId)
+        WHERE COALESCE(b.created_at, b.createdAt) >= ?
+          AND COALESCE(b.created_at, b.createdAt) <= ?
+          AND ${BOOKING_EFFECTIVE_STATUS_EXPR} IN ('checked_in', 'checked_out')
           ${roomTypeId ? 'AND r.roomTypeId = ?' : ''}
         GROUP BY label
         ORDER BY total DESC
@@ -592,7 +626,9 @@ router.get('/', requireAuth, requireStaff, async (req, res) => {
       // đã tự động rơi về tháng hiện tại. FE cần hiển thị cảnh báo khi cờ này bật.
       rangeFallback: fallback,
       kpis: {
-        revenueTotal: Number(revenueKpi?.total) || 0,
+        revenueTotal: Number(revenueKpi?.totalRevenue) || 0,
+        collectedTotal: Number(revenueKpi?.totalCollected) || 0,
+        roomRevenueTotal: Number(revenueKpi?.roomRevenue) || 0,
         bookingsTotal: Number(bookingKpi?.total) || 0,
         newCustomers: Number(customerKpi?.total) || 0,
         occupancyRate,
