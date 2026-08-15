@@ -940,6 +940,67 @@ const ensureOperationalSchema = async () => {
     console.error('Lỗi khi khởi tạo password_reset_tokens:', err.message);
   }
 
+  // Đồng bộ hai cột trạng thái của đơn đặt phòng.
+  //
+  // bookings có cả `status` lẫn `bookingStatus`. Mã nguồn luôn ghi cùng lúc cùng
+  // giá trị vào cả hai (xem updateBookingStatus), nên chỗ nào lệch nhau đều là
+  // dữ liệu cũ. Lệch thì mỗi màn hình đọc một cột sẽ cho ra con số khác nhau:
+  // ô "Booking chờ xác nhận" ở Bảng điều khiển đếm theo bookingStatus, còn bảng
+  // danh sách đọc theo status. Ngoài ra dữ liệu cũ còn lẫn giá trị sai chính tả
+  // 'checkout' bên cạnh 'checked_out' chuẩn.
+  try {
+    await db.query(`
+      UPDATE bookings
+      SET bookingStatus = CASE bookingStatus
+            WHEN 'checkout' THEN 'checked_out'
+            WHEN 'checkin' THEN 'checked_in'
+            WHEN 'no-show' THEN 'no_show'
+            ELSE bookingStatus END,
+          status = CASE status
+            WHEN 'checkout' THEN 'checked_out'
+            WHEN 'checkin' THEN 'checked_in'
+            WHEN 'no-show' THEN 'no_show'
+            ELSE status END
+      WHERE status IN ('checkout', 'checkin', 'no-show')
+         OR bookingStatus IN ('checkout', 'checkin', 'no-show')
+    `);
+
+    // Còn lệch thì lấy giai đoạn muộn hơn trong vòng đời: đơn đã trả phòng không
+    // thể quay ngược về chờ xác nhận.
+    const [conflicts] = await db.query(`
+      SELECT id, status, bookingStatus
+      FROM bookings
+      WHERE bookingStatus IS NOT NULL AND bookingStatus <> status
+    `);
+
+    const stage = {
+      pending: 0,
+      confirmed: 1,
+      checked_in: 2,
+      checked_out: 3,
+      no_show: 4,
+      cancelled: 5
+    };
+
+    for (const row of conflicts) {
+      const winner =
+        (stage[row.bookingStatus] ?? -1) >= (stage[row.status] ?? -1)
+          ? row.bookingStatus
+          : row.status;
+      await db.query('UPDATE bookings SET status = ?, bookingStatus = ? WHERE id = ?', [
+        winner,
+        winner,
+        row.id
+      ]);
+    }
+
+    if (conflicts.length > 0) {
+      console.log(`Đã đồng bộ trạng thái cho ${conflicts.length} đơn có hai cột lệch nhau.`);
+    }
+  } catch (err) {
+    console.error('Lỗi khi đồng bộ trạng thái đơn đặt phòng:', err.message);
+  }
+
   // Sửa các đơn bị đánh No-show oan.
   //
   // Job quét đơn quá hạn từng không xét thời điểm đặt, nên đơn đặt trong ngày
