@@ -659,7 +659,7 @@ const Booking: React.FC = () => {
     policies?.childMaxAge ??
     11;
 
-  // Tính toán sức chứa và khách của Room #1 (selectedRoom)
+  // Fix tự động tăng phòng: Tính sức chứa và khách của Room #1 (selectedRoom) riêng
   const room1Guests = adults + children;
   const room1Capacity = maxOcc * activeRoomQuantity;
   const room1MinRequiredRooms =
