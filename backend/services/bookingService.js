@@ -301,13 +301,14 @@ const checkHolidayDate = (dateStr) => {
 
 /**
  * Tính giá phòng từng đêm theo quy tắc:
- * 1. Ngày lễ (Holiday): Đắt hơn 100.000đ/đêm (phòng thường) hoặc 200.000đ/đêm (phòng hạng sang)
- *    so với ngày thường (hoặc ưu tiên giá cụ thể nếu admin cấu hình trong room_prices).
- * 2. Ngày cuối tuần (Thứ 7 & Chủ nhật): Đắt hơn 100.000đ/đêm (phòng thường) hoặc 200.000đ/đêm (phòng hạng sang)
- *    so với ngày thường (hoặc ưu tiên giá cụ thể nếu admin cấu hình trong room_prices).
- * 3. Giá theo mùa / sự kiện (priceType = 'season' hoặc 'special'): nếu có bảng giá sự kiện.
- * 4. Giá ngày thường (priceType = 'normal'): nếu có bảng giá ngày thường riêng.
- * 5. Giá mặc định (fallbackPrice của loại phòng).
+ * 1. Ngày lễ (Holiday): Tăng 20% so với giá phòng bình thường (+20% basePrice).
+ *    (hoặc ưu tiên giá cụ thể nếu admin cấu hình trong room_prices).
+ * 2. Ngày cuối tuần (Thứ 7 & Chủ nhật): Tăng 10% so với giá phòng bình thường (+10% basePrice).
+ *    (hoặc ưu tiên giá cụ thể nếu admin cấu hình trong room_prices).
+ * 3. Nếu ngày lễ trùng Thứ 7 hoặc Chủ nhật: Chỉ tính +20% ngày lễ, không cộng thêm +10%.
+ * 4. Giá theo mùa / sự kiện (priceType = 'season' hoặc 'special'): nếu có bảng giá sự kiện.
+ * 5. Giá ngày thường (priceType = 'normal'): nếu có bảng giá ngày thường riêng.
+ * 6. Giá mặc định (fallbackPrice / defaultPrice của loại phòng).
  */
 const calcNightlyPrices = async (
   roomTypeId,
@@ -320,7 +321,7 @@ const calcNightlyPrices = async (
   const nights = getStayDates(dayString(checkIn), dayString(checkOut));
   const ranges = await bookingModel.listRoomPriceRanges(roomTypeId || null, connection);
 
-  // Lấy thông tin hạng phòng để nhận diện hạng sang
+  // Lấy thông tin hạng phòng để nhận diện hạng sang / giá niêm yết
   let roomTypeInfo = null;
   if (roomTypeId) {
     try {
@@ -334,23 +335,19 @@ const calcNightlyPrices = async (
     }
   }
 
-  // Nơi gọi không truyền giá gốc thì lấy giá niêm yết của hạng phòng. Thiếu bước
-  // này, giá mỗi đêm chỉ còn đúng phần phụ thu (VD ngày lễ ra 100.000đ thay vì
-  // giá phòng + 100.000đ).
   const basePriceValue = Number(fallbackPrice || 0) > 0
     ? Number(fallbackPrice)
     : Number(roomTypeInfo?.defaultPrice || 0);
 
-  const isLuxury = isLuxuryRoomType(roomTypeInfo, basePriceValue);
-  const weekendHolidaySurcharge = isLuxury ? 200000 : 100000;
-  const surchargeLabel = isLuxury ? '+200.000đ (Hạng sang)' : '+100.000đ';
+  const weekendSurchargeAmount = Math.round(basePriceValue * 0.10); // +10%
+  const holidaySurchargeAmount = Math.round(basePriceValue * 0.20); // +20%
 
   const prices = nights.map((night) => {
     const dayInfo = getDayOfWeekInfo(night);
     const holidayCheck = checkHolidayDate(night);
 
-    // 1. Ưu tiên cao nhất: Ngày lễ (Holiday)
-    // 1a. Cấu hình ngày lễ riêng trong room_prices
+    // 1. Ưu tiên cao nhất: Ngày lễ (Holiday) (+20%)
+    // (Nếu rơi vào Thứ 7/CN thì vẫn chỉ tính +20% ngày lễ, không cộng dồn +10%)
     const holidayRange = ranges.find(
       (item) =>
         item.priceType === 'holiday' &&
@@ -359,15 +356,18 @@ const calcNightlyPrices = async (
     );
     if (holidayRange) {
       const explicitPrice = Number(holidayRange.price || 0);
-      const price = explicitPrice > 0 ? explicitPrice : (basePriceValue + weekendHolidaySurcharge);
+      const price = explicitPrice > 0 ? explicitPrice : (basePriceValue + holidaySurchargeAmount);
+      const surcharge = Math.max(0, price - basePriceValue);
       return {
         date: night,
         stayDate: night,
         price,
         basePrice: basePriceValue,
-        surcharge: Math.max(0, price - basePriceValue),
+        surcharge,
+        surchargePercent: basePriceValue > 0 ? Math.round((surcharge / basePriceValue) * 100) : 20,
         priceType: 'holiday',
-        note: holidayRange.note || `Giá ngày lễ (${surchargeLabel})`,
+        note: holidayRange.note || `Giá ngày lễ (+20%)`,
+        holidayName: holidayCheck.name || 'Ngày lễ',
         dayOfWeek: dayInfo.dayOfWeek,
         dayName: dayInfo.dayName,
         isHoliday: true,
@@ -378,17 +378,18 @@ const calcNightlyPrices = async (
       };
     }
 
-    // 1b. Ngày lễ theo lịch Việt Nam tự động
     if (holidayCheck.isHoliday) {
-      const price = basePriceValue + weekendHolidaySurcharge;
+      const price = basePriceValue + holidaySurchargeAmount;
       return {
         date: night,
         stayDate: night,
         price,
         basePrice: basePriceValue,
-        surcharge: weekendHolidaySurcharge,
+        surcharge: holidaySurchargeAmount,
+        surchargePercent: 20,
         priceType: 'holiday',
-        note: `${holidayCheck.name} (${surchargeLabel})`,
+        note: `${holidayCheck.name} (+20%)`,
+        holidayName: holidayCheck.name,
         dayOfWeek: dayInfo.dayOfWeek,
         dayName: dayInfo.dayName,
         isHoliday: true,
@@ -399,10 +400,7 @@ const calcNightlyPrices = async (
       };
     }
 
-    // Quy tắc giá theo mùa / sự kiện phải tra TRƯỚC nhánh cuối tuần. Nhánh cuối
-    // tuần luôn return nên nếu để nguyên ở bước 3, một đêm vừa thuộc mùa cao
-    // điểm vừa rơi vào Thứ 7 hay Chủ nhật sẽ bỏ qua giá mùa và chỉ tính phụ thu
-    // cuối tuần — đúng những đêm đắt nhất năm lại bán rẻ nhất.
+    // Quy tắc giá theo mùa / sự kiện tra trước nhánh cuối tuần
     const seasonRange = ranges.find(
       (item) =>
         ['season', 'special', 'event'].includes(item.priceType) &&
@@ -411,8 +409,6 @@ const calcNightlyPrices = async (
     );
     const seasonPrice = seasonRange ? Number(seasonRange.price || 0) : 0;
 
-    // Đêm cuối tuần nằm trong mùa cao điểm thì lấy mức cao hơn giữa hai quy tắc.
-    // Quy tắc mùa không dùng để hạ giá cuối tuần xuống dưới mức phụ thu chuẩn.
     const withSeasonFloor = (result) => {
       if (seasonPrice <= result.price) {
         return result;
@@ -421,13 +417,14 @@ const calcNightlyPrices = async (
         ...result,
         price: seasonPrice,
         surcharge: Math.max(0, seasonPrice - basePriceValue),
+        surchargePercent: basePriceValue > 0 ? Math.round((Math.max(0, seasonPrice - basePriceValue) / basePriceValue) * 100) : 0,
         note: seasonRange.note
           ? `${seasonRange.note} (áp cho ${result.isSaturday ? 'Thứ 7' : 'Chủ nhật'})`
           : `Giá theo mùa/sự kiện (áp cho ${result.isSaturday ? 'Thứ 7' : 'Chủ nhật'})`
       };
     };
 
-    // 2. Ưu tiên thứ hai: Chủ nhật hoặc Cuối tuần (Sunday / Saturday / Weekend)
+    // 2. Ưu tiên thứ hai: Cuối tuần (Chủ nhật hoặc Thứ 7) (+10%)
     if (dayInfo.isSunday) {
       const sundayRange = ranges.find(
         (item) =>
@@ -437,14 +434,17 @@ const calcNightlyPrices = async (
       );
       if (sundayRange && Number(sundayRange.price || 0) > 0) {
         const price = Number(sundayRange.price);
+        const surcharge = Math.max(0, price - basePriceValue);
         return withSeasonFloor({
           date: night,
           stayDate: night,
           price,
           basePrice: basePriceValue,
-          surcharge: Math.max(0, price - basePriceValue),
+          surcharge,
+          surchargePercent: basePriceValue > 0 ? Math.round((surcharge / basePriceValue) * 100) : 10,
           priceType: 'sunday',
-          note: sundayRange.note || `Giá Chủ nhật (${surchargeLabel})`,
+          note: sundayRange.note || `Giá Chủ nhật (+10%)`,
+          holidayName: '',
           dayOfWeek: dayInfo.dayOfWeek,
           dayName: dayInfo.dayName,
           isHoliday: false,
@@ -463,14 +463,17 @@ const calcNightlyPrices = async (
       );
       if (weekendRange && Number(weekendRange.price || 0) > 0) {
         const price = Number(weekendRange.price);
+        const surcharge = Math.max(0, price - basePriceValue);
         return withSeasonFloor({
           date: night,
           stayDate: night,
           price,
           basePrice: basePriceValue,
-          surcharge: Math.max(0, price - basePriceValue),
+          surcharge,
+          surchargePercent: basePriceValue > 0 ? Math.round((surcharge / basePriceValue) * 100) : 10,
           priceType: 'sunday',
-          note: weekendRange.note || `Giá cuối tuần - Chủ nhật (${surchargeLabel})`,
+          note: weekendRange.note || `Giá cuối tuần - Chủ nhật (+10%)`,
+          holidayName: '',
           dayOfWeek: dayInfo.dayOfWeek,
           dayName: dayInfo.dayName,
           isHoliday: false,
@@ -481,16 +484,18 @@ const calcNightlyPrices = async (
         });
       }
 
-      // Giá cuối tuần Chủ nhật mặc định (+100k phòng thường, +200k phòng hạng sang)
-      const price = basePriceValue + weekendHolidaySurcharge;
+      // Giá cuối tuần Chủ nhật mặc định (+10%)
+      const price = basePriceValue + weekendSurchargeAmount;
       return withSeasonFloor({
         date: night,
         stayDate: night,
         price,
         basePrice: basePriceValue,
-        surcharge: weekendHolidaySurcharge,
+        surcharge: weekendSurchargeAmount,
+        surchargePercent: 10,
         priceType: 'sunday',
-        note: `Giá cuối tuần (Chủ nhật) (${surchargeLabel})`,
+        note: `Cuối tuần (Chủ nhật) (+10%)`,
+        holidayName: '',
         dayOfWeek: dayInfo.dayOfWeek,
         dayName: dayInfo.dayName,
         isHoliday: false,
@@ -508,14 +513,17 @@ const calcNightlyPrices = async (
       );
       if (satRange && Number(satRange.price || 0) > 0) {
         const price = Number(satRange.price);
+        const surcharge = Math.max(0, price - basePriceValue);
         return withSeasonFloor({
           date: night,
           stayDate: night,
           price,
           basePrice: basePriceValue,
-          surcharge: Math.max(0, price - basePriceValue),
+          surcharge,
+          surchargePercent: basePriceValue > 0 ? Math.round((surcharge / basePriceValue) * 100) : 10,
           priceType: 'weekend',
-          note: satRange.note || `Giá Thứ 7 (${surchargeLabel})`,
+          note: satRange.note || `Giá Thứ 7 (+10%)`,
+          holidayName: '',
           dayOfWeek: dayInfo.dayOfWeek,
           dayName: dayInfo.dayName,
           isHoliday: false,
@@ -526,16 +534,18 @@ const calcNightlyPrices = async (
         });
       }
 
-      // Giá cuối tuần Thứ 7 mặc định (+100k phòng thường, +200k phòng hạng sang)
-      const price = basePriceValue + weekendHolidaySurcharge;
+      // Giá cuối tuần Thứ 7 mặc định (+10%)
+      const price = basePriceValue + weekendSurchargeAmount;
       return withSeasonFloor({
         date: night,
         stayDate: night,
         price,
         basePrice: basePriceValue,
-        surcharge: weekendHolidaySurcharge,
+        surcharge: weekendSurchargeAmount,
+        surchargePercent: 10,
         priceType: 'weekend',
-        note: `Giá cuối tuần (Thứ 7) (${surchargeLabel})`,
+        note: `Cuối tuần (Thứ 7) (+10%)`,
+        holidayName: '',
         dayOfWeek: dayInfo.dayOfWeek,
         dayName: dayInfo.dayName,
         isHoliday: false,
@@ -547,17 +557,19 @@ const calcNightlyPrices = async (
     }
 
     // 3. Ưu tiên thứ ba: Giá theo mùa / sự kiện (Special / Season)
-    // seasonRange đã được tra ở trên để nhánh cuối tuần dùng chung.
     if (seasonRange) {
       const price = Number(seasonRange.price);
+      const surcharge = Math.max(0, price - basePriceValue);
       return {
         date: night,
         stayDate: night,
         price,
         basePrice: basePriceValue,
-        surcharge: Math.max(0, price - basePriceValue),
+        surcharge,
+        surchargePercent: basePriceValue > 0 ? Math.round((surcharge / basePriceValue) * 100) : 0,
         priceType: seasonRange.priceType,
         note: seasonRange.note || 'Giá theo mùa/sự kiện',
+        holidayName: '',
         dayOfWeek: dayInfo.dayOfWeek,
         dayName: dayInfo.dayName,
         isHoliday: false,
@@ -577,14 +589,17 @@ const calcNightlyPrices = async (
     );
     if (normalRange) {
       const price = Number(normalRange.price);
+      const surcharge = Math.max(0, price - basePriceValue);
       return {
         date: night,
         stayDate: night,
         price,
         basePrice: basePriceValue,
-        surcharge: Math.max(0, price - basePriceValue),
+        surcharge,
+        surchargePercent: basePriceValue > 0 ? Math.round((surcharge / basePriceValue) * 100) : 0,
         priceType: 'normal',
         note: normalRange.note || 'Giá ngày thường',
+        holidayName: '',
         dayOfWeek: dayInfo.dayOfWeek,
         dayName: dayInfo.dayName,
         isHoliday: false,
@@ -595,15 +610,17 @@ const calcNightlyPrices = async (
       };
     }
 
-    // 5. Giá mặc định (Ngày thường tiêu chuẩn)
+    // 5. Giá mặc định (Ngày thường tiêu chuẩn: Thứ 2 - Thứ 6)
     return {
       date: night,
       stayDate: night,
       price: basePriceValue,
       basePrice: basePriceValue,
       surcharge: 0,
+      surchargePercent: 0,
       priceType: 'normal',
-      note: 'Giá ngày thường (tiêu chuẩn)',
+      note: 'Giá ngày thường',
+      holidayName: '',
       dayOfWeek: dayInfo.dayOfWeek,
       dayName: dayInfo.dayName,
       isHoliday: false,
@@ -637,8 +654,8 @@ const calcNightlyPrices = async (
     weekendSurcharge,
     holidayNightsCount,
     weekendNightsCount,
-    isLuxury,
-    weekendHolidaySurcharge,
+    weekendSurchargeAmount,
+    holidaySurchargeAmount,
     total,
   };
 };
@@ -5290,6 +5307,452 @@ const adminModifyBooking = async (bookingId, payload, actor) => {
   }
 };
 
+/**
+ * Xem trước chi phí gia hạn thời gian ở, chuyển/nâng cấp phòng hoặc đồng thời cả hai.
+ * Payload:
+ * - checkOut: string (YYYY-MM-DD, ngày trả phòng mới nếu gia hạn)
+ * - toRoomId: number (ID phòng mới nếu chuyển/nâng cấp)
+ * - fromDate: string (YYYY-MM-DD, ngày bắt đầu chuyển phòng, mặc định hôm nay / splitDate)
+ * - bookingDetailId: number (ID chi tiết đặt phòng cần chuyển)
+ */
+const previewBookingChange = async (bookingId, payload = {}) => {
+  const booking = await bookingModel.getBookingById(bookingId);
+  if (!booking) {
+    throw new HttpError(404, "Không tìm thấy thông tin đặt phòng");
+  }
+
+  if (!["pending", "confirmed", "checked_in"].includes(booking.status)) {
+    throw new HttpError(
+      409,
+      `Không thể thay đổi đặt phòng ở trạng thái ${bookingStatusLabel(booking.status)}`
+    );
+  }
+
+  const [details] = await db.query(
+    `SELECT bd.*, r.roomNumber, r.status AS roomStatus, rt.typeName AS roomTypeName, rt.defaultPrice,
+            rt.adultCapacity, rt.childCapacity, rt.maxOccupancy, rt.extraAdultFee, rt.extraChildFee
+     FROM booking_details bd
+     LEFT JOIN rooms r ON r.id = bd.roomId
+     LEFT JOIN room_types rt ON rt.id = COALESCE(bd.roomTypeId, r.roomTypeId)
+     WHERE bd.bookingId = ?
+     ORDER BY bd.id ASC`,
+    [bookingId]
+  );
+
+  const mainDetail = details.length > 0 ? details[0] : null;
+  const currentCheckIn = dayString(booking.check_in);
+  const currentCheckOut = dayString(booking.check_out);
+  const targetCheckOut = payload.checkOut ? dayString(payload.checkOut) : currentCheckOut;
+
+  if (targetCheckOut < currentCheckIn) {
+    throw new HttpError(400, "Ngày trả phòng không được sớm hơn ngày nhận phòng");
+  }
+
+  const isExtending = targetCheckOut > currentCheckOut;
+  const toRoomId = payload.toRoomId ? Number(payload.toRoomId) : null;
+  
+  // Xác định bookingDetail được chuyển
+  let sourceDetail = null;
+  if (payload.bookingDetailId) {
+    sourceDetail = details.find((d) => Number(d.id) === Number(payload.bookingDetailId));
+  } else if (payload.fromRoomId) {
+    sourceDetail = details.find((d) => Number(d.roomId) === Number(payload.fromRoomId));
+  } else {
+    sourceDetail = mainDetail;
+  }
+
+  const currentRoomId = sourceDetail?.roomId ? Number(sourceDetail.roomId) : (booking.room_id ? Number(booking.room_id) : null);
+  const isTransferring = Boolean(toRoomId && toRoomId !== currentRoomId);
+
+  // Xác định ngày chuyển phòng (splitDate)
+  const today = dayString(new Date());
+  let splitDate = currentCheckIn;
+  if (isTransferring) {
+    if (payload.fromDate) {
+      splitDate = dayString(payload.fromDate);
+    } else if (booking.status === 'checked_in') {
+      splitDate = today > currentCheckIn && today < targetCheckOut ? today : currentCheckIn;
+    } else {
+      splitDate = currentCheckIn;
+    }
+    if (splitDate < currentCheckIn) splitDate = currentCheckIn;
+    if (splitDate > targetCheckOut) splitDate = targetCheckOut;
+  }
+
+  let targetRoom = null;
+  if (isTransferring) {
+    targetRoom = await bookingModel.getRoomWithType(toRoomId, db, false);
+    if (!targetRoom) {
+      throw new HttpError(404, "Không tìm thấy phòng muốn chuyển đến");
+    }
+    if (targetRoom.status === 'maintenance') {
+      throw new HttpError(409, `Phòng ${targetRoom.roomNumber} đang được bảo trì.`);
+    }
+  }
+
+  // 1. Kiểm tra xung đột phòng
+  const conflicts = [];
+  if (isTransferring && targetRoom) {
+    // Check conflict for target room from splitDate to targetCheckOut
+    const toRoomConflicts = await bookingModel.getConflictingBookings(
+      targetRoom.id,
+      splitDate,
+      targetCheckOut,
+      db,
+      true,
+      { excludeBookingId: bookingId }
+    );
+    if (toRoomConflicts.length > 0) {
+      conflicts.push({
+        type: 'transfer_room_conflict',
+        roomId: targetRoom.id,
+        roomNumber: targetRoom.roomNumber,
+        conflictingBookingIds: toRoomConflicts.map(c => c.id),
+        message: `Phòng ${targetRoom.roomNumber} đã có người đặt trong giai đoạn ${displayDate(splitDate)} → ${displayDate(targetCheckOut)}.`
+      });
+    }
+  } else if (isExtending && currentRoomId) {
+    // Check conflict for current room for extended period
+    const extConflicts = await bookingModel.getConflictingBookings(
+      currentRoomId,
+      currentCheckOut,
+      targetCheckOut,
+      db,
+      true,
+      { excludeBookingId: bookingId }
+    );
+    if (extConflicts.length > 0) {
+      const roomNum = sourceDetail?.roomNumber || currentRoomId;
+      conflicts.push({
+        type: 'extend_stay_conflict',
+        roomId: currentRoomId,
+        roomNumber: roomNum,
+        conflictingBookingIds: extConflicts.map(c => c.id),
+        message: `Phòng ${roomNum} đã có người đặt trong giai đoạn gia hạn ${displayDate(currentCheckOut)} → ${displayDate(targetCheckOut)}.`
+      });
+    }
+  }
+
+  // 2. Tính toán biểu giá chi tiết cho từng giai đoạn và từng đêm
+  const currentRoomTypeId = sourceDetail?.roomTypeId || booking.room_type_id;
+  const currentRoomPrice = Number(sourceDetail?.roomPrice || booking.room_price || sourceDetail?.defaultPrice || 500000);
+  
+  const targetRoomTypeId = isTransferring ? (targetRoom.roomTypeId || targetRoom.room_type_id) : currentRoomTypeId;
+  const targetRoomPrice = isTransferring ? Number(targetRoom.defaultPrice || targetRoom.price_per_night || 0) : currentRoomPrice;
+
+  // Tính nightly prices:
+  // - Giai đoạn 1 (trước splitDate): Phòng cũ
+  // - Giai đoạn 2 (từ splitDate trở đi): Phòng mới (hoặc phòng cũ nếu không đổi phòng)
+  const pastCalc = await calcNightlyPrices(
+    currentRoomTypeId,
+    currentRoomPrice,
+    currentCheckIn,
+    splitDate,
+    db,
+    currentRoomId
+  );
+
+  const futureCalc = await calcNightlyPrices(
+    targetRoomTypeId,
+    targetRoomPrice,
+    splitDate,
+    targetCheckOut,
+    db,
+    isTransferring ? targetRoom.id : currentRoomId
+  );
+
+  // Phân tích chi tiết từng đêm
+  const combinedNightlyPrices = [
+    ...pastCalc.prices.map(p => ({
+      ...p,
+      isNewRoom: false,
+      roomNumber: sourceDetail?.roomNumber,
+      typeName: sourceDetail?.roomTypeName
+    })),
+    ...futureCalc.prices.map(p => ({
+      ...p,
+      isNewRoom: isTransferring,
+      roomNumber: isTransferring ? targetRoom?.roomNumber : sourceDetail?.roomNumber,
+      typeName: isTransferring ? targetRoom?.typeName : sourceDetail?.roomTypeName
+    }))
+  ];
+
+  // Tính các khoản tài chính & cảnh báo
+  let baseRoomAmount = 0;
+  let holidaySurcharge = 0;
+  let weekendSurcharge = 0;
+  let upgradeFee = 0;
+  const warnings = [];
+
+  for (const night of combinedNightlyPrices) {
+    baseRoomAmount += Number(night.basePrice || 0);
+    if (night.isHoliday) {
+      holidaySurcharge += Number(night.surcharge || 0);
+      warnings.push(`⚠️ Ngày ${dayjs(night.date).format('DD/MM/YYYY')} (${night.dayName}) là ngày lễ: ${night.holidayName || 'Ngày lễ'} (phụ thu +20%: +${displayMoney(night.surcharge)})`);
+    } else if (night.isWeekend) {
+      weekendSurcharge += Number(night.surcharge || 0);
+      warnings.push(`⚠️ Ngày ${dayjs(night.date).format('DD/MM/YYYY')} là ${night.dayName}: phụ thu cuối tuần +10% (+${displayMoney(night.surcharge)})`);
+    }
+  }
+
+  // Tính upgrade fee nếu có chuyển phòng
+  if (isTransferring) {
+    const transferNights = futureCalc.prices.length;
+    const baseDiffPerNight = Math.max(0, targetRoomPrice - currentRoomPrice);
+    upgradeFee = baseDiffPerNight * transferNights;
+  }
+
+  // Tổng tiền phòng mới
+  const newStayAmount = pastCalc.total + futureCalc.total;
+
+  // Tính phụ thu khách/trẻ em phát sinh nếu gia hạn thêm đêm
+  const originalNights = Math.max(1, dayjs(currentCheckOut).diff(dayjs(currentCheckIn), 'day'));
+  const totalNewNights = Math.max(1, dayjs(targetCheckOut).diff(dayjs(currentCheckIn), 'day'));
+  const addedNights = Math.max(0, totalNewNights - originalNights);
+
+  const currentOccupancySurcharge = Number(booking.occupancy_surcharge || sourceDetail?.occupancySurcharge || 0);
+  const occSurchargePerNight = originalNights > 0 ? (currentOccupancySurcharge / originalNights) : 0;
+  const addedOccupancySurcharge = Math.round(occSurchargePerNight * addedNights);
+  const newOccupancySurcharge = currentOccupancySurcharge + addedOccupancySurcharge;
+
+  // Tổng các chi phí dịch vụ / thiệt hại đã có
+  const servicesSum = await bookingModel.sumBookingServices(bookingId);
+  const serviceAmount = Number(servicesSum?.totalConfirmed || 0);
+  const damageSum = await bookingModel.sumDamageCharges(bookingId);
+  const damageAmount = Number(damageSum?.totalConfirmed || 0);
+
+  const oldTotalAmount = Number(booking.totalAmount || booking.total_price || 0);
+  const newTotalAmount = newStayAmount + newOccupancySurcharge + serviceAmount + damageAmount;
+  const priceDifference = newTotalAmount - oldTotalAmount;
+
+  // Thanh toán
+  const [payments] = await db.query(`SELECT * FROM payments WHERE bookingId = ? ORDER BY id DESC LIMIT 1`, [bookingId]);
+  const currentPayment = payments[0] || {};
+  const depositAmount = Number(currentPayment.depositAmount || 0);
+  const paidAmount = Number(currentPayment.paidAmount || 0);
+  const newRemainingAmount = Math.max(0, newTotalAmount - depositAmount - paidAmount);
+
+  return {
+    bookingId,
+    status: booking.status,
+    currentCheckIn,
+    currentCheckOut,
+    targetCheckOut,
+    splitDate,
+    isExtending,
+    isTransferring,
+    addedNights,
+    totalNights: totalNewNights,
+    fromRoom: {
+      id: currentRoomId,
+      roomNumber: sourceDetail?.roomNumber,
+      roomTypeId: currentRoomTypeId,
+      typeName: sourceDetail?.roomTypeName,
+      price: currentRoomPrice
+    },
+    toRoom: targetRoom ? {
+      id: targetRoom.id,
+      roomNumber: targetRoom.roomNumber,
+      roomTypeId: targetRoom.roomTypeId || targetRoom.room_type_id,
+      typeName: targetRoom.typeName,
+      price: targetRoomPrice
+    } : null,
+    financialBreakdown: {
+      baseRoomAmount,
+      holidaySurcharge,
+      weekendSurcharge,
+      upgradeFee,
+      extraGuestSurcharge: addedOccupancySurcharge,
+      priceDifference,
+      oldTotalAmount,
+      newTotalAmount,
+      depositAmount,
+      paidAmount,
+      newRemainingAmount
+    },
+    warnings,
+    nightlyPrices: combinedNightlyPrices,
+    conflicts,
+    available: conflicts.length === 0
+  };
+};
+
+/**
+ * Thực thi gia hạn thời gian ở, chuyển/nâng cấp phòng hoặc cả hai.
+ */
+const executeBookingChange = async (bookingId, payload = {}, actor = null) => {
+  const connection = await db.getConnection();
+  await connection.beginTransaction();
+
+  try {
+    const preview = await previewBookingChange(bookingId, payload);
+    if (!preview.available) {
+      const conflictMsg = preview.conflicts.map(c => c.message).join(" ");
+      throw new HttpError(409, conflictMsg || "Phòng được chọn không còn trống trong thời gian này.", {
+        conflicts: preview.conflicts
+      });
+    }
+
+    const booking = await bookingModel.getBookingById(bookingId, connection, true);
+    if (!booking) {
+      throw new HttpError(404, "Không tìm thấy thông tin đặt phòng");
+    }
+
+    const targetCheckOut = preview.targetCheckOut;
+    const splitDate = preview.splitDate;
+    const isTransferring = preview.isTransferring;
+    const isExtending = preview.isExtending;
+
+    // 1. Cập nhật chuyển phòng vật lý (nếu có)
+    if (isTransferring && preview.toRoom) {
+      const toRoom = await bookingModel.getRoomWithType(preview.toRoom.id, connection, true);
+      const fromRoomId = preview.fromRoom.id;
+
+      // Ghi log chuyển phòng vào booking_room_transfers
+      await connection.query(
+        `INSERT INTO booking_room_transfers (bookingId, fromRoomId, toRoomId, fromDate, toDate, pricePerNight, reason)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          bookingId,
+          fromRoomId,
+          toRoom.id,
+          splitDate,
+          targetCheckOut,
+          preview.toRoom.price,
+          payload.reason || "Khách yêu cầu chuyển/nâng cấp phòng"
+        ]
+      );
+
+      // Cập nhật trạng thái phòng vật lý
+      const today = dayString(new Date());
+      if (splitDate <= today) {
+        if (fromRoomId) await bookingModel.updateRoomStatus(fromRoomId, "available", connection);
+        await bookingModel.updateRoomStatus(toRoom.id, "occupied", connection);
+      }
+
+      // Cập nhật booking_details
+      const [bDetails] = await connection.query(
+        `SELECT id FROM booking_details WHERE bookingId = ? ORDER BY id ASC LIMIT 1`,
+        [bookingId]
+      );
+      const targetDetailId = payload.bookingDetailId || bDetails[0]?.id;
+
+      if (targetDetailId) {
+        await connection.query(
+          `UPDATE booking_details
+           SET roomId = ?, roomTypeId = ?, roomPrice = ?, checkOutDate = ?
+           WHERE id = ?`,
+          [toRoom.id, toRoom.roomTypeId || toRoom.room_type_id, preview.toRoom.price, targetCheckOut, targetDetailId]
+        );
+      }
+
+      // Cập nhật phòng chính trên booking nếu là phòng chính
+      await connection.query(
+        `UPDATE bookings SET room_id = ? WHERE id = ?`,
+        [toRoom.id, bookingId]
+      );
+    } else if (isExtending) {
+      // Chỉ gia hạn: Cập nhật checkOutDate trên booking_details
+      await connection.query(
+        `UPDATE booking_details SET checkOutDate = ? WHERE bookingId = ?`,
+        [targetCheckOut, bookingId]
+      );
+    }
+
+    // 2. Cập nhật booking_nightly_prices
+    if (isTransferring) {
+      await connection.query(
+        `DELETE FROM booking_nightly_prices WHERE bookingId = ? AND stayDate >= ?`,
+        [bookingId, splitDate]
+      );
+      const newFuturePrices = preview.nightlyPrices.filter(p => p.stayDate >= splitDate);
+      await bookingModel.saveNightlyPrices(bookingId, newFuturePrices, connection);
+    } else if (isExtending) {
+      const addedPrices = preview.nightlyPrices.filter(p => p.stayDate >= preview.currentCheckOut);
+      await bookingModel.saveNightlyPrices(bookingId, addedPrices, connection);
+    }
+
+    // 3. Cập nhật thông tin lưu trú và tổng tiền trên bookings
+    const newStayAmount = preview.nightlyPrices.reduce((sum, p) => sum + Number(p.price || 0), 0);
+    const newOccupancySurcharge = preview.financialBreakdown.extraGuestSurcharge + Number(booking.occupancy_surcharge || 0);
+    const newBookingTotalPrice = newStayAmount + newOccupancySurcharge;
+
+    await connection.query(
+      `UPDATE bookings
+       SET check_out = ?, totalAmount = ?, total_price = ?
+       WHERE id = ?`,
+      [targetCheckOut, preview.financialBreakdown.newTotalAmount, newBookingTotalPrice, bookingId]
+    );
+
+    // 4. Đồng bộ thanh toán & hóa đơn
+    const payment = await paymentService.recalculatePaymentForBooking(bookingId, connection);
+    try {
+      if (payment) {
+        await invoiceService.issueInvoiceForPayment(payment.id, connection);
+      }
+    } catch {
+      // Bỏ qua nếu chưa xuất hóa đơn
+    }
+
+    // 5. Ghi nhật ký booking_history
+    const actionType = (isExtending && isTransferring)
+      ? "extended_and_transferred"
+      : isTransferring
+        ? "room_transferred"
+        : "extended";
+
+    const changeDescription = (isExtending && isTransferring)
+      ? `Gia hạn trả phòng đến ${displayDate(targetCheckOut)} và chuyển sang phòng ${preview.toRoom?.roomNumber} (${preview.toRoom?.typeName}). ${preview.financialBreakdown.priceDifference > 0 ? `Phát sinh thêm: +${displayMoney(preview.financialBreakdown.priceDifference)}` : 'Không đổi tiền'}. Lý do: ${payload.reason || 'Khách yêu cầu'}`
+      : isTransferring
+        ? `Chuyển phòng từ ${preview.fromRoom.roomNumber || preview.fromRoom.id} sang ${preview.toRoom?.roomNumber} (${preview.toRoom?.typeName}) từ ${displayDate(splitDate)}. ${preview.financialBreakdown.priceDifference > 0 ? `Phát sinh: +${displayMoney(preview.financialBreakdown.priceDifference)}` : 'Không đổi tiền'}. Lý do: ${payload.reason || 'Khách yêu cầu'}`
+        : `Gia hạn ngày ở: trả phòng chuyển từ ${displayDate(preview.currentCheckOut)} thành ${displayDate(targetCheckOut)} (+${preview.addedNights} đêm, +${displayMoney(preview.financialBreakdown.priceDifference)})`;
+
+    await logHistory(
+      bookingId,
+      actionType,
+      changeDescription,
+      {
+        entityType: "stay",
+        entityId: preview.toRoom?.id || null,
+        oldValue: {
+          checkOut: preview.currentCheckOut,
+          roomId: preview.fromRoom.id,
+          roomNumber: preview.fromRoom.roomNumber,
+          totalPrice: preview.financialBreakdown.oldTotalAmount
+        },
+        newValue: {
+          checkOut: targetCheckOut,
+          roomId: preview.toRoom?.id || preview.fromRoom.id,
+          roomNumber: preview.toRoom?.roomNumber || preview.fromRoom.roomNumber,
+          totalPrice: preview.financialBreakdown.newTotalAmount,
+          priceDifference: preview.financialBreakdown.priceDifference,
+          financialBreakdown: preview.financialBreakdown,
+          warnings: preview.warnings
+        }
+      },
+      actor,
+      connection
+    );
+
+    await connection.commit();
+
+    return {
+      success: true,
+      message: "Cập nhật ngày ở và phòng thành công",
+      data: {
+        bookingId,
+        booking: await bookingModel.getBookingById(bookingId),
+        preview
+      }
+    };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
 module.exports = {
   adminCheckAvailabilityForBooking,
   adminPreviewModifyBooking,
@@ -5325,6 +5788,8 @@ module.exports = {
   extendStay,
   updateStay,
   transferRoom,
+  previewBookingChange,
+  executeBookingChange,
   checkIn,
   checkOut,
   markNoShow,
@@ -5333,3 +5798,4 @@ module.exports = {
   reassignConflictingBooking,
   resetBookingHold,
 };
+
