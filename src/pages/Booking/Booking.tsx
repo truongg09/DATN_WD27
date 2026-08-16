@@ -500,7 +500,9 @@ const Booking: React.FC = () => {
           extraChildFee?: number;
         };
         const adultCap = Number(roomType.adultCapacity ?? 2);
-        const childCap = Number(roomType.childCapacity ?? 1);
+        const childCap = Number(
+          roomType.childCapacity ?? (roomType.adultCapacity !== undefined ? 0 : 1),
+        );
         const maxOcc = Number(
           roomType.maxOccupancy ?? (roomType.capacity || adultCap + childCap),
         );
@@ -564,7 +566,9 @@ const Booking: React.FC = () => {
           status?: string;
         };
         const adultCap = Number(room.adultCapacity ?? 2);
-        const childCap = Number(room.childCapacity ?? 1);
+        const childCap = Number(
+          room.childCapacity ?? (room.adultCapacity !== undefined ? 0 : 1),
+        );
         const maxOcc = Number(
           room.maxOccupancy ?? (room.capacity || adultCap + childCap),
         );
@@ -637,16 +641,187 @@ const Booking: React.FC = () => {
   const activeRoomQuantity = isSpecificRoomMode ? 1 : roomQuantity;
 
   // Fix Item 7: Tính toán sức chứa & phụ thu khách phát sinh chuẩn hóa theo children_policy
-  const adultCap = selectedRoom?.adultCapacity ?? selectedRoom?.capacity ?? 2;
-  const childCap = selectedRoom?.childCapacity ?? 1;
-  const maxOcc = selectedRoom?.maxOccupancy ?? adultCap + childCap;
-  const extraAdultFee = selectedRoom?.extraAdultFee ?? 200000;
-  const extraChildFee = selectedRoom?.extraChildFee ?? 100000;
+  const adultCap = Number(selectedRoom?.adultCapacity ?? selectedRoom?.capacity ?? 2);
+  const childCap = Number(
+    selectedRoom?.childCapacity ?? (selectedRoom?.adultCapacity !== undefined ? 0 : 1),
+  );
+  const maxOcc = Number(selectedRoom?.maxOccupancy ?? adultCap + childCap);
+  const extraAdultFee = Number(selectedRoom?.extraAdultFee ?? 200000);
+  const extraChildFee = Number(selectedRoom?.extraChildFee ?? 100000);
 
+  const freeMaxAge =
+    dateAvailability?.childrenPolicy?.freeMaxAge ??
+    policies?.freeChildMaxAge ??
+    5;
+
+  const childMaxAge =
+    dateAvailability?.childrenPolicy?.childMaxAge ??
+    policies?.childMaxAge ??
+    11;
+
+  // Tính toán sức chứa và khách của Room #1 (selectedRoom)
+  const room1Guests = adults + children;
+  const room1Capacity = maxOcc * activeRoomQuantity;
+  const room1MinRequiredRooms =
+    maxOcc > 0 ? Math.max(1, Math.ceil(room1Guests / maxOcc)) : 1;
+  const room1ExceedsCapacity = room1Guests > room1Capacity;
+
+  const room1ValidChildrenAges = childrenAges.filter(
+    (age): age is number => typeof age === "number" && age >= 0,
+  );
+  const room1AdultsFromChildren = room1ValidChildrenAges.filter(
+    (age) => age > childMaxAge,
+  ).length;
+  const room1ChargeableChildrenCount = room1ValidChildrenAges.filter(
+    (age) => age > freeMaxAge && age <= childMaxAge,
+  ).length;
+
+  const room1EffectiveAdults = adults + room1AdultsFromChildren;
+  const room1EffectiveChildren = Math.max(
+    0,
+    children - room1AdultsFromChildren,
+  );
+  const room1StandardAdultCapacity = adultCap * activeRoomQuantity;
+  const room1StandardChildCapacity = childCap * activeRoomQuantity;
+
+  const room1ExtraAdults = Math.max(
+    0,
+    room1EffectiveAdults - room1StandardAdultCapacity,
+  );
+  const room1RawExtraChildren = Math.max(
+    0,
+    room1EffectiveChildren - room1StandardChildCapacity,
+  );
+  const room1ExtraChildren =
+    room1ValidChildrenAges.length > 0
+      ? Math.min(room1RawExtraChildren, room1ChargeableChildrenCount)
+      : room1RawExtraChildren;
+
+  const room1ExtraAdultAmount = room1ExtraAdults * extraAdultFee * nights;
+  const room1ExtraChildAmount = room1ExtraChildren * extraChildFee * nights;
+
+  // Tính toán chi tiết sức chứa và khách của từng hạng phòng đặt thêm (Room #2+)
+  const extraRoomsBreakdown = extraRoomTypes.map((line) => {
+    const type = roomTypes.find((t) => t.id === line.roomTypeId);
+    const typeAdultCap = Number(type?.adultCapacity ?? type?.capacity ?? 2);
+    const typeChildCap = Number(
+      type?.childCapacity ?? (type?.adultCapacity !== undefined ? 0 : 1),
+    );
+    const typeMaxOcc = Number(
+      type?.maxOccupancy ?? typeAdultCap + typeChildCap,
+    );
+    const typeExtraAdultFee = Number(type?.extraAdultFee ?? 200000);
+    const typeExtraChildFee = Number(type?.extraChildFee ?? 100000);
+
+    const lineGuests = line.adults + line.children;
+    const lineCapacity = typeMaxOcc * line.quantity;
+    const lineMinRequiredRooms =
+      typeMaxOcc > 0 ? Math.max(1, Math.ceil(lineGuests / typeMaxOcc)) : 1;
+    const lineExceedsCapacity = lineGuests > lineCapacity;
+
+    const validAges = line.childrenAges.filter(
+      (age): age is number => typeof age === "number" && age >= 0,
+    );
+    const adultsFromChild = validAges.filter((age) => age > childMaxAge).length;
+    const chargeableChildCount = validAges.filter(
+      (age) => age > freeMaxAge && age <= childMaxAge,
+    ).length;
+
+    const lineEffectiveAdults = line.adults + adultsFromChild;
+    const lineEffectiveChildren = Math.max(
+      0,
+      line.children - adultsFromChild,
+    );
+
+    const standardAdultCap = typeAdultCap * line.quantity;
+    const standardChildCap = typeChildCap * line.quantity;
+
+    const lineExtraAdults = Math.max(
+      0,
+      lineEffectiveAdults - standardAdultCap,
+    );
+    const lineRawExtraChildren = Math.max(
+      0,
+      lineEffectiveChildren - standardChildCap,
+    );
+    const lineExtraChildren =
+      validAges.length > 0
+        ? Math.min(lineRawExtraChildren, chargeableChildCount)
+        : lineRawExtraChildren;
+
+    const lineExtraAdultAmount = lineExtraAdults * typeExtraAdultFee * nights;
+    const lineExtraChildAmount = lineExtraChildren * typeExtraChildFee * nights;
+
+    return {
+      line,
+      type,
+      adultCap: typeAdultCap,
+      childCap: typeChildCap,
+      maxOcc: typeMaxOcc,
+      extraAdultFee: typeExtraAdultFee,
+      extraChildFee: typeExtraChildFee,
+      guests: lineGuests,
+      capacity: lineCapacity,
+      minRequiredRooms: lineMinRequiredRooms,
+      exceedsCapacity: lineExceedsCapacity,
+      effectiveAdults: lineEffectiveAdults,
+      effectiveChildren: lineEffectiveChildren,
+      standardAdultCap,
+      standardChildCap,
+      extraAdults: lineExtraAdults,
+      extraChildren: lineExtraChildren,
+      extraAdultAmount: lineExtraAdultAmount,
+      extraChildAmount: lineExtraChildAmount,
+      totalExtraFee: lineExtraAdultAmount + lineExtraChildAmount,
+    };
+  });
+
+  // Tổng hợp sức chứa & khách cho toàn bộ đơn đặt phòng
   const totalBookingAdults =
     adults + extraRoomTypes.reduce((sum, r) => sum + r.adults, 0);
   const totalBookingChildren =
     children + extraRoomTypes.reduce((sum, r) => sum + r.children, 0);
+
+  const totalStandardAdultCapacity =
+    room1StandardAdultCapacity +
+    extraRoomsBreakdown.reduce((sum, item) => sum + item.standardAdultCap, 0);
+
+  const totalStandardChildCapacity =
+    room1StandardChildCapacity +
+    extraRoomsBreakdown.reduce((sum, item) => sum + item.standardChildCap, 0);
+
+  const totalMaxOccupancy =
+    room1Capacity +
+    extraRoomsBreakdown.reduce((sum, item) => sum + item.capacity, 0);
+
+  const effectiveAdults =
+    room1EffectiveAdults +
+    extraRoomsBreakdown.reduce((sum, item) => sum + item.effectiveAdults, 0);
+
+  const effectiveChildren =
+    room1EffectiveChildren +
+    extraRoomsBreakdown.reduce((sum, item) => sum + item.effectiveChildren, 0);
+
+  const totalGuests = effectiveAdults + effectiveChildren;
+
+  const extraAdults =
+    room1ExtraAdults +
+    extraRoomsBreakdown.reduce((sum, item) => sum + item.extraAdults, 0);
+
+  const extraChildren =
+    room1ExtraChildren +
+    extraRoomsBreakdown.reduce((sum, item) => sum + item.extraChildren, 0);
+
+  const extraAdultAmount =
+    room1ExtraAdultAmount +
+    extraRoomsBreakdown.reduce((sum, item) => sum + item.extraAdultAmount, 0);
+
+  const extraChildAmount =
+    room1ExtraChildAmount +
+    extraRoomsBreakdown.reduce((sum, item) => sum + item.extraChildAmount, 0);
+
+  const totalExtraGuestFee = extraAdultAmount + extraChildAmount;
+
   const allChildrenAges = [
     ...childrenAges,
     ...extraRoomTypes.flatMap((r) => r.childrenAges),
@@ -671,78 +846,6 @@ const Booking: React.FC = () => {
           )),
     );
 
-  const freeMaxAge =
-    dateAvailability?.childrenPolicy?.freeMaxAge ??
-    policies?.freeChildMaxAge ??
-    5;
-
-  const childMaxAge =
-    dateAvailability?.childrenPolicy?.childMaxAge ??
-    policies?.childMaxAge ??
-    11;
-
-  const adultsFromChildren = allValidChildrenAges.filter(
-    (age) => age > childMaxAge,
-  ).length;
-  const chargeableChildrenCount = allValidChildrenAges.filter(
-    (age) => age > freeMaxAge && age <= childMaxAge,
-  ).length;
-
-  const effectiveAdults = totalBookingAdults + adultsFromChildren;
-  const effectiveChildren = Math.max(
-    0,
-    totalBookingChildren - adultsFromChildren,
-  );
-  const totalGuests = effectiveAdults + effectiveChildren;
-
-  const minRequiredRooms =
-    maxOcc > 0 ? Math.max(1, Math.ceil(totalGuests / maxOcc)) : 1;
-
-  // Tự động nâng roomQuantity nếu số khách hiện tại vượt quá sức chứa tối đa của số phòng cũ (chế độ hạng phòng)
-  useEffect(() => {
-    if (selectedRoom && !isSpecificRoomMode && totalGuests > 0) {
-      setRoomQuantity((prev) => Math.max(prev, minRequiredRooms));
-    }
-  }, [selectedRoom, isSpecificRoomMode, totalGuests, minRequiredRooms]);
-
-  // Sức chứa phải cộng cả các hạng đặt thêm, nếu không thì khách đặt 1 Standard
-  // + 1 Family cho 6 người vẫn bị báo vượt sức chứa và không bấm đặt được.
-  const extraRoomsCapacity = extraRoomTypes.reduce(
-    (acc, line) => {
-      const type = roomTypes.find((t) => t.id === line.roomTypeId);
-      if (!type) return acc;
-      const typeAdultCap = Number(type.adultCapacity ?? type.capacity ?? 2);
-      const typeChildCap = Number(type.childCapacity ?? 1);
-      const typeMaxOcc = Number(
-        type.maxOccupancy ?? typeAdultCap + typeChildCap,
-      );
-      return {
-        adults: acc.adults + typeAdultCap * line.quantity,
-        children: acc.children + typeChildCap * line.quantity,
-        maxOccupancy: acc.maxOccupancy + typeMaxOcc * line.quantity,
-      };
-    },
-    { adults: 0, children: 0, maxOccupancy: 0 },
-  );
-
-  const totalAdultCapacity =
-    adultCap * activeRoomQuantity + extraRoomsCapacity.adults;
-  const totalChildCapacity =
-    childCap * activeRoomQuantity + extraRoomsCapacity.children;
-  const totalMaxOccupancy =
-    maxOcc * activeRoomQuantity + extraRoomsCapacity.maxOccupancy;
-
-  const extraAdults = Math.max(0, effectiveAdults - totalAdultCapacity);
-  const rawExtraChildren = Math.max(0, effectiveChildren - totalChildCapacity);
-  const extraChildren =
-    allValidChildrenAges.length > 0
-      ? Math.min(rawExtraChildren, chargeableChildrenCount)
-      : rawExtraChildren;
-
-  const extraAdultAmount = extraAdults * extraAdultFee * nights;
-  const extraChildAmount = extraChildren * extraChildFee * nights;
-  const totalExtraGuestFee = extraAdultAmount + extraChildAmount;
-
   const availableRoomsCount =
     dateAvailability?.availableRooms ?? selectedRoom?.availableRooms;
 
@@ -752,18 +855,21 @@ const Booking: React.FC = () => {
       ? Math.max(1, availableRoomsCount)
       : 20;
 
-  // Fix Item 4: Kiểm tra nếu minRequiredRooms > availableRoomsCount (Hạng phòng không đủ phòng trống cho số khách)
+  // Fix Item 4: Kiểm tra nếu room1MinRequiredRooms > availableRoomsCount (Hạng phòng không đủ phòng trống cho số khách)
   const isTypeNotEnoughForGuests =
     !isSpecificRoomMode &&
     availableRoomsCount !== undefined &&
-    minRequiredRooms > availableRoomsCount;
+    room1MinRequiredRooms > availableRoomsCount;
 
   const isUserSelectedMoreThanAvailable =
     !isSpecificRoomMode &&
     availableRoomsCount !== undefined &&
     activeRoomQuantity > availableRoomsCount;
 
-  const isGuestExceedingMax = totalGuests > totalMaxOccupancy;
+  const isGuestExceedingMax =
+    room1ExceedsCapacity ||
+    extraRoomsBreakdown.some((r) => r.exceedsCapacity) ||
+    totalGuests > totalMaxOccupancy;
 
   const isRoomDateUnavailable = dateAvailability?.available === false;
   const isRoomBlockedByStatus = selectedRoom?.status === "maintenance";
@@ -996,15 +1102,28 @@ const Booking: React.FC = () => {
 
     if (isTypeNotEnoughForGuests) {
       message.error(
-        `Hạng phòng này không đủ phòng cho đoàn khách (${totalGuests} người cần ít nhất ${minRequiredRooms} phòng, hiện chỉ còn ${availableRoomsCount} phòng trống).`,
+        `Hạng phòng ${selectedRoom?.name || ""} không đủ phòng cho số khách (${room1Guests} người cần ít nhất ${room1MinRequiredRooms} phòng, hiện chỉ còn ${availableRoomsCount} phòng trống).`,
       );
       return;
     }
 
     if (isGuestExceedingMax) {
-      message.error(
-        `Tổng số khách (${totalGuests}) vượt quá sức chứa tối đa của ${activeRoomQuantity} phòng (${totalMaxOccupancy} người). Vui lòng chọn ít nhất ${minRequiredRooms} phòng.`,
-      );
+      if (room1ExceedsCapacity) {
+        message.error(
+          `Số khách của ${selectedRoom?.name || "phòng đã chọn"} (${room1Guests} người) vượt quá sức chứa tối đa của ${activeRoomQuantity} phòng (${room1Capacity} người). Vui lòng chọn ít nhất ${room1MinRequiredRooms} phòng.`,
+        );
+      } else {
+        const overLine = extraRoomsBreakdown.find((r) => r.exceedsCapacity);
+        if (overLine) {
+          message.error(
+            `Số khách của ${overLine.type?.typeName || "hạng phòng đặt thêm"} (${overLine.guests} người) vượt quá sức chứa tối đa của ${overLine.line.quantity} phòng (${overLine.capacity} người). Vui lòng chọn ít nhất ${overLine.minRequiredRooms} phòng.`,
+          );
+        } else {
+          message.error(
+            `Tổng số khách (${totalGuests}) vượt quá sức chứa tối đa của ${totalSelectedRooms} phòng (${totalMaxOccupancy} người). Vui lòng chọn thêm phòng hoặc giảm số khách.`,
+          );
+        }
+      }
       return;
     }
 
@@ -1459,10 +1578,10 @@ const Booking: React.FC = () => {
                             Còn {availableRoomsCount} phòng trong thời gian đã chọn
                           </span>
                         )}
-                        {minRequiredRooms > 1 &&
-                          activeRoomQuantity < minRequiredRooms && (
+                        {room1MinRequiredRooms > 1 &&
+                          activeRoomQuantity < room1MinRequiredRooms && (
                             <span className="suggested-q-tag">
-                              Với số khách hiện tại, cần ít nhất {minRequiredRooms} phòng.
+                              Với số khách hiện tại, cần ít nhất {room1MinRequiredRooms} phòng.
                             </span>
                           )}
                       </div>
@@ -1660,6 +1779,18 @@ const Booking: React.FC = () => {
                               +
                             </button>
                           </div>
+                          {(() => {
+                            const lineItem = extraRoomsBreakdown[index];
+                            const lineMinRequired = lineItem?.minRequiredRooms ?? 1;
+                            return (
+                              lineMinRequired > 1 &&
+                              line.quantity < lineMinRequired && (
+                                <span className="suggested-q-tag">
+                                  Với số khách hiện tại, cần ít nhất {lineMinRequired} phòng.
+                                </span>
+                              )
+                            );
+                          })()}
                         </div>
                       </div>
 
@@ -1835,8 +1966,8 @@ const Booking: React.FC = () => {
                   <div className="capacity-alert-box danger">
                     <strong>Hạng phòng không đủ phòng trống!</strong>
                     <p>
-                      Số khách của bạn ({totalGuests} người) cần ít nhất{" "}
-                      {minRequiredRooms} phòng, nhưng hạng phòng này hiện chỉ
+                      Số khách của {selectedRoom?.name || "phòng"} ({room1Guests} người) cần ít nhất{" "}
+                      {room1MinRequiredRooms} phòng, nhưng hạng phòng này hiện chỉ
                       còn {availableRoomsCount} phòng trống. Vui lòng giảm số
                       khách hoặc chọn hạng phòng khác.
                     </p>
@@ -2098,7 +2229,7 @@ const Booking: React.FC = () => {
                     </div>
                   </div>
 
-                  {extraRoomTypes.map((line, index) => {
+                  {extraRoomTypes.map((line) => {
                     const type = roomTypes.find(
                       (roomType) => roomType.id === line.roomTypeId,
                     );
@@ -2107,7 +2238,9 @@ const Booking: React.FC = () => {
                     const typeAdultCapacity = Number(
                       type.adultCapacity ?? type.capacity ?? 2,
                     );
-                    const typeChildCapacity = Number(type.childCapacity ?? 1);
+                    const typeChildCapacity = Number(
+                      type.childCapacity ?? (type.adultCapacity !== undefined ? 0 : 1),
+                    );
                     const typeMaxOccupancy = Number(
                       type.maxOccupancy ??
                         typeAdultCapacity + typeChildCapacity,
@@ -2127,25 +2260,14 @@ const Booking: React.FC = () => {
                         />
                         <div className="room-summary-info">
                           <div className="room-summary-heading">
-                            <h4>
-                              Phòng #{index + 2} · {type.typeName}
-                            </h4>
+                            <h4>{type.typeName}</h4>
                           </div>
                           <p className="room-summary-meta">
                             {line.quantity} phòng đã chọn
                           </p>
                           <p>
-                            <FontAwesomeIcon icon={faBed} /> Khách: {line.adults}{" "}
-                            NL + {line.children} TE
-                          </p>
-                          <p>
-                            <FontAwesomeIcon icon={faExpandArrowsAlt} /> Sức
-                            chứa tối đa: {typeMaxOccupancy * line.quantity}{" "}
-                            khách
-                          </p>
-                          <p>
-                            {formatPrice(Number(type.defaultPrice || 0))} /
-                            phòng / đêm
+                            <FontAwesomeIcon icon={faBed} /> Sức chứa:{" "}
+                            {typeAdultCapacity} NL + {typeChildCapacity} TE (Tối đa {typeMaxOccupancy} khách)
                           </p>
                         </div>
                       </div>
@@ -2157,7 +2279,7 @@ const Booking: React.FC = () => {
                     <div className="capacity-spec-row">
                       <span className="spec-label">Tiêu chuẩn:</span>
                       <span className="spec-val">
-                        {totalAdultCapacity} NL + {totalChildCapacity} TE
+                        {totalStandardAdultCapacity} NL + {totalStandardChildCapacity} TE
                       </span>
                     </div>
                     <div className="capacity-spec-row">
@@ -2189,18 +2311,22 @@ const Booking: React.FC = () => {
                         {extraAdults > 0 && (
                           <div className="extra-fee-item">
                             <span>{extraAdults} người lớn</span>
-                            <small>
-                              {extraAdults} × {formatMoney(extraAdultFee)} × {nights} đêm
-                            </small>
+                            {extraRoomTypes.length === 0 && (
+                              <small>
+                                {extraAdults} × {formatMoney(extraAdultFee)} × {nights} đêm
+                              </small>
+                            )}
                             <strong>= {formatMoney(extraAdultAmount)}</strong>
                           </div>
                         )}
                         {extraChildren > 0 && (
                           <div className="extra-fee-item">
                             <span>{extraChildren} trẻ em</span>
-                            <small>
-                              {extraChildren} × {formatMoney(extraChildFee)} × {nights} đêm
-                            </small>
+                            {extraRoomTypes.length === 0 && (
+                              <small>
+                                {extraChildren} × {formatMoney(extraChildFee)} × {nights} đêm
+                              </small>
+                            )}
                             <strong>= {formatMoney(extraChildAmount)}</strong>
                           </div>
                         )}
@@ -2225,7 +2351,7 @@ const Booking: React.FC = () => {
                   <div className="summary-details">
                     <div className="summary-row">
                       <span>Số lượng phòng</span>
-                      <span>{activeRoomQuantity} phòng</span>
+                      <span>{totalSelectedRooms} phòng</span>
                     </div>
                     <div className="summary-row">
                       <span>Số đêm</span>

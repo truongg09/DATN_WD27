@@ -25,6 +25,8 @@ export interface PoliciesInfo {
   midTierMaxDays: number;
   midTierPercent: number;
   farTierPercent: number;
+  freeChildMaxAge?: number;
+  childMaxAge?: number;
 }
 
 export const getPolicies = async () => {
