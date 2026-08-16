@@ -20,7 +20,7 @@ import api from '../../services/api';
 import CheckoutPaymentModal from './CheckoutPaymentModal';
 import AdminBookingModifyModal from './AdminBookingModifyModal';
 import { getPolicies, type PoliciesInfo } from '../../services/settingsService';
-import { previewRoomPrice, type NightlyPriceItem } from '../../services/roomService';
+import { previewBookingChange } from '../../services/bookingService';
 
 
 interface Booking {
@@ -70,81 +70,45 @@ type Operation = 'guests' | 'declareGuests' | 'service' | 'damage' | 'extend' | 
 
 const TransferPricePreview: React.FC<{
   booking: Booking | null;
-  rooms: RoomItem[];
+  rooms?: RoomItem[];
   form: any;
-}> = ({ booking, rooms, form }) => {
+}> = ({ booking, form }) => {
   const bookingDetailId = Form.useWatch('bookingDetailId', form);
   const toRoomId = Form.useWatch('toRoomId', form);
   const fromDate = Form.useWatch('fromDate', form);
   const toDate = Form.useWatch('toDate', form);
   const [loading, setLoading] = useState(false);
-  const [targetPreview, setTargetPreview] = useState<{
-    nights: number;
-    prices: NightlyPriceItem[];
-    total: number;
-  } | null>(null);
-  const [sourcePreview, setSourcePreview] = useState<{
-    nights: number;
-    prices: NightlyPriceItem[];
-    total: number;
-  } | null>(null);
-
-  const selectedDetail = Array.isArray(booking?.details)
-    ? booking?.details.find((d: any) => Number(d.bookingDetailId || d.id) === Number(bookingDetailId))
-    : (booking?.details?.[0] || null);
-
-  const sourceRoomId = selectedDetail?.roomId || selectedDetail?.room_id || booking?.room_id;
-  const sourceRoom = rooms.find((r) => r.id === sourceRoomId);
+  const [previewData, setPreviewData] = useState<any>(null);
 
   useEffect(() => {
-    if (!toRoomId || !fromDate || !toDate || !dayjs.isDayjs(fromDate) || !dayjs.isDayjs(toDate)) {
-      setTargetPreview(null);
-      setSourcePreview(null);
+    if (!booking?.id || !toRoomId || !fromDate || !toDate || !dayjs.isDayjs(fromDate) || !dayjs.isDayjs(toDate)) {
+      setPreviewData(null);
       return;
     }
-    const checkInStr = fromDate.format('YYYY-MM-DD');
-    const checkOutStr = toDate.format('YYYY-MM-DD');
-    if (checkOutStr <= checkInStr) {
-      setTargetPreview(null);
-      setSourcePreview(null);
+    const fromStr = fromDate.format('YYYY-MM-DD');
+    const toStr = toDate.format('YYYY-MM-DD');
+    if (toStr <= fromStr) {
+      setPreviewData(null);
       return;
     }
-
-    const targetRoom = rooms.find((r) => r.id === toRoomId);
-    if (!targetRoom) return;
 
     let cancelled = false;
     setLoading(true);
 
-    const targetTypeId = targetRoom.room_type_id || targetRoom.roomTypeId;
-    const sourceTypeId = sourceRoom?.room_type_id || sourceRoom?.roomTypeId || selectedDetail?.roomTypeId || selectedDetail?.room_type_id;
-    const sourcePrice = Number(selectedDetail?.roomPrice || sourceRoom?.price_per_night || 0);
-
-    Promise.all([
-      previewRoomPrice({
-        roomTypeId: targetTypeId ? Number(targetTypeId) : undefined,
-        checkIn: checkInStr,
-        checkOut: checkOutStr,
-        fallbackPrice: Number(targetRoom.price_per_night || 0),
-      }),
-      previewRoomPrice({
-        roomTypeId: sourceTypeId ? Number(sourceTypeId) : undefined,
-        checkIn: checkInStr,
-        checkOut: checkOutStr,
-        fallbackPrice: sourcePrice,
-      })
-    ])
-      .then(([targetRes, sourceRes]) => {
+    previewBookingChange(booking.id, {
+      toRoomId: Number(toRoomId),
+      fromDate: fromStr,
+      checkOut: toStr,
+      bookingDetailId: bookingDetailId ? Number(bookingDetailId) : undefined,
+    })
+      .then((res: any) => {
         if (!cancelled) {
-          setTargetPreview(targetRes.data);
-          setSourcePreview(sourceRes.data);
+          const body = res?.data || res;
+          setPreviewData(body);
         }
       })
       .catch(() => {
-        if (!cancelled) {
-          setTargetPreview(null);
-          setSourcePreview(null);
-        }
+        if (!cancelled) setPreviewData(null);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -153,77 +117,126 @@ const TransferPricePreview: React.FC<{
     return () => {
       cancelled = true;
     };
-  }, [bookingDetailId, toRoomId, fromDate, toDate, rooms, sourceRoom, selectedDetail]);
+  }, [booking?.id, bookingDetailId, toRoomId, fromDate, toDate]);
 
   if (!toRoomId || !fromDate || !toDate) return null;
   if (loading) {
     return (
       <div style={{ marginTop: 12, padding: '10px 14px', background: '#f8fafc', borderRadius: 8, color: '#64748b', fontSize: 13 }}>
-        Đang tính toán giá phòng mới và giá phòng hiện tại theo từng ngày...
+        Đang tính toán biểu giá phòng mới và kiểm tra phụ thu lễ/cuối tuần...
       </div>
     );
   }
-  if (!targetPreview || !sourcePreview) return null;
+  if (!previewData) return null;
 
-  const targetRoom = rooms.find((r) => r.id === toRoomId);
-  const priceDifference = targetPreview.total - sourcePreview.total;
+  const fb = previewData.financialBreakdown || {};
+  const nightsList = previewData.nightlyPrices || [];
 
   return (
-    <div style={{ marginTop: 14, padding: '12px 14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8 }}>
-      <div style={{ fontWeight: 600, color: '#1e293b', marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span>Giá từng đêm phòng mới ({targetRoom?.roomNumber} - {targetPreview.nights} đêm):</span>
-        <strong style={{ color: '#047857', fontSize: 15 }}>{new Intl.NumberFormat('vi-VN').format(targetPreview.total)}₫</strong>
-      </div>
+    <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {previewData.warnings && previewData.warnings.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {previewData.warnings.map((w: string, idx: number) => (
+            <Alert key={idx} type="warning" showIcon message={w} />
+          ))}
+        </div>
+      )}
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 180, overflowY: 'auto' }}>
-        {targetPreview.prices.map((night, idx) => (
-          <div
-            key={idx}
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              fontSize: 13,
-              background: '#fff',
-              padding: '6px 10px',
-              borderRadius: 6,
-              border: '1px solid #f1f5f9'
-            }}
-          >
-            <span>
-              <strong>{dayjs(night.date).format('DD/MM/YYYY')}</strong> ({night.dayName})
-              {night.isHoliday && <Tag color="red" style={{ marginLeft: 6 }}>Dịp lễ</Tag>}
-              {night.isSunday && <Tag color="orange" style={{ marginLeft: 6 }}>Chủ nhật</Tag>}
-              {night.isSaturday && <Tag color="purple" style={{ marginLeft: 6 }}>Thứ 7</Tag>}
-              {night.priceType === 'normal' && <Tag color="blue" style={{ marginLeft: 6 }}>Ngày thường</Tag>}
-              {night.note && <span style={{ color: '#64748b', fontSize: 12, marginLeft: 4 }}>({night.note})</span>}
-            </span>
-            <span style={{ fontWeight: 600, color: '#0f172a' }}>
-              {new Intl.NumberFormat('vi-VN').format(night.price)}₫
-            </span>
+      <div style={{ padding: '12px 14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8 }}>
+        <div style={{ fontWeight: 600, color: '#0f172a', marginBottom: 8, fontSize: 14 }}>
+          Tổng hợp chi phí chuyển phòng:
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span>Tiền phòng:</span>
+            <strong>{formatPrice(fb.baseRoomAmount || 0)}</strong>
           </div>
-        ))}
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span>Phụ thu ngày lễ (+20%):</span>
+            <strong style={{ color: fb.holidaySurcharge > 0 ? '#cf1322' : '#64748b' }}>
+              {fb.holidaySurcharge > 0 ? `+${formatPrice(fb.holidaySurcharge)}` : '0 VNĐ'}
+            </strong>
+          </div>
+          {fb.holidaySurcharge > 0 && (
+            <div style={{ background: '#fff1f0', border: '1px solid #ffccc7', padding: '6px 10px', borderRadius: 6, fontSize: 12, margin: '2px 0 4px' }}>
+              <div style={{ fontWeight: 600, color: '#cf1322', marginBottom: 2 }}>Chi tiết các ngày lễ (+20%):</div>
+              {nightsList.filter((n: any) => n.isHoliday).map((n: any, idx: number) => (
+                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', color: '#595959' }}>
+                  <span>• {dayjs(n.date || n.stayDate).format('DD/MM/YYYY')} ({n.dayName || ''}): {n.holidayName || n.note || 'Ngày lễ'}</span>
+                  <span style={{ fontWeight: 600, color: '#cf1322' }}>+{formatPrice(n.surcharge || 0)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span>Phụ thu cuối tuần (+10%):</span>
+            <strong style={{ color: fb.weekendSurcharge > 0 ? '#d46b08' : '#64748b' }}>
+              {fb.weekendSurcharge > 0 ? `+${formatPrice(fb.weekendSurcharge)}` : '0 VNĐ'}
+            </strong>
+          </div>
+          {fb.weekendSurcharge > 0 && (
+            <div style={{ background: '#fffbe6', border: '1px solid #ffe58f', padding: '6px 10px', borderRadius: 6, fontSize: 12, margin: '2px 0 4px' }}>
+              <div style={{ fontWeight: 600, color: '#d46b08', marginBottom: 2 }}>Chi tiết các ngày Thứ 7 & Chủ nhật (+10%):</div>
+              {nightsList.filter((n: any) => !n.isHoliday && (n.isSaturday || n.isSunday)).map((n: any, idx: number) => (
+                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', color: '#595959' }}>
+                  <span>• {dayjs(n.date || n.stayDate).format('DD/MM/YYYY')} ({n.dayName || (n.isSaturday ? 'Thứ bảy' : 'Chủ nhật')}): Phụ thu cuối tuần</span>
+                  <span style={{ fontWeight: 600, color: '#d46b08' }}>+{formatPrice(n.surcharge || 0)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span>Phí nâng cấp phòng:</span>
+            <strong style={{ color: fb.upgradeFee > 0 ? '#0958d9' : '#64748b' }}>
+              {fb.upgradeFee > 0 ? `+${formatPrice(fb.upgradeFee)}` : '0 VNĐ'}
+            </strong>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 8, marginTop: 4, borderTop: '1px solid #cbd5e1', fontSize: 14 }}>
+            <strong>Tổng tiền phát sinh:</strong>
+            <strong style={{ color: fb.priceDifference > 0 ? '#cf1322' : fb.priceDifference < 0 ? '#389e0d' : '#0f172a', fontSize: 15 }}>
+              {fb.priceDifference > 0 ? `+${formatPrice(fb.priceDifference)}` : fb.priceDifference < 0 ? `-${formatPrice(Math.abs(fb.priceDifference))}` : '0 VNĐ'}
+            </strong>
+          </div>
+        </div>
       </div>
 
-      <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed #cbd5e1', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
-        <span>Giá phòng hiện tại cho khoảng chuyển ({sourcePreview.nights} đêm):</span>
-        <strong style={{ color: '#334155' }}>{new Intl.NumberFormat('vi-VN').format(sourcePreview.total)}₫</strong>
-      </div>
-
-      <div style={{ marginTop: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
-        <span>Ước tính chênh lệch so với phòng cũ ({targetPreview.nights} đêm):</span>
-        {priceDifference > 0 ? (
-          <strong style={{ color: '#cf1322' }}>
-            Khách cần bù: +{new Intl.NumberFormat('vi-VN').format(priceDifference)}₫
-          </strong>
-        ) : priceDifference < 0 ? (
-          <strong style={{ color: '#389e0d' }}>
-            Giảm trừ: -{new Intl.NumberFormat('vi-VN').format(Math.abs(priceDifference))}₫
-          </strong>
-        ) : (
-          <strong style={{ color: '#64748b' }}>Không thay đổi giá (0₫)</strong>
-        )}
-      </div>
+      {nightsList.length > 0 && (
+        <div style={{ padding: '10px 14px', background: '#fff', border: '1px solid #f0f0f0', borderRadius: 8 }}>
+          <div style={{ fontWeight: 600, color: '#262626', marginBottom: 8, fontSize: 13 }}>
+            Chi tiết từng đêm ({nightsList.length} đêm):
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 160, overflowY: 'auto' }}>
+            {nightsList.map((night: any, idx: number) => (
+              <div
+                key={idx}
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  fontSize: 13,
+                  background: '#fafafa',
+                  padding: '6px 10px',
+                  borderRadius: 6,
+                  border: '1px solid #f1f5f9'
+                }}
+              >
+                <span>
+                  <strong>{dayjs(night.date || night.stayDate).format('DD/MM/YYYY')}</strong> ({night.dayName || ''})
+                  {night.isHoliday && <Tag color="red" style={{ marginLeft: 6 }}>Ngày lễ (+20%)</Tag>}
+                  {night.isSunday && <Tag color="orange" style={{ marginLeft: 6 }}>Chủ nhật (+10%)</Tag>}
+                  {night.isSaturday && <Tag color="purple" style={{ marginLeft: 6 }}>Thứ 7 (+10%)</Tag>}
+                  {!night.isHoliday && !night.isSunday && !night.isSaturday && <Tag color="blue" style={{ marginLeft: 6 }}>Ngày thường</Tag>}
+                  {night.isNewRoom && <Tag color="cyan" style={{ marginLeft: 4 }}>Phòng mới: {night.roomNumber}</Tag>}
+                </span>
+                <span style={{ fontWeight: 600, color: night.isHoliday || night.isWeekend ? '#cf1322' : '#0f172a' }}>
+                  {formatPrice(night.price)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -345,14 +358,10 @@ const ExtendPricePreview: React.FC<{
 }> = ({ booking, form }) => {
   const newCheckOut = Form.useWatch('checkOut', form);
   const [loading, setLoading] = useState(false);
-  const [previewData, setPreviewData] = useState<{
-    nights: number;
-    prices: NightlyPriceItem[];
-    total: number;
-  } | null>(null);
+  const [previewData, setPreviewData] = useState<any>(null);
 
   useEffect(() => {
-    if (!booking?.check_out || !newCheckOut) {
+    if (!booking?.id || !booking?.check_out || !newCheckOut) {
       setPreviewData(null);
       return;
     }
@@ -368,15 +377,14 @@ const ExtendPricePreview: React.FC<{
     let cancelled = false;
     setLoading(true);
 
-    const typeId = booking.room_type_id;
-    previewRoomPrice({
-      roomTypeId: typeId ? Number(typeId) : undefined,
-      checkIn: currentCheckOutStr,
+    previewBookingChange(booking.id, {
       checkOut: newCheckOutStr,
-      fallbackPrice: Number(booking.room_price || 0),
     })
-      .then((res) => {
-        if (!cancelled) setPreviewData(res.data);
+      .then((res: any) => {
+        if (!cancelled) {
+          const body = res?.data || res;
+          setPreviewData(body);
+        }
       })
       .catch(() => {
         if (!cancelled) setPreviewData(null);
@@ -388,7 +396,7 @@ const ExtendPricePreview: React.FC<{
     return () => {
       cancelled = true;
     };
-  }, [booking, newCheckOut]);
+  }, [booking?.id, booking?.check_out, newCheckOut]);
 
   if (!booking?.check_out || !newCheckOut) return null;
   if (loading) {
@@ -398,51 +406,119 @@ const ExtendPricePreview: React.FC<{
       </div>
     );
   }
-  if (!previewData || previewData.nights === 0) return null;
+  if (!previewData) return null;
+
+  const fb = previewData.financialBreakdown || {};
+  const nightsList = previewData.nightlyPrices || [];
 
   return (
-    <div style={{ marginTop: 14, padding: '12px 14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8 }}>
-      <div style={{ fontWeight: 600, color: '#166534', marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span>Chi tiết các đêm gia hạn thêm ({previewData.nights} đêm):</span>
-        <strong style={{ color: '#15803d', fontSize: 15 }}>+{new Intl.NumberFormat('vi-VN').format(previewData.total)}₫</strong>
-      </div>
+    <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {previewData.warnings && previewData.warnings.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {previewData.warnings.map((w: string, idx: number) => (
+            <Alert key={idx} type="warning" showIcon message={w} />
+          ))}
+        </div>
+      )}
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 180, overflowY: 'auto' }}>
-        {previewData.prices.map((night, idx) => (
-          <div
-            key={idx}
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              fontSize: 13,
-              background: '#fff',
-              padding: '6px 10px',
-              borderRadius: 6,
-              border: '1px solid #dcfce7'
-            }}
-          >
-            <span>
-              <strong>{dayjs(night.date).format('DD/MM/YYYY')}</strong> ({night.dayName})
-              {night.isHoliday && <Tag color="red" style={{ marginLeft: 6 }}>Dịp lễ</Tag>}
-              {night.isSunday && <Tag color="orange" style={{ marginLeft: 6 }}>Chủ nhật</Tag>}
-              {night.isSaturday && <Tag color="purple" style={{ marginLeft: 6 }}>Thứ 7</Tag>}
-              {night.priceType === 'normal' && <Tag color="blue" style={{ marginLeft: 6 }}>Ngày thường</Tag>}
-              {night.note && <span style={{ color: '#64748b', fontSize: 12, marginLeft: 4 }}>({night.note})</span>}
-            </span>
-            <span style={{ fontWeight: 600, color: '#0f172a' }}>
-              {new Intl.NumberFormat('vi-VN').format(night.price)}₫
-            </span>
+      <div style={{ padding: '12px 14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8 }}>
+        <div style={{ fontWeight: 600, color: '#166534', marginBottom: 8, fontSize: 14 }}>
+          Chi tiết chi phí gia hạn:
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span>Tiền phòng:</span>
+            <strong>{formatPrice(fb.baseRoomAmount || 0)}</strong>
           </div>
-        ))}
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span>Phụ thu ngày lễ (+20%):</span>
+            <strong style={{ color: fb.holidaySurcharge > 0 ? '#cf1322' : '#64748b' }}>
+              {fb.holidaySurcharge > 0 ? `+${formatPrice(fb.holidaySurcharge)}` : '0 VNĐ'}
+            </strong>
+          </div>
+          {fb.holidaySurcharge > 0 && (
+            <div style={{ background: '#fff1f0', border: '1px solid #ffccc7', padding: '6px 10px', borderRadius: 6, fontSize: 12, margin: '2px 0 4px' }}>
+              <div style={{ fontWeight: 600, color: '#cf1322', marginBottom: 2 }}>Chi tiết các ngày lễ (+20%):</div>
+              {nightsList.filter((n: any) => n.isHoliday).map((n: any, idx: number) => (
+                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', color: '#595959' }}>
+                  <span>• {dayjs(n.date || n.stayDate).format('DD/MM/YYYY')} ({n.dayName || ''}): {n.holidayName || n.note || 'Ngày lễ'}</span>
+                  <span style={{ fontWeight: 600, color: '#cf1322' }}>+{formatPrice(n.surcharge || 0)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span>Phụ thu cuối tuần (+10%):</span>
+            <strong style={{ color: fb.weekendSurcharge > 0 ? '#d46b08' : '#64748b' }}>
+              {fb.weekendSurcharge > 0 ? `+${formatPrice(fb.weekendSurcharge)}` : '0 VNĐ'}
+            </strong>
+          </div>
+          {fb.weekendSurcharge > 0 && (
+            <div style={{ background: '#fffbe6', border: '1px solid #ffe58f', padding: '6px 10px', borderRadius: 6, fontSize: 12, margin: '2px 0 4px' }}>
+              <div style={{ fontWeight: 600, color: '#d46b08', marginBottom: 2 }}>Chi tiết các ngày Thứ 7 & Chủ nhật (+10%):</div>
+              {nightsList.filter((n: any) => !n.isHoliday && (n.isSaturday || n.isSunday)).map((n: any, idx: number) => (
+                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', color: '#595959' }}>
+                  <span>• {dayjs(n.date || n.stayDate).format('DD/MM/YYYY')} ({n.dayName || (n.isSaturday ? 'Thứ bảy' : 'Chủ nhật')}): Phụ thu cuối tuần</span>
+                  <span style={{ fontWeight: 600, color: '#d46b08' }}>+{formatPrice(n.surcharge || 0)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {fb.extraGuestSurcharge > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span>Phụ thu khách/trẻ em thêm đêm:</span>
+              <strong style={{ color: '#0958d9' }}>+{formatPrice(fb.extraGuestSurcharge)}</strong>
+            </div>
+          )}
+          <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 8, marginTop: 4, borderTop: '1px dashed #86efac', fontSize: 14 }}>
+            <strong>Tổng tiền phát sinh thêm:</strong>
+            <strong style={{ color: '#15803d', fontSize: 15 }}>
+              +{formatPrice(fb.priceDifference || 0)}
+            </strong>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#334155' }}>
+            <span>Tổng tiền sau gia hạn:</span>
+            <strong>{formatPrice(fb.newTotalAmount || 0)}</strong>
+          </div>
+        </div>
       </div>
 
-      <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed #86efac', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
-        <span>Tổng tiền phòng dự kiến sau gia hạn:</span>
-        <strong style={{ color: '#0f172a', fontSize: 14 }}>
-          {new Intl.NumberFormat('vi-VN').format(Number(booking?.total_price || 0) + previewData.total)}₫
-        </strong>
-      </div>
+      {nightsList.length > 0 && (
+        <div style={{ padding: '10px 14px', background: '#fff', border: '1px solid #dcfce7', borderRadius: 8 }}>
+          <div style={{ fontWeight: 600, color: '#166534', marginBottom: 8, fontSize: 13 }}>
+            Chi tiết các đêm lưu trú ({nightsList.length} đêm):
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 160, overflowY: 'auto' }}>
+            {nightsList.map((night: any, idx: number) => (
+              <div
+                key={idx}
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  fontSize: 13,
+                  background: '#f0fdf4',
+                  padding: '6px 10px',
+                  borderRadius: 6,
+                  border: '1px solid #dcfce7'
+                }}
+              >
+                <span>
+                  <strong>{dayjs(night.date || night.stayDate).format('DD/MM/YYYY')}</strong> ({night.dayName || ''})
+                  {night.isHoliday && <Tag color="red" style={{ marginLeft: 6 }}>Ngày lễ (+20%)</Tag>}
+                  {night.isSunday && <Tag color="orange" style={{ marginLeft: 6 }}>Chủ nhật (+10%)</Tag>}
+                  {night.isSaturday && <Tag color="purple" style={{ marginLeft: 6 }}>Thứ 7 (+10%)</Tag>}
+                  {!night.isHoliday && !night.isSunday && !night.isSaturday && <Tag color="blue" style={{ marginLeft: 6 }}>Ngày thường</Tag>}
+                </span>
+                <span style={{ fontWeight: 600, color: night.isHoliday || night.isWeekend ? '#cf1322' : '#0f172a' }}>
+                  {formatPrice(night.price)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
