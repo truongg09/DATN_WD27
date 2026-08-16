@@ -1090,6 +1090,12 @@ const checkTypeAvailability = async (payload) => {
     };
   });
 
+const calculateRefundRateByPolicy = (daysBeforeCheckIn) => {
+  if (daysBeforeCheckIn < 3) return 0;
+  if (daysBeforeCheckIn <= 7) return 0.5;
+  return 1.0;
+};
+
   const totalShortage = requested.reduce((sum, item) => sum + item.shortage, 0);
   const requestedTypeIds = new Set(
     payload.rooms.map((item) => Number(item.roomTypeId)),
@@ -1135,10 +1141,10 @@ const getRefundPolicy = (checkIn, paidAmount = 0) => {
     daysBeforeCheckIn < 0
       ? 0
       : daysBeforeCheckIn < 3
-        ? 1
+        ? 0
         : daysBeforeCheckIn <= 7
           ? 0.5
-          : 0;
+          : 1.0;
 
   return {
     daysBeforeCheckIn,
