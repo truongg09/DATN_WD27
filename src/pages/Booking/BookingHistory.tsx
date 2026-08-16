@@ -41,9 +41,8 @@ import dayjs from 'dayjs';
 import {
   addBookingServiceCharge,
   cancelBooking,
-  checkAvailability,
-  extendBookingStay,
-  updateBookingStay,
+  previewBookingChange,
+  executeBookingChange,
   updateBookingServiceCharge,
   deleteBookingServiceCharge,
   getBookings,
@@ -237,16 +236,18 @@ const BookingHistory: React.FC = () => {
   const [editLoading, setEditLoading] = useState(false);
   const [editDetail, setEditDetail] = useState<any>(null);
   const [allRoomTypes, setAllRoomTypes] = useState<any[]>([]);
+  const [allRooms, setAllRooms] = useState<any[]>([]);
   const [allServices, setAllServices] = useState<Service[]>([]);
   const [editTab, setEditTab] = useState('info');
   const [savingEdit, setSavingEdit] = useState(false);
   const [availabilityLoading, setAvailabilityLoading] = useState(false);
-  const [availabilityResult, setAvailabilityResult] = useState<any>(null);
   const [availabilityError, setAvailabilityError] = useState<string | null>(null);
+  const [changePreviewData, setChangePreviewData] = useState<any>(null);
 
   // Form values
   const [editStayRange, setEditStayRange] = useState<[any, any] | null>(null);
   const [editRoomTypeId, setEditRoomTypeId] = useState<number | null>(null);
+  const [editTargetRoomId, setEditTargetRoomId] = useState<number | null>(null);
   const [newServiceId, setNewServiceId] = useState<number | null>(null);
   const [newServiceQty, setNewServiceQty] = useState<number>(1);
   const [savingServiceAction, setSavingServiceAction] = useState<number | string | null>(null);
@@ -368,31 +369,35 @@ const BookingHistory: React.FC = () => {
     setEditModalOpen(true);
     setEditLoading(true);
     setEditDetail(null);
-    setAvailabilityResult(null);
     setAvailabilityError(null);
+    setChangePreviewData(null);
     setEditTab('info');
     setNewServiceId(null);
     setNewServiceQty(1);
     try {
-      const [detailRes, rtRes, , servicesRes] = await Promise.all([
+      const [detailRes, rtRes, roomsRes, servicesRes] = await Promise.all([
         api.get(`/bookings/${record.id}`),
         getRoomTypes(),
         getRooms(),
         getServices(),
       ]);
       const detail = (detailRes as any).data || detailRes;
+      const rTypes = unwrapList<any>(rtRes);
+      const rooms = unwrapList<any>(roomsRes);
       setEditDetail(detail);
-      setAllRoomTypes(unwrapList<any>(rtRes));
+      setAllRoomTypes(rTypes);
+      setAllRooms(rooms);
       setAllServices(servicesRes);
       setEditStayRange(
         detail.check_in && detail.check_out
           ? [dayjs(detail.check_in), dayjs(detail.check_out)]
           : null
       );
-      const currentType = unwrapList<any>(rtRes).find(
-        (rt: any) => rt.typeName === detail.room_type_name
+      const currentType = rTypes.find(
+        (rt: any) => rt.typeName === detail.room_type_name || rt.id === detail.room_type_id
       );
-      setEditRoomTypeId(currentType?.id ?? null);
+      setEditRoomTypeId(currentType?.id ?? detail.room_type_id ?? null);
+      setEditTargetRoomId(detail.room_id ? Number(detail.room_id) : null);
     } catch (err: any) {
       message.error(err.response?.data?.message || 'Không thể tải chi tiết đặt phòng để chỉnh sửa');
     } finally {
@@ -400,44 +405,62 @@ const BookingHistory: React.FC = () => {
     }
   };
 
-  const runAvailabilityCheck = async (opts?: { overrideRange?: [any, any] | null; overrideRoomTypeId?: number | null }) => {
+  const runAvailabilityCheck = async (opts?: {
+    overrideRange?: [any, any] | null;
+    overrideRoomTypeId?: number | null;
+    overrideTargetRoomId?: number | null;
+  }) => {
     const range = opts?.overrideRange ?? editStayRange;
     const rtId = opts?.overrideRoomTypeId ?? editRoomTypeId;
+    const targetRoomId = opts?.overrideTargetRoomId ?? editTargetRoomId;
     const ci = range?.[0];
     const co = range?.[1];
     if (!range || !ci || !co || !ci.isValid() || !co.isValid() || !co.isAfter(ci)) {
       setAvailabilityError('Vui lòng chọn khoảng thời gian hợp lệ (ngày trả phải sau ngày nhận)');
-      setAvailabilityResult(null);
+      setChangePreviewData(null);
       return;
     }
     if (!rtId) {
       setAvailabilityError('Vui lòng chọn hạng phòng');
-      setAvailabilityResult(null);
+      setChangePreviewData(null);
       return;
     }
     setAvailabilityLoading(true);
     setAvailabilityError(null);
-    setAvailabilityResult(null);
+    setChangePreviewData(null);
     try {
-      const payload: Record<string, unknown> = {
-        checkIn: ci.format('YYYY-MM-DD'),
+      let chosenRoomId = targetRoomId;
+      if (!chosenRoomId && rtId) {
+        const currentRoomId = editDetail?.room_id ? Number(editDetail.room_id) : null;
+        const currentRtId = editDetail?.room_type_id ? Number(editDetail.room_type_id) : null;
+        if (Number(rtId) !== currentRtId) {
+          const matchingRoom = allRooms.find(
+            (r: any) => (r.roomTypeId === Number(rtId) || r.room_type_id === Number(rtId)) && r.id !== currentRoomId && (r.status === 'available' || !r.status)
+          );
+          if (matchingRoom) {
+            chosenRoomId = matchingRoom.id;
+          }
+        }
+      }
+
+      const previewRes = await previewBookingChange(editBookingId!, {
         checkOut: co.format('YYYY-MM-DD'),
-        roomTypeId: rtId,
-        childrenAges: [],
-      };
-      const res = await checkAvailability(payload);
-      const body: any = (res as any).data ?? res;
-      if (body?.available) {
-        setAvailabilityResult(body);
+        toRoomId: chosenRoomId || undefined,
+      });
+
+      const previewBody = (previewRes as any).data || previewRes;
+      if (previewBody?.available) {
+        setChangePreviewData(previewBody);
       } else {
-        setAvailabilityError(
-          'Không có phòng trống cho khoảng thời gian này. Vui lòng thử ngày khác hoặc hạng phòng khác.'
-        );
-        setAvailabilityResult(null);
+        const conflictMsg =
+          previewBody?.conflicts?.map((c: any) => c.message).join(' ') ||
+          'Phòng được chọn không còn trống cho khoảng thời gian này. Vui lòng thử ngày khác hoặc hạng phòng khác.';
+        setAvailabilityError(conflictMsg);
+        setChangePreviewData(null);
       }
     } catch (err: any) {
-      setAvailabilityError(err.response?.data?.message || 'Kiểm tra phòng trống thất bại');
-      setAvailabilityResult(null);
+      setAvailabilityError(err.response?.data?.message || 'Kiểm tra phòng trống & tính giá thất bại');
+      setChangePreviewData(null);
     } finally {
       setAvailabilityLoading(false);
     }
@@ -455,163 +478,183 @@ const BookingHistory: React.FC = () => {
       }
 
       const currentCheckOut = dayjs(editDetail.check_out);
-      const currentCheckIn = dayjs(editDetail.check_in);
-
-      const status = editDetail.status as string;
-      const diffCheckIn = !newCheckIn.isSame(currentCheckIn, 'day');
-      const diffCheckOut = !newCheckOut.isSame(currentCheckOut, 'day');
       const currentRT = editDetail.room_type_id ?? editDetail.roomType?.id;
+      const diffCheckOut = !newCheckOut.isSame(currentCheckOut, 'day');
       const diffRoomType = editRoomTypeId && Number(editRoomTypeId) !== Number(currentRT);
+      const diffRoom = editTargetRoomId && Number(editTargetRoomId) !== Number(editDetail.room_id);
 
-      const extendingOnly =
-        !diffCheckIn && diffCheckOut && newCheckOut.isAfter(currentCheckOut) && !diffRoomType;
-
-      if (status === 'pending' || status === 'confirmed') {
-        if (!diffCheckIn && !diffCheckOut && !diffRoomType) {
-          message.info('Không có thay đổi nào để lưu');
-          setSavingEdit(false);
-          return;
-        }
-
-        const newStayNights = (availabilityResult?.nightlyPrices as any[]) || [];
-        const holidayNights = newStayNights.filter((n: any) => n.isHoliday);
-        const weekendNights = newStayNights.filter((n: any) => (n.isSunday || n.isSaturday) && !n.isHoliday);
-        const hasSpecialNights = holidayNights.length > 0 || weekendNights.length > 0;
-
-        const payload: Record<string, unknown> = {
-          checkIn: newCheckIn.format('YYYY-MM-DD'),
-          checkOut: newCheckOut.format('YYYY-MM-DD'),
-        };
-        if (editRoomTypeId) payload.roomTypeId = Number(editRoomTypeId);
-
-        const executeUpdate = async () => {
-          setSavingEdit(true);
-          try {
-            const res = await updateBookingStay(editBookingId, payload as any);
-            const result = (res as any).data?.data ?? (res as any).data ?? res;
-            const delta = Number(result?.deltaTotal ?? 0);
-            const updatedPayment = result?.payment;
-
-            setEditModalOpen(false);
-            await loadHistory();
-
-            Modal.success({
-              title: 'Cập nhật thời gian lưu trú thành công',
-              width: 520,
-              content: (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12 }}>
-                  <p style={{ margin: 0 }}>
-                    Đặt phòng <strong>#{editDetail.booking_code || editBookingId}</strong> đã được chuyển sang thời gian mới:
-                  </p>
-                  <div style={{ background: '#f5f5f5', padding: '10px 14px', borderRadius: 8, fontSize: 13 }}>
-                    <div><strong>Nhận phòng:</strong> {newCheckIn.format('DD/MM/YYYY')}</div>
-                    <div><strong>Trả phòng:</strong> {newCheckOut.format('DD/MM/YYYY')} ({result?.nights || newStayNights.length} đêm)</div>
-                    {holidayNights.length > 0 && (
-                      <div style={{ color: '#cf1322', marginTop: 4 }}>
-                        🎉 Gồm <strong>{holidayNights.length} đêm ngày lễ</strong> (đã áp dụng phụ thu lễ)
-                      </div>
-                    )}
-                    {weekendNights.length > 0 && (
-                      <div style={{ color: '#d46b08', marginTop: 2 }}>
-                        📅 Gồm <strong>{weekendNights.length} đêm cuối tuần</strong> (Thứ 7 / CN)
-                      </div>
-                    )}
-                  </div>
-                  {delta !== 0 && (
-                    <div style={{ padding: '8px 12px', background: delta > 0 ? '#fffbe6' : '#f6ffed', border: `1px solid ${delta > 0 ? '#ffe58f' : '#b7eb8f'}`, borderRadius: 6 }}>
-                      {delta > 0 ? (
-                        <div>
-                          <strong style={{ color: '#d46b08' }}>Tiền phòng tăng thêm: +{new Intl.NumberFormat('vi-VN').format(delta)}đ</strong>
-                          <div style={{ fontSize: 12, color: '#595959', marginTop: 2 }}>
-                            Số tiền này đã được <strong>tự động cộng thêm vào hóa đơn thanh toán</strong> của bạn.
-                          </div>
-                        </div>
-                      ) : (
-                        <div>
-                          <strong style={{ color: '#389e0d' }}>Tiền phòng giảm: -{new Intl.NumberFormat('vi-VN').format(Math.abs(delta))}đ</strong>
-                          <div style={{ fontSize: 12, color: '#595959', marginTop: 2 }}>
-                            Số tiền chênh lệch giảm đã được cập nhật vào hóa đơn.
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {updatedPayment && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, fontWeight: 600 }}>
-                      <span>Tổng tiền thanh toán mới:</span>
-                      <span style={{ color: '#cf1322', fontSize: 15 }}>
-                        {new Intl.NumberFormat('vi-VN').format(Number(updatedPayment.totalAmount || 0))}đ
-                      </span>
-                    </div>
-                  )}
-                </div>
-              ),
-            });
-          } catch (err: any) {
-            message.error(err.response?.data?.message || 'Cập nhật đặt phòng thất bại');
-          } finally {
-            setSavingEdit(false);
-          }
-        };
-
-        if (hasSpecialNights) {
-          Modal.confirm({
-            title: 'Xác nhận chuyển ngày lưu trú',
-            width: 500,
-            content: (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 8 }}>
-                <p style={{ margin: 0 }}>
-                  Khoảng thời gian bạn chọn có chứa <strong>{holidayNights.length > 0 ? `${holidayNights.length} đêm lễ ` : ''}{weekendNights.length > 0 ? `${weekendNights.length} đêm cuối tuần` : ''}</strong>.
-                </p>
-                <div style={{ background: '#fffbe6', border: '1px solid #ffe58f', padding: '10px 14px', borderRadius: 8, fontSize: 13 }}>
-                  <p style={{ margin: 0, color: '#d46b08', fontWeight: 600 }}>
-                    ⚠️ Biểu giá có phụ thu ngày lễ (+100k/200k) và cuối tuần (+100k/200k).
-                  </p>
-                  <p style={{ margin: '4px 0 0', color: '#595959' }}>
-                    Khoản tiền chênh lệch sẽ được <strong>tự động cộng thêm vào hóa đơn thanh toán</strong> của bạn.
-                  </p>
-                </div>
-                <p style={{ margin: 0, fontSize: 13 }}>
-                  Bạn có chắc chắn muốn chuyển sang khoảng thời gian này không?
-                </p>
-              </div>
-            ),
-            okText: 'Xác nhận chuyển ngày',
-            cancelText: 'Hủy bỏ',
-            onOk: () => executeUpdate(),
-            onCancel: () => setSavingEdit(false)
-          });
-          return;
-        }
-
-        await executeUpdate();
-        return;
-      }
-
-      if (status === 'checked_in') {
-        if (diffCheckIn || diffRoomType) {
-          message.error('Đã check-in rồi: không thể đổi ngày nhận hoặc hạng phòng. Chỉ có thể gia hạn ngày trả!');
-          setSavingEdit(false);
-          return;
-        }
-        if (extendingOnly) {
-          await extendBookingStay(editBookingId, {
-            checkOut: newCheckOut.format('YYYY-MM-DD'),
-          });
-          message.success('Gia hạn thời gian ở thành công! Đang làm mới dữ liệu...');
-          setEditModalOpen(false);
-          await loadHistory();
-          return;
-        }
-        message.warning('Vui lòng chọn ngày trả mới lớn hơn ngày trả hiện tại để gia hạn');
+      if (!diffCheckOut && !diffRoomType && !diffRoom) {
+        message.info('Không có thay đổi nào để lưu');
         setSavingEdit(false);
         return;
       }
 
-      message.warning('Trạng thái booking này không cho phép cập nhật thời gian ở.');
+      let chosenRoomId = editTargetRoomId;
+      if (diffRoomType && !chosenRoomId) {
+        const currentRoomId = editDetail?.room_id ? Number(editDetail.room_id) : null;
+        const matchingRoom = allRooms.find(
+          (r: any) => (r.roomTypeId === Number(editRoomTypeId) || r.room_type_id === Number(editRoomTypeId)) && r.id !== currentRoomId && (r.status === 'available' || !r.status)
+        );
+        if (matchingRoom) chosenRoomId = matchingRoom.id;
+      }
+
+      const payload = {
+        checkOut: newCheckOut.format('YYYY-MM-DD'),
+        toRoomId: chosenRoomId || undefined,
+        reason: 'Khách yêu cầu gia hạn / chuyển phòng'
+      };
+
+      const executeChange = async () => {
+        setSavingEdit(true);
+        try {
+          const res = await executeBookingChange(editBookingId, payload);
+          const result = (res as any).data || res;
+          const preview = result?.preview || changePreviewData;
+          const fb = preview?.financialBreakdown;
+          const priceDiff = fb?.priceDifference ?? 0;
+
+          const nightlyPrices = preview?.nightlyPrices || [];
+          const holidayNights = nightlyPrices.filter((n: any) => n.isHoliday);
+          const weekendNights = nightlyPrices.filter((n: any) => !n.isHoliday && (n.isSaturday || n.isSunday));
+
+          setEditModalOpen(false);
+          await loadHistory();
+
+          Modal.success({
+            title: 'Cập nhật thời gian ở & phòng thành công',
+            width: 580,
+            content: (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12 }}>
+                <p style={{ margin: 0 }}>
+                  Đặt phòng <strong>#{editDetail.booking_code || editBookingId}</strong> đã được cập nhật thành công:
+                </p>
+                <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', padding: '12px 16px', borderRadius: 8, fontSize: 13 }}>
+                  <div><strong>Nhận phòng:</strong> {newCheckIn.format('DD/MM/YYYY')}</div>
+                  <div><strong>Trả phòng mới:</strong> {newCheckOut.format('DD/MM/YYYY')} ({preview?.totalNights || 0} đêm)</div>
+                  {preview?.toRoom && (
+                    <div style={{ color: '#0958d9', marginTop: 4 }}>
+                      🏨 <strong>Phòng mới:</strong> Phòng {preview.toRoom.roomNumber} ({preview.toRoom.typeName})
+                    </div>
+                  )}
+                  {fb?.upgradeFee > 0 && (
+                    <div style={{ color: '#0958d9', marginTop: 4 }}>
+                      💎 <strong>Phí nâng cấp phòng:</strong> +{formatPrice(fb.upgradeFee)}
+                    </div>
+                  )}
+
+                  {/* Chi tiết danh sách ngày lễ */}
+                  {holidayNights.length > 0 && (
+                    <div style={{ marginTop: 8, padding: '8px 12px', background: '#fff1f0', border: '1px solid #ffccc7', borderRadius: 6 }}>
+                      <div style={{ color: '#cf1322', fontWeight: 600, fontSize: 13, marginBottom: 4, display: 'flex', justifyContent: 'space-between' }}>
+                        <span>🎉 Phụ thu ngày lễ (+20%):</span>
+                        <strong>+{formatPrice(fb?.holidaySurcharge || 0)}</strong>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 12 }}>
+                        {holidayNights.map((n: any, idx: number) => (
+                          <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', color: '#434343' }}>
+                            <span>
+                              • <strong>{dayjs(n.date || n.stayDate).format('DD/MM/YYYY')}</strong> ({n.dayName || ''}): {n.holidayName || n.note || 'Ngày lễ'}
+                            </span>
+                            <span style={{ fontWeight: 600, color: '#cf1322' }}>
+                              +{formatPrice(n.surcharge || 0)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Chi tiết danh sách Thứ 7 & Chủ nhật */}
+                  {weekendNights.length > 0 && (
+                    <div style={{ marginTop: 6, padding: '8px 12px', background: '#fffbe6', border: '1px solid #ffe58f', borderRadius: 6 }}>
+                      <div style={{ color: '#d46b08', fontWeight: 600, fontSize: 13, marginBottom: 4, display: 'flex', justifyContent: 'space-between' }}>
+                        <span>📅 Phụ thu cuối tuần (+10%):</span>
+                        <strong>+{formatPrice(fb?.weekendSurcharge || 0)}</strong>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 12 }}>
+                        {weekendNights.map((n: any, idx: number) => (
+                          <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', color: '#434343' }}>
+                            <span>
+                              • <strong>{dayjs(n.date || n.stayDate).format('DD/MM/YYYY')}</strong> ({n.dayName || (n.isSaturday ? 'Thứ bảy' : 'Chủ nhật')}): Phụ thu cuối tuần
+                            </span>
+                            <span style={{ fontWeight: 600, color: '#d46b08' }}>
+                              +{formatPrice(n.surcharge || 0)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                {priceDiff !== 0 && (
+                  <div style={{ padding: '10px 14px', background: priceDiff > 0 ? '#fffbe6' : '#f6ffed', border: `1px solid ${priceDiff > 0 ? '#ffe58f' : '#b7eb8f'}`, borderRadius: 6 }}>
+                    {priceDiff > 0 ? (
+                      <div>
+                        <strong style={{ color: '#d46b08' }}>Tổng tiền phát sinh thêm: +{formatPrice(priceDiff)}</strong>
+                        <div style={{ fontSize: 12, color: '#595959', marginTop: 2 }}>
+                          Số tiền này đã được <strong>tự động cộng thêm vào hóa đơn thanh toán</strong> của bạn.
+                        </div>
+                      </div>
+                    ) : (
+                      <div>
+                        <strong style={{ color: '#389e0d' }}>Tiền phòng giảm: -{formatPrice(Math.abs(priceDiff))}</strong>
+                        <div style={{ fontSize: 12, color: '#595959', marginTop: 2 }}>
+                          Khoản tiền chênh lệch giảm đã được cập nhật vào hóa đơn.
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {fb?.newTotalAmount && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, fontWeight: 600 }}>
+                    <span>Tổng tiền thanh toán mới:</span>
+                    <span style={{ color: '#cf1322', fontSize: 16 }}>
+                      {formatPrice(fb.newTotalAmount)}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )
+          });
+        } catch (err: any) {
+          message.error(err.response?.data?.message || 'Cập nhật đặt phòng thất bại');
+        } finally {
+          setSavingEdit(false);
+        }
+      };
+
+      if (changePreviewData && changePreviewData.warnings?.length > 0) {
+        Modal.confirm({
+          title: 'Xác nhận thay đổi đặt phòng',
+          width: 520,
+          content: (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 8 }}>
+              <p style={{ margin: 0 }}>
+                Thời gian / phòng bạn chọn có các đêm áp dụng biểu giá đặc biệt:
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {changePreviewData.warnings.map((w: string, idx: number) => (
+                  <div key={idx} style={{ background: '#fffbe6', border: '1px solid #ffe58f', padding: '8px 12px', borderRadius: 6, fontSize: 13, color: '#d46b08' }}>
+                    {w}
+                  </div>
+                ))}
+              </div>
+              <p style={{ margin: 0, fontSize: 13 }}>
+                Bạn có chắc chắn muốn xác nhận thay đổi này không?
+              </p>
+            </div>
+          ),
+          okText: 'Xác nhận thay đổi',
+          cancelText: 'Hủy bỏ',
+          onOk: () => executeChange(),
+          onCancel: () => setSavingEdit(false)
+        });
+        return;
+      }
+
+      await executeChange();
     } catch (err: any) {
       message.error(err.response?.data?.message || 'Lưu thay đổi thất bại');
-    } finally {
       setSavingEdit(false);
     }
   };
@@ -1512,31 +1555,53 @@ const BookingHistory: React.FC = () => {
                             disabledDate={(d) => d.isBefore(dayjs().subtract(1, 'day').endOf('day'))}
                             onChange={(val) => {
                               setEditStayRange(val as [any, any] | null);
-                              setAvailabilityResult(null);
                               setAvailabilityError(null);
+                              setChangePreviewData(null);
                             }}
                           />
                         </Form.Item>
-                        <Form.Item label="Hạng phòng" required style={{ marginBottom: 0 }}>
+                        <Form.Item label="Hạng phòng (Chuyển/Nâng cấp)" required style={{ marginBottom: 0 }}>
                           <Select
                             placeholder="Chọn hạng phòng"
                             value={editRoomTypeId ?? undefined}
                             onChange={(val) => {
                               setEditRoomTypeId(val ?? null);
-                              setAvailabilityResult(null);
+                              setEditTargetRoomId(null);
                               setAvailabilityError(null);
+                              setChangePreviewData(null);
                             }}
                             options={allRoomTypes.map((rt: any) => ({
                               value: rt.id,
-                              label: `${rt.typeName} · ${new Intl.NumberFormat('vi-VN').format(
-                                Number(rt.defaultPrice || 0)
-                              )}đ/đêm`,
+                              label: `${rt.typeName} · ${formatPrice(Number(rt.defaultPrice || 0))}/đêm`,
                             }))}
                           />
                         </Form.Item>
                       </div>
 
-                      <Space style={{ margin: '8px 0' }}>
+                      {editRoomTypeId && (
+                        <div style={{ marginTop: 12 }}>
+                          <Form.Item label="Phòng vật lý chuyển đến (Tùy chọn chọn phòng cụ thể hoặc để hệ thống tự động gán)" style={{ marginBottom: 0 }}>
+                            <Select
+                              allowClear
+                              placeholder="Hệ thống tự động gán phòng trống phù hợp"
+                              value={editTargetRoomId ?? undefined}
+                              onChange={(val) => {
+                                setEditTargetRoomId(val ?? null);
+                                setAvailabilityError(null);
+                                setChangePreviewData(null);
+                              }}
+                              options={allRooms
+                                .filter((r: any) => (r.roomTypeId === Number(editRoomTypeId) || r.room_type_id === Number(editRoomTypeId)) && (r.status === 'available' || !r.status || r.id === editDetail?.room_id))
+                                .map((r: any) => ({
+                                  value: r.id,
+                                  label: `Phòng ${r.roomNumber || r.room_number} (${r.typeName || r.room_type_name || ''}) ${r.id === editDetail?.room_id ? '— (Phòng hiện tại)' : ''}`,
+                                }))}
+                            />
+                          </Form.Item>
+                        </div>
+                      )}
+
+                      <Space style={{ margin: '14px 0 8px' }}>
                         <Button
                           type="primary"
                           icon={availabilityLoading ? <Spin size="small" /> : <ReloadOutlined />}
@@ -1547,8 +1612,8 @@ const BookingHistory: React.FC = () => {
                         </Button>
                         <Button
                           onClick={() => {
-                            setAvailabilityResult(null);
                             setAvailabilityError(null);
+                            setChangePreviewData(null);
                           }}
                         >
                           Xem lại
@@ -1556,105 +1621,111 @@ const BookingHistory: React.FC = () => {
                       </Space>
 
                       {availabilityError && (
-                        <Alert type="error" showIcon message={availabilityError} />
+                        <Alert type="error" showIcon message={availabilityError} style={{ marginTop: 8 }} />
                       )}
                       {availabilityLoading && (
                         <div style={{ textAlign: 'center', padding: 24 }}>
-                          <Spin tip="Đang kiểm tra phòng trống & tính giá..." />
+                          <Spin tip="Đang kiểm tra phòng trống & tính toán biểu giá..." />
                         </div>
                       )}
-                      {!availabilityLoading && availabilityResult && (() => {
-                        const newStayNights = (availabilityResult.nightlyPrices as any[]) || [];
-                        const hasSpecialNights = newStayNights.some(
-                          (n: any) => n.isHoliday || n.isSunday || n.isSaturday || n.price > Number(availabilityResult.pricePerNight || 0)
-                        );
-                        const oldStayNights = Math.max(
-                          dayjs(editDetail.check_out).startOf('day').diff(dayjs(editDetail.check_in).startOf('day'), 'day'),
-                          1
-                        );
-                        const oldRoomPrice = Number(editDetail.room_price || 0);
-                        const oldStayAmount = oldRoomPrice * oldStayNights;
-                        const newStayAmount = Number(availabilityResult.stayAmount || availabilityResult.totalAmount || 0);
-                        const priceDelta = newStayAmount - oldStayAmount;
+                      {!availabilityLoading && changePreviewData && (() => {
+                        const fb = changePreviewData.financialBreakdown || {};
+                        const nightsList = changePreviewData.nightlyPrices || [];
 
                         return (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                            {hasSpecialNights && (
-                              <Alert
-                                type="warning"
-                                showIcon
-                                message="Lưu ý thay đổi biểu giá: Có đêm Thứ 7 / Chủ nhật / Dịp lễ"
-                                description={
-                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                    <div>
-                                      Thời gian lưu trú mới của bạn có chứa các đêm cuối tuần hoặc ngày lễ.
-                                      Đơn giá của những đêm này được áp dụng theo quy định của khách sạn:
-                                      <strong> phụ thu +100.000đ/đêm (phòng tiêu chuẩn)</strong> hoặc{' '}
-                                      <strong>+200.000đ/đêm (phòng hạng sang)</strong> so với ngày thường.
-                                    </div>
-                                    <div style={{ color: '#b45309', fontWeight: 600, marginTop: 2 }}>
-                                      📌 Khoản tiền chênh lệch (nếu có) sẽ được tự động cập nhật và cộng thêm vào hóa đơn thanh toán của bạn khi xác nhận chuyển ngày.
-                                    </div>
-                                  </div>
-                                }
-                              />
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 8 }}>
+                            {/* Hiển thị cảnh báo từng ngày lễ (+20%) và thứ 7, CN (+10%) */}
+                            {changePreviewData.warnings && changePreviewData.warnings.length > 0 && (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                {changePreviewData.warnings.map((w: string, idx: number) => (
+                                  <Alert
+                                    key={idx}
+                                    type="warning"
+                                    showIcon
+                                    message={w}
+                                  />
+                                ))}
+                              </div>
                             )}
 
-                            <Alert
-                              type="success"
-                              showIcon
-                              message="Hạng phòng trống! Có thể thực hiện thay đổi"
-                              description={
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                                  <div>
-                                    <strong>Hạng phòng:</strong>{' '}
-                                    {editRoomTypeId
-                                      ? allRoomTypes.find((rt: any) => rt.id === Number(editRoomTypeId))
-                                          ?.typeName || '—'
-                                      : '—'}
-                                  </div>
-                                  <div>
-                                    <strong>Số đêm:</strong> {availabilityResult.nights} đêm
-                                  </div>
-                                  <div>
-                                    <strong>Đơn giá tiêu chuẩn:</strong>{' '}
-                                    {new Intl.NumberFormat('vi-VN').format(
-                                      Number(availabilityResult.pricePerNight || 0)
-                                    )}
-                                    đ/đêm
-                                  </div>
-                                  <div>
-                                    <strong>Tổng tiền phòng mới:</strong>{' '}
-                                    <span style={{ color: '#b45309', fontWeight: 700, fontSize: 15 }}>
-                                      {new Intl.NumberFormat('vi-VN').format(newStayAmount)}đ
-                                    </span>
-                                  </div>
-                                  <div style={{ marginTop: 4, paddingTop: 6, borderTop: '1px dashed #d9d9d9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    <span>Ước tính chênh lệch so với kỳ lưu trú cũ:</span>
-                                    {priceDelta > 0 ? (
-                                      <strong style={{ color: '#cf1322', fontSize: 14 }}>
-                                        Khách cần bù thêm: +{new Intl.NumberFormat('vi-VN').format(priceDelta)}đ
-                                      </strong>
-                                    ) : priceDelta < 0 ? (
-                                      <strong style={{ color: '#389e0d', fontSize: 14 }}>
-                                        Được giảm trừ: -{new Intl.NumberFormat('vi-VN').format(Math.abs(priceDelta))}đ
-                                      </strong>
-                                    ) : (
-                                      <strong style={{ color: '#595959' }}>Không thay đổi giá</strong>
-                                    )}
-                                  </div>
+                            {/* Bảng tóm tắt tài chính phát sinh đúng chuẩn */}
+                            <div style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 8, padding: '14px 18px' }}>
+                              <h4 style={{ margin: '0 0 10px', color: '#0f172a', fontSize: 14 }}>
+                                Bảng tổng hợp chi phí thay đổi:
+                              </h4>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                  <span>Tiền phòng:</span>
+                                  <strong>{formatPrice(fb.baseRoomAmount || 0)}</strong>
                                 </div>
-                              }
-                            />
+                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                  <span>Phụ thu ngày lễ (+20%):</span>
+                                  <strong style={{ color: fb.holidaySurcharge > 0 ? '#cf1322' : '#64748b' }}>
+                                    {fb.holidaySurcharge > 0 ? `+${formatPrice(fb.holidaySurcharge)}` : '0đ'}
+                                  </strong>
+                                </div>
+                                {fb.holidaySurcharge > 0 && (
+                                  <div style={{ background: '#fff1f0', border: '1px solid #ffccc7', padding: '6px 10px', borderRadius: 6, fontSize: 12, margin: '2px 0 4px' }}>
+                                    <div style={{ fontWeight: 600, color: '#cf1322', marginBottom: 2 }}>Chi tiết các ngày lễ (+20%):</div>
+                                    {nightsList.filter((n: any) => n.isHoliday).map((n: any, idx: number) => (
+                                      <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', color: '#595959' }}>
+                                        <span>• {dayjs(n.date || n.stayDate).format('DD/MM/YYYY')} ({n.dayName || ''}): {n.holidayName || n.note || 'Ngày lễ'}</span>
+                                        <span style={{ fontWeight: 600, color: '#cf1322' }}>+{formatPrice(n.surcharge || 0)}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
 
-                            {newStayNights.length > 0 && (
+                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                  <span>Phụ thu cuối tuần (+10%):</span>
+                                  <strong style={{ color: fb.weekendSurcharge > 0 ? '#d46b08' : '#64748b' }}>
+                                    {fb.weekendSurcharge > 0 ? `+${formatPrice(fb.weekendSurcharge)}` : '0đ'}
+                                  </strong>
+                                </div>
+                                {fb.weekendSurcharge > 0 && (
+                                  <div style={{ background: '#fffbe6', border: '1px solid #ffe58f', padding: '6px 10px', borderRadius: 6, fontSize: 12, margin: '2px 0 4px' }}>
+                                    <div style={{ fontWeight: 600, color: '#d46b08', marginBottom: 2 }}>Chi tiết các ngày Thứ 7 & Chủ nhật (+10%):</div>
+                                    {nightsList.filter((n: any) => !n.isHoliday && (n.isSaturday || n.isSunday)).map((n: any, idx: number) => (
+                                      <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', color: '#595959' }}>
+                                        <span>• {dayjs(n.date || n.stayDate).format('DD/MM/YYYY')} ({n.dayName || (n.isSaturday ? 'Thứ bảy' : 'Chủ nhật')}): Phụ thu cuối tuần</span>
+                                        <span style={{ fontWeight: 600, color: '#d46b08' }}>+{formatPrice(n.surcharge || 0)}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                  <span>Phí nâng cấp phòng:</span>
+                                  <strong style={{ color: fb.upgradeFee > 0 ? '#0958d9' : '#64748b' }}>
+                                    {fb.upgradeFee > 0 ? `+${formatPrice(fb.upgradeFee)}` : '0đ'}
+                                  </strong>
+                                </div>
+                                {fb.extraGuestSurcharge > 0 && (
+                                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                    <span>Phụ thu khách/trẻ em thêm đêm:</span>
+                                    <strong style={{ color: '#0958d9' }}>+{formatPrice(fb.extraGuestSurcharge)}</strong>
+                                  </div>
+                                )}
+                                <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 8, marginTop: 4, borderTop: '1px solid #cbd5e1', fontSize: 14 }}>
+                                  <strong>Tổng tiền phát sinh:</strong>
+                                  <strong style={{ color: fb.priceDifference > 0 ? '#cf1322' : fb.priceDifference < 0 ? '#389e0d' : '#0f172a', fontSize: 15 }}>
+                                    {fb.priceDifference > 0 ? `+${formatPrice(fb.priceDifference)}` : fb.priceDifference < 0 ? `-${formatPrice(Math.abs(fb.priceDifference))}` : '0đ'}
+                                  </strong>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#475569' }}>
+                                  <span>Tổng tiền thanh toán mới của đơn:</span>
+                                  <strong style={{ color: '#0f172a' }}>{formatPrice(fb.newTotalAmount || 0)}</strong>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Chi tiết từng đêm */}
+                            {nightsList.length > 0 && (
                               <div style={{ padding: '10px 14px', background: '#fafafa', border: '1px solid #f0f0f0', borderRadius: 8 }}>
                                 <div style={{ fontWeight: 600, color: '#262626', marginBottom: 8, fontSize: 13 }}>
-                                  Chi tiết giá từng đêm của khoảng thời gian mới:
+                                  Chi tiết giá từng đêm ({nightsList.length} đêm):
                                 </div>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 180, overflowY: 'auto' }}>
-                                  {newStayNights.map((night: any, idx: number) => {
-                                    const isSpecial = night.isHoliday || night.isSunday || night.isSaturday || night.price > Number(availabilityResult.pricePerNight || 0);
+                                  {nightsList.map((night: any, idx: number) => {
                                     return (
                                       <div
                                         key={idx}
@@ -1671,14 +1742,15 @@ const BookingHistory: React.FC = () => {
                                       >
                                         <span>
                                           <strong>{dayjs(night.date || night.stayDate).format('DD/MM/YYYY')}</strong> ({night.dayName || ''})
-                                          {night.isHoliday && <Tag color="red" style={{ marginLeft: 6 }}>Dịp lễ</Tag>}
-                                          {night.isSunday && <Tag color="orange" style={{ marginLeft: 6 }}>Chủ nhật</Tag>}
-                                          {night.isSaturday && <Tag color="purple" style={{ marginLeft: 6 }}>Thứ 7</Tag>}
+                                          {night.isHoliday && <Tag color="red" style={{ marginLeft: 6 }}>Ngày lễ (+20%)</Tag>}
+                                          {night.isSunday && <Tag color="orange" style={{ marginLeft: 6 }}>Chủ nhật (+10%)</Tag>}
+                                          {night.isSaturday && <Tag color="purple" style={{ marginLeft: 6 }}>Thứ 7 (+10%)</Tag>}
                                           {!night.isHoliday && !night.isSunday && !night.isSaturday && <Tag color="blue" style={{ marginLeft: 6 }}>Ngày thường</Tag>}
+                                          {night.isNewRoom && <Tag color="cyan" style={{ marginLeft: 4 }}>Phòng mới: {night.roomNumber}</Tag>}
                                           {night.note && <span style={{ color: '#8c8c8c', fontSize: 12, marginLeft: 4 }}>({night.note})</span>}
                                         </span>
-                                        <span style={{ fontWeight: 600, color: isSpecial ? '#cf1322' : '#0f172a' }}>
-                                          {new Intl.NumberFormat('vi-VN').format(night.price)}đ
+                                        <span style={{ fontWeight: 600, color: night.isHoliday || night.isWeekend ? '#cf1322' : '#0f172a' }}>
+                                          {formatPrice(night.price)}
                                         </span>
                                       </div>
                                     );
