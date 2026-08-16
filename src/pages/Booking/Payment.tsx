@@ -217,7 +217,7 @@ const PaymentPage: React.FC = () => {
   const isDepositMode = paymentAmountMode === 'deposit' && !hasDeposit;
   const visibleMethods = METHOD_OPTIONS;
 
-  // Chính sách hoàn tiền: <3 ngày = 100%, 3–7 ngày = 50%, >7 ngày = 0%.
+  // Chính sách hoàn tiền: <3 ngày = 0%, 3–7 ngày = 50%, >7 ngày = 100%.
   const refundInfo = useMemo(() => {
     if (!booking?.check_in) return null;
 
@@ -227,10 +227,10 @@ const PaymentPage: React.FC = () => {
     const rate = daysBeforeCheckIn < 0
       ? 0
       : daysBeforeCheckIn < 3
-        ? 1
+        ? 0
         : daysBeforeCheckIn <= 7
           ? 0.5
-          : 0;
+          : 1.0;
     const paidAmount = payment?.paidAmount ?? 0;
 
     return {
