@@ -46,6 +46,8 @@ interface Booking {
   requested_check_in_time?: string | null;
   requested_check_in_day_offset?: number | null;
   actual_check_in_time?: string | null;
+  details?: any[];
+  detail_id?: number | null;
 }
 
 interface ServiceItem {
@@ -71,25 +73,40 @@ const TransferPricePreview: React.FC<{
   rooms: RoomItem[];
   form: any;
 }> = ({ booking, rooms, form }) => {
+  const bookingDetailId = Form.useWatch('bookingDetailId', form);
   const toRoomId = Form.useWatch('toRoomId', form);
   const fromDate = Form.useWatch('fromDate', form);
   const toDate = Form.useWatch('toDate', form);
   const [loading, setLoading] = useState(false);
-  const [previewData, setPreviewData] = useState<{
+  const [targetPreview, setTargetPreview] = useState<{
+    nights: number;
+    prices: NightlyPriceItem[];
+    total: number;
+  } | null>(null);
+  const [sourcePreview, setSourcePreview] = useState<{
     nights: number;
     prices: NightlyPriceItem[];
     total: number;
   } | null>(null);
 
+  const selectedDetail = Array.isArray(booking?.details)
+    ? booking?.details.find((d: any) => Number(d.bookingDetailId || d.id) === Number(bookingDetailId))
+    : (booking?.details?.[0] || null);
+
+  const sourceRoomId = selectedDetail?.roomId || selectedDetail?.room_id || booking?.room_id;
+  const sourceRoom = rooms.find((r) => r.id === sourceRoomId);
+
   useEffect(() => {
     if (!toRoomId || !fromDate || !toDate || !dayjs.isDayjs(fromDate) || !dayjs.isDayjs(toDate)) {
-      setPreviewData(null);
+      setTargetPreview(null);
+      setSourcePreview(null);
       return;
     }
     const checkInStr = fromDate.format('YYYY-MM-DD');
     const checkOutStr = toDate.format('YYYY-MM-DD');
     if (checkOutStr <= checkInStr) {
-      setPreviewData(null);
+      setTargetPreview(null);
+      setSourcePreview(null);
       return;
     }
 
@@ -99,20 +116,35 @@ const TransferPricePreview: React.FC<{
     let cancelled = false;
     setLoading(true);
 
-    const typeId = targetRoom.room_type_id || targetRoom.roomTypeId;
-    previewRoomPrice({
-      roomTypeId: typeId ? Number(typeId) : undefined,
-      checkIn: checkInStr,
-      checkOut: checkOutStr,
-      fallbackPrice: Number(targetRoom.price_per_night || 0),
-    })
-      .then((res) => {
-        // Interceptor đã bóc body nên res là { data: {...} }; bóc hai lần thì
-        // khung xem trước giá luôn trống.
-        if (!cancelled) setPreviewData(res.data);
+    const targetTypeId = targetRoom.room_type_id || targetRoom.roomTypeId;
+    const sourceTypeId = sourceRoom?.room_type_id || sourceRoom?.roomTypeId || selectedDetail?.roomTypeId || selectedDetail?.room_type_id;
+    const sourcePrice = Number(selectedDetail?.roomPrice || sourceRoom?.price_per_night || 0);
+
+    Promise.all([
+      previewRoomPrice({
+        roomTypeId: targetTypeId ? Number(targetTypeId) : undefined,
+        checkIn: checkInStr,
+        checkOut: checkOutStr,
+        fallbackPrice: Number(targetRoom.price_per_night || 0),
+      }),
+      previewRoomPrice({
+        roomTypeId: sourceTypeId ? Number(sourceTypeId) : undefined,
+        checkIn: checkInStr,
+        checkOut: checkOutStr,
+        fallbackPrice: sourcePrice,
+      })
+    ])
+      .then(([targetRes, sourceRes]) => {
+        if (!cancelled) {
+          setTargetPreview(targetRes.data);
+          setSourcePreview(sourceRes.data);
+        }
       })
       .catch(() => {
-        if (!cancelled) setPreviewData(null);
+        if (!cancelled) {
+          setTargetPreview(null);
+          setSourcePreview(null);
+        }
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -121,32 +153,30 @@ const TransferPricePreview: React.FC<{
     return () => {
       cancelled = true;
     };
-  }, [toRoomId, fromDate, toDate, rooms]);
+  }, [bookingDetailId, toRoomId, fromDate, toDate, rooms, sourceRoom, selectedDetail]);
 
   if (!toRoomId || !fromDate || !toDate) return null;
   if (loading) {
     return (
       <div style={{ marginTop: 12, padding: '10px 14px', background: '#f8fafc', borderRadius: 8, color: '#64748b', fontSize: 13 }}>
-        Đang tính toán giá phòng mới theo từng ngày (Lễ / Chủ nhật / Ngày thường)...
+        Đang tính toán giá phòng mới và giá phòng hiện tại theo từng ngày...
       </div>
     );
   }
-  if (!previewData) return null;
+  if (!targetPreview || !sourcePreview) return null;
 
   const targetRoom = rooms.find((r) => r.id === toRoomId);
-  const oldPricePerNight = Number(booking?.room_price || 0);
-  const oldRemainingTotal = previewData.nights * oldPricePerNight;
-  const priceDifference = previewData.total - oldRemainingTotal;
+  const priceDifference = targetPreview.total - sourcePreview.total;
 
   return (
     <div style={{ marginTop: 14, padding: '12px 14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8 }}>
       <div style={{ fontWeight: 600, color: '#1e293b', marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span>Giá từng đêm của phòng mới ({targetRoom?.roomNumber} - {previewData.nights} đêm):</span>
-        <strong style={{ color: '#047857', fontSize: 15 }}>{new Intl.NumberFormat('vi-VN').format(previewData.total)}₫</strong>
+        <span>Giá từng đêm phòng mới ({targetRoom?.roomNumber} - {targetPreview.nights} đêm):</span>
+        <strong style={{ color: '#047857', fontSize: 15 }}>{new Intl.NumberFormat('vi-VN').format(targetPreview.total)}₫</strong>
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 180, overflowY: 'auto' }}>
-        {previewData.prices.map((night, idx) => (
+        {targetPreview.prices.map((night, idx) => (
           <div
             key={idx}
             style={{
@@ -176,7 +206,12 @@ const TransferPricePreview: React.FC<{
       </div>
 
       <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed #cbd5e1', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
-        <span>Ước tính chênh lệch so với phòng cũ ({previewData.nights} đêm):</span>
+        <span>Giá phòng hiện tại cho khoảng chuyển ({sourcePreview.nights} đêm):</span>
+        <strong style={{ color: '#334155' }}>{new Intl.NumberFormat('vi-VN').format(sourcePreview.total)}₫</strong>
+      </div>
+
+      <div style={{ marginTop: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
+        <span>Ước tính chênh lệch so với phòng cũ ({targetPreview.nights} đêm):</span>
         {priceDifference > 0 ? (
           <strong style={{ color: '#cf1322' }}>
             Khách cần bù: +{new Intl.NumberFormat('vi-VN').format(priceDifference)}₫
@@ -186,10 +221,121 @@ const TransferPricePreview: React.FC<{
             Giảm trừ: -{new Intl.NumberFormat('vi-VN').format(Math.abs(priceDifference))}₫
           </strong>
         ) : (
-          <strong style={{ color: '#64748b' }}>Không thay đổi giá</strong>
+          <strong style={{ color: '#64748b' }}>Không thay đổi giá (0₫)</strong>
         )}
       </div>
     </div>
+  );
+};
+
+const TransferFormContent: React.FC<{
+  booking: Booking | null;
+  rooms: RoomItem[];
+  form: any;
+}> = ({ booking, rooms, form }) => {
+  const fromDate = Form.useWatch('fromDate', form);
+  const toDate = Form.useWatch('toDate', form);
+  const bookingDetailId = Form.useWatch('bookingDetailId', form);
+  const toRoomId = Form.useWatch('toRoomId', form);
+  const [availRooms, setAvailRooms] = useState<any[]>([]);
+  const [loadingAvail, setLoadingAvail] = useState<boolean>(false);
+
+  const detailsList = Array.isArray(booking?.details) && booking.details.length > 0
+    ? booking.details
+    : [{
+        id: booking?.detail_id || 1,
+        bookingDetailId: booking?.detail_id || 1,
+        roomId: booking?.room_id,
+        roomNumber: booking?.room_number,
+        typeName: booking?.room_type_name,
+        roomPrice: booking?.room_price
+      }];
+
+  const assignedRoomIds = detailsList.map((d: any) => Number(d.roomId || d.room_id)).filter(Boolean);
+
+  useEffect(() => {
+    if (!booking?.id || !fromDate || !toDate || !dayjs.isDayjs(fromDate) || !dayjs.isDayjs(toDate)) {
+      setAvailRooms([]);
+      return;
+    }
+    const checkInStr = fromDate.format('YYYY-MM-DD');
+    const checkOutStr = toDate.format('YYYY-MM-DD');
+    if (checkOutStr <= checkInStr) {
+      setAvailRooms([]);
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingAvail(true);
+
+    api.post(`/bookings/${booking.id}/admin-check-availability`, {
+      checkIn: checkInStr,
+      checkOut: checkOutStr,
+    })
+      .then((res: any) => {
+        if (cancelled) return;
+        const data = res?.data || res || {};
+        const rawList = Array.isArray(data.availableRooms) ? data.availableRooms : [];
+        // Lọc bỏ:
+        // 1. Các phòng đang thuộc đơn này (phòng nguồn và các phòng khác của booking)
+        // 2. Các phòng có trạng thái hiện tại khác 'available' (occupied, maintenance)
+        const validList = rawList.filter((r: any) => {
+          const isNotAssigned = !assignedRoomIds.includes(Number(r.id));
+          const isAvailableStatus = (r.status || 'available') === 'available';
+          return isNotAssigned && isAvailableStatus;
+        });
+        setAvailRooms(validList);
+
+        // Nếu phòng đang chọn không còn nằm trong danh sách khả dụng, clear lựa chọn
+        if (toRoomId && !validList.some((r: any) => Number(r.id) === Number(toRoomId))) {
+          form.setFieldsValue({ toRoomId: undefined });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setAvailRooms([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingAvail(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [booking?.id, fromDate, toDate, bookingDetailId]);
+
+  return (
+    <>
+      <Form.Item name="bookingDetailId" label="Phòng đang chuyển" rules={[{ required: true, message: 'Chọn phòng cần chuyển' }]}>
+        <Select
+          options={detailsList.map((d: any) => ({
+            value: d.bookingDetailId || d.id,
+            label: `Phòng ${d.roomNumber || d.room_number || d.roomId} · ${d.typeName || d.room_type_name || ''} · ${formatPrice(Number(d.roomPrice || booking?.room_price || 0))}/đêm`,
+          }))}
+          onChange={() => form.setFieldsValue({ toRoomId: undefined })}
+        />
+      </Form.Item>
+      <Form.Item name="toRoomId" label="Phòng chuyển đến" rules={[{ required: true, message: 'Chọn phòng chuyển đến' }]}>
+        <Select
+          showSearch
+          loading={loadingAvail}
+          placeholder={loadingAvail ? "Đang kiểm tra phòng trống..." : "Chọn phòng còn trống"}
+          options={availRooms.map((room: any) => ({
+            value: room.id,
+            label: `Phòng ${room.roomNumber} · ${room.room_type_name || room.typeName || ''} · ${formatPrice(room.default_price || room.price_per_night || 0)}/đêm`,
+          }))}
+        />
+      </Form.Item>
+      <Form.Item name="fromDate" label="Từ ngày" rules={[{ required: true }]}>
+        <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
+      </Form.Item>
+      <Form.Item name="toDate" label="Đến ngày" rules={[{ required: true }]}>
+        <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
+      </Form.Item>
+      <TransferPricePreview booking={booking} rooms={rooms} form={form} />
+      <Form.Item name="reason" label="Lý do chuyển phòng" style={{ marginTop: 14 }}>
+        <Input.TextArea rows={3} placeholder="Ví dụ: Khách muốn đổi phòng view đẹp hơn, nâng cấp hạng phòng..." />
+      </Form.Item>
+    </>
   );
 };
 
@@ -505,10 +651,27 @@ function BookingManagement() {
       form.setFieldsValue({ checkOut: booking.check_out ? dayjs(booking.check_out).add(1, 'day') : undefined });
     }
     if (type === 'transfer') {
-      form.setFieldsValue({
-        fromDate: dayjs(),
-        toDate: booking.check_out ? dayjs(booking.check_out) : undefined,
-      });
+      const initDetails = (b: any) => {
+        const rawDetails = Array.isArray(b.details) && b.details.length > 0 ? b.details : [];
+        const defaultDetail = rawDetails.length > 0 ? (rawDetails[0].bookingDetailId || rawDetails[0].id) : null;
+        form.setFieldsValue({
+          bookingDetailId: defaultDetail,
+          fromDate: dayjs(),
+          toDate: b.check_out ? dayjs(b.check_out) : undefined,
+        });
+      };
+
+      if (!Array.isArray(booking.details) || booking.details.length === 0) {
+        api.get(`/bookings/${booking.id}`).then((res: any) => {
+          const fullBooking = res.data?.data || res.data || res;
+          if (fullBooking) {
+            setSelectedBooking(fullBooking);
+            initDetails(fullBooking);
+          }
+        }).catch(() => {});
+      } else {
+        initDetails(booking);
+      }
     }
   };
 
@@ -628,19 +791,20 @@ function BookingManagement() {
 
       if (operation === 'transfer') {
         const response = await api.patch(`/bookings/${selectedBooking.id}/transfer-room`, {
+          bookingDetailId: values.bookingDetailId,
           toRoomId: values.toRoomId,
           fromDate: values.fromDate.format('YYYY-MM-DD'),
           toDate: values.toDate.format('YYYY-MM-DD'),
           reason: values.reason,
         });
-        const result = response.data?.data;
-        const previousTotal = Number(selectedBooking.total_price || 0);
-        const newTotal = Number(result?.priceBreakdown?.totalPrice || 0);
-        const priceDifference = newTotal - previousTotal;
-        const remainingAmount = Number(result?.payment?.remainingAmount || 0);
+        const result = (response as any)?.data || response;
+        const pb = result?.priceBreakdown;
+        const newTotal = Number(pb?.newTotalPrice ?? result?.booking?.total_price ?? selectedBooking.total_price ?? 0);
+        const priceDifference = Number(pb?.priceDifference ?? 0);
+        const remainingAmount = Number(result?.payment?.remainingAmount ?? 0);
 
         Modal.info({
-          title: 'Đã chuyển phòng',
+          title: 'Đã chuyển phòng thành công',
           okText: 'Đã hiểu',
           content: (
             <div>
@@ -649,16 +813,16 @@ function BookingManagement() {
               </p>
               {priceDifference > 0 ? (
                 <p>
-                  Phòng mới đắt hơn, khách cần thanh toán thêm:{' '}
-                  <strong style={{ color: '#cf1322' }}>{formatPrice(priceDifference)}</strong>.
+                  Phòng mới có giá cao hơn, khách cần thanh toán thêm:{' '}
+                  <strong style={{ color: '#cf1322' }}>+{formatPrice(priceDifference)}</strong>.
                 </p>
               ) : priceDifference < 0 ? (
                 <p>
                   Phòng mới rẻ hơn, tiền phòng được giảm:{' '}
-                  <strong style={{ color: '#389e0d' }}>{formatPrice(Math.abs(priceDifference))}</strong>.
+                  <strong style={{ color: '#389e0d' }}>-{formatPrice(Math.abs(priceDifference))}</strong>.
                 </p>
               ) : (
-                <p>Giá phòng không thay đổi.</p>
+                <p style={{ color: '#64748b' }}>Không thay đổi giá phòng (Chênh lệch: 0₫).</p>
               )}
               {priceDifference > 0 && (
                 <p>
@@ -988,40 +1152,7 @@ const handleCheckIn = (booking: Booking) => {
     }
 
     if (operation === 'transfer') {
-      return (
-        <>
-          <div
-            style={{ marginBottom: 16, padding: '10px 12px', background: '#f6ffed', border: '1px solid #b7eb8f', borderRadius: 8 }}
-          >
-            <div style={{ color: '#389e0d', fontWeight: 600 }}>Phòng đang ở</div>
-            <div>
-              Phòng {selectedBooking?.room_number || '—'} · {selectedBooking?.room_type_name || '—'} · Giá đang áp dụng:{' '}
-              <strong>{formatPrice(selectedBooking?.room_price)}</strong>/đêm
-            </div>
-          </div>
-          <Form.Item name="toRoomId" label="Phòng chuyển đến" rules={[{ required: true, message: 'Chọn phòng' }]}>
-            <Select
-              showSearch
-              options={rooms
-                .filter((room) => room.id !== selectedBooking?.room_id)
-                .map((room) => ({
-                  value: room.id,
-                  label: `Phòng ${room.roomNumber} · ${room.room_type_name || ''} · ${formatPrice(room.price_per_night)}/đêm (${room.status})`,
-                }))}
-            />
-          </Form.Item>
-          <Form.Item name="fromDate" label="Từ ngày" rules={[{ required: true }]}>
-            <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
-          </Form.Item>
-          <Form.Item name="toDate" label="Đến ngày" rules={[{ required: true }]}>
-            <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
-          </Form.Item>
-          <TransferPricePreview booking={selectedBooking} rooms={rooms} form={form} />
-          <Form.Item name="reason" label="Lý do chuyển phòng" style={{ marginTop: 14 }}>
-            <Input.TextArea rows={3} placeholder="Ví dụ: Khách muốn đổi phòng view đẹp hơn, nâng cấp hạng phòng..." />
-          </Form.Item>
-        </>
-      );
+      return <TransferFormContent booking={selectedBooking} rooms={rooms} form={form} />;
     }
 
     return null;

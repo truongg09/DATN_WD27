@@ -428,6 +428,7 @@ const BookingDetail: React.FC = () => {
     : Number(booking.payable_total || booking.total_price || 0);
 
   const displayTag = getBookingDisplayTag(booking);
+  const canShowPhysicalRoom = booking.status === 'checked_in' || booking.status === 'checked_out';
 
   return (
     <div className="booking-detail-page">
@@ -453,11 +454,11 @@ const BookingDetail: React.FC = () => {
             <Descriptions.Item label="Email">{String(booking.customer_email)}</Descriptions.Item>
             <Descriptions.Item label="SĐT">{String(booking.customer_phone || '-')}</Descriptions.Item>
             <Descriptions.Item label="Hạng phòng">
-              {booking.status === 'checked_in' && booking.room_number
+              {canShowPhysicalRoom && booking.room_number
                 ? `Phòng ${booking.room_number} - ${booking.room_type_name || ''}`
                 : `${booking.room_type_name || 'Đặt phòng'} (Số phòng phân bố khi nhận phòng)`}
             </Descriptions.Item>
-            {booking.status === 'checked_in' && (
+            {canShowPhysicalRoom && (
               <Descriptions.Item label="Tầng">{String(booking.room_floor ?? '-')}</Descriptions.Item>
             )}
             <Descriptions.Item label="Diện tích">
@@ -567,9 +568,18 @@ const BookingDetail: React.FC = () => {
                 {
                   title: 'Phòng',
                   dataIndex: 'roomNumber',
-                  render: (num?: string, r?: any) => (
-                    <Tag color="cyan">P.{num || r?.roomId || booking.room_number || '—'}</Tag>
-                  ),
+                  render: (num?: string, r?: any) => {
+                    if (canShowPhysicalRoom) {
+                      const roomLabel = num || r?.roomNumber || r?.roomId || booking.room_number;
+                      return <Tag color="cyan">P.{roomLabel || '—'}</Tag>;
+                    }
+                    const typeLabel = r?.typeName || r?.roomTypeName || r?.room_type_name || booking.room_type_name;
+                    return (
+                      <Tag color="blue">
+                        {typeLabel || 'Sắp xếp khi nhận phòng'}
+                      </Tag>
+                    );
+                  },
                 },
                 {
                   title: 'Đơn giá đêm',
@@ -770,7 +780,7 @@ const BookingDetail: React.FC = () => {
                     <td>
                       <strong>Tiền phòng lưu trú</strong>
                       <small style={{ display: 'block', color: '#888' }}>
-                        {booking.status === 'checked_in' && booking.room_number
+                        {canShowPhysicalRoom && booking.room_number
                           ? `Phòng ${String(booking.room_number)} (${booking.room_type_name || ''})`
                           : String(booking.room_type_name || 'Đặt phòng')}
                       </small>

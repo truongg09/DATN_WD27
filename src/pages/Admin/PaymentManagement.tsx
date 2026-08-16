@@ -451,7 +451,30 @@ function PaymentManagement() {
     { title: 'ID', dataIndex: 'id', key: 'id', width: 60 },
     { title: 'Booking', dataIndex: 'bookingId', key: 'bookingId', width: 80 },
     { title: 'Khách hàng', dataIndex: 'customer_name', key: 'customer_name' },
-    { title: 'Phòng', dataIndex: 'room_number', key: 'room_number', width: 80 },
+    {
+      title: 'Phòng',
+      key: 'room_number',
+      width: 140,
+      render: (_: unknown, record: RefundRow) => {
+        const text = record.room_type_details || record.room_number;
+        if (!text) return '—';
+        const lines = text.includes('\n')
+          ? text.split('\n').map((l) => l.trim()).filter(Boolean)
+          : text.includes(',')
+            ? text.split(',').map((l) => l.trim()).filter(Boolean)
+            : [text.trim()];
+
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {lines.map((line, idx) => (
+              <span key={idx} style={{ fontSize: 13, whiteSpace: 'nowrap' }}>
+                {line}
+              </span>
+            ))}
+          </div>
+        );
+      },
+    },
     {
       title: 'Số tiền hoàn',
       key: 'amount',

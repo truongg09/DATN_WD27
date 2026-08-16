@@ -787,8 +787,7 @@ const sumDamageCharges = async (bookingId, connection) => {
   return Number(row?.total || 0);
 };
 
-const updateBookingStay = async (bookingId, checkOut, totalPrice, connection, occupancySurcharge = null) => {
-
+const updateBookingStay = async (bookingId, checkOut, totalPrice, connection, occupancySurcharge = null, perDetailSurcharges = null) => {
   const serviceAmount = await sumBookingServices(bookingId, connection);
 
   await run(connection).query(
@@ -796,18 +795,55 @@ const updateBookingStay = async (bookingId, checkOut, totalPrice, connection, oc
     [checkOut, totalPrice, Number(totalPrice) + serviceAmount, bookingId]
   );
 
-  if (occupancySurcharge != null) {
-    await run(connection).query(
-      'UPDATE booking_details SET checkOutDate = ?, occupancySurcharge = ? WHERE bookingId = ?',
-      [checkOut, occupancySurcharge, bookingId]
-    );
-    return;
-  }
-
   await run(connection).query(
     'UPDATE booking_details SET checkOutDate = ? WHERE bookingId = ?',
     [checkOut, bookingId]
   );
+
+  if (Array.isArray(perDetailSurcharges) && perDetailSurcharges.length > 0) {
+    for (const item of perDetailSurcharges) {
+      if (item.id) {
+        await run(connection).query(
+          'UPDATE booking_details SET occupancySurcharge = ? WHERE id = ?',
+          [item.occupancySurcharge || 0, item.id]
+        );
+      }
+    }
+  } else if (occupancySurcharge != null) {
+    const [details] = await run(connection).query(
+      'SELECT id, occupancySurcharge FROM booking_details WHERE bookingId = ? ORDER BY id ASC',
+      [bookingId]
+    );
+    const currentSum = details.reduce((sum, d) => sum + Number(d.occupancySurcharge || 0), 0);
+    if (currentSum > 0 && details.length > 0) {
+      let allocated = 0;
+      for (let i = 0; i < details.length; i++) {
+        const d = details[i];
+        let newSur = 0;
+        if (i === details.length - 1) {
+          newSur = Math.max(0, occupancySurcharge - allocated);
+        } else {
+          newSur = Math.round((Number(d.occupancySurcharge) / currentSum) * occupancySurcharge);
+          allocated += newSur;
+        }
+        await run(connection).query(
+          'UPDATE booking_details SET occupancySurcharge = ? WHERE id = ?',
+          [newSur, d.id]
+        );
+      }
+    } else if (details.length > 0) {
+      await run(connection).query(
+        'UPDATE booking_details SET occupancySurcharge = 0 WHERE bookingId = ?',
+        [bookingId]
+      );
+      if (occupancySurcharge > 0) {
+        await run(connection).query(
+          'UPDATE booking_details SET occupancySurcharge = ? WHERE id = ?',
+          [occupancySurcharge, details[0].id]
+        );
+      }
+    }
+  }
 };
 
 // Cập nhật FULL đặt phòng (ngày nhận, ngày trả, phòng vật lý, tiền phòng, phụ thu).
@@ -878,7 +914,9 @@ const updateBookingStayFull = async (bookingId, payload, connection) => {
   }
 };
 
-const transferBookingRoom = async (booking, toRoom, payload, connection) => {
+const transferBookingRoom = async (booking, toRoom, payload, connection, sourceDetail = null) => {
+  const fromRoomId = sourceDetail?.roomId || payload.fromRoomId || booking.room_id;
+
   await run(connection).query(
     `
       INSERT INTO booking_room_transfers
@@ -887,7 +925,7 @@ const transferBookingRoom = async (booking, toRoom, payload, connection) => {
     `,
     [
       booking.id,
-      booking.room_id,
+      fromRoomId,
       toRoom.id,
       payload.fromDate,
       payload.toDate,
@@ -896,15 +934,29 @@ const transferBookingRoom = async (booking, toRoom, payload, connection) => {
     ]
   );
 
-  await run(connection).query(
-    'UPDATE bookings SET room_id = ? WHERE id = ?',
-    [toRoom.id, booking.id]
-  );
+  if (Number(booking.room_id) === Number(fromRoomId)) {
+    await run(connection).query(
+      'UPDATE bookings SET room_id = ? WHERE id = ?',
+      [toRoom.id, booking.id]
+    );
+  }
 
-  await run(connection).query(
-    'UPDATE booking_details SET roomId = ?, roomPrice = ? WHERE bookingId = ?',
-    [toRoom.id, Number(toRoom.price_per_night || 0), booking.id]
-  );
+  if (sourceDetail && sourceDetail.id) {
+    await run(connection).query(
+      'UPDATE booking_details SET roomId = ?, roomTypeId = ?, roomPrice = ? WHERE id = ? AND bookingId = ?',
+      [toRoom.id, toRoom.roomTypeId, Number(toRoom.price_per_night || 0), sourceDetail.id, booking.id]
+    );
+  } else if (fromRoomId) {
+    await run(connection).query(
+      'UPDATE booking_details SET roomId = ?, roomTypeId = ?, roomPrice = ? WHERE bookingId = ? AND roomId = ? LIMIT 1',
+      [toRoom.id, toRoom.roomTypeId, Number(toRoom.price_per_night || 0), booking.id, fromRoomId]
+    );
+  } else {
+    await run(connection).query(
+      'UPDATE booking_details SET roomId = ?, roomTypeId = ?, roomPrice = ? WHERE bookingId = ? LIMIT 1',
+      [toRoom.id, toRoom.roomTypeId, Number(toRoom.price_per_night || 0), booking.id]
+    );
+  }
 };
 
 // Các khoảng giá theo mùa/thời điểm/ngày lễ/cuối tuần của một loại phòng (bảng room_prices)
@@ -1454,28 +1506,69 @@ const getBookingDetailsWithRoomInfo = async (bookingId, connection) => {
 };
 
 const replaceBookingDetails = async (bookingId, detailsList, connection) => {
-  await run(connection).query(
-    `DELETE FROM booking_details WHERE bookingId = ?`,
+  const runner = run(connection);
+  const [existingDetails] = await runner.query(
+    'SELECT id, roomId, roomTypeId FROM booking_details WHERE bookingId = ?',
     [bookingId]
   );
+  const existingMap = new Map(existingDetails.map((d) => [d.id, d]));
+  const preservedDetailIds = new Set();
+
   for (const detail of detailsList) {
-    await run(connection).query(
-      `INSERT INTO booking_details (bookingId, roomId, roomTypeId, checkInDate, checkOutDate, adults, children, roomPrice, occupancySurcharge, requestedCheckInTime, requestedCheckOutTime, requestedCheckInDayOffset)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        bookingId,
-        detail.roomId || null,
-        detail.roomTypeId || null,
-        detail.checkInDate,
-        detail.checkOutDate,
-        detail.adults || 1,
-        detail.children || 0,
-        detail.roomPrice || 0,
-        detail.occupancySurcharge || 0,
-        detail.requestedCheckInTime || null,
-        detail.requestedCheckOutTime || null,
-        detail.requestedCheckInDayOffset || 0
-      ]
+    const detailId = Number(detail.bookingDetailId || detail.id || 0);
+    if (detailId > 0 && existingMap.has(detailId)) {
+      preservedDetailIds.add(detailId);
+      await runner.query(
+        `UPDATE booking_details
+         SET roomId = ?, roomTypeId = ?, checkInDate = ?, checkOutDate = ?,
+             adults = ?, children = ?, roomPrice = ?, occupancySurcharge = ?,
+             requestedCheckInTime = ?, requestedCheckOutTime = ?, requestedCheckInDayOffset = ?
+         WHERE id = ? AND bookingId = ?`,
+        [
+          detail.roomId || null,
+          detail.roomTypeId || null,
+          detail.checkInDate,
+          detail.checkOutDate,
+          detail.adults || 1,
+          detail.children || 0,
+          detail.roomPrice || 0,
+          detail.occupancySurcharge || 0,
+          detail.requestedCheckInTime || null,
+          detail.requestedCheckOutTime || null,
+          detail.requestedCheckInDayOffset || 0,
+          detailId,
+          bookingId
+        ]
+      );
+    } else {
+      const [insertRes] = await runner.query(
+        `INSERT INTO booking_details (bookingId, roomId, roomTypeId, checkInDate, checkOutDate, adults, children, roomPrice, occupancySurcharge, requestedCheckInTime, requestedCheckOutTime, requestedCheckInDayOffset)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          bookingId,
+          detail.roomId || null,
+          detail.roomTypeId || null,
+          detail.checkInDate,
+          detail.checkOutDate,
+          detail.adults || 1,
+          detail.children || 0,
+          detail.roomPrice || 0,
+          detail.occupancySurcharge || 0,
+          detail.requestedCheckInTime || null,
+          detail.requestedCheckOutTime || null,
+          detail.requestedCheckInDayOffset || 0
+        ]
+      );
+      preservedDetailIds.add(insertRes.insertId);
+    }
+  }
+
+  const toDelete = existingDetails.filter((d) => !preservedDetailIds.has(d.id));
+  if (toDelete.length > 0) {
+    const idsToDelete = toDelete.map((d) => d.id);
+    await runner.query(
+      `DELETE FROM booking_details WHERE id IN (${idsToDelete.map(() => '?').join(',')}) AND bookingId = ?`,
+      [...idsToDelete, bookingId]
     );
   }
 };

@@ -57,6 +57,10 @@ router.get('/pending-counts', requireAuth, requireStaff, async (req, res) => {
        WHERE COALESCE(b.bookingStatus, b.status) = 'checked_in'
          AND COALESCE(p.remainingAmount, 0) > 0`
     );
+    // Đánh giá mới của khách gửi đang chờ admin duyệt.
+    const [[pendingReviews]] = await db.query(
+      "SELECT COUNT(*) AS c FROM reviews WHERE status = 'pending'"
+    );
 
     const data = {
       pendingBookings: Number(bookings.c) || 0,
@@ -64,7 +68,8 @@ router.get('/pending-counts', requireAuth, requireStaff, async (req, res) => {
       pendingRefunds: Number(refunds.c) || 0,
       pendingWithdrawals: Number(withdrawals.c) || 0,
       pendingTransferConfirmations: Number(transferConfirmations.c) || 0,
-      unpaidStays: Number(unpaidStays.c) || 0
+      unpaidStays: Number(unpaidStays.c) || 0,
+      pendingReviews: Number(pendingReviews.c) || 0
     };
     data.total =
       data.pendingBookings +
@@ -72,7 +77,8 @@ router.get('/pending-counts', requireAuth, requireStaff, async (req, res) => {
       data.pendingRefunds +
       data.pendingWithdrawals +
       data.pendingTransferConfirmations +
-      data.unpaidStays;
+      data.unpaidStays +
+      data.pendingReviews;
 
     res.json({ data });
   } catch (error) {

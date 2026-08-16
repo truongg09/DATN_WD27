@@ -13,6 +13,7 @@ interface PendingCounts {
   pendingWithdrawals: number;
   pendingTransferConfirmations: number;
   unpaidStays: number;
+  pendingReviews: number;
   total: number;
 }
 
@@ -23,6 +24,7 @@ const EMPTY_COUNTS: PendingCounts = {
   pendingWithdrawals: 0,
   pendingTransferConfirmations: 0,
   unpaidStays: 0,
+  pendingReviews: 0,
   total: 0,
 };
 
@@ -117,7 +119,11 @@ function AdminLayout() {
               </NavLink>
             </li>
             <li><NavLink to="/admin/vouchers">Voucher</NavLink></li>
-            <li><NavLink to="/admin/reviews">Đánh giá</NavLink></li>
+            <li>
+              <NavLink to="/admin/reviews">
+                {withBadge('Đánh giá', counts.pendingReviews)}
+              </NavLink>
+            </li>
             <li><NavLink to="/admin/invoices">Quản lý hóa đơn</NavLink></li>
             <li>
               <NavLink to="/admin/payments">
