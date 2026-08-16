@@ -330,9 +330,9 @@ const RoomDetail: React.FC = () => {
                 <div className="spec-item">
                   <FontAwesomeIcon icon={faUser} />
                   <span>
-                    Tiêu chuẩn: {room.adultCapacity ?? room.capacity} NL
+                    Tiêu chuẩn: {room.adultCapacity ?? room.capacity} người lớn
                     {(room.childCapacity ?? 0) > 0
-                      ? ` + ${room.childCapacity} TE(NL)`
+                      ? ` + ${room.childCapacity} trẻ em`
                       : ""}
                   </span>
                 </div>

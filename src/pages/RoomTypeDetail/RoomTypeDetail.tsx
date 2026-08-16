@@ -332,7 +332,7 @@ const RoomTypeDetail: React.FC = () => {
             <div className="type-specs">
               <span>
                 <FontAwesomeIcon icon={faUserGroup} /> Tiêu chuẩn:{" "}
-                <strong>{adultCapacity} NL + {childCapacity} TE</strong>
+                <strong>{adultCapacity} người lớn + {childCapacity} trẻ em</strong>
               </span>
 
               <span><strong>Tối đa:</strong> {maxOcc} khách/phòng</span>
