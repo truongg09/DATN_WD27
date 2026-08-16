@@ -57,6 +57,7 @@ interface Review {
   roomNumber?: string;
   roomTypeId?: number;
   roomTypeName?: string;
+  roomTypeDetails?: string;
 }
 
 const STAR_OPTIONS = [5, 4, 3, 2, 1].map((star) => ({ value: star, label: `${star} sao` }));
@@ -282,25 +283,44 @@ function ReviewManagement() {
     {
       title: 'Phòng',
       key: 'room',
-      width: 150,
-      render: (_, record) => (
-        <div className="review-room-cell">
-          {record.roomNumber ? (
-            <span className="review-room-line">
-              <HomeOutlined />
-              Phòng {record.roomNumber}
-            </span>
-          ) : (
-            <span className="review-room-line review-room-empty">
-              <HomeOutlined />
-              Chưa xác định
-            </span>
-          )}
-          {record.roomTypeName && (
-            <span className="review-room-type-tag">{record.roomTypeName}</span>
-          )}
-        </div>
-      ),
+      width: 170,
+      render: (_, record) => {
+        const details = record.roomTypeDetails;
+        if (details) {
+          const lines = details.includes('\n')
+            ? details.split('\n').map((l) => l.trim()).filter(Boolean)
+            : [details.trim()];
+          return (
+            <div className="review-room-cell" style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {lines.map((line, idx) => (
+                <span key={idx} className="review-room-line" style={{ fontSize: 13, whiteSpace: 'nowrap' }}>
+                  <HomeOutlined />
+                  {line}
+                </span>
+              ))}
+            </div>
+          );
+        }
+
+        return (
+          <div className="review-room-cell">
+            {record.roomNumber ? (
+              <span className="review-room-line">
+                <HomeOutlined />
+                Phòng {record.roomNumber}
+              </span>
+            ) : (
+              <span className="review-room-line review-room-empty">
+                <HomeOutlined />
+                Chưa xác định
+              </span>
+            )}
+            {record.roomTypeName && (
+              <span className="review-room-type-tag">{record.roomTypeName}</span>
+            )}
+          </div>
+        );
+      },
     },
     {
       title: 'Số sao',

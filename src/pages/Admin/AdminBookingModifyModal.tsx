@@ -18,6 +18,7 @@ import api from "../../services/api";
 
 interface RoomItem {
   key: string | number;
+  bookingDetailId?: number | null;
   roomId?: number | null;
   roomTypeId?: number | null;
   adults: number;
@@ -61,6 +62,7 @@ export const AdminBookingModifyModal: React.FC<AdminBookingModifyModalProps> = (
   const [roomsList, setRoomsList] = useState<RoomItem[]>([]);
   const [roomTypes, setRoomTypes] = useState<any[]>([]);
   const [availableRoomsList, setAvailableRoomsList] = useState<any[]>([]);
+  const [bookingStatus, setBookingStatus] = useState<string>("");
   const [preview, setPreview] = useState<PricePreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState<boolean>(false);
 
@@ -72,6 +74,7 @@ export const AdminBookingModifyModal: React.FC<AdminBookingModifyModalProps> = (
       setPreview(null);
       setRoomsList([]);
       setDateRange(null);
+      setBookingStatus("");
     }
   }, [open, bookingId]);
 
@@ -89,6 +92,7 @@ export const AdminBookingModifyModal: React.FC<AdminBookingModifyModalProps> = (
       const b = bookingRes?.data || bookingRes;
 
       if (b) {
+        setBookingStatus(b.status || b.bookingStatus || "");
         const inDate = dayjs(b.check_in || b.checkIn);
         const outDate = dayjs(b.check_out || b.checkOut);
         setDateRange([inDate, outDate]);
@@ -105,11 +109,12 @@ export const AdminBookingModifyModal: React.FC<AdminBookingModifyModalProps> = (
           return fetchedTypes[0]?.id || 1;
         };
 
-        // Build initial rooms list from booking_details or booking fields
-        const details = Array.isArray(b.details) && b.details.length > 0 ? b.details : [];
-        if (details.length > 0) {
-          const mapped = details.map((d: any, idx: number) => ({
-            key: d.id || idx,
+        // Build initial rooms list from booking_details or fallback
+        const rawDetails = Array.isArray(b.details) && b.details.length > 0 ? b.details : [];
+        if (rawDetails.length > 0) {
+          const mapped = rawDetails.map((d: any, idx: number) => ({
+            key: d.bookingDetailId || d.id || `detail_${idx}`,
+            bookingDetailId: d.bookingDetailId || d.id || null,
             roomId: d.roomId || d.room_id || null,
             roomTypeId: matchTypeId(d),
             adults: Number(d.adults || 1),
@@ -117,10 +122,22 @@ export const AdminBookingModifyModal: React.FC<AdminBookingModifyModalProps> = (
             childrenAges: Array.isArray(d.childrenAges) ? d.childrenAges : (d.children > 0 ? [8] : []),
           }));
           setRoomsList(mapped);
+        } else if (Array.isArray(b.booking_rooms) && b.booking_rooms.length > 0) {
+          const mapped = b.booking_rooms.map((br: any, idx: number) => ({
+            key: br.id || `room_${idx}`,
+            bookingDetailId: null,
+            roomId: br.id || null,
+            roomTypeId: matchTypeId(br),
+            adults: 1,
+            children: 0,
+            childrenAges: [],
+          }));
+          setRoomsList(mapped);
         } else {
           setRoomsList([
             {
               key: 1,
+              bookingDetailId: null,
               roomId: b.room_id || null,
               roomTypeId: matchTypeId(b),
               adults: Number(b.adults || 1),
@@ -131,7 +148,9 @@ export const AdminBookingModifyModal: React.FC<AdminBookingModifyModalProps> = (
         }
 
         // Fetch availability for initial dates
-        const initialRooms = details.length > 0 ? details : [{ roomId: b.room_id, roomTypeId: matchTypeId(b) }];
+        const initialRooms = rawDetails.length > 0
+          ? rawDetails
+          : [{ roomId: b.room_id, roomTypeId: matchTypeId(b) }];
         fetchAvailabilityAndPreview(inDate.format("YYYY-MM-DD"), outDate.format("YYYY-MM-DD"), initialRooms);
       }
     } catch (err) {
@@ -168,6 +187,8 @@ export const AdminBookingModifyModal: React.FC<AdminBookingModifyModalProps> = (
         checkIn,
         checkOut,
         rooms: rooms.map((r) => ({
+          bookingDetailId: r.bookingDetailId || undefined,
+          id: r.bookingDetailId || undefined,
           roomId: r.roomId || undefined,
           roomTypeId: r.roomTypeId || undefined,
           adults: r.adults,
@@ -189,7 +210,8 @@ export const AdminBookingModifyModal: React.FC<AdminBookingModifyModalProps> = (
     setRoomsList((prev) => [
       ...prev,
       {
-        key: Date.now(),
+        key: `new_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        bookingDetailId: null,
         roomId: null,
         roomTypeId: defaultType,
         adults: 2,
@@ -245,6 +267,8 @@ export const AdminBookingModifyModal: React.FC<AdminBookingModifyModalProps> = (
         checkIn: dateRange[0].format("YYYY-MM-DD"),
         checkOut: dateRange[1].format("YYYY-MM-DD"),
         rooms: roomsList.map((r) => ({
+          bookingDetailId: r.bookingDetailId || undefined,
+          id: r.bookingDetailId || undefined,
           roomId: r.roomId || undefined,
           roomTypeId: r.roomTypeId || undefined,
           adults: r.adults,
@@ -324,13 +348,24 @@ export const AdminBookingModifyModal: React.FC<AdminBookingModifyModalProps> = (
             title={
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span>2. Danh sách phòng & Khách ở</span>
-                <Button type="dashed" icon={<PlusOutlined />} onClick={handleAddRoomRow}>
-                  Thêm phòng
-                </Button>
+                {bookingStatus !== "checked_in" && (
+                  <Button type="dashed" icon={<PlusOutlined />} onClick={handleAddRoomRow}>
+                    Thêm phòng
+                  </Button>
+                )}
               </div>
             }
             size="small"
           >
+            {bookingStatus === "checked_in" && (
+              <Alert
+                type="info"
+                showIcon
+                message="Đơn đặt phòng đã nhận phòng (checked-in). Không thể đổi gán phòng vật lý hoặc thêm/bớt số lượng phòng tại đây. Vui lòng sử dụng chức năng 'Chuyển phòng' nếu cần đổi phòng cho khách."
+                style={{ marginBottom: 12 }}
+              />
+            )}
+
             {roomsList.map((room, idx) => {
               // Collect roomIds selected in OTHER rows
               const selectedInOtherRows = roomsList
@@ -357,7 +392,7 @@ export const AdminBookingModifyModal: React.FC<AdminBookingModifyModalProps> = (
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, fontWeight: 600 }}>
                     <span>Phòng #{idx + 1}</span>
-                    {roomsList.length > 1 && (
+                    {roomsList.length > 1 && bookingStatus !== "checked_in" && (
                       <Button
                         type="text"
                         danger
@@ -375,6 +410,7 @@ export const AdminBookingModifyModal: React.FC<AdminBookingModifyModalProps> = (
                       <Select
                         style={{ width: "100%" }}
                         placeholder="Chọn hạng phòng"
+                        disabled={bookingStatus === "checked_in"}
                         value={room.roomTypeId || undefined}
                         options={roomTypes.map((t) => ({ value: t.id, label: `${t.typeName} (${formatVND(t.defaultPrice)}/đêm)` }))}
                         onChange={(val) => {
@@ -390,6 +426,7 @@ export const AdminBookingModifyModal: React.FC<AdminBookingModifyModalProps> = (
                         style={{ width: "100%" }}
                         placeholder="Tự động hoặc Chọn phòng"
                         allowClear
+                        disabled={bookingStatus === "checked_in"}
                         value={room.roomId || undefined}
                         options={availableRoomsForType.map((r) => ({
                           value: r.id,

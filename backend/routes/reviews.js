@@ -70,17 +70,35 @@ router.get("/", optionalAuth, async (req, res) => {
         r.createdAt,
         COALESCE(c.fullName, a.email) AS customerName,
         bk.status AS bookingStatus,
-        COALESCE(bd.roomId, bk.room_id) AS roomId,
-        rm.roomNumber,
-        rm.roomTypeId,
-        rt.typeName AS roomTypeName
+        COALESCE(room_info.primary_room_id, bk.room_id) AS roomId,
+        COALESCE(room_info.room_numbers, rm_fallback.roomNumber) AS roomNumber,
+        COALESCE(room_info.primary_room_type_id, rm_fallback.roomTypeId) AS roomTypeId,
+        COALESCE(room_info.room_type_names, rt_fallback.typeName) AS roomTypeName,
+        COALESCE(room_info.room_type_details, CONCAT(COALESCE(rm_fallback.roomNumber, '—'), ' · ', COALESCE(rt_fallback.typeName, 'Phòng'))) AS roomTypeDetails
       FROM reviews r
       LEFT JOIN customers c ON r.customerId = c.id
       LEFT JOIN accounts a ON c.accountId = a.id
       LEFT JOIN bookings bk ON r.bookingId = bk.id
-      LEFT JOIN booking_details bd ON bd.bookingId = bk.id
-      LEFT JOIN rooms rm ON COALESCE(bd.roomId, bk.room_id) = rm.id
-      LEFT JOIN room_types rt ON rm.roomTypeId = rt.id
+      LEFT JOIN (
+        SELECT
+          bd.bookingId,
+          MIN(bd.roomId) AS primary_room_id,
+          MIN(COALESCE(bd.roomTypeId, rm.roomTypeId)) AS primary_room_type_id,
+          GROUP_CONCAT(DISTINCT rm.roomNumber ORDER BY rm.roomNumber SEPARATOR ', ') AS room_numbers,
+          GROUP_CONCAT(DISTINCT rt.typeName ORDER BY rt.typeName SEPARATOR ', ') AS room_type_names,
+          GROUP_CONCAT(
+            DISTINCT CONCAT(COALESCE(rm.roomNumber, '—'), ' · ', COALESCE(rt.typeName, 'Phòng'))
+            ORDER BY rm.roomNumber
+            SEPARATOR '\n'
+          ) AS room_type_details
+        FROM booking_details bd
+        LEFT JOIN rooms rm ON rm.id = bd.roomId
+        LEFT JOIN room_types rt ON rt.id = COALESCE(bd.roomTypeId, rm.roomTypeId)
+        WHERE rm.roomNumber IS NOT NULL
+        GROUP BY bd.bookingId
+      ) room_info ON room_info.bookingId = bk.id
+      LEFT JOIN rooms rm_fallback ON rm_fallback.id = bk.room_id
+      LEFT JOIN room_types rt_fallback ON rt_fallback.id = rm_fallback.roomTypeId
     `;
     const conditions = [];
     const params = [];
@@ -160,6 +178,19 @@ router.get("/", optionalAuth, async (req, res) => {
     res
       .status(500)
       .json({ message: "Internal server error", error: error.message });
+  }
+});
+
+// Đếm số lượng đánh giá đang chờ duyệt (pending) cho badge thông báo admin
+router.get("/pending-count", requireAuth, requireAdmin, async (_req, res) => {
+  try {
+    const [[row]] = await db.query(
+      "SELECT COUNT(*) AS count FROM reviews WHERE status = 'pending'"
+    );
+    res.json({ data: { pendingCount: Number(row?.count || 0) } });
+  } catch (error) {
+    console.error("Get pending reviews count error:", error);
+    res.status(500).json({ message: "Lỗi máy chủ nội bộ" });
   }
 });
 

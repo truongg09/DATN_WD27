@@ -628,7 +628,7 @@ function BookingDetailPage() {
               <Descriptions.Item label="Sức chứa">
                 {booking.room_capacity ? `${booking.room_capacity} khách/phòng` : '—'}
               </Descriptions.Item>
-              <Descriptions.Item label="Giá phòng mỗi đêm">{money(booking.room_price)}</Descriptions.Item>
+              <Descriptions.Item label="Tổng tiền phòng cơ bản">{money(booking.room_price)}</Descriptions.Item>
             </Descriptions>
           </Card>
         </Col>
