@@ -458,6 +458,36 @@ const extendStay = async (req, res) => {
   }
 };
 
+const previewBookingChange = async (req, res) => {
+  try {
+    const bookingId = normalizeIdParam(req.params.id);
+    const currentBooking = await bookingService.getBookingById(bookingId);
+    ensureBookingAccess(req.user, currentBooking, 'xem trước thay đổi');
+    const result = await bookingService.previewBookingChange(bookingId, req.body || {});
+    res.json({
+      message: 'Tính toán chi phí thay đổi thành công',
+      data: result
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
+const changeStay = async (req, res) => {
+  try {
+    const bookingId = normalizeIdParam(req.params.id);
+    const currentBooking = await bookingService.getBookingById(bookingId);
+    ensureBookingAccess(req.user, currentBooking, 'thay đổi ngày ở/chuyển phòng');
+    const result = await bookingService.executeBookingChange(bookingId, req.body || {}, req.user || null);
+    res.json({
+      message: result.message || 'Cập nhật ngày ở và phòng thành công',
+      data: result.data
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
 const updateStay = async (req, res) => {
   try {
     const bookingId = normalizeIdParam(req.params.id);
@@ -770,6 +800,8 @@ module.exports = {
   extendStay,
   updateStay,
   transferRoom,
+  previewBookingChange,
+  changeStay,
   checkIn,
   checkOut,
   markNoShow,
