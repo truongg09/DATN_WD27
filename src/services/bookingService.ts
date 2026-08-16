@@ -160,6 +160,31 @@ export const extendBookingStay = async (
   return api.patch(`/bookings/${id}/extend`, data);
 };
 
+export const previewBookingChange = async (
+  id: number,
+  data: {
+    checkOut?: string;
+    toRoomId?: number;
+    fromDate?: string;
+    bookingDetailId?: number;
+  }
+) => {
+  return api.post(`/bookings/${id}/preview-change`, data);
+};
+
+export const executeBookingChange = async (
+  id: number,
+  data: {
+    checkOut?: string;
+    toRoomId?: number;
+    fromDate?: string;
+    bookingDetailId?: number;
+    reason?: string;
+  }
+) => {
+  return api.patch(`/bookings/${id}/change-stay`, data);
+};
+
 export const updateBookingStay = async (
   id: number,
   data: {
