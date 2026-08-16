@@ -396,7 +396,7 @@ function RoomTypeManagement() {
           <div style={{ lineHeight: '1.4' }}>
             <div>
               <span style={{ color: '#64748b', fontSize: '12px' }}>Tiêu chuẩn: </span>
-              <strong>{adult} NL{child > 0 ? ` + ${child} TE` : ''}</strong>
+              <strong>{adult} người lớn{child > 0 ? ` + ${child} trẻ em` : ''}</strong>
             </div>
             <div>
               <span style={{ color: '#64748b', fontSize: '12px' }}>Tối đa: </span>
@@ -416,8 +416,8 @@ function RoomTypeManagement() {
         const childFee = typeof record.extraChildFee === 'number' ? record.extraChildFee : parseFloat(record.extraChildFee as string) || 0;
         return (
           <div style={{ fontSize: '12px', lineHeight: '1.4' }}>
-            <div><span style={{ color: '#475569' }}>NL:</span> <strong>{new Intl.NumberFormat('vi-VN').format(adultFee)}đ</strong></div>
-            <div><span style={{ color: '#475569' }}>TE:</span> <strong>{new Intl.NumberFormat('vi-VN').format(childFee)}đ</strong></div>
+            <div><span style={{ color: '#475569' }}>Người lớn:</span> <strong>{new Intl.NumberFormat('vi-VN').format(adultFee)}đ</strong></div>
+            <div><span style={{ color: '#475569' }}>Trẻ em:</span> <strong>{new Intl.NumberFormat('vi-VN').format(childFee)}đ</strong></div>
             <div style={{ color: '#94a3b8', fontSize: '10px' }}>/người/đêm</div>
           </div>
         );
@@ -647,10 +647,10 @@ function RoomTypeManagement() {
               <Col span={8}>
                 <Form.Item
                   name="adultCapacity"
-                  label="NL tiêu chuẩn"
+                  label="Người lớn tiêu chuẩn"
                   tooltip="Số người lớn mặc định cho 1 phòng"
                   rules={[
-                    { required: true, message: 'Nhập số NL tiêu chuẩn!' },
+                    { required: true, message: 'Nhập số người lớn tiêu chuẩn!' },
                     { type: 'number', min: 1, message: 'Tối thiểu 1 người lớn!' }
                   ]}
                 >
@@ -660,10 +660,10 @@ function RoomTypeManagement() {
               <Col span={8}>
                 <Form.Item
                   name="childCapacity"
-                  label="TE tiêu chuẩn"
+                  label="Trẻ em tiêu chuẩn"
                   tooltip="Số trẻ em mặc định cho 1 phòng"
                   rules={[
-                    { required: true, message: 'Nhập số TE tiêu chuẩn!' },
+                    { required: true, message: 'Nhập số trẻ em tiêu chuẩn!' },
                     { type: 'number', min: 0, message: 'Không được nhỏ hơn 0!' }
                   ]}
                 >
@@ -674,7 +674,7 @@ function RoomTypeManagement() {
                 <Form.Item
                   name="maxOccupancy"
                   label="Sức chứa tối đa"
-                  tooltip="Tổng số khách tối đa (NL+TE) cho 1 phòng"
+                  tooltip="Tổng số khách tối đa (Người lớn + Trẻ em) cho 1 phòng"
                   rules={[
                     { required: true, message: 'Nhập tổng sức chứa tối đa!' },
                     ({ getFieldValue }) => ({
@@ -868,13 +868,13 @@ function RoomTypeManagement() {
                 </Col>
                 <Col xs={12} sm={12} md={4}>
                   <Card size="small" style={{ background: '#f8fafc', border: '1px solid #e2e8f0', height: '100%' }}>
-                    <div style={{ fontSize: 12, color: '#64748b' }}>NL tiêu chuẩn</div>
+                    <div style={{ fontSize: 12, color: '#64748b' }}>Người lớn tiêu chuẩn</div>
                     <div style={{ fontSize: 17, fontWeight: 700, color: '#334155', marginTop: 4 }}>{adult}</div>
                   </Card>
                 </Col>
                 <Col xs={12} sm={12} md={4}>
                   <Card size="small" style={{ background: '#f8fafc', border: '1px solid #e2e8f0', height: '100%' }}>
-                    <div style={{ fontSize: 12, color: '#64748b' }}>TE tiêu chuẩn</div>
+                    <div style={{ fontSize: 12, color: '#64748b' }}>Trẻ em tiêu chuẩn</div>
                     <div style={{ fontSize: 17, fontWeight: 700, color: '#334155', marginTop: 4 }}>{child}</div>
                   </Card>
                 </Col>

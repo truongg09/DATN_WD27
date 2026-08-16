@@ -388,7 +388,7 @@ const RoomList: React.FC = () => {
                     <div className="type-specs">
                       <span>
                         <FontAwesomeIcon icon={faUserGroup} /> Tiêu chuẩn:{" "}
-                        <strong>{adultCapacity} NL + {childCapacity} TE</strong>
+                        <strong>{adultCapacity} người lớn + {childCapacity} trẻ em</strong>
                       </span>
 
                       <span>
@@ -406,9 +406,9 @@ const RoomList: React.FC = () => {
 
                     <div className="type-extra-fee-info">
                       <span className="fee-label">Phụ thu phát sinh:</span>{" "}
-                      <span>NL: <strong>{formatPrice(extraAdultFee)}</strong>/người/đêm</span>
+                      <span>Người lớn: <strong>{formatPrice(extraAdultFee)}</strong>/người/đêm</span>
                       {" · "}
-                      <span>TE: <strong>{formatPrice(extraChildFee)}</strong>/người/đêm</span>
+                      <span>Trẻ em: <strong>{formatPrice(extraChildFee)}</strong>/người/đêm</span>
                     </div>
 
                     {type.amenities.length > 0 && (
@@ -439,7 +439,7 @@ const RoomList: React.FC = () => {
 
                     {needMoreRooms && (
                       <p className="capacity-warning">
-                        Hạng phòng này ở tối đa {maxOcc} khách/phòng — với {guestCount} khách cần tối thiểu {minRooms} phòng (Tiêu chuẩn: {adultCapacity} NL + {childCapacity} TE/phòng). Khách vượt sức chứa tiêu chuẩn có thể phát sinh phụ thu.
+                        Hạng phòng này ở tối đa {maxOcc} khách/phòng — với {guestCount} khách cần tối thiểu {minRooms} phòng (Tiêu chuẩn: {adultCapacity} người lớn + {childCapacity} trẻ em/phòng). Khách vượt sức chứa tiêu chuẩn có thể phát sinh phụ thu.
                       </p>
                     )}
 
