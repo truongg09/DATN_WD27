@@ -5024,12 +5024,12 @@ const resetBookingHold = async (bookingId, actor) => {
       );
     }
 
-    // Requirement 1: Giới hạn số lần reset thời gian giữ phòng
+    // Requirement 1: Giới hạn số lần reset thời gian giữ phòng (tối đa 1 lần, +5 phút)
     const currentResetCount = Number(booking.hold_reset_count || 0);
     if (currentResetCount >= MAX_HOLD_RESETS) {
       throw new HttpError(
         400,
-        `Đã đạt giới hạn tối đa ${MAX_HOLD_RESETS} lần gia hạn giữ phòng. Vui lòng hoàn tất thanh toán hoặc thực hiện đặt phòng mới.`
+        `Đã đạt giới hạn tối đa ${MAX_HOLD_RESETS} lần gia hạn giữ phòng (+${HOLD_RESET_MINUTES} phút). Vui lòng hoàn tất thanh toán hoặc thực hiện đặt phòng mới.`
       );
     }
 
