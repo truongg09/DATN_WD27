@@ -3,7 +3,6 @@ const dayjs = require("dayjs");
 const bookingModel = require("../models/bookingModel");
 const paymentService = require("./paymentService");
 const invoiceService = require("./invoiceService");
-const emailService = require("./emailService");
 const voucherService = require("./voucherService");
 const HttpError = require("../utils/httpError");
 const {
@@ -1626,7 +1625,6 @@ const createMultiTypeBooking = async (payload, actor, connection) => {
   await connection.commit();
 
   const booking = await bookingModel.getBookingById(bookingId);
-  void emailService.sendBookingConfirmation(booking);
   return { ...booking, payment };
 };
 
@@ -1866,7 +1864,6 @@ const createBooking = async (payload, actor) => {
     await connection.commit();
 
     const booking = await bookingModel.getBookingById(bookingId);
-    void emailService.sendBookingConfirmation(booking);
     return { ...booking, payment };
   } catch (error) {
     await connection.rollback();
