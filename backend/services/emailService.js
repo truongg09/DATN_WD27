@@ -125,7 +125,6 @@ const summaryRow = (label, value, emphasized = false) => `
 const bookingSummary = (booking) => `
   <table role="presentation" style="border-collapse:collapse;width:100%">
     ${summaryRow('Mã đặt phòng', `<strong>#${Number(booking.id)}</strong>`)}
-    ${summaryRow('Phòng', `${escapeHtml(booking.room_number || '-')} · ${escapeHtml(booking.room_type_name || '-')}`)}
     ${summaryRow('Nhận phòng', formatDate(booking.check_in))}
     ${summaryRow('Trả phòng', formatDate(booking.check_out))}
   </table>`;
