@@ -39,6 +39,8 @@ router.patch('/:id/transfer-room', requireAuth, requireStaff, bookingController.
 router.post('/:id/preview-change', requireAuth, bookingController.previewBookingChange);
 router.patch('/:id/change-stay', requireAuth, bookingController.changeStay);
 router.patch('/:id/no-show', requireAuth, requireStaff, bookingController.markNoShow);
+router.patch('/:id/extend-hold', requireAuth, requireStaff, bookingController.extendHold);
+router.patch('/:id/reactivate', requireAuth, requireStaff, bookingController.reactivateNoShow);
 router.patch('/:id/reassign-room', requireAuth, requireStaff, bookingController.reassignRoom);
 router.patch('/:id/check-in', requireAuth, requireStaff, bookingController.checkIn);
 router.patch('/:id/check-out', requireAuth, requireStaff, bookingController.checkOut);
