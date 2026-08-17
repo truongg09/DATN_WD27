@@ -4555,6 +4555,150 @@ const updateBookingRequestedCheckInTime = async (
   }
 };
 
+const extendRoomHoldDeadline = async (
+  bookingId,
+  { additionalHours = 2, note = '' } = {},
+  actor = null
+) => {
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+    const booking = await bookingModel.getBookingById(bookingId, connection, true);
+    if (!booking) {
+      throw new HttpError(404, 'Không tìm thấy đặt phòng');
+    }
+    if (['cancelled', 'no_show', 'checked_out', 'checked_in'].includes(booking.status)) {
+      throw new HttpError(400, `Không thể gia hạn giữ phòng cho đơn ở trạng thái ${booking.status}`);
+    }
+
+    const now = new Date();
+    const hours = Math.max(1, Math.min(24, Number(additionalHours || 2)));
+    const targetTime = new Date(now.getTime() + hours * 3600000);
+    const pad = (n) => String(n).padStart(2, '0');
+    const newTimeStr = `${pad(targetTime.getHours())}:${pad(targetTime.getMinutes())}:00`;
+    const isNextDay = targetTime.getDate() !== now.getDate() ? 1 : 0;
+
+    await bookingModel.updateRequestedCheckInTime(bookingId, newTimeStr, isNextDay, connection);
+
+    const reasonNote = note ? ` (Lý do: ${note})` : '';
+    await logHistory(
+      bookingId,
+      'hold_extended',
+      `Gia hạn thời gian giữ phòng thêm ${hours} giờ (Hẹn đến mới: ${newTimeStr.slice(0, 5)}${isNextDay ? ' ngày hôm sau' : ''})${reasonNote}`,
+      {
+        oldValue: { requestedCheckInTime: booking.requested_check_in_time, offset: booking.requested_check_in_day_offset },
+        newValue: { requestedCheckInTime: newTimeStr, offset: isNextDay, hours }
+      },
+      actor,
+      connection
+    );
+
+    await connection.commit();
+    const updated = await bookingModel.getBookingById(bookingId);
+    return {
+      success: true,
+      message: `Đã gia hạn giữ phòng thêm ${hours} giờ thành công`,
+      booking: updated
+    };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
+const reactivateNoShowBooking = async (
+  bookingId,
+  { targetRoomId = null, note = '' } = {},
+  actor = null
+) => {
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+    const booking = await bookingModel.getBookingById(bookingId, connection, true);
+    if (!booking) {
+      throw new HttpError(404, 'Không tìm thấy đặt phòng');
+    }
+    if (booking.status !== 'no_show') {
+      throw new HttpError(400, 'Chỉ có thể khôi phục đơn đặt phòng đang ở trạng thái No-show');
+    }
+
+    let assignedRoomId = targetRoomId ? Number(targetRoomId) : booking.room_id;
+    let roomRows = [];
+
+    if (assignedRoomId) {
+      const [rows] = await connection.query(
+        `SELECT id, roomNumber, status, roomTypeId FROM rooms WHERE id = ? FOR UPDATE`,
+        [assignedRoomId]
+      );
+      roomRows = rows;
+    }
+
+    let allocatedRoom = roomRows[0];
+    if (!allocatedRoom || allocatedRoom.status !== 'available') {
+      // Tìm phòng cùng hạng đang available
+      const [availRows] = await connection.query(
+        `SELECT id, roomNumber, status, roomTypeId FROM rooms WHERE roomTypeId = ? AND status = 'available' LIMIT 1 FOR UPDATE`,
+        [booking.room_type_id]
+      );
+      if (availRows.length > 0) {
+        allocatedRoom = availRows[0];
+        assignedRoomId = allocatedRoom.id;
+      } else {
+        throw new HttpError(
+          409,
+          `Phòng cũ (P.${booking.room_number}) hiện không còn trống và không còn phòng cùng hạng nào khác. Vui lòng chọn đổi sang hạng phòng khác trước khi khôi phục.`
+        );
+      }
+    }
+
+    // Nếu gán phòng khác phòng cũ trong booking
+    if (assignedRoomId !== booking.room_id) {
+      await connection.query(
+        `UPDATE bookings SET room_id = ? WHERE id = ?`,
+        [assignedRoomId, bookingId]
+      );
+      await connection.query(
+        `UPDATE booking_details SET room_id = ? WHERE booking_id = ?`,
+        [assignedRoomId, bookingId]
+      );
+    }
+
+    // Đổi trạng thái phòng sang occupied và booking sang checked_in
+    const now = new Date();
+    await bookingModel.updateRoomStatus(assignedRoomId, 'occupied', connection);
+    await bookingModel.updateBookingStatus(bookingId, 'checked_in', connection);
+    await bookingModel.updateActualCheckInTime(bookingId, now, connection);
+
+    const reasonNote = note ? ` Ghi chú: ${note}.` : '';
+    await logHistory(
+      bookingId,
+      'reactivated_from_no_show',
+      `Khôi phục đơn đặt phòng sau No-show và thực hiện nhận phòng ngay (Phòng: ${allocatedRoom.roomNumber}).${reasonNote}`,
+      {
+        oldValue: { status: 'no_show', room_id: booking.room_id },
+        newValue: { status: 'checked_in', room_id: assignedRoomId, actual_check_in_time: now }
+      },
+      actor,
+      connection
+    );
+
+    await connection.commit();
+    const updated = await bookingModel.getBookingById(bookingId);
+    return {
+      success: true,
+      message: `Đã khôi phục và check-in thành công cho khách vào phòng ${allocatedRoom.roomNumber}`,
+      booking: updated
+    };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
 const checkOut = async (bookingId, actualCheckOutTimeInput, actor = null) => {
   const connection = await db.getConnection();
 
@@ -5924,6 +6068,8 @@ module.exports = {
   checkOut,
   markNoShow,
   markRoomCleaned,
+  extendRoomHoldDeadline,
+  reactivateNoShowBooking,
   processOverdueCheckIns,
   updateBookingRequestedCheckInTime,
   reassignConflictingBooking,
