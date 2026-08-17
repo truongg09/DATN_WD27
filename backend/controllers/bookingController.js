@@ -478,10 +478,15 @@ const changeStay = async (req, res) => {
     const bookingId = normalizeIdParam(req.params.id);
     const currentBooking = await bookingService.getBookingById(bookingId);
     ensureBookingAccess(req.user, currentBooking, 'thay đổi ngày ở/chuyển phòng');
-    const result = await bookingService.executeBookingChange(bookingId, req.body || {}, req.user || null);
+    const isStaffOrAdmin = req.user?.role === 'admin' || req.user?.role === 'staff';
+    const payload = {
+      ...(req.body || {}),
+      isStaffOrAdmin
+    };
+    const result = await bookingService.executeBookingChange(bookingId, payload, req.user || null);
     res.json({
       message: result.message || 'Cập nhật ngày ở và phòng thành công',
-      data: result.data
+      data: result.data || result
     });
   } catch (error) {
     sendError(res, error);
