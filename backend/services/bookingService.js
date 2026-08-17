@@ -4083,16 +4083,11 @@ const checkIn = async (bookingId, payload = {}, actor = null) => {
 
     const tiers = await bookingModel.getCheckoutLateFeeTiers(connection);
 
+    // Không bắt buộc thanh toán 100% khi Check-in. Ghi nhận thông tin thanh toán để thu trước/khi Check-out.
     const payment = await paymentService.getPaymentByBookingId(bookingId);
-    if (!payment || Number(payment.paidAmount || 0) <= 0) {
-      throw new HttpError(409, "Vui lòng thanh toán trước khi check-in");
-    }
-    if (payment.remainingAmount > 0 || payment.paymentStatus !== "paid") {
-      throw new HttpError(
-        409,
-        "Vui lòng thanh toán đủ số tiền còn lại trước khi check-in",
-      );
-    }
+    const paidAmount = Number(payment?.paidAmount || 0);
+    const remainingAmount = Number(payment?.remainingAmount || 0);
+    const hasUnpaidDebt = remainingAmount > 0;
 
     const now = new Date();
     if (!isWithinLateCheckInWindow(booking.check_in, booking.requested_check_in_time, now, booking.requested_check_in_day_offset)) {
@@ -4188,15 +4183,19 @@ const checkIn = async (bookingId, payload = {}, actor = null) => {
       ? details.map((d) => d.roomNumber || d.roomId).filter(Boolean).join(", ")
       : (booking.room_number || booking.room_id || "");
 
+    const paymentNote = hasUnpaidDebt
+      ? ` (Đã thanh toán: ${displayMoney(paidAmount)}, còn lại: ${displayMoney(remainingAmount)})`
+      : ` (Đã thanh toán đủ: ${displayMoney(paidAmount)})`;
+
     await logHistory(
       bookingId,
       "checked_in",
-      `Khách nhận phòng (${timingLabel})${roomNumbersStr ? ` - Phòng: ${roomNumbersStr}` : ""}${Array.isArray(payload.guests) && payload.guests.length > 0 ? `. Khách lưu trú: ${payload.guests.map((g) => g.fullName).join(", ")}` : ""}`,
+      `Khách nhận phòng (${timingLabel})${roomNumbersStr ? ` - Phòng: ${roomNumbersStr}` : ""}${paymentNote}${Array.isArray(payload.guests) && payload.guests.length > 0 ? `. Khách lưu trú: ${payload.guests.map((g) => g.fullName).join(", ")}` : ""}`,
       {
         entityType: "stay",
         entityId: booking.room_id,
         oldValue: { status: booking.status },
-        newValue: { status: "checked_in", checkInTiming, lateCheckIn: wasLate, roomIds },
+        newValue: { status: "checked_in", checkInTiming, lateCheckIn: wasLate, roomIds, paidAmount, remainingAmount },
       },
       actor,
       connection,
@@ -4209,6 +4208,9 @@ const checkIn = async (bookingId, payload = {}, actor = null) => {
       ...updatedBooking,
       checkInTiming,
       lateCheckIn: wasLate,
+      paidAmount,
+      remainingAmount,
+      hasUnpaidDebt,
       message:
         checkInTiming === "early"
           ? "Check-in sớm thành công. Phòng đã sẵn sàng đón khách."
