@@ -128,6 +128,10 @@ const getRoomWithType = async (roomId, connection, lock = false) => {
   return rows[0] || null;
 };
 
+/**
+ * Tự động quét và giải phóng các phòng đang giữ chỗ nhưng đã quá hạn thanh toán.
+ * Đơn đặt phòng chuyển sang 'cancelled' và phòng được mở lại ngay cho khách khác đặt.
+ */
 const expireUnpaidBookingHolds = async (connection) => {
   await run(connection).query(
     `UPDATE payment_gateway_orders SET status = 'expired'
