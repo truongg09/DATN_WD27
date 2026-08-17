@@ -351,7 +351,11 @@ const processPayment = async (paymentId, payload) => {
 
     const updatedPayment = await paymentModel.getPaymentById(paymentId);
     const updatedBooking = await bookingModel.getBookingById(booking.id);
-    void emailService.sendPaymentConfirmation(updatedBooking, formatPayment(updatedPayment));
+    const bookingServices = await bookingModel.getBookingServicesByBookingId(booking.id);
+    void emailService.sendPaymentConfirmation(
+      { ...updatedBooking, services: bookingServices },
+      formatPayment(updatedPayment)
+    );
     return {
       payment: formatPayment(updatedPayment),
       invoice,
@@ -479,6 +483,12 @@ const confirmPayment = async (paymentId, payload) => {
     }
 
     const updatedPayment = await paymentModel.getPaymentById(paymentId);
+    const updatedBooking = await bookingModel.getBookingById(booking.id);
+    const bookingServices = await bookingModel.getBookingServicesByBookingId(booking.id);
+    void emailService.sendPaymentConfirmation(
+      { ...updatedBooking, services: bookingServices },
+      formatPayment(updatedPayment)
+    );
     return {
       payment: formatPayment(updatedPayment),
       invoice
