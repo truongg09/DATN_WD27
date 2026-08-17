@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import {
   Alert,
   Button,
+  Card,
   DatePicker,
   Descriptions,
   Empty,
@@ -257,6 +258,7 @@ const BookingHistory: React.FC = () => {
   const [editRefundBankBin, setEditRefundBankBin] = useState<string | undefined>(undefined);
   const [editRefundAccountNumber, setEditRefundAccountNumber] = useState('');
   const [editRefundAccountName, setEditRefundAccountName] = useState('');
+  const [editGuests, setEditGuests] = useState<Array<{ fullName: string; identityNumber: string; phone?: string; note?: string }>>([]);
 
   // Modal sửa số lượng dịch vụ
   const [editSvcModalOpen, setEditSvcModalOpen] = useState(false);
@@ -398,6 +400,22 @@ const BookingHistory: React.FC = () => {
       setAllRoomTypes(rTypes);
       setAllRooms(rooms);
       setAllServices(servicesRes);
+      const existingGuests = Array.isArray(detail.guests) && detail.guests.length > 0
+        ? detail.guests.map((g: any) => ({
+            fullName: g.fullName || g.full_name || '',
+            identityNumber: g.identityNumber || g.identity_number || '',
+            phone: g.phone || '',
+            note: g.note || '',
+          }))
+        : [
+            {
+              fullName: detail.customer_name || user?.fullName || '',
+              identityNumber: '',
+              phone: detail.customer_phone || user?.phone || '',
+              note: '',
+            },
+          ];
+      setEditGuests(existingGuests);
       setEditStayRange(
         detail.check_in && detail.check_out
           ? [dayjs(detail.check_in), dayjs(detail.check_out)]
@@ -754,6 +772,45 @@ const BookingHistory: React.FC = () => {
       });
     } catch (err: any) {
       message.error(err.response?.data?.message || 'Không thể cộng dịch vụ');
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const saveGuestChanges = async () => {
+    if (!editBookingId || !editDetail) return;
+    for (let i = 0; i < editGuests.length; i++) {
+      const g = editGuests[i];
+      if (!g.fullName.trim()) {
+        message.warning(`Vui lòng nhập họ tên khách thứ ${i + 1}`);
+        return;
+      }
+      const idNum = String(g.identityNumber || '').trim();
+      if (idNum && !/^\d{12}$/.test(idNum)) {
+        message.warning(`Số CCCD của khách "${g.fullName}" phải gồm đúng 12 chữ số`);
+        return;
+      }
+    }
+
+    setSavingEdit(true);
+    try {
+      await api.post(`/bookings/${editBookingId}/guests`, {
+        guests: editGuests.map((g) => ({
+          fullName: g.fullName.trim(),
+          identityNumber: g.identityNumber ? g.identityNumber.trim() : null,
+          phone: g.phone ? g.phone.trim() : null,
+          note: g.note ? g.note.trim() : null,
+        })),
+      });
+      message.success('Đã lưu thông tin khách lưu trú thành công!');
+      loadHistory();
+      const updatedRes = await api.get(`/bookings/${editBookingId}`);
+      const updatedDetail = (updatedRes as any).data || updatedRes;
+      if (updatedDetail) {
+        setEditDetail(updatedDetail);
+      }
+    } catch (err: any) {
+      message.error(err.response?.data?.message || 'Không thể lưu thông tin khách lưu trú');
     } finally {
       setSavingEdit(false);
     }
@@ -1513,11 +1570,18 @@ const BookingHistory: React.FC = () => {
         }
         open={editModalOpen}
         onCancel={() => !savingEdit && setEditModalOpen(false)}
-        okText={editTab === 'info' ? 'Lưu thay đổi' : 'Cộng dịch vụ'}
+        okText={
+          editTab === 'info'
+            ? 'Lưu thay đổi ngày/phòng'
+            : editTab === 'guests'
+              ? 'Lưu thông tin khách'
+              : 'Cộng dịch vụ'
+        }
         cancelText="Đóng"
         confirmLoading={savingEdit}
         onOk={() => {
           if (editTab === 'info') saveInfoChanges();
+          else if (editTab === 'guests') saveGuestChanges();
           else addServiceToBooking();
         }}
         okButtonProps={
@@ -1908,6 +1972,102 @@ const BookingHistory: React.FC = () => {
                         );
                       })()}
                     </Form>
+                  </div>
+                ),
+              },
+              {
+                key: 'guests',
+                label: `Khách lưu trú & CCCD (${editGuests.length})`,
+                children: (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                    <Alert
+                      type="info"
+                      showIcon
+                      message="Khai báo thông tin khách lưu trú và số CCCD"
+                      description="Bạn có thể bổ sung hoặc cập nhật thông tin họ tên, CCCD/CMND của bạn và các thành viên lưu trú cùng phòng."
+                    />
+                    {editGuests.map((guest, index) => (
+                      <Card
+                        key={index}
+                        size="small"
+                        title={<span style={{ fontWeight: 600, fontSize: 13 }}>Khách {index + 1} {index === 0 ? '(Người đại diện đặt)' : ''}</span>}
+                        extra={
+                          editGuests.length > 1 ? (
+                            <Button
+                              danger
+                              type="text"
+                              size="small"
+                              icon={<DeleteOutlined />}
+                              onClick={() => {
+                                setEditGuests(prev => prev.filter((_, i) => i !== index));
+                              }}
+                            >
+                              Xóa
+                            </Button>
+                          ) : null
+                        }
+                        style={{ borderRadius: 8 }}
+                      >
+                        <Row gutter={[12, 12]}>
+                          <Col xs={24} sm={8}>
+                            <div style={{ marginBottom: 4, fontSize: 12, fontWeight: 500 }}>Họ và tên *</div>
+                            <Input
+                              placeholder="Họ và tên người ở"
+                              value={guest.fullName}
+                              onChange={e => {
+                                const val = e.target.value;
+                                setEditGuests(prev => {
+                                  const next = [...prev];
+                                  next[index] = { ...next[index], fullName: val };
+                                  return next;
+                                });
+                              }}
+                            />
+                          </Col>
+                          <Col xs={24} sm={8}>
+                            <div style={{ marginBottom: 4, fontSize: 12, fontWeight: 500 }}>Số CCCD / CMND (Tùy chọn)</div>
+                            <Input
+                              placeholder="CCCD (12 chữ số)"
+                              maxLength={12}
+                              value={guest.identityNumber}
+                              onChange={e => {
+                                const val = e.target.value.replace(/\D/g, '').slice(0, 12);
+                                setEditGuests(prev => {
+                                  const next = [...prev];
+                                  next[index] = { ...next[index], identityNumber: val };
+                                  return next;
+                                });
+                              }}
+                            />
+                          </Col>
+                          <Col xs={24} sm={8}>
+                            <div style={{ marginBottom: 4, fontSize: 12, fontWeight: 500 }}>Số điện thoại (Tùy chọn)</div>
+                            <Input
+                              placeholder="Số điện thoại"
+                              value={guest.phone || ''}
+                              onChange={e => {
+                                const val = e.target.value;
+                                setEditGuests(prev => {
+                                  const next = [...prev];
+                                  next[index] = { ...next[index], phone: val };
+                                  return next;
+                                });
+                              }}
+                            />
+                          </Col>
+                        </Row>
+                      </Card>
+                    ))}
+                    <Button
+                      type="dashed"
+                      icon={<PlusOutlined />}
+                      onClick={() => {
+                        setEditGuests(prev => [...prev, { fullName: '', identityNumber: '', phone: '', note: '' }]);
+                      }}
+                      style={{ borderRadius: 8, height: 40 }}
+                    >
+                      Thêm người ở cùng phòng
+                    </Button>
                   </div>
                 ),
               },
