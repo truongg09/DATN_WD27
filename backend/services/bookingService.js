@@ -5343,12 +5343,16 @@ const previewBookingChange = async (bookingId, payload = {}) => {
   const currentCheckIn = dayString(booking.check_in);
   const currentCheckOut = dayString(booking.check_out);
   const targetCheckOut = payload.checkOut ? dayString(payload.checkOut) : currentCheckOut;
-
-  if (targetCheckOut < currentCheckIn) {
-    throw new HttpError(400, "Ngày trả phòng không được sớm hơn ngày nhận phòng");
+  const today = dayString(new Date());
+  if (booking.status === 'checked_in' && targetCheckOut < today) {
+    throw new HttpError(400, `Khách đang lưu trú tại khách sạn, ngày trả phòng mới không thể nhỏ hơn ngày hôm nay (${displayDate(today)})`);
+  }
+  if (targetCheckOut <= currentCheckIn) {
+    throw new HttpError(400, "Ngày trả phòng phải sau ngày nhận phòng ít nhất 1 đêm");
   }
 
   const isExtending = targetCheckOut > currentCheckOut;
+  const isShortening = targetCheckOut < currentCheckOut;
   const toRoomId = payload.toRoomId ? Number(payload.toRoomId) : null;
   
   // Xác định bookingDetail được chuyển
@@ -5365,7 +5369,6 @@ const previewBookingChange = async (bookingId, payload = {}) => {
   const isTransferring = Boolean(toRoomId && toRoomId !== currentRoomId);
 
   // Xác định ngày chuyển phòng (splitDate)
-  const today = dayString(new Date());
   let splitDate = currentCheckIn;
   if (isTransferring) {
     if (payload.fromDate) {
@@ -5505,15 +5508,37 @@ const previewBookingChange = async (bookingId, payload = {}) => {
   // Tổng tiền phòng mới
   const newStayAmount = pastCalc.total + futureCalc.total;
 
-  // Tính phụ thu khách/trẻ em phát sinh nếu gia hạn thêm đêm
+  // Tính phụ thu khách/trẻ em phát sinh nếu gia hạn/rút ngắn đêm
   const originalNights = Math.max(1, dayjs(currentCheckOut).diff(dayjs(currentCheckIn), 'day'));
   const totalNewNights = Math.max(1, dayjs(targetCheckOut).diff(dayjs(currentCheckIn), 'day'));
   const addedNights = Math.max(0, totalNewNights - originalNights);
+  const reducedNights = Math.max(0, originalNights - totalNewNights);
 
   const currentOccupancySurcharge = Number(booking.occupancy_surcharge || sourceDetail?.occupancySurcharge || 0);
   const occSurchargePerNight = originalNights > 0 ? (currentOccupancySurcharge / originalNights) : 0;
-  const addedOccupancySurcharge = Math.round(occSurchargePerNight * addedNights);
-  const newOccupancySurcharge = currentOccupancySurcharge + addedOccupancySurcharge;
+  let extraOccupancySurcharge = 0;
+  if (isExtending) {
+    extraOccupancySurcharge = Math.round(occSurchargePerNight * addedNights);
+  } else if (isShortening) {
+    extraOccupancySurcharge = -Math.round(occSurchargePerNight * reducedNights);
+  }
+  const newOccupancySurcharge = Math.max(0, currentOccupancySurcharge + extraOccupancySurcharge);
+
+  // Tính chi tiết các đêm bị cắt giảm nếu là rút ngắn ngày
+  let reducedNightlyPrices = [];
+  let reducedStayAmount = 0;
+  if (isShortening) {
+    const reducedCalc = await calcNightlyPrices(
+      currentRoomTypeId,
+      currentRoomPrice,
+      targetCheckOut,
+      currentCheckOut,
+      db,
+      currentRoomId
+    );
+    reducedNightlyPrices = reducedCalc.prices || [];
+    reducedStayAmount = reducedCalc.total || 0;
+  }
 
   // Tổng các chi phí dịch vụ / thiệt hại đã có
   const servicesSum = await bookingModel.sumBookingServices(bookingId);
@@ -5525,12 +5550,18 @@ const previewBookingChange = async (bookingId, payload = {}) => {
   const newTotalAmount = newStayAmount + newOccupancySurcharge + serviceAmount + damageAmount;
   const priceDifference = newTotalAmount - oldTotalAmount;
 
-  // Thanh toán
+  if (isShortening) {
+    warnings.push(`ℹ️ Rút ngắn thời gian ở: Giảm ${reducedNights} đêm (từ ${dayjs(targetCheckOut).format('DD/MM/YYYY')} đến ${dayjs(currentCheckOut).format('DD/MM/YYYY')}), tiền phòng giảm: -${displayMoney(Math.abs(priceDifference))}`);
+  }
+
+  // Thanh toán & Hoàn tiền
   const [payments] = await db.query(`SELECT * FROM payments WHERE bookingId = ? ORDER BY id DESC LIMIT 1`, [bookingId]);
   const currentPayment = payments[0] || {};
   const depositAmount = Number(currentPayment.depositAmount || 0);
   const paidAmount = Number(currentPayment.paidAmount || 0);
-  const newRemainingAmount = Math.max(0, newTotalAmount - depositAmount - paidAmount);
+  const paidTotal = depositAmount + paidAmount;
+  const refundableExcessAmount = Math.max(0, paidTotal - newTotalAmount);
+  const newRemainingAmount = Math.max(0, newTotalAmount - paidTotal);
 
   return {
     bookingId,
@@ -5540,8 +5571,10 @@ const previewBookingChange = async (bookingId, payload = {}) => {
     targetCheckOut,
     splitDate,
     isExtending,
+    isShortening,
     isTransferring,
     addedNights,
+    reducedNights,
     totalNights: totalNewNights,
     fromRoom: {
       id: currentRoomId,
@@ -5562,13 +5595,20 @@ const previewBookingChange = async (bookingId, payload = {}) => {
       holidaySurcharge,
       weekendSurcharge,
       upgradeFee,
-      extraGuestSurcharge: addedOccupancySurcharge,
+      extraGuestSurcharge: extraOccupancySurcharge,
       priceDifference,
       oldTotalAmount,
       newTotalAmount,
       depositAmount,
       paidAmount,
-      newRemainingAmount
+      paidTotal,
+      refundableExcessAmount,
+      newRemainingAmount,
+      isShortening,
+      isExtending,
+      reducedNights,
+      reducedStayAmount,
+      reducedNightlyPrices
     },
     warnings,
     nightlyPrices: combinedNightlyPrices,
@@ -5602,6 +5642,7 @@ const executeBookingChange = async (bookingId, payload = {}, actor = null) => {
     const splitDate = preview.splitDate;
     const isTransferring = preview.isTransferring;
     const isExtending = preview.isExtending;
+    const isShortening = preview.isShortening;
 
     // 1. Cập nhật chuyển phòng vật lý (nếu có)
     if (isTransferring && preview.toRoom) {
@@ -5651,8 +5692,8 @@ const executeBookingChange = async (bookingId, payload = {}, actor = null) => {
         `UPDATE bookings SET room_id = ? WHERE id = ?`,
         [toRoom.id, bookingId]
       );
-    } else if (isExtending) {
-      // Chỉ gia hạn: Cập nhật checkOutDate trên booking_details
+    } else if (isExtending || isShortening) {
+      // Cập nhật checkOutDate trên booking_details
       await connection.query(
         `UPDATE booking_details SET checkOutDate = ? WHERE bookingId = ?`,
         [targetCheckOut, bookingId]
@@ -5670,18 +5711,24 @@ const executeBookingChange = async (bookingId, payload = {}, actor = null) => {
     } else if (isExtending) {
       const addedPrices = preview.nightlyPrices.filter(p => p.stayDate >= preview.currentCheckOut);
       await bookingModel.saveNightlyPrices(bookingId, addedPrices, connection);
+    } else if (isShortening) {
+      // Xóa các đêm vượt quá ngày check-out mới
+      await connection.query(
+        `DELETE FROM booking_nightly_prices WHERE bookingId = ? AND stayDate >= ?`,
+        [bookingId, targetCheckOut]
+      );
     }
 
     // 3. Cập nhật thông tin lưu trú và tổng tiền trên bookings
     const newStayAmount = preview.nightlyPrices.reduce((sum, p) => sum + Number(p.price || 0), 0);
-    const newOccupancySurcharge = preview.financialBreakdown.extraGuestSurcharge + Number(booking.occupancy_surcharge || 0);
+    const newOccupancySurcharge = Math.max(0, Number(booking.occupancy_surcharge || 0) + preview.financialBreakdown.extraGuestSurcharge);
     const newBookingTotalPrice = newStayAmount + newOccupancySurcharge;
 
     await connection.query(
       `UPDATE bookings
-       SET check_out = ?, totalAmount = ?, total_price = ?
+       SET check_out = ?, totalAmount = ?, total_price = ?, occupancy_surcharge = ?
        WHERE id = ?`,
-      [targetCheckOut, preview.financialBreakdown.newTotalAmount, newBookingTotalPrice, bookingId]
+      [targetCheckOut, preview.financialBreakdown.newTotalAmount, newBookingTotalPrice, newOccupancySurcharge, bookingId]
     );
 
     // 4. Đồng bộ thanh toán & hóa đơn
@@ -5694,18 +5741,60 @@ const executeBookingChange = async (bookingId, payload = {}, actor = null) => {
       // Bỏ qua nếu chưa xuất hóa đơn
     }
 
+    // 4.1. Tạo phiếu yêu cầu hoàn tiền nếu phát sinh hoàn tiền thừa
+    let refundRecord = null;
+    const [payments] = await connection.query(`SELECT * FROM payments WHERE bookingId = ? ORDER BY id DESC LIMIT 1`, [bookingId]);
+    const currentPayment = payments[0] || {};
+    const paidTotal = Number(currentPayment.depositAmount || 0) + Number(currentPayment.paidAmount || 0);
+
+    if (preview.financialBreakdown.refundableExcessAmount > 0 && payload.refundRequest) {
+      const normRefund = normalizeRefundRequest(payload.refundRequest);
+      if (normRefund) {
+        const isAutoApproved = Boolean(payload.isStaffOrAdmin || payload.autoApproveRefund);
+        const [refundRes] = await connection.query(
+          `INSERT INTO payment_refunds
+             (paymentId, bookingId, amount, refundRate, paidAmount, refundMethod, bankBin, bankName, accountNumber, accountName, status, note)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            payment?.id || currentPayment.id || 0,
+            bookingId,
+            preview.financialBreakdown.refundableExcessAmount,
+            1.00,
+            paidTotal,
+            normRefund.refundMethod,
+            normRefund.bankBin,
+            normRefund.bankName,
+            normRefund.accountNumber,
+            normRefund.accountName,
+            isAutoApproved ? 'approved' : 'pending',
+            `Hoàn tiền do rút ngắn thời gian ở (${preview.reducedNights} đêm: ${displayDate(targetCheckOut)} → ${displayDate(preview.currentCheckOut)}). ${payload.reason ? `Lý do: ${payload.reason}` : ''}`
+          ]
+        );
+        refundRecord = {
+          id: refundRes.insertId,
+          amount: preview.financialBreakdown.refundableExcessAmount,
+          status: isAutoApproved ? 'approved' : 'pending',
+          refundMethod: normRefund.refundMethod
+        };
+      }
+    }
+
     // 5. Ghi nhật ký booking_history
     const actionType = (isExtending && isTransferring)
       ? "extended_and_transferred"
       : isTransferring
         ? "room_transferred"
-        : "extended";
+        : isExtending
+          ? "extended"
+          : "shortened";
 
     const changeDescription = (isExtending && isTransferring)
       ? `Gia hạn trả phòng đến ${displayDate(targetCheckOut)} và chuyển sang phòng ${preview.toRoom?.roomNumber} (${preview.toRoom?.typeName}). ${preview.financialBreakdown.priceDifference > 0 ? `Phát sinh thêm: +${displayMoney(preview.financialBreakdown.priceDifference)}` : 'Không đổi tiền'}. Lý do: ${payload.reason || 'Khách yêu cầu'}`
       : isTransferring
         ? `Chuyển phòng từ ${preview.fromRoom.roomNumber || preview.fromRoom.id} sang ${preview.toRoom?.roomNumber} (${preview.toRoom?.typeName}) từ ${displayDate(splitDate)}. ${preview.financialBreakdown.priceDifference > 0 ? `Phát sinh: +${displayMoney(preview.financialBreakdown.priceDifference)}` : 'Không đổi tiền'}. Lý do: ${payload.reason || 'Khách yêu cầu'}`
-        : `Gia hạn ngày ở: trả phòng chuyển từ ${displayDate(preview.currentCheckOut)} thành ${displayDate(targetCheckOut)} (+${preview.addedNights} đêm, +${displayMoney(preview.financialBreakdown.priceDifference)})`;
+        : isExtending
+          ? `Gia hạn ngày ở: trả phòng chuyển từ ${displayDate(preview.currentCheckOut)} thành ${displayDate(targetCheckOut)} (+${preview.addedNights} đêm, +${displayMoney(preview.financialBreakdown.priceDifference)})`
+          : `Rút ngắn ngày ở: trả phòng sớm từ ${displayDate(preview.currentCheckOut)} thành ${displayDate(targetCheckOut)} (giảm ${preview.reducedNights} đêm, giảm trừ -${displayMoney(Math.abs(preview.financialBreakdown.priceDifference))}${refundRecord ? `, tạo yêu cầu hoàn ${displayMoney(refundRecord.amount)}` : ''})`;
 
     await logHistory(
       bookingId,

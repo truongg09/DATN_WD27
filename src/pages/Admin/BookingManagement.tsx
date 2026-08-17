@@ -193,11 +193,17 @@ const TransferPricePreview: React.FC<{
             </strong>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 8, marginTop: 4, borderTop: '1px solid #cbd5e1', fontSize: 14 }}>
-            <strong>Tổng tiền phát sinh:</strong>
+            <strong>{fb.priceDifference >= 0 ? 'Tổng tiền phát sinh:' : 'Tổng tiền giảm trừ:'}</strong>
             <strong style={{ color: fb.priceDifference > 0 ? '#cf1322' : fb.priceDifference < 0 ? '#389e0d' : '#0f172a', fontSize: 15 }}>
               {fb.priceDifference > 0 ? `+${formatPrice(fb.priceDifference)}` : fb.priceDifference < 0 ? `-${formatPrice(Math.abs(fb.priceDifference))}` : '0 VNĐ'}
             </strong>
           </div>
+          {fb.refundableExcessAmount > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#389e0d', background: '#f6ffed', padding: '6px 8px', borderRadius: 4, marginTop: 4 }}>
+              <span>💰 Tiền thừa hoàn trả cho khách:</span>
+              <strong>+{formatPrice(fb.refundableExcessAmount)}</strong>
+            </div>
+          )}
         </div>
       </div>
 
@@ -410,9 +416,20 @@ const ExtendPricePreview: React.FC<{
 
   const fb = previewData.financialBreakdown || {};
   const nightsList = previewData.nightlyPrices || [];
+  const reducedNightsList = fb.reducedNightlyPrices || [];
+  const isShortening = Boolean(previewData.isShortening || fb.isShortening);
 
   return (
     <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {isShortening && (
+        <Alert
+          type="info"
+          showIcon
+          message={`Rút ngắn thời gian ở: Giảm ${fb.reducedNights || previewData.reducedNights || 0} đêm`}
+          description={`Ngày trả phòng mới: ${dayjs(previewData.targetCheckOut).format('DD/MM/YYYY')} (trước đây: ${dayjs(previewData.currentCheckOut).format('DD/MM/YYYY')}). Tiền phòng được giảm trừ: -${formatPrice(Math.abs(fb.priceDifference || 0))}.`}
+        />
+      )}
+
       {previewData.warnings && previewData.warnings.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {previewData.warnings.map((w: string, idx: number) => (
@@ -421,13 +438,13 @@ const ExtendPricePreview: React.FC<{
         </div>
       )}
 
-      <div style={{ padding: '12px 14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8 }}>
-        <div style={{ fontWeight: 600, color: '#166534', marginBottom: 8, fontSize: 14 }}>
-          Chi tiết chi phí gia hạn:
+      <div style={{ padding: '12px 14px', background: isShortening ? '#f8fafc' : '#f0fdf4', border: `1px solid ${isShortening ? '#cbd5e1' : '#bbf7d0'}`, borderRadius: 8 }}>
+        <div style={{ fontWeight: 600, color: isShortening ? '#0f172a' : '#166534', marginBottom: 8, fontSize: 14 }}>
+          {isShortening ? 'Chi tiết chi phí rút ngắn ngày ở:' : 'Chi tiết chi phí gia hạn:'}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span>Tiền phòng:</span>
+            <span>Tiền phòng lưu trú mới ({previewData.totalNights || nightsList.length} đêm):</span>
             <strong>{formatPrice(fb.baseRoomAmount || 0)}</strong>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -465,24 +482,55 @@ const ExtendPricePreview: React.FC<{
               ))}
             </div>
           )}
-          {fb.extraGuestSurcharge > 0 && (
+          {fb.extraGuestSurcharge !== 0 && (
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span>Phụ thu khách/trẻ em thêm đêm:</span>
-              <strong style={{ color: '#0958d9' }}>+{formatPrice(fb.extraGuestSurcharge)}</strong>
+              <span>{fb.extraGuestSurcharge > 0 ? 'Phụ thu khách/trẻ em thêm đêm:' : 'Giảm phụ thu khách/trẻ em:'}</span>
+              <strong style={{ color: fb.extraGuestSurcharge > 0 ? '#0958d9' : '#15803d' }}>
+                {fb.extraGuestSurcharge > 0 ? `+${formatPrice(fb.extraGuestSurcharge)}` : `-${formatPrice(Math.abs(fb.extraGuestSurcharge))}`}
+              </strong>
             </div>
           )}
-          <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 8, marginTop: 4, borderTop: '1px dashed #86efac', fontSize: 14 }}>
-            <strong>Tổng tiền phát sinh thêm:</strong>
-            <strong style={{ color: '#15803d', fontSize: 15 }}>
-              +{formatPrice(fb.priceDifference || 0)}
+          <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 8, marginTop: 4, borderTop: `1px dashed ${isShortening ? '#cbd5e1' : '#86efac'}`, fontSize: 14 }}>
+            <strong>{fb.priceDifference >= 0 ? 'Tổng tiền phát sinh thêm:' : 'Tổng tiền giảm trừ:'}</strong>
+            <strong style={{ color: fb.priceDifference > 0 ? '#15803d' : fb.priceDifference < 0 ? '#15803d' : '#0f172a', fontSize: 15 }}>
+              {fb.priceDifference > 0 ? `+${formatPrice(fb.priceDifference)}` : fb.priceDifference < 0 ? `-${formatPrice(Math.abs(fb.priceDifference))}` : '0 VNĐ'}
             </strong>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#334155' }}>
-            <span>Tổng tiền sau gia hạn:</span>
+            <span>Tổng tiền sau thay đổi:</span>
             <strong>{formatPrice(fb.newTotalAmount || 0)}</strong>
           </div>
+          {fb.refundableExcessAmount > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#15803d', background: '#f0fdf4', padding: '6px 8px', borderRadius: 4, marginTop: 4 }}>
+              <span>💰 Tiền thừa hoàn trả cho khách:</span>
+              <strong>+{formatPrice(fb.refundableExcessAmount)}</strong>
+            </div>
+          )}
         </div>
       </div>
+
+      {isShortening && reducedNightsList.length > 0 && (
+        <div style={{ padding: '10px 14px', background: '#fff7e6', border: '1px solid #ffd591', borderRadius: 8 }}>
+          <div style={{ fontWeight: 600, color: '#d46b08', marginBottom: 6, fontSize: 13 }}>
+            ✂️ Chi tiết các đêm được cắt giảm ({reducedNightsList.length} đêm):
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 130, overflowY: 'auto' }}>
+            {reducedNightsList.map((night: any, idx: number) => (
+              <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', color: '#595959', fontSize: 12, background: '#fff', padding: '4px 8px', borderRadius: 4 }}>
+                <span>
+                  • <strong>{dayjs(night.date || night.stayDate).format('DD/MM/YYYY')}</strong> ({night.dayName || ''})
+                  {night.isHoliday && <Tag color="red" style={{ marginLeft: 4 }}>Ngày lễ (+20%)</Tag>}
+                  {night.isSunday && <Tag color="orange" style={{ marginLeft: 4 }}>Chủ nhật (+10%)</Tag>}
+                  {night.isSaturday && <Tag color="purple" style={{ marginLeft: 4 }}>Thứ 7 (+10%)</Tag>}
+                </span>
+                <span style={{ fontWeight: 600, color: '#15803d' }}>
+                  -{formatPrice(night.price)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {nightsList.length > 0 && (
         <div style={{ padding: '10px 14px', background: '#fff', border: '1px solid #dcfce7', borderRadius: 8 }}>

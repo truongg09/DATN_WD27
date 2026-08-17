@@ -180,6 +180,8 @@ export const executeBookingChange = async (
     fromDate?: string;
     bookingDetailId?: number;
     reason?: string;
+    refundRequest?: RefundRequestPayload;
+    autoApproveRefund?: boolean;
   }
 ) => {
   return api.patch(`/bookings/${id}/change-stay`, data);
