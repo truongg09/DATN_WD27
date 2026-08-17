@@ -150,6 +150,7 @@ interface BookingDetail {
   requested_check_in_day_offset?: number | null;
   created_at?: string | null;
   actual_check_in_time?: string | null;
+  actual_check_out_time?: string | null;
   voucher?: { id: number; code: string; discountType: string; discountValue: string | number } | null;
   services?: ServiceRow[];
   damages?: DamageRow[];
@@ -643,13 +644,27 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
           {detail.room_floor ?? '—'} / {detail.room_area ? `${detail.room_area}m²` : '—'} /{' '}
           {detail.room_capacity ? `${detail.room_capacity} khách` : '—'}
         </Descriptions.Item>
-        <Descriptions.Item label="Ngày nhận phòng">{day(detail.check_in)}</Descriptions.Item>
+        <Descriptions.Item label="Ngày nhận phòng">
+          <div>{day(detail.check_in)}</div>
+          {detail.actual_check_in_time && (
+            <div style={{ fontSize: 12, color: '#16a34a', marginTop: 2 }}>
+              ✓ Thực tế nhận: <strong>{dateTime(detail.actual_check_in_time)}</strong>
+            </div>
+          )}
+        </Descriptions.Item>
         <Descriptions.Item label="Giờ check-in dự kiến">
           {detail.requested_check_in_time
             ? `${String(detail.requested_check_in_time).slice(0, 5)}${Number(detail.requested_check_in_day_offset || 0) === 1 ? ' (ngày hôm sau)' : ''}`
             : '14:00 (Chuẩn)'}
         </Descriptions.Item>
-        <Descriptions.Item label="Ngày trả phòng">{day(detail.check_out)}</Descriptions.Item>
+        <Descriptions.Item label="Ngày trả phòng">
+          <div>{day(detail.check_out)} (Trước 12:00)</div>
+          {detail.actual_check_out_time && (
+            <div style={{ fontSize: 12, color: '#2563eb', marginTop: 2 }}>
+              ✓ Thực tế trả: <strong>{dateTime(detail.actual_check_out_time)}</strong>
+            </div>
+          )}
+        </Descriptions.Item>
         <Descriptions.Item label="Số đêm lưu trú">{nights} đêm</Descriptions.Item>
         <Descriptions.Item label="Số khách">
           {detail.adults ?? 0} người lớn, {detail.children ?? 0} trẻ em
