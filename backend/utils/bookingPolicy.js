@@ -88,6 +88,63 @@ const getMaxLateCheckoutTime = (standardCheckOut, nextBookingCheckInDate, tiers)
   return staticCap < dynamicCap ? staticCap : dynamicCap;
 };
 
+/**
+ * Tính phụ thu Check-in sớm theo chuẩn ngành khách sạn:
+ * - Trước 06:00: Phụ thu 100% giá 1 đêm
+ * - 06:00 - 09:00: Phụ thu 50% giá 1 đêm
+ * - 09:00 - 12:00: Phụ thu 30% giá 1 đêm
+ * - 12:00 - 14:00 (hoặc giờ chuẩn): Miễn phí (0%)
+ */
+const computeEarlyCheckInSurcharge = (now = new Date(), standardCheckInTime = '14:00:00', nightlyRate = 0) => {
+  const hour = now.getHours() + (now.getMinutes() / 60);
+  const stdParts = (standardCheckInTime || '14:00:00').split(':');
+  const stdHour = parseInt(stdParts[0] || '14', 10) + (parseInt(stdParts[1] || '0', 10) / 60);
+
+  if (hour >= stdHour) {
+    return {
+      isEarly: false,
+      percent: 0,
+      surchargeAmount: 0,
+      timeWindowLabel: 'Đúng giờ',
+      isFree: true,
+      description: 'Check-in đúng giờ tiêu chuẩn'
+    };
+  }
+
+  let percent = 0;
+  let timeWindowLabel = '';
+  let description = '';
+
+  if (hour < 6) {
+    percent = 100;
+    timeWindowLabel = 'Trước 06:00 (Sáng sớm)';
+    description = 'Phụ thu 100% giá phòng 1 đêm do nhận phòng trước 06:00 sáng';
+  } else if (hour < 9) {
+    percent = 50;
+    timeWindowLabel = '06:00 - 09:00 (Sáng)';
+    description = 'Phụ thu 50% giá phòng 1 đêm do nhận phòng từ 06:00 đến 09:00';
+  } else if (hour < 12) {
+    percent = 30;
+    timeWindowLabel = '09:00 - 12:00 (Trưa)';
+    description = 'Phụ thu 30% giá phòng 1 đêm do nhận phòng từ 09:00 đến 12:00';
+  } else {
+    percent = 0;
+    timeWindowLabel = '12:00 - 14:00 (Miễn phí)';
+    description = 'Miễn phí nhận phòng sớm (từ 12:00 đến 14:00)';
+  }
+
+  const surchargeAmount = Math.round((Number(nightlyRate || 0) * percent) / 100);
+
+  return {
+    isEarly: true,
+    percent,
+    surchargeAmount,
+    timeWindowLabel,
+    isFree: percent === 0,
+    description
+  };
+};
+
 module.exports = {
   LATE_CHECKIN_GRACE_HOUR,
   HOLD_MINUTES,
@@ -103,5 +160,6 @@ module.exports = {
   isPastNoShowDeadline,
   combineDateTime,
   computeLateCheckoutFee,
+  computeEarlyCheckInSurcharge,
   getMaxLateCheckoutTime
 }; 
