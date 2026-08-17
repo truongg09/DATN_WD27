@@ -9,6 +9,17 @@ const formatDate = (date) => date
     year: 'numeric'
   })
   : '-';
+const formatRequestedDateTime = (date, time, dayOffset = 0) => {
+  if (!date) return '-';
+  const offset = Number(dayOffset || 0);
+  const adjustedDate = offset > 0
+    ? new Date(new Date(date).getTime() + offset * 24 * 60 * 60 * 1000)
+    : date;
+  const requestedTime = time ? String(time).slice(0, 5) : null;
+  return requestedTime
+    ? `${escapeHtml(requestedTime)} - ${formatDate(adjustedDate)}`
+    : formatDate(adjustedDate);
+};
 const escapeHtml = (value) => String(value ?? '')
   .replace(/&/g, '&amp;')
   .replace(/</g, '&lt;')
@@ -122,11 +133,34 @@ const summaryRow = (label, value, emphasized = false) => `
     </td>
   </tr>`;
 
-const bookingSummary = (booking) => `
+const formatBookingServices = (services) => {
+  const usedServices = Array.isArray(services)
+    ? services.filter((service) => service.status === 'used')
+    : [];
+  if (usedServices.length === 0) return 'Không sử dụng';
+  return usedServices
+    .map((service) => `${escapeHtml(service.serviceName || 'Dịch vụ')} × ${Number(service.quantity || 1)}`)
+    .join('<br>');
+};
+
+const bookingSummary = (booking, payment = null) => `
   <table role="presentation" style="border-collapse:collapse;width:100%">
     ${summaryRow('Mã đặt phòng', `<strong>#${Number(booking.id)}</strong>`)}
-    ${summaryRow('Nhận phòng', formatDate(booking.check_in))}
-    ${summaryRow('Trả phòng', formatDate(booking.check_out))}
+    ${summaryRow('Hạng phòng', escapeHtml(booking.room_type_name || '—'))}
+    ${summaryRow(
+      'Check-in',
+      formatRequestedDateTime(
+        booking.check_in,
+        booking.requested_check_in_time,
+        booking.requested_check_in_day_offset
+      )
+    )}
+    ${summaryRow(
+      'Check-out',
+      formatRequestedDateTime(booking.check_out, booking.requested_check_out_time)
+    )}
+    ${summaryRow('Dịch vụ', formatBookingServices(booking.services))}
+    ${summaryRow('Tổng giá', `<strong>${formatMoney(payment?.totalAmount ?? booking.total_price)}</strong>`)}
   </table>`;
 
 const customerSummary = (booking) => `
@@ -151,10 +185,10 @@ const customerSummary = (booking) => `
     </div>
   </div>`;
 
-const bookingInformation = (booking) => `
+const bookingInformation = (booking, payment = null) => `
   <div style="margin-bottom:9px;color:#2f2924;font-size:14px;font-weight:700">Thông tin đặt phòng</div>
   <div style="border:1px solid #eee7df;border-radius:12px;padding:8px 20px">
-    ${bookingSummary(booking)}
+    ${bookingSummary(booking, payment)}
   </div>`;
 
 const sendBookingConfirmation = (booking) => send({
@@ -191,18 +225,23 @@ const sendPaymentConfirmation = (booking, payment) => {
       bookingId: booking.id,
       content: `
         ${customerSummary(booking)}
-        ${bookingInformation(booking)}
+        ${bookingInformation(booking, payment)}
+        ${!isFullyPaid ? `
+          <div style="margin-top:18px;background:#fff7e8;border:1px solid #f0d7ad;border-radius:12px;padding:14px 18px;color:#704b28;font-size:14px;line-height:1.6">
+            <strong>Đã ghi nhận tiền cọc.</strong><br>
+            Bạn còn phải thanh toán <strong>${formatMoney(payment.remainingAmount)}</strong> trước khi nhận phòng.
+          </div>` : ''}
         <div style="margin-top:18px;background:${isFullyPaid ? '#edf8f1' : '#f7f1eb'};border-radius:12px;padding:18px 20px">
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
             <tr>
               <td>
-                <div style="color:#81766d;font-size:13px">Tổng đã thanh toán</div>
+                <div style="color:#81766d;font-size:13px">${isFullyPaid ? 'Tổng đã thanh toán' : 'Đã đặt cọc'}</div>
                 <div style="margin-top:5px;color:${isFullyPaid ? '#237a49' : '#8d6240'};font-size:23px;font-weight:700">
                   ${formatMoney(payment.paidAmount)}
                 </div>
               </td>
               <td align="right">
-                <div style="color:#81766d;font-size:13px">Còn lại</div>
+                <div style="color:#81766d;font-size:13px">Còn phải thanh toán</div>
                 <div style="margin-top:5px;color:#2f2924;font-size:18px;font-weight:700">
                   ${formatMoney(payment.remainingAmount)}
                 </div>
@@ -217,6 +256,24 @@ const sendPaymentConfirmation = (booking, payment) => {
     })
   });
 };
+
+const sendCheckoutThankYou = (booking, payment) => send({
+  to: booking.customer_email,
+  subject: `[HotelHub] Cảm ơn bạn đã lưu trú cùng chúng tôi #${booking.id}`,
+  html: emailLayout({
+    previewText: 'HotelHub chân thành cảm ơn bạn đã lựa chọn và lưu trú cùng chúng tôi.',
+    eyebrow: 'Hẹn gặp lại bạn',
+    title: 'Cảm ơn bạn đã lựa chọn HotelHub',
+    intro: `Xin chào <strong>${escapeHtml(booking.customer_name || 'Quý khách')}</strong>, bạn đã hoàn tất thủ tục trả phòng. HotelHub chân thành cảm ơn bạn đã tin tưởng và lựa chọn chúng tôi cho kỳ nghỉ vừa qua.`,
+    bookingId: booking.id,
+    content: `
+      ${bookingInformation(booking, payment)}
+      <div style="margin-top:18px;background:#f7f1eb;border-radius:12px;padding:20px;color:#655b53;font-size:15px;line-height:1.75">
+        Kính chúc bạn và gia đình luôn mạnh khỏe, nhiều niềm vui và có thật nhiều hành trình đáng nhớ.<br><br>
+        Chúng tôi hy vọng đã mang đến cho bạn một kỳ nghỉ thoải mái và rất mong được chào đón bạn trở lại HotelHub trong thời gian gần nhất.
+      </div>`
+  })
+});
 
 // Email đặt lại mật khẩu không gắn với đơn nào nên dùng bố cục riêng, không tái
 // sử dụng emailLayout (bố cục đó luôn kèm nút "Xem chi tiết đặt phòng").
@@ -265,6 +322,7 @@ const sendPasswordResetEmail = ({ to, name, resetUrl, expiresInMinutes }) => sen
 module.exports = {
   sendBookingConfirmation,
   sendPaymentConfirmation,
+  sendCheckoutThankYou,
   sendPasswordResetEmail,
   isEmailConfigured: isConfigured
 };

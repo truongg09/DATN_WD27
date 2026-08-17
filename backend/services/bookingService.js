@@ -3,6 +3,7 @@ const dayjs = require("dayjs");
 const bookingModel = require("../models/bookingModel");
 const paymentService = require("./paymentService");
 const invoiceService = require("./invoiceService");
+const emailService = require("./emailService");
 const voucherService = require("./voucherService");
 const HttpError = require("../utils/httpError");
 const {
@@ -4966,8 +4967,14 @@ const checkOut = async (
     } catch (error) {
       console.error(`Issue invoice for checkout booking #${bookingId} failed:`, error);
     }
+    const completedBooking = await bookingModel.getBookingById(bookingId);
+    const bookingServices = await bookingModel.getBookingServicesByBookingId(bookingId);
+    void emailService.sendCheckoutThankYou(
+      { ...completedBooking, services: bookingServices },
+      payment,
+    );
     return {
-      ...(await bookingModel.getBookingById(bookingId)),
+      ...completedBooking,
       earlyCheckout,
       lateCheckout,
       invoice
