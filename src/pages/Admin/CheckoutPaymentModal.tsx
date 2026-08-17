@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import {
   Alert,
   Button,
+  Checkbox,
   Descriptions,
   Divider,
   Input,
@@ -114,6 +115,7 @@ const CheckoutPaymentModal: React.FC<Props> = ({
   const [error, setError] = useState<string | null>(null);
   const [voucherInput, setVoucherInput] = useState("");
   const [applyingVoucher, setApplyingVoucher] = useState(false);
+  const [waiveLateFee, setWaiveLateFee] = useState(false);
 
   const loadSummary = useCallback(
     async (silent = false) => {
@@ -151,6 +153,7 @@ const CheckoutPaymentModal: React.FC<Props> = ({
     }
 
     loadSummary();
+    setWaiveLateFee(false);
     const timer = window.setInterval(() => loadSummary(true), 8000);
     return () => window.clearInterval(timer);
   }, [open, bookingId, loadSummary]);
@@ -258,6 +261,7 @@ const CheckoutPaymentModal: React.FC<Props> = ({
     try {
       const response = await api.patch(`/bookings/${bookingId}/check-out`, {
         actualCheckOutTime: new Date().toISOString(),
+        waiveLateFee,
       });
       const result = (response as any).data?.data;
       const lateFee = result?.lateCheckout?.feeAmount;
@@ -501,13 +505,56 @@ const CheckoutPaymentModal: React.FC<Props> = ({
           )}
 
           {lateCheckoutWarning && (
-            <Alert
-              type="warning"
-              showIcon
-              style={{ marginBottom: 16 }}
-              message={`Đã quá giờ trả phòng chuẩn (${lateCheckoutWarning.standardTimeLabel}) ${lateCheckoutWarning.lateMinutes} phút`}
-              description="Hệ thống sẽ tự động tính phí trễ giờ theo chính sách khi bạn bấm Trả phòng. Vui lòng cân nhắc trước khi tiếp tục hoặc thông báo cho khách."
-            />
+            <div
+              style={{
+                background: "#fffbe6",
+                border: "1px solid #ffe58f",
+                borderRadius: 8,
+                padding: "12px 16px",
+                marginBottom: 16,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: 6,
+                }}
+              >
+                <span
+                  style={{
+                    fontWeight: 600,
+                    color: "#d46b08",
+                    fontSize: 13,
+                  }}
+                >
+                  ⏳ Trả phòng muộn (Quá giờ chuẩn{" "}
+                  {lateCheckoutWarning.standardTimeLabel} — trễ{" "}
+                  {lateCheckoutWarning.lateMinutes} phút)
+                </span>
+                <Tag color="orange">Trả phòng muộn</Tag>
+              </div>
+              <div style={{ fontSize: 13, color: "#475569" }}>
+                Hệ thống sẽ tự động tính phí phụ thu trễ giờ theo chính sách bậc thang (30%, 50%, 100%) khi trả phòng.
+              </div>
+              <div
+                style={{
+                  marginTop: 8,
+                  paddingTop: 8,
+                  borderTop: "1px dashed #ffd591",
+                }}
+              >
+                <Checkbox
+                  checked={waiveLateFee}
+                  onChange={(e) => setWaiveLateFee(e.target.checked)}
+                >
+                  <span style={{ fontWeight: 500, color: "#b45309" }}>
+                    🎁 Miễn phí phụ thu trả phòng muộn cho khách (Hỗ trợ lễ tân / Khách VIP)
+                  </span>
+                </Checkbox>
+              </div>
+            </div>
           )}
 
           {summary.remainingAmount <= 0 ? (
