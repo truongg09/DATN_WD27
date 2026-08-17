@@ -30,9 +30,9 @@ const formatDate = (date: string | Date) => {
 
 const HOLD_MINUTES = 15;
 const HOLD_DURATION_MS = HOLD_MINUTES * 60 * 1000;
-const MAX_HOLD_RESETS = 2;
+const MAX_HOLD_RESETS = 1;
 const MIN_RESET_COOLDOWN_SECONDS = 60;
-const MAX_TOTAL_HOLD_MINUTES = 45;
+const MAX_TOTAL_HOLD_MINUTES = 20;
 
 const getHoldRemainingMs = (holdExpiresAt?: unknown, createdAt?: unknown) => {
   if (holdExpiresAt) {
@@ -304,7 +304,7 @@ const PaymentPage: React.FC = () => {
         last_hold_reset_at: new Date().toISOString()
       } : prev);
       setHoldRemainingMs(Math.max(0, (data.holdRemainingSeconds || 0) * 1000));
-      message.success(data.message || 'Gia hạn giữ phòng thành công thêm 15 phút!');
+      message.success(data.message || 'Gia hạn giữ phòng thành công thêm 5 phút!');
     } catch (error: unknown) {
       const err = error as { response?: { data?: { message?: string } } };
       message.error(err.response?.data?.message || 'Không thể gia hạn thời gian giữ phòng');
@@ -550,7 +550,7 @@ const PaymentPage: React.FC = () => {
                     : isHoldExpired
                       ? 'Phiên giữ phòng đã hết hạn và phòng đã được tự động giải phóng. Bạn vui lòng đặt lại để kiểm tra phòng trống mới nhất.'
                       : isTotalHoldExceeded
-                        ? 'Đã đạt giới hạn tổng thời gian giữ phòng tối đa (45 phút). Vui lòng hoàn tất thanh toán ngay để không mất phòng.'
+                        ? `Đã đạt giới hạn tổng thời gian giữ phòng tối đa (${MAX_TOTAL_HOLD_MINUTES} phút). Vui lòng hoàn tất thanh toán ngay để không mất phòng.`
                         : 'Phòng đang được giữ tạm cho bạn. Hoàn tất thanh toán trước khi hết giờ để xác nhận đặt phòng.'}
                 </p>
 
@@ -570,10 +570,10 @@ const PaymentPage: React.FC = () => {
                       {cooldownSeconds > 0
                         ? `Gia hạn lại sau (${cooldownSeconds}s)`
                         : Number(booking.hold_reset_count || 0) >= MAX_HOLD_RESETS
-                          ? 'Đã hết lượt gia hạn (2/2)'
+                          ? `Đã hết lượt gia hạn (${MAX_HOLD_RESETS}/${MAX_HOLD_RESETS})`
                           : isTotalHoldExceeded
-                            ? 'Đã đạt giới hạn 45 phút'
-                            : 'Gia hạn giữ phòng (+15 phút)'}
+                            ? `Đã đạt giới hạn ${MAX_TOTAL_HOLD_MINUTES} phút`
+                            : 'Gia hạn giữ phòng (+5 phút)'}
                     </Button>
                   </div>
                 ) : (
