@@ -1,3 +1,10 @@
+/**
+ * Chính sách thời gian giữ phòng (Anti-Abuse Hold Policy):
+ * - Thời gian giữ phòng ban đầu: 15 phút
+ * - Tối đa 1 lần gia hạn: +5 phút
+ * - Trần tổng thời gian giữ phòng tối đa: 20 phút kể từ lúc tạo đơn
+ * - Cooldown tối thiểu giữa các lần bấm: 60 giây
+ */
 const LATE_CHECKIN_GRACE_HOUR = 6;
 const HOLD_MINUTES = 15;
 const HOLD_RESET_MINUTES = 5;
