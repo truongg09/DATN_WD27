@@ -9,6 +9,7 @@ import {
   DeleteOutlined,
   EditOutlined,
   EyeOutlined,
+  FieldTimeOutlined,
   InboxOutlined,
   LogoutOutlined,
   PlusOutlined,
@@ -17,6 +18,7 @@ import {
   StopOutlined,
   SwapOutlined,
   ToolOutlined,
+  UndoOutlined,
   UserAddOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
@@ -860,6 +862,135 @@ function BookingManagement() {
     });
   };
 
+  const getHoldPolicyInfo = (booking: Booking) => {
+    if (!['confirmed', 'pending'].includes(booking.status)) return null;
+
+    const isFullyPaid = booking.payment_status === 'paid';
+    if (isFullyPaid) {
+      return {
+        type: 'fully_paid',
+        color: 'green',
+        label: '🛡️ Giữ phòng 100%',
+        tooltip: `Cam kết giữ phòng suốt toàn bộ kỳ nghỉ (đến 12:00 ngày ${formatDate(booking.check_out)})`,
+      };
+    }
+
+    const checkInDate = booking.check_in;
+    if (!checkInDate) return null;
+
+    const standardTime = (policies?.checkInTime || '14:00:00').slice(0, 8);
+    const requestedTime = booking.requested_check_in_time ? booking.requested_check_in_time.slice(0, 8) : standardTime;
+    const baseDate = dayjs(`${dayjs(checkInDate).format('YYYY-MM-DD')}T${requestedTime}`).add(booking.requested_check_in_day_offset || 0, 'day');
+    const deadline = baseDate.add(6, 'hour');
+    const now = dayjs();
+
+    const isPast = now.isAfter(deadline);
+    const diffHours = deadline.diff(now, 'minute') / 60;
+    const isUrgent = !isPast && diffHours <= 2 && diffHours >= 0;
+
+    return {
+      type: 'deposit',
+      deadline,
+      isPast,
+      isUrgent,
+      color: isPast ? 'red' : isUrgent ? 'orange' : 'gold',
+      label: isPast ? '⛔ Quá hạn giữ phòng' : isUrgent ? `⚠️ Sắp hết hạn (${Math.round(diffHours * 10) / 10}h)` : `⏳ Giữ đến ${deadline.format('HH:mm DD/MM')}`,
+      tooltip: isPast
+        ? `Đã quá thời hạn giữ phòng (${deadline.format('HH:mm DD/MM/YYYY')}). Lễ tân có thể đánh dấu No-show để giải phóng phòng hoặc gia hạn giữ phòng.`
+        : `Hạn chót giữ phòng: ${deadline.format('HH:mm DD/MM/YYYY')} (Giờ hẹn + 6 tiếng ân hạn)`,
+    };
+  };
+
+  const handleExtendHold = (booking: Booking) => {
+    let selectedHours = 2;
+    let noteText = '';
+
+    Modal.confirm({
+      title: '⏳ Gia hạn Thời gian Giữ phòng cho Khách',
+      width: 520,
+      content: (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 12 }}>
+          <div style={{ padding: '10px 14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13 }}>
+            <div>Đơn đặt phòng: <strong>#{booking.booking_code || booking.id}</strong> (P.{booking.room_number})</div>
+            <div>Khách hàng: <strong>{booking.customer_name}</strong> · {booking.customer_phone}</div>
+          </div>
+          <div>
+            <label style={{ display: 'block', fontWeight: 600, marginBottom: 6, fontSize: 13 }}>
+              Chọn thời gian gia hạn thêm:
+            </label>
+            <Select
+              defaultValue={2}
+              style={{ width: '100%' }}
+              onChange={(val) => { selectedHours = val; }}
+              options={[
+                { value: 2, label: 'Gia hạn thêm 2 tiếng (Khách đang trên đường tới)' },
+                { value: 4, label: 'Gia hạn thêm 4 tiếng (Khách kẹt xe / trễ chuyến)' },
+                { value: 8, label: 'Gia hạn đến khuya / rạng sáng hôm sau' },
+                { value: 12, label: 'Gia hạn đến sáng hôm sau (08:00)' },
+              ]}
+            />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontWeight: 600, marginBottom: 6, fontSize: 13 }}>
+              Ghi chú lý do (tùy chọn):
+            </label>
+            <Input
+              placeholder="VD: Khách gọi báo delay chuyến bay đến 23:00..."
+              onChange={(e) => { noteText = e.target.value; }}
+            />
+          </div>
+        </div>
+      ),
+      okText: 'Xác nhận gia hạn',
+      cancelText: 'Hủy',
+      onOk: async () => {
+        try {
+          await api.patch(`/bookings/${booking.id}/extend-hold`, {
+            additionalHours: selectedHours,
+            note: noteText.trim()
+          });
+          message.success(`Đã gia hạn giữ phòng thành công!`);
+          fetchBookings();
+        } catch (err: any) {
+          message.error(err.response?.data?.message || 'Không thể gia hạn giữ phòng');
+        }
+      }
+    });
+  };
+
+  const handleReactivateNoShow = (booking: Booking) => {
+    Modal.confirm({
+      title: '🔄 Khôi phục Đơn đặt phòng sau No-show',
+      width: 520,
+      content: (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 12 }}>
+          <div style={{ padding: '10px 14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, fontSize: 13 }}>
+            <div>Khách hàng: <strong>{booking.customer_name}</strong> · #{booking.booking_code || booking.id}</div>
+            <div>Hạng phòng: <strong>{booking.room_type_name}</strong> (Phòng gốc: P.{booking.room_number})</div>
+          </div>
+          <Alert
+            type="info"
+            showIcon
+            message="Khách đến trễ và muốn tiếp tục nhận phòng"
+            description="Hệ thống sẽ kiểm tra phòng gốc. Nếu phòng gốc vẫn trống sẽ gán lại và Check-in ngay; nếu phòng gốc đã có khách khác sẽ tự động xếp sang phòng cùng hạng còn trống."
+          />
+        </div>
+      ),
+      okText: 'Khôi phục & Check-in ngay',
+      cancelText: 'Đóng',
+      onOk: async () => {
+        try {
+          const res = await api.patch(`/bookings/${booking.id}/reactivate`);
+          message.success(res.data?.message || 'Đã khôi phục và check-in thành công cho khách!');
+          fetchBookings();
+          fetchSupportData();
+        } catch (err: any) {
+          message.error(err.response?.data?.message || 'Không thể khôi phục đơn đặt phòng này');
+        }
+      }
+    });
+  };
+
   const openOperation = (type: Operation, booking: Booking) => {
     setOperation(type);
     setSelectedBooking(booking);
@@ -1209,10 +1340,25 @@ const handleCheckIn = (booking: Booking) => {
 
   const handleNoShow = (booking: Booking) => {
     Modal.confirm({
-      title: 'Xác nhận No-show',
-      content:
-        'Khách không đến nhận phòng. Hệ thống sẽ không hoàn tiền và tự động tặng voucher giảm 10% cho lần đặt tiếp theo.',
-      okText: 'Xác nhận No-show',
+      title: '⛔ Xác nhận Khách không đến (No-show)',
+      width: 520,
+      content: (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12 }}>
+          <div style={{ padding: '10px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, fontSize: 13 }}>
+            <div>Đơn đặt phòng: <strong>#{booking.booking_code || booking.id}</strong> (P.{booking.room_number})</div>
+            <div>Khách hàng: <strong>{booking.customer_name}</strong> · {booking.customer_phone || '—'}</div>
+          </div>
+          <div style={{ fontSize: 13, color: '#475569' }}>
+            Quy trình xử lý theo quy định khách sạn:
+            <ul style={{ margin: '6px 0 0 16px', padding: 0 }}>
+              <li><strong>Tài chính:</strong> Không hoàn trả tiền phòng/tiền cọc theo chính sách No-show.</li>
+              <li><strong>Phòng:</strong> Phòng {booking.room_number} sẽ được giải phóng ngay sang trạng thái <strong>Sẵn sàng (Available)</strong> để đón khách khác.</li>
+              <li><strong>Chăm sóc khách:</strong> Tự động cấp mã <strong>Voucher giảm giá 10%</strong> cho lần đặt sau.</li>
+            </ul>
+          </div>
+        </div>
+      ),
+      okText: 'Xác nhận No-show & Giải phóng phòng',
       cancelText: 'Đóng',
       okButtonProps: { danger: true },
       onOk: async () => {
@@ -1221,10 +1367,11 @@ const handleCheckIn = (booking: Booking) => {
           const voucherCode = response.data?.voucher?.code;
           message.success(
             voucherCode
-              ? `Đã ghi nhận no-show. Voucher: ${voucherCode}`
-              : 'Đã ghi nhận no-show'
+              ? `Đã chuyển No-show và giải phóng phòng. Mã voucher: ${voucherCode}`
+              : 'Đã chuyển No-show và giải phóng phòng'
           );
           fetchBookings();
+          fetchSupportData();
         } catch (error: any) {
           message.error(error.response?.data?.message || 'Không thể xử lý trường hợp khách không đến');
         }
@@ -1783,11 +1930,17 @@ const handleCheckIn = (booking: Booking) => {
                     <td style={tdStyle}>
                       {(() => {
                         const tag = getBookingDisplayTag(booking);
+                        const holdInfo = getHoldPolicyInfo(booking);
                         return (
-                          <div>
-                            <Tag color={tag.color}>{tag.label}</Tag>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            <div><Tag color={tag.color}>{tag.label}</Tag></div>
                             {isEarlyCheckIn(booking) && ['pending', 'confirmed'].includes(booking.status) && (
-                              <Tag color="cyan" style={{ marginTop: 4, display: 'inline-block' }}>🌅 Đến sớm</Tag>
+                              <div><Tag color="cyan">🌅 Đến sớm</Tag></div>
+                            )}
+                            {holdInfo && (
+                              <Tooltip title={holdInfo.tooltip}>
+                                <div><Tag color={holdInfo.color} style={{ cursor: 'pointer' }}>{holdInfo.label}</Tag></div>
+                              </Tooltip>
                             )}
                           </div>
                         );
@@ -1890,7 +2043,29 @@ const handleCheckIn = (booking: Booking) => {
                         )}
 
                         {['pending', 'confirmed'].includes(booking.status) && (
-                          <Tooltip title="Đánh dấu khách không đến (không hoàn tiền, tặng voucher 10%)">
+                          <Tooltip title="Gia hạn thời gian giữ phòng khi khách báo đến muộn">
+                            <Button
+                              size="small"
+                              icon={<FieldTimeOutlined />}
+                              onClick={() => handleExtendHold(booking)}
+                            />
+                          </Tooltip>
+                        )}
+
+                        {booking.status === 'no_show' && (
+                          <Tooltip title="Khôi phục đặt phòng & Check-in cho khách đến trễ">
+                            <Button
+                              size="small"
+                              type="primary"
+                              ghost
+                              icon={<UndoOutlined />}
+                              onClick={() => handleReactivateNoShow(booking)}
+                            />
+                          </Tooltip>
+                        )}
+
+                        {['pending', 'confirmed'].includes(booking.status) && (
+                          <Tooltip title="Đánh dấu khách không đến (không hoàn tiền, giải phóng phòng, tặng voucher 10%)">
                             <Button
                               danger
                               size="small"
