@@ -4699,7 +4699,12 @@ const reactivateNoShowBooking = async (
   }
 };
 
-const checkOut = async (bookingId, actualCheckOutTimeInput, actor = null) => {
+const checkOut = async (
+  bookingId,
+  actualCheckOutTimeInput,
+  actor = null,
+  { waiveLateFee = false } = {},
+) => {
   const connection = await db.getConnection();
 
   try {
@@ -4772,33 +4777,44 @@ const checkOut = async (bookingId, actualCheckOutTimeInput, actor = null) => {
         );
 
         if (result.status === "fee_applied" && result.feeAmount > 0) {
-          await bookingModel.addLateCheckoutCharge(
-            bookingId,
-            {
-              lateMinutes: result.lateMinutes,
-              tierPercent: result.percent,
-              nightlyRate,
-              totalPrice: result.feeAmount,
-              note: `Trả phòng muộn ${Math.round(result.lateHours * 10) / 10} giờ so với giờ chuẩn`,
-            },
-            connection,
-          );
-
-          recalculatedPayment =
-            await paymentService.recalculatePaymentForBooking(
+          if (!waiveLateFee) {
+            await bookingModel.addLateCheckoutCharge(
               bookingId,
+              {
+                lateMinutes: result.lateMinutes,
+                tierPercent: result.percent,
+                nightlyRate,
+                totalPrice: result.feeAmount,
+                note: `Trả phòng muộn ${Math.round(result.lateHours * 10) / 10} giờ so với giờ chuẩn`,
+              },
               connection,
             );
-          lateCheckout = { ...result };
 
-          await logHistory(
-            bookingId,
-            "late_checkout_fee",
-            `Phí trả phòng muộn: trễ ${result.lateMinutes} phút (${result.percent}% giá đêm) = ${displayMoney(result.feeAmount)}`,
-            { amount: result.feeAmount },
-            actor,
-            connection,
-          );
+            recalculatedPayment =
+              await paymentService.recalculatePaymentForBooking(
+                bookingId,
+                connection,
+              );
+            lateCheckout = { ...result };
+
+            await logHistory(
+              bookingId,
+              "late_checkout_fee",
+              `Phí trả phòng muộn: trễ ${result.lateMinutes} phút (${result.percent}% giá đêm) = ${displayMoney(result.feeAmount)}`,
+              { amount: result.feeAmount },
+              actor,
+              connection,
+            );
+          } else {
+            await logHistory(
+              bookingId,
+              "late_checkout_fee_waived",
+              `Miễn phí phụ thu trả phòng muộn (${result.percent}% giá đêm = ${displayMoney(result.feeAmount)}) cho khách hàng`,
+              { waivedAmount: result.feeAmount },
+              actor,
+              connection,
+            );
+          }
         }
       }
     }
