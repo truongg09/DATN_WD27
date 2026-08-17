@@ -17,6 +17,8 @@ import {
   message,
   Radio,
   Rate,
+  Row,
+  Col,
   Space,
   Spin,
   Table,
@@ -251,6 +253,10 @@ const BookingHistory: React.FC = () => {
   const [newServiceId, setNewServiceId] = useState<number | null>(null);
   const [newServiceQty, setNewServiceQty] = useState<number>(1);
   const [savingServiceAction, setSavingServiceAction] = useState<number | string | null>(null);
+  const [editRefundMethod, setEditRefundMethod] = useState<'cash' | 'bank_transfer'>('bank_transfer');
+  const [editRefundBankBin, setEditRefundBankBin] = useState<string | undefined>(undefined);
+  const [editRefundAccountNumber, setEditRefundAccountNumber] = useState('');
+  const [editRefundAccountName, setEditRefundAccountName] = useState('');
 
   // Modal sửa số lượng dịch vụ
   const [editSvcModalOpen, setEditSvcModalOpen] = useState(false);
@@ -374,6 +380,10 @@ const BookingHistory: React.FC = () => {
     setEditTab('info');
     setNewServiceId(null);
     setNewServiceQty(1);
+    setEditRefundMethod('bank_transfer');
+    setEditRefundBankBin(undefined);
+    setEditRefundAccountNumber('');
+    setEditRefundAccountName('');
     try {
       const [detailRes, rtRes, roomsRes, servicesRes] = await Promise.all([
         api.get(`/bookings/${record.id}`),
@@ -498,11 +508,30 @@ const BookingHistory: React.FC = () => {
         if (matchingRoom) chosenRoomId = matchingRoom.id;
       }
 
-      const payload = {
+      const fbPreview = changePreviewData?.financialBreakdown;
+      const payload: any = {
         checkOut: newCheckOut.format('YYYY-MM-DD'),
         toRoomId: chosenRoomId || undefined,
-        reason: 'Khách yêu cầu gia hạn / chuyển phòng'
+        reason: 'Khách yêu cầu gia hạn / đổi lịch / chuyển phòng'
       };
+
+      if (fbPreview?.refundableExcessAmount > 0) {
+        if (editRefundMethod === 'bank_transfer') {
+          if (!editRefundAccountNumber.trim() || !editRefundAccountName.trim() || !editRefundBankBin) {
+            message.warning('Vui lòng điền đầy đủ thông tin tài khoản ngân hàng để nhận tiền hoàn');
+            setSavingEdit(false);
+            return;
+          }
+        }
+        const bankObj = VIETQR_BANKS.find(b => b.bin === editRefundBankBin);
+        payload.refundRequest = {
+          refundMethod: editRefundMethod,
+          bankBin: editRefundBankBin,
+          bankName: bankObj?.shortName || bankObj?.name || '',
+          accountNumber: editRefundAccountNumber.trim(),
+          accountName: editRefundAccountName.trim().toUpperCase()
+        };
+      }
 
       const executeChange = async () => {
         setSavingEdit(true);
@@ -512,6 +541,7 @@ const BookingHistory: React.FC = () => {
           const preview = result?.preview || changePreviewData;
           const fb = preview?.financialBreakdown;
           const priceDiff = fb?.priceDifference ?? 0;
+          const isShortening = Boolean(preview?.isShortening || fb?.isShortening);
 
           const nightlyPrices = preview?.nightlyPrices || [];
           const holidayNights = nightlyPrices.filter((n: any) => n.isHoliday);
@@ -521,7 +551,7 @@ const BookingHistory: React.FC = () => {
           await loadHistory();
 
           Modal.success({
-            title: 'Cập nhật thời gian ở & phòng thành công',
+            title: isShortening ? 'Rút ngắn thời gian ở thành công' : 'Cập nhật thời gian ở & phòng thành công',
             width: 580,
             content: (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12 }}>
@@ -530,7 +560,14 @@ const BookingHistory: React.FC = () => {
                 </p>
                 <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', padding: '12px 16px', borderRadius: 8, fontSize: 13 }}>
                   <div><strong>Nhận phòng:</strong> {newCheckIn.format('DD/MM/YYYY')}</div>
-                  <div><strong>Trả phòng mới:</strong> {newCheckOut.format('DD/MM/YYYY')} ({preview?.totalNights || 0} đêm)</div>
+                  <div>
+                    <strong>Trả phòng mới:</strong> {newCheckOut.format('DD/MM/YYYY')} ({preview?.totalNights || 0} đêm)
+                    {isShortening && (
+                      <Tag color="orange" style={{ marginLeft: 6 }}>
+                        Rút ngắn {preview?.reducedNights || fb?.reducedNights || 0} đêm
+                      </Tag>
+                    )}
+                  </div>
                   {preview?.toRoom && (
                     <div style={{ color: '#0958d9', marginTop: 4 }}>
                       🏨 <strong>Phòng mới:</strong> Phòng {preview.toRoom.roomNumber} ({preview.toRoom.typeName})
@@ -597,10 +634,16 @@ const BookingHistory: React.FC = () => {
                       </div>
                     ) : (
                       <div>
-                        <strong style={{ color: '#389e0d' }}>Tiền phòng giảm: -{formatPrice(Math.abs(priceDiff))}</strong>
-                        <div style={{ fontSize: 12, color: '#595959', marginTop: 2 }}>
-                          Khoản tiền chênh lệch giảm đã được cập nhật vào hóa đơn.
-                        </div>
+                        <strong style={{ color: '#389e0d' }}>Tiền phòng giảm trừ: -{formatPrice(Math.abs(priceDiff))}</strong>
+                        {fb?.refundableExcessAmount > 0 ? (
+                          <div style={{ fontSize: 12, color: '#27272a', marginTop: 4 }}>
+                            💸 Phiếu yêu cầu hoàn tiền <strong>+{formatPrice(fb.refundableExcessAmount)}</strong> ({editRefundMethod === 'bank_transfer' ? 'Chuyển khoản' : 'Tiền mặt'}) đã được gửi tới khách sạn xử lý.
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: 12, color: '#595959', marginTop: 2 }}>
+                            Khoản tiền chênh lệch giảm đã được cập nhật trực tiếp vào hóa đơn thanh toán của bạn.
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1631,9 +1674,21 @@ const BookingHistory: React.FC = () => {
                       {!availabilityLoading && changePreviewData && (() => {
                         const fb = changePreviewData.financialBreakdown || {};
                         const nightsList = changePreviewData.nightlyPrices || [];
+                        const reducedNightsList = fb.reducedNightlyPrices || [];
+                        const isShortening = Boolean(changePreviewData.isShortening || fb.isShortening);
 
                         return (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 8 }}>
+                            {/* Thông báo rút ngắn thời gian ở */}
+                            {isShortening && (
+                              <Alert
+                                type="info"
+                                showIcon
+                                message={`Rút ngắn thời gian ở: Giảm ${fb.reducedNights || changePreviewData.reducedNights || 0} đêm`}
+                                description={`Ngày trả phòng mới: ${dayjs(changePreviewData.targetCheckOut).format('DD/MM/YYYY')} (trước đây: ${dayjs(changePreviewData.currentCheckOut).format('DD/MM/YYYY')}). Tiền phòng được giảm trừ: -${formatPrice(Math.abs(fb.priceDifference || 0))}.`}
+                              />
+                            )}
+
                             {/* Hiển thị cảnh báo từng ngày lễ (+20%) và thứ 7, CN (+10%) */}
                             {changePreviewData.warnings && changePreviewData.warnings.length > 0 && (
                               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -1655,7 +1710,7 @@ const BookingHistory: React.FC = () => {
                               </h4>
                               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                  <span>Tiền phòng:</span>
+                                  <span>Tiền phòng lưu trú mới ({changePreviewData.totalNights || nightsList.length} đêm):</span>
                                   <strong>{formatPrice(fb.baseRoomAmount || 0)}</strong>
                                 </div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -1699,14 +1754,16 @@ const BookingHistory: React.FC = () => {
                                     {fb.upgradeFee > 0 ? `+${formatPrice(fb.upgradeFee)}` : '0đ'}
                                   </strong>
                                 </div>
-                                {fb.extraGuestSurcharge > 0 && (
+                                {fb.extraGuestSurcharge !== 0 && (
                                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                    <span>Phụ thu khách/trẻ em thêm đêm:</span>
-                                    <strong style={{ color: '#0958d9' }}>+{formatPrice(fb.extraGuestSurcharge)}</strong>
+                                    <span>{fb.extraGuestSurcharge > 0 ? 'Phụ thu khách/trẻ em thêm đêm:' : 'Giảm phụ thu khách/trẻ em:'}</span>
+                                    <strong style={{ color: fb.extraGuestSurcharge > 0 ? '#0958d9' : '#389e0d' }}>
+                                      {fb.extraGuestSurcharge > 0 ? `+${formatPrice(fb.extraGuestSurcharge)}` : `-${formatPrice(Math.abs(fb.extraGuestSurcharge))}`}
+                                    </strong>
                                   </div>
                                 )}
                                 <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 8, marginTop: 4, borderTop: '1px solid #cbd5e1', fontSize: 14 }}>
-                                  <strong>Tổng tiền phát sinh:</strong>
+                                  <strong>{fb.priceDifference >= 0 ? 'Tổng tiền phát sinh:' : 'Tổng tiền giảm trừ:'}</strong>
                                   <strong style={{ color: fb.priceDifference > 0 ? '#cf1322' : fb.priceDifference < 0 ? '#389e0d' : '#0f172a', fontSize: 15 }}>
                                     {fb.priceDifference > 0 ? `+${formatPrice(fb.priceDifference)}` : fb.priceDifference < 0 ? `-${formatPrice(Math.abs(fb.priceDifference))}` : '0đ'}
                                   </strong>
@@ -1718,11 +1775,35 @@ const BookingHistory: React.FC = () => {
                               </div>
                             </div>
 
-                            {/* Chi tiết từng đêm */}
+                            {/* Danh sách các đêm bị cắt giảm */}
+                            {isShortening && reducedNightsList.length > 0 && (
+                              <div style={{ padding: '10px 14px', background: '#fff7e6', border: '1px solid #ffd591', borderRadius: 8 }}>
+                                <div style={{ fontWeight: 600, color: '#d46b08', marginBottom: 6, fontSize: 13 }}>
+                                  ✂️ Chi tiết các đêm được cắt giảm ({reducedNightsList.length} đêm):
+                                </div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 140, overflowY: 'auto' }}>
+                                  {reducedNightsList.map((night: any, idx: number) => (
+                                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', color: '#595959', fontSize: 12, background: '#fff', padding: '4px 8px', borderRadius: 4 }}>
+                                      <span>
+                                        • <strong>{dayjs(night.date || night.stayDate).format('DD/MM/YYYY')}</strong> ({night.dayName || ''})
+                                        {night.isHoliday && <Tag color="red" style={{ marginLeft: 4 }}>Ngày lễ (+20%)</Tag>}
+                                        {night.isSunday && <Tag color="orange" style={{ marginLeft: 4 }}>Chủ nhật (+10%)</Tag>}
+                                        {night.isSaturday && <Tag color="purple" style={{ marginLeft: 4 }}>Thứ 7 (+10%)</Tag>}
+                                      </span>
+                                      <span style={{ fontWeight: 600, color: '#389e0d' }}>
+                                        -{formatPrice(night.price)}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Chi tiết từng đêm lưu trú mới */}
                             {nightsList.length > 0 && (
                               <div style={{ padding: '10px 14px', background: '#fafafa', border: '1px solid #f0f0f0', borderRadius: 8 }}>
                                 <div style={{ fontWeight: 600, color: '#262626', marginBottom: 8, fontSize: 13 }}>
-                                  Chi tiết giá từng đêm ({nightsList.length} đêm):
+                                  Chi tiết giá từng đêm lưu trú mới ({nightsList.length} đêm):
                                 </div>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 180, overflowY: 'auto' }}>
                                   {nightsList.map((night: any, idx: number) => {
@@ -1755,6 +1836,71 @@ const BookingHistory: React.FC = () => {
                                       </div>
                                     );
                                   })}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Form hoàn tiền nếu phát sinh số tiền thừa cần hoàn */}
+                            {fb.refundableExcessAmount > 0 && (
+                              <div style={{ background: '#f6ffed', border: '1px solid #b7eb8f', borderRadius: 8, padding: '14px 16px' }}>
+                                <div style={{ fontWeight: 600, color: '#389e0d', fontSize: 14, marginBottom: 4 }}>
+                                  💰 Tiền thừa được hoàn lại: +{formatPrice(fb.refundableExcessAmount)}
+                                </div>
+                                <div style={{ fontSize: 12, color: '#475569', marginBottom: 12 }}>
+                                  Tổng số tiền bạn đã thanh toán ({formatPrice(fb.paidTotal || 0)}) lớn hơn tổng tiền mới ({formatPrice(fb.newTotalAmount || 0)}). Khách sạn sẽ hoàn trả khoản tiền chênh lệch này cho bạn:
+                                </div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                  <div>
+                                    <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
+                                      Phương thức nhận hoàn tiền:
+                                    </label>
+                                    <Radio.Group value={editRefundMethod} onChange={e => setEditRefundMethod(e.target.value)}>
+                                      <Radio value="bank_transfer">Chuyển khoản ngân hàng</Radio>
+                                      <Radio value="cash">Tiền mặt tại quầy lễ tân</Radio>
+                                    </Radio.Group>
+                                  </div>
+
+                                  {editRefundMethod === 'bank_transfer' && (
+                                    <Row gutter={[10, 10]}>
+                                      <Col span={24}>
+                                        <label style={{ display: 'block', fontSize: 12, fontWeight: 500, marginBottom: 3, color: '#334155' }}>
+                                          Ngân hàng thụ hưởng <span style={{ color: '#cf1322' }}>*</span>
+                                        </label>
+                                        <Select
+                                          showSearch
+                                          placeholder="Chọn ngân hàng của bạn"
+                                          style={{ width: '100%' }}
+                                          value={editRefundBankBin}
+                                          onChange={val => setEditRefundBankBin(val)}
+                                          options={VIETQR_BANKS.map(b => ({
+                                            value: b.bin,
+                                            label: `${b.shortName} — ${b.name}`
+                                          }))}
+                                          filterOption={(input, opt) => (opt?.label as string || '').toLowerCase().includes(input.toLowerCase())}
+                                        />
+                                      </Col>
+                                      <Col span={12}>
+                                        <label style={{ display: 'block', fontSize: 12, fontWeight: 500, marginBottom: 3, color: '#334155' }}>
+                                          Số tài khoản <span style={{ color: '#cf1322' }}>*</span>
+                                        </label>
+                                        <Input
+                                          placeholder="Ví dụ: 0123456789"
+                                          value={editRefundAccountNumber}
+                                          onChange={e => setEditRefundAccountNumber(e.target.value)}
+                                        />
+                                      </Col>
+                                      <Col span={12}>
+                                        <label style={{ display: 'block', fontSize: 12, fontWeight: 500, marginBottom: 3, color: '#334155' }}>
+                                          Tên chủ tài khoản <span style={{ color: '#cf1322' }}>*</span>
+                                        </label>
+                                        <Input
+                                          placeholder="NGUYEN VAN A"
+                                          value={editRefundAccountName}
+                                          onChange={e => setEditRefundAccountName(e.target.value.toUpperCase())}
+                                        />
+                                      </Col>
+                                    </Row>
+                                  )}
                                 </div>
                               </div>
                             )}
