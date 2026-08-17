@@ -1,9 +1,9 @@
 const LATE_CHECKIN_GRACE_HOUR = 6;
 const HOLD_MINUTES = 15;
-const HOLD_RESET_MINUTES = 15;
-const MAX_HOLD_RESETS = 2;
+const HOLD_RESET_MINUTES = 5;
+const MAX_HOLD_RESETS = 1;
 const MIN_RESET_COOLDOWN_SECONDS = 60;
-const MAX_TOTAL_HOLD_MINUTES = 45;
+const MAX_TOTAL_HOLD_MINUTES = 20;
 
 const dayString = (value) => {
   if (value instanceof Date) {
