@@ -54,7 +54,13 @@ const isLateCheckIn = (checkInDate, requestedCheckInTime = DEFAULT_STANDARD_CHEC
 const isPastNoShowDeadline = (checkInDate, requestedCheckInTime = DEFAULT_STANDARD_CHECKIN_TIME, now = new Date(), dayOffset = 0) =>
   now > getLateCheckInDeadline(checkInDate, requestedCheckInTime, LATE_CHECKIN_GRACE_HOUR, dayOffset);
 
-// Tính phí trễ giờ theo 3 tier. Trả về status để nơi gọi biết cần làm gì tiếp.
+/**
+ * Tính phí trễ giờ trả phòng (Late Check-out) theo 3 bậc thang chính sách:
+ * - Trong thời gian ân hạn (graceMinutes, mặc định 15p): Miễn phí (0đ)
+ * - Mốc 1 (trễ đến 3 tiếng): Phụ thu 30% giá phòng 1 đêm
+ * - Mốc 2 (trễ từ 3 đến 6 tiếng): Phụ thu 50% giá phòng 1 đêm
+ * - Mốc 3 (trễ trên 6 tiếng): Phụ thu 100% giá phòng 1 đêm
+ */
 const computeLateCheckoutFee = (tiers, standardCheckOut, actualCheckOutTime, nightlyRate) => {
   const lateMinutesRaw = Math.round((actualCheckOutTime - standardCheckOut) / 60000);
   if (lateMinutesRaw <= 0) {
