@@ -20,7 +20,7 @@ router.post('/:id/payment-request', requireAuth, requireStaff, bookingController
 router.get('/:id/refund-preview', requireAuth, bookingController.getRefundPreview);
 router.patch('/:id/cancel', requireAuth, bookingController.cancelBooking);
 router.post('/:id/reset-hold', requireAuth, bookingController.resetBookingHold);
-router.post('/:id/guests', requireAuth, requireStaff, bookingController.saveGuestIdentities);
+router.post('/:id/guests', requireAuth, bookingController.saveGuestIdentities);
 // Khách (chủ booking) hoặc nhân viên thao tác dịch vụ/phí phát sinh trên booking
 router.get('/:id/services', requireAuth, bookingController.getBookingServices);
 router.post('/:id/services', requireAuth, bookingController.addServiceCharge);
