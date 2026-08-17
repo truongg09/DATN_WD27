@@ -514,7 +514,12 @@ const updateStay = async (req, res) => {
 const checkIn = async (req, res) => {
   try {
     const bookingId = normalizeIdParam(req.params.id);
-    const payload = req.body?.guests ? normalizeGuestIdentitiesPayload(req.body) : {};
+    const payload = {
+      ...(req.body?.guests ? normalizeGuestIdentitiesPayload(req.body) : {}),
+      applyEarlySurcharge: Boolean(req.body?.applyEarlySurcharge),
+      earlySurchargeAmount: Number(req.body?.earlySurchargeAmount || 0),
+      earlyTimeLabel: req.body?.earlyTimeLabel || '',
+    };
     const result = await bookingService.checkIn(bookingId, payload, req.user || null);
     res.json({
       message: result.message || 'Nhận phòng thành công',
@@ -532,6 +537,40 @@ const markNoShow = async (req, res) => {
     res.json({
       message: 'Đã đánh dấu khách không đến',
       data: result
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
+const extendHold = async (req, res) => {
+  try {
+    const bookingId = normalizeIdParam(req.params.id);
+    const result = await bookingService.extendRoomHoldDeadline(
+      bookingId,
+      { additionalHours: req.body?.additionalHours || 2, note: req.body?.note || '' },
+      req.user || null
+    );
+    res.json({
+      message: result.message || 'Gia hạn giữ phòng thành công',
+      data: result.booking
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
+const reactivateNoShow = async (req, res) => {
+  try {
+    const bookingId = normalizeIdParam(req.params.id);
+    const result = await bookingService.reactivateNoShowBooking(
+      bookingId,
+      { targetRoomId: req.body?.targetRoomId || null, note: req.body?.note || '' },
+      req.user || null
+    );
+    res.json({
+      message: result.message || 'Khôi phục đặt phòng thành công',
+      data: result.booking
     });
   } catch (error) {
     sendError(res, error);
@@ -812,6 +851,8 @@ module.exports = {
   checkIn,
   checkOut,
   markNoShow,
+  extendHold,
+  reactivateNoShow,
   updateArrivalTime,
   processOverdue,
   listServiceRequests,
