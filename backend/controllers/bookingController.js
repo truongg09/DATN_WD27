@@ -580,7 +580,12 @@ const reactivateNoShow = async (req, res) => {
 const checkOut = async (req, res) => {
   try {
     const bookingId = normalizeIdParam(req.params.id);
-    const booking = await bookingService.checkOut(bookingId, req.body?.actualCheckOutTime, req.user || null);
+    const booking = await bookingService.checkOut(
+      bookingId,
+      req.body?.actualCheckOutTime,
+      req.user || null,
+      { waiveLateFee: Boolean(req.body?.waiveLateFee) }
+    );
     if (booking.requiresPayment) {
       return res.status(409).json({
         message: `Đã cộng phí trả phòng muộn ${Number(booking.lateCheckout.feeAmount || 0).toLocaleString('vi-VN')}₫. Vui lòng thu đủ tiền trước khi trả phòng.`,
