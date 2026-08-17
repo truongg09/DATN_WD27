@@ -1,16 +1,19 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { Alert, Button, DatePicker, Form, Input, InputNumber, message, Modal, Pagination, Select, Space, Tag, Tooltip } from 'antd';
+import { Alert, Button, Checkbox, DatePicker, Form, Input, InputNumber, message, Modal, Pagination, Select, Space, Tag, Tooltip } from 'antd';
 import {
+  CheckCircleOutlined,
   CheckOutlined,
   ClockCircleOutlined,
   CloseOutlined,
   DeleteOutlined,
   EditOutlined,
   EyeOutlined,
+  InboxOutlined,
   LogoutOutlined,
   PlusOutlined,
   ReloadOutlined,
+  RiseOutlined,
   StopOutlined,
   SwapOutlined,
   ToolOutlined,
@@ -666,6 +669,8 @@ function BookingManagement() {
   const [conflictData, setConflictData] = useState<any>(null);
   const [reassignLoading, setReassignLoading] = useState<Record<number, boolean>>({});
   const [extendingAfterConflict, setExtendingAfterConflict] = useState(false);
+  const [cleaningRoomLoading, setCleaningRoomLoading] = useState<Record<number, boolean>>({});
+  const [waiveEarlySurcharge, setWaiveEarlySurcharge] = useState(false);
 
   // Trả về mảng booking vừa tải để nơi gọi (VD: sau khi chuyển phòng) có thể
   // lấy ngay bản ghi mới nhất mà không cần đọc lại state bất đồng bộ.
@@ -712,17 +717,11 @@ function BookingManagement() {
   useEffect(() => {
     fetchBookings();
     fetchSupportData();
-    // Chỉ dùng để phát hiện khách đến sớm hơn giờ chuẩn -> hỏi xác nhận
-    // trước khi check-in, không hiển thị note nào khác trong màn hình này.
     getPolicies()
       .then((res) => setPolicies(res.data))
       .catch(() => setPolicies(null));
   }, []);
 
-  // Có phải khách đang đến SỚM hơn giờ nhận phòng chuẩn không (so trên đúng
-  // ngày check_in của booking). Chỉ true khi hôm nay là ngày nhận phòng và
-  // giờ hiện tại còn trước giờ chuẩn; nếu quá ngày (khách đến muộn vài hôm)
-  // thì không tính là "sớm" theo nghĩa cần xác nhận đặc biệt.
   const isEarlyCheckIn = (booking: Booking) => {
     if (!booking.check_in) return false;
     const standardTime = (policies?.checkInTime || '14:00:00').slice(0, 8);
@@ -730,8 +729,58 @@ function BookingManagement() {
     return dayjs().isSame(dayjs(booking.check_in), 'day') && dayjs().isBefore(standardCheckIn);
   };
 
-  // Phòng cùng hạng (so theo room_type_name) đang trống, khác phòng hiện tại
-  // của booking — dùng để gợi ý chuyển khách khi phòng gốc đang bảo trì/dọn dẹp.
+  // Tính chi tiết thời gian đến sớm và mức phụ thu gợi ý
+  const computeEarlyCheckInInfo = (booking?: Booking | null) => {
+    if (!booking || !booking.check_in) {
+      return { isEarly: false, percent: 0, surchargeAmount: 0, timeWindowLabel: '', hoursEarly: 0, description: '' };
+    }
+    const standardTime = (policies?.checkInTime || '14:00:00').slice(0, 8);
+    const standardCheckIn = dayjs(`${dayjs(booking.check_in).format('YYYY-MM-DD')}T${standardTime}`);
+    const now = dayjs();
+    const isEarly = now.isSame(dayjs(booking.check_in), 'day') && now.isBefore(standardCheckIn);
+    if (!isEarly) {
+      return { isEarly: false, percent: 0, surchargeAmount: 0, timeWindowLabel: 'Đúng giờ', hoursEarly: 0, description: '' };
+    }
+
+    const hour = now.hour() + now.minute() / 60;
+    const diffMinutes = Math.max(0, standardCheckIn.diff(now, 'minute'));
+    const hoursEarly = Math.round((diffMinutes / 60) * 10) / 10;
+    let percent = 0;
+    let timeWindowLabel = '';
+    let description = '';
+
+    if (hour < 6) {
+      percent = 100;
+      timeWindowLabel = 'Trước 06:00 (Sáng sớm)';
+      description = 'Phụ thu 100% giá 1 đêm do nhận phòng trước 06:00 sáng';
+    } else if (hour < 9) {
+      percent = 50;
+      timeWindowLabel = '06:00 - 09:00 (Sáng)';
+      description = 'Phụ thu 50% giá 1 đêm do nhận phòng từ 06:00 đến 09:00';
+    } else if (hour < 12) {
+      percent = 30;
+      timeWindowLabel = '09:00 - 12:00 (Trưa)';
+      description = 'Phụ thu 30% giá 1 đêm do nhận phòng từ 09:00 đến 12:00';
+    } else {
+      percent = 0;
+      timeWindowLabel = '12:00 - 14:00 (Miễn phí)';
+      description = 'Miễn phí nhận phòng sớm (từ 12:00 đến 14:00)';
+    }
+
+    const nightlyRate = Number(booking.room_price || booking.total_price || 0);
+    const surchargeAmount = Math.round((nightlyRate * percent) / 100);
+
+    return {
+      isEarly: true,
+      percent,
+      surchargeAmount,
+      timeWindowLabel,
+      hoursEarly,
+      description
+    };
+  };
+
+  // Phòng cùng hạng đang trống
   const getSimilarAvailableRooms = (booking: Booking) =>
     rooms.filter(
       (room) =>
@@ -740,12 +789,21 @@ function BookingManagement() {
         (room.room_type_name || '') === (booking.room_type_name || '')
     );
 
+  // Phòng hạng khác đang trống (có thể nâng cấp)
+  const getUpgradableRooms = (booking: Booking) =>
+    rooms.filter(
+      (room) =>
+        room.status === 'available' &&
+        room.id !== booking.room_id &&
+        (room.room_type_name || '') !== (booking.room_type_name || '')
+    );
+
   const handleReassignSimilarRoom = async (roomId: number) => {
     if (!selectedBooking) return;
     setReassigning(true);
     try {
       await api.patch(`/bookings/${selectedBooking.id}/reassign-room`, { roomId });
-      message.success('Đã chuyển khách sang phòng khác cùng hạng');
+      message.success('Đã chuyển khách sang phòng khác');
       const updatedList = await fetchBookings();
       const updated = updatedList.find((b) => b.id === selectedBooking.id);
       if (updated) {
@@ -757,6 +815,49 @@ function BookingManagement() {
     } finally {
       setReassigning(false);
     }
+  };
+
+  const handleMarkRoomCleaned = async (roomId: number) => {
+    setCleaningRoomLoading((prev) => ({ ...prev, [roomId]: true }));
+    try {
+      await api.patch(`/rooms/${roomId}/mark-cleaned`);
+      message.success(`Phòng đã được chuyển sang trạng thái Sẵn sàng đón khách!`);
+      const updatedList = await fetchBookings();
+      const updated = updatedList.find((b) => b.id === selectedBooking?.id);
+      if (updated) setSelectedBooking(updated);
+      await fetchSupportData();
+    } catch (err: any) {
+      message.error(err.response?.data?.message || 'Không thể cập nhật trạng thái phòng');
+    } finally {
+      setCleaningRoomLoading((prev) => ({ ...prev, [roomId]: false }));
+    }
+  };
+
+  const handleLuggageStorage = (booking: Booking) => {
+    const tagCode = `HL-${booking.id}-${dayjs().format('HHmm')}`;
+    Modal.info({
+      title: '🏷️ Tiếp nhận Gửi Hành lý Tạm thời (Chờ nhận phòng)',
+      width: 520,
+      content: (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 12 }}>
+          <div style={{ padding: '12px 16px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8 }}>
+            <div style={{ marginBottom: 6 }}>
+              Mã thẻ gửi hành lý: <strong style={{ fontSize: 16, color: '#1d4ed8' }}>{tagCode}</strong>
+            </div>
+            <div>Khách hàng: <strong>{booking.customer_name}</strong> · SĐT: {booking.customer_phone || '—'}</div>
+            <div>Phòng dự kiến: <strong>Phòng {booking.room_number}</strong> ({booking.room_type_name})</div>
+            <div>Thời gian tiếp nhận: <strong>{dayjs().format('HH:mm — DD/MM/YYYY')}</strong></div>
+          </div>
+          <Alert
+            type="success"
+            showIcon
+            message="Đã lưu thông tin gửi hành lý tại quầy lễ tân"
+            description="Khách có thể nghỉ ngơi tại sảnh hoặc đi ăn uống trong lúc buồng phòng dọn dẹp. Khi phòng sẵn sàng, lễ tân sẽ báo cho khách nhận phòng."
+          />
+        </div>
+      ),
+      okText: 'Đã hoàn tất tiếp nhận đồ',
+    });
   };
 
   const openOperation = (type: Operation, booking: Booking) => {
@@ -861,8 +962,14 @@ function BookingManagement() {
       }
 
       if (operation === 'guests') {
+        const earlyInfo = computeEarlyCheckInInfo(selectedBooking);
+        const shouldApplySurcharge = earlyInfo.isEarly && !waiveEarlySurcharge && earlyInfo.surchargeAmount > 0;
+
         const response = await api.patch(`/bookings/${selectedBooking.id}/check-in`, {
           guests: values.guests,
+          applyEarlySurcharge: shouldApplySurcharge,
+          earlySurchargeAmount: shouldApplySurcharge ? earlyInfo.surchargeAmount : 0,
+          earlyTimeLabel: earlyInfo.timeWindowLabel,
         });
         const lateCheckIn = response.data?.lateCheckIn;
         message.success(
@@ -1125,48 +1232,155 @@ const handleCheckIn = (booking: Booking) => {
     });
   };
 
-  // Cảnh báo trạng thái phòng ngay trong modal check-in, kèm hành động chuyển
-  // phòng nếu phòng gốc đang bảo trì/dọn dẹp. Chỉ hiển thị cho operation
-  // 'guests' (luồng check-in) — 'declareGuests' là khai báo sau khi đã nhận
-  // phòng nên không còn ý nghĩa kiểm tra sẵn sàng.
+  // Cảnh báo trạng thái phòng ngay trong modal check-in: xử lý 3 kịch bản:
+  // 1. Phòng đang dọn dẹp/bảo trì (maintenance)
+  // 2. Phòng đang có khách khác lưu trú (occupied)
+  // 3. Phòng đã sẵn sàng đón khách (available)
   const renderRoomReadinessNote = () => {
     if (operation !== 'guests' || !selectedBooking) return null;
 
     const status = selectedBooking.room_status || 'available';
+    const similarRooms = getSimilarAvailableRooms(selectedBooking);
+    const upgradeRooms = getUpgradableRooms(selectedBooking);
 
     if (status === 'maintenance') {
-      const similarRooms = getSimilarAvailableRooms(selectedBooking);
       return (
         <Alert
           type="warning"
           showIcon
           style={{ marginBottom: 16 }}
-          title="Phòng đang dọn dẹp / bảo trì"
+          title={
+            <span style={{ fontWeight: 600 }}>
+              ⚠️ Phòng {selectedBooking.room_number || ''} chưa được dọn dẹp / đang bảo trì
+            </span>
+          }
           description={
-            <div>
-              <p style={{ marginBottom: 8 }}>
-                Phòng {selectedBooking.room_number || ''} hiện chưa sẵn sàng đón khách. Vui lòng
-                chuyển khách sang phòng cùng hạng còn trống trước khi check-in.
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 4 }}>
+              <p style={{ margin: 0, fontSize: 13, color: '#334155' }}>
+                Phòng hiện chưa sẵn sàng đón khách. Lễ tân có thể chọn một trong các phương án xử lý nhanh dưới đây:
               </p>
+
+              {similarRooms.length > 0 && (
+                <div style={{ background: '#fff', padding: '8px 12px', borderRadius: 6, border: '1px solid #fed7aa' }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#ea580c', marginBottom: 6 }}>
+                    ✓ Có {similarRooms.length} phòng cùng hạng ({selectedBooking.room_type_name}) đang SẴN SÀNG:
+                  </div>
+                  <Space wrap size="small">
+                    {similarRooms.map((room) => (
+                      <Button
+                        key={room.id}
+                        size="small"
+                        type="primary"
+                        ghost
+                        icon={<SwapOutlined />}
+                        loading={reassigning}
+                        onClick={() => handleReassignSimilarRoom(room.id)}
+                      >
+                        Chuyển sang P.{room.roomNumber}
+                      </Button>
+                    ))}
+                  </Space>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {selectedBooking.room_id && (
+                  <Button
+                    size="small"
+                    icon={<CheckCircleOutlined />}
+                    loading={cleaningRoomLoading[selectedBooking.room_id]}
+                    onClick={() => handleMarkRoomCleaned(selectedBooking.room_id!)}
+                  >
+                    Đã dọn xong, đổi sang Sẵn sàng
+                  </Button>
+                )}
+                <Button
+                  size="small"
+                  icon={<InboxOutlined />}
+                  onClick={() => handleLuggageStorage(selectedBooking)}
+                >
+                  Tiếp nhận gửi hành lý & Chờ dọn phòng
+                </Button>
+              </div>
+            </div>
+          }
+        />
+      );
+    }
+
+    if (status === 'occupied') {
+      return (
+        <Alert
+          type="error"
+          showIcon
+          style={{ marginBottom: 16 }}
+          title={
+            <span style={{ fontWeight: 600 }}>
+              ⛔ Phòng {selectedBooking.room_number || ''} hiện ĐANG CÓ KHÁCH LƯU TRÚ
+            </span>
+          }
+          description={
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 4 }}>
+              <p style={{ margin: 0, fontSize: 13, color: '#334155' }}>
+                Khách của lượt trước chưa trả phòng. Để tránh gián đoạn, vui lòng chọn phòng trống khác để xếp cho khách:
+              </p>
+
               {similarRooms.length > 0 ? (
-                <Space wrap>
-                  {similarRooms.map((room) => (
-                    <Button
-                      key={room.id}
-                      size="small"
-                      loading={reassigning}
-                      onClick={() => handleReassignSimilarRoom(room.id)}
-                    >
-                      Chuyển đến phòng {room.roomNumber}
-                    </Button>
-                  ))}
-                </Space>
+                <div style={{ background: '#fff', padding: '8px 12px', borderRadius: 6, border: '1px solid #fecaca' }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#dc2626', marginBottom: 6 }}>
+                    ✓ Có {similarRooms.length} phòng cùng hạng ({selectedBooking.room_type_name}) đang TRỐNG:
+                  </div>
+                  <Space wrap size="small">
+                    {similarRooms.map((room) => (
+                      <Button
+                        key={room.id}
+                        size="small"
+                        type="primary"
+                        danger
+                        ghost
+                        icon={<SwapOutlined />}
+                        loading={reassigning}
+                        onClick={() => handleReassignSimilarRoom(room.id)}
+                      >
+                        Chuyển sang P.{room.roomNumber}
+                      </Button>
+                    ))}
+                  </Space>
+                </div>
+              ) : upgradeRooms.length > 0 ? (
+                <div style={{ background: '#fff', padding: '8px 12px', borderRadius: 6, border: '1px solid #bfdbfe' }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#1d4ed8', marginBottom: 6 }}>
+                    🚀 Hết phòng cùng hạng. Gợi ý phòng hạng khác có sẵn:
+                  </div>
+                  <Space wrap size="small">
+                    {upgradeRooms.slice(0, 3).map((room) => (
+                      <Button
+                        key={room.id}
+                        size="small"
+                        icon={<RiseOutlined />}
+                        loading={reassigning}
+                        onClick={() => handleReassignSimilarRoom(room.id)}
+                      >
+                        Nâng lên P.{room.roomNumber} ({room.room_type_name})
+                      </Button>
+                    ))}
+                  </Space>
+                </div>
               ) : (
                 <span style={{ color: '#cf1322' }}>
-                  Hiện không còn phòng cùng hạng trống. Vui lòng đổi sang hạng phòng khác, thương
-                  lượng với khách, hoặc chờ dọn xong rồi thử lại.
+                  Hiện tại không còn phòng trống nào khác. Vui lòng hỗ trợ khách gửi hành lý chờ tại sảnh.
                 </span>
               )}
+
+              <Space wrap size="small">
+                <Button
+                  size="small"
+                  icon={<InboxOutlined />}
+                  onClick={() => handleLuggageStorage(selectedBooking)}
+                >
+                  Gửi hành lý tại quầy lễ tân
+                </Button>
+              </Space>
             </div>
           }
         />
@@ -1179,13 +1393,11 @@ const handleCheckIn = (booking: Booking) => {
           type="success"
           showIcon
           style={{ marginBottom: 16 }}
-          title={`Phòng ${selectedBooking.room_number || ''} đã sẵn sàng đón khách`}
+          title={`Phòng ${selectedBooking.room_number || ''} (${selectedBooking.room_type_name || ''}) đã sẵn sàng đón khách`}
         />
       );
     }
 
-    // Trạng thái khác (VD: occupied) không nên xảy ra với booking pending/confirmed,
-    // nhưng vẫn hiển thị để lễ tân chủ động kiểm tra thay vì im lặng bỏ qua.
     return (
       <Alert
         type="info"
@@ -1200,6 +1412,7 @@ const handleCheckIn = (booking: Booking) => {
     if (operation === 'guests') {
       const isPaid = selectedBooking?.payment_status === 'paid';
       const hasDeposit = selectedBooking?.payment_status === 'deposit_paid';
+      const earlyInfo = computeEarlyCheckInInfo(selectedBooking);
 
       return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -1229,6 +1442,40 @@ const handleCheckIn = (booking: Booking) => {
               </div>
             )}
           </div>
+
+          {/* Khối xử lý Check-in sớm & Phụ thu */}
+          {earlyInfo.isEarly && (
+            <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '12px 16px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <span style={{ fontWeight: 600, color: '#1e40af', fontSize: 13 }}>
+                  🌅 Khách nhận phòng SỚM (trước giờ chuẩn {(policies?.checkInTime || '14:00').slice(0, 5)})
+                </span>
+                <Tag color="blue">Đến sớm {earlyInfo.hoursEarly} tiếng</Tag>
+              </div>
+              <div style={{ fontSize: 13, color: '#334155', marginBottom: 8 }}>
+                <div>Khung giờ: <strong>{earlyInfo.timeWindowLabel}</strong></div>
+                <div>Quy định: {earlyInfo.description}</div>
+                {earlyInfo.surchargeAmount > 0 && (
+                  <div style={{ marginTop: 4 }}>
+                    Mức phụ thu tiêu chuẩn: <strong style={{ color: '#b91c1c' }}>+{formatPrice(earlyInfo.surchargeAmount)}</strong> ({earlyInfo.percent}%)
+                  </div>
+                )}
+              </div>
+
+              {earlyInfo.surchargeAmount > 0 && (
+                <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed #93c5fd' }}>
+                  <Checkbox
+                    checked={waiveEarlySurcharge}
+                    onChange={(e) => setWaiveEarlySurcharge(e.target.checked)}
+                  >
+                    <span style={{ fontWeight: 500, color: '#1e3a8a' }}>
+                      🎁 Miễn phí phụ thu check-in sớm cho khách (Hỗ trợ khách hàng / Khách VIP)
+                    </span>
+                  </Checkbox>
+                </div>
+              )}
+            </div>
+          )}
 
           <div>
             <div style={{ fontWeight: 600, color: '#1e293b', marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
