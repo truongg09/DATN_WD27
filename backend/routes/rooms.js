@@ -613,5 +613,19 @@ router.delete('/prices/:id', requireAuth, requireStaff, async (req, res) => {
   }
 });
 
+// Đánh dấu phòng đã dọn xong -> available (Admin/Staff)
+router.patch('/:id/mark-cleaned', requireAuth, requireStaff, async (req, res) => {
+  try {
+    const bookingService = require('../services/bookingService');
+    const roomId = Number(req.params.id);
+    const result = await bookingService.markRoomCleaned(roomId, req.user || null);
+    res.json(result);
+  } catch (error) {
+    console.error('Mark room cleaned error:', error);
+    const statusCode = error.statusCode || 500;
+    res.status(statusCode).json({ message: error.message || 'Lỗi khi cập nhật trạng thái phòng' });
+  }
+});
+
 module.exports = router;
 
