@@ -339,6 +339,8 @@ const deleteServiceCharge = async (req, res) => {
 const saveGuestIdentities = async (req, res) => {
   try {
     const bookingId = normalizeIdParam(req.params.id);
+    const currentBooking = await bookingService.getBookingById(bookingId);
+    ensureBookingAccess(req.user, currentBooking, 'khai báo khách lưu trú');
     const payload = normalizeGuestIdentitiesPayload(req.body);
     const booking = await bookingService.saveGuestIdentities(bookingId, payload, req.user || null);
     res.json({
