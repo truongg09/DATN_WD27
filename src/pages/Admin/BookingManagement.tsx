@@ -5,6 +5,7 @@ import {
   CheckOutlined,
   ClockCircleOutlined,
   CloseOutlined,
+  DeleteOutlined,
   EditOutlined,
   EyeOutlined,
   LogoutOutlined,
@@ -36,6 +37,8 @@ interface Booking {
   check_in: string | null;
   check_out: string | null;
   status: string;
+  booking_code?: string | null;
+  payment_status?: string | null;
   total_price: string | number | null;
   room_price?: string | number | null;
   payable_total?: string | number | null;
@@ -761,15 +764,31 @@ function BookingManagement() {
     setSelectedBooking(booking);
     form.resetFields();
     if (type === 'guests' || type === 'declareGuests') {
-      form.setFieldsValue({
-        guests: [
-          {
-            fullName: booking.customer_name || '',
-            identityNumber: '',
-            phone: booking.customer_phone || '',
-          },
-        ],
-      });
+      const defaultGuests = [
+        {
+          fullName: booking.customer_name || '',
+          identityNumber: '',
+          phone: booking.customer_phone || '',
+        },
+      ];
+      form.setFieldsValue({ guests: defaultGuests });
+
+      // Nếu là khai báo khách hoặc đơn đã có thông tin chi tiết, tải danh sách khách đã lưu
+      api.get(`/bookings/${booking.id}`).then((res: any) => {
+        const fullBooking = res.data?.data || res.data || res;
+        if (fullBooking) {
+          setSelectedBooking(fullBooking);
+          if (Array.isArray(fullBooking.guests) && fullBooking.guests.length > 0) {
+            form.setFieldsValue({
+              guests: fullBooking.guests.map((g: any) => ({
+                fullName: g.fullName || g.full_name || '',
+                identityNumber: g.identityNumber || g.identity_number || '',
+                phone: g.phone || '',
+              })),
+            });
+          }
+        }
+      }).catch(() => {});
     }
     if (type === 'extend') {
       form.setFieldsValue({ checkOut: booking.check_out ? dayjs(booking.check_out).add(1, 'day') : undefined });
@@ -824,7 +843,7 @@ function BookingManagement() {
         if (Array.isArray(values.guests)) {
           for (const g of values.guests) {
             const idNum = String(g?.identityNumber || '').trim();
-            if (!/^\d{12}$/.test(idNum)) {
+            if (idNum && !/^\d{12}$/.test(idNum)) {
               message.error(`Số CCCD của "${g?.fullName || 'người ở'}" phải bao gồm đúng 12 chữ số (không chứa chữ cái hoặc ký hiệu)`);
               return;
             }
@@ -1178,49 +1197,158 @@ const handleCheckIn = (booking: Booking) => {
   };
 
   const renderOperationForm = () => {
-    if (operation === 'guests' || operation === 'declareGuests') {
+    if (operation === 'guests') {
+      const isPaid = selectedBooking?.payment_status === 'paid';
+      const hasDeposit = selectedBooking?.payment_status === 'deposit_paid';
+
       return (
-        <Form.List name="guests">
-          {(fields, { add, remove }) => (
-            <>
-              {fields.map((field) => (
-                <Space key={field.key} align="baseline" wrap>
-                  <Form.Item {...field} name={[field.name, 'fullName']} rules={[{ required: true, message: 'Nhập họ tên' }]}>
-                    <Input placeholder="Họ tên người ở" />
-                  </Form.Item>
-                  <Form.Item
-                    {...field}
-                    name={[field.name, 'identityNumber']}
-                    rules={[
-                      { required: true, message: 'Nhập CCCD' },
-                      { pattern: /^\d{12}$/, message: 'Số CCCD phải bao gồm đúng 12 chữ số (không chứa chữ cái hoặc ký hiệu)' },
-                    ]}
-                  >
-                    <Input
-                      placeholder="CCCD/CMND (12 chữ số)"
-                      maxLength={12}
-                      onChange={(e) => {
-                        const val = e.target.value.replace(/\D/g, '').slice(0, 12);
-                        const currentGuests = form.getFieldValue('guests') || [];
-                        if (currentGuests[field.name]) {
-                          currentGuests[field.name].identityNumber = val;
-                          form.setFieldsValue({ guests: [...currentGuests] });
-                        }
-                      }}
-                    />
-                  </Form.Item>
-                  <Form.Item {...field} name={[field.name, 'phone']}>
-                    <Input placeholder="Số điện thoại" />
-                  </Form.Item>
-                  {fields.length > 1 && <Button danger onClick={() => remove(field.name)}>Xóa</Button>}
-                </Space>
-              ))}
-              <Button icon={<PlusOutlined />} onClick={() => add()}>
-                Thêm người ở
-              </Button>
-            </>
-          )}
-        </Form.List>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {/* Card tóm tắt nhanh đơn đặt phòng */}
+          <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '12px 16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <span style={{ fontSize: 14, fontWeight: 600, color: '#0f172a' }}>
+                Đơn đặt phòng #{selectedBooking?.booking_code || selectedBooking?.id}
+              </span>
+              {isPaid ? (
+                <Tag color="green">Đã thanh toán đủ (100%)</Tag>
+              ) : hasDeposit ? (
+                <Tag color="orange">Đã đặt cọc</Tag>
+              ) : (
+                <Tag color="volcano">Chưa thanh toán</Tag>
+              )}
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '8px 16px', fontSize: 13, color: '#334155' }}>
+              <div><strong>Khách đặt:</strong> {selectedBooking?.customer_name || 'Khách vãng lai'}</div>
+              <div><strong>SĐT:</strong> {selectedBooking?.customer_phone || '—'}</div>
+              <div><strong>Phòng:</strong> Phòng {selectedBooking?.room_number} ({selectedBooking?.room_type_name})</div>
+              <div><strong>Lưu trú:</strong> {formatDate(selectedBooking?.check_in)} → {formatDate(selectedBooking?.check_out)}</div>
+            </div>
+            {!isPaid && (
+              <div style={{ marginTop: 10, padding: '8px 12px', background: '#fffbe6', border: '1px solid #ffe58f', borderRadius: 6, fontSize: 12, color: '#d46b08' }}>
+                ℹ️ <strong>Lưu ý:</strong> Không bắt buộc thanh toán 100% khi nhận phòng. Khoản tiền còn lại có thể thu trước hoặc khi khách trả phòng (Check-out).
+              </div>
+            )}
+          </div>
+
+          <div>
+            <div style={{ fontWeight: 600, color: '#1e293b', marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>Thông tin khách lưu trú & CCCD (Tùy chọn):</span>
+              <span style={{ fontSize: 12, fontWeight: 400, color: '#64748b' }}>Có thể bổ sung sau khi nhận phòng</span>
+            </div>
+            <Form.List name="guests">
+              {(fields, { add, remove }) => (
+                <>
+                  {fields.map((field, index) => (
+                    <Space key={field.key} align="baseline" wrap style={{ display: 'flex', marginBottom: 8 }}>
+                      <Form.Item
+                        {...field}
+                        name={[field.name, 'fullName']}
+                        rules={[{ required: true, message: 'Nhập họ tên' }]}
+                        style={{ marginBottom: 0 }}
+                      >
+                        <Input placeholder={`Họ tên khách ${index + 1}`} />
+                      </Form.Item>
+                      <Form.Item
+                        {...field}
+                        name={[field.name, 'identityNumber']}
+                        rules={[
+                          { pattern: /^\d{12}$/, message: 'Số CCCD phải gồm đúng 12 chữ số' },
+                        ]}
+                        style={{ marginBottom: 0 }}
+                      >
+                        <Input
+                          placeholder="CCCD/CMND (Tùy chọn)"
+                          maxLength={12}
+                          onChange={(e) => {
+                            const val = e.target.value.replace(/\D/g, '').slice(0, 12);
+                            const currentGuests = form.getFieldValue('guests') || [];
+                            if (currentGuests[field.name]) {
+                              currentGuests[field.name].identityNumber = val;
+                              form.setFieldsValue({ guests: [...currentGuests] });
+                            }
+                          }}
+                        />
+                      </Form.Item>
+                      <Form.Item {...field} name={[field.name, 'phone']} style={{ marginBottom: 0 }}>
+                        <Input placeholder="SĐT (Tùy chọn)" />
+                      </Form.Item>
+                      {fields.length > 1 && (
+                        <Button danger icon={<DeleteOutlined />} onClick={() => remove(field.name)} />
+                      )}
+                    </Space>
+                  ))}
+                  <Button type="dashed" icon={<PlusOutlined />} onClick={() => add()} style={{ width: '100%', marginTop: 6 }}>
+                    Thêm người ở cùng
+                  </Button>
+                </>
+              )}
+            </Form.List>
+          </div>
+        </div>
+      );
+    }
+
+    if (operation === 'declareGuests') {
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '10px 14px', fontSize: 13, color: '#334155' }}>
+            Đặt phòng: <strong>#{selectedBooking?.booking_code || selectedBooking?.id}</strong> · Phòng: <strong>Phòng {selectedBooking?.room_number}</strong> ({selectedBooking?.room_type_name}) · Khách đặt: <strong>{selectedBooking?.customer_name}</strong>
+          </div>
+          <Alert
+            type="info"
+            showIcon
+            message="Khai báo hoặc cập nhật CCCD của khách lưu trú trong phòng"
+            description="Lễ tân có thể bổ sung hoặc chỉnh sửa số CCCD, họ tên, số điện thoại của người lưu trú bất kỳ lúc nào."
+          />
+          <Form.List name="guests">
+            {(fields, { add, remove }) => (
+              <>
+                {fields.map((field, index) => (
+                  <Space key={field.key} align="baseline" wrap style={{ display: 'flex', marginBottom: 8 }}>
+                    <Form.Item
+                      {...field}
+                      name={[field.name, 'fullName']}
+                      rules={[{ required: true, message: 'Nhập họ tên' }]}
+                      style={{ marginBottom: 0 }}
+                    >
+                      <Input placeholder={`Họ tên khách ${index + 1}`} />
+                    </Form.Item>
+                    <Form.Item
+                      {...field}
+                      name={[field.name, 'identityNumber']}
+                      rules={[
+                        { pattern: /^\d{12}$/, message: 'Số CCCD phải gồm đúng 12 chữ số' },
+                      ]}
+                      style={{ marginBottom: 0 }}
+                    >
+                      <Input
+                        placeholder="CCCD/CMND (12 chữ số)"
+                        maxLength={12}
+                        onChange={(e) => {
+                          const val = e.target.value.replace(/\D/g, '').slice(0, 12);
+                          const currentGuests = form.getFieldValue('guests') || [];
+                          if (currentGuests[field.name]) {
+                            currentGuests[field.name].identityNumber = val;
+                            form.setFieldsValue({ guests: [...currentGuests] });
+                          }
+                        }}
+                      />
+                    </Form.Item>
+                    <Form.Item {...field} name={[field.name, 'phone']} style={{ marginBottom: 0 }}>
+                      <Input placeholder="Số điện thoại" />
+                    </Form.Item>
+                    {fields.length > 1 && (
+                      <Button danger icon={<DeleteOutlined />} onClick={() => remove(field.name)} />
+                    )}
+                  </Space>
+                ))}
+                <Button type="dashed" icon={<PlusOutlined />} onClick={() => add()} style={{ width: '100%', marginTop: 6 }}>
+                  Thêm người ở cùng
+                </Button>
+              </>
+            )}
+          </Form.List>
+        </div>
       );
     }
 
@@ -1317,8 +1445,8 @@ const handleCheckIn = (booking: Booking) => {
   const currentPage = Math.min(page, totalPages);
 
   const operationTitle: Record<Exclude<Operation, null>, string> = {
-    guests: 'Xác minh CCCD và danh sách người ở',
-    declareGuests: 'Khai báo khách lưu trú',
+    guests: 'Xác nhận nhận phòng (Check-in)',
+    declareGuests: 'Khai báo / Cập nhật CCCD khách lưu trú',
     service: 'Thêm dịch vụ phát sinh',
     damage: 'Thêm phí hư hỏng/mất vật dụng',
     extend: 'Gia hạn thời gian ở',
@@ -1572,9 +1700,15 @@ const handleCheckIn = (booking: Booking) => {
         open={Boolean(operation)}
         onCancel={closeOperation}
         onOk={submitOperation}
-        okText="Lưu"
+        okText={
+          operation === 'guests'
+            ? 'Xác nhận nhận phòng'
+            : operation === 'declareGuests'
+              ? 'Lưu danh sách khách'
+              : 'Lưu'
+        }
         cancelText="Đóng"
-        width={operation === 'guests' || operation === 'declareGuests' ? 900 : 560}
+        width={operation === 'guests' || operation === 'declareGuests' ? 820 : 560}
       >
         {renderRoomReadinessNote()}
         <Form form={form} layout="vertical">
