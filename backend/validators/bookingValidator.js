@@ -407,22 +407,24 @@ const normalizeUpdateStayPayload = (body) => {
 const normalizeGuestIdentitiesPayload = (body) => {
   const guests = Array.isArray(body.guests) ? body.guests : [];
   if (guests.length === 0) {
-    throw new HttpError(400, 'Danh sách khách lưu trú không được để trống');
+    return { guests: [] };
   }
 
   return {
     guests: guests.map((guest, index) => {
       const fullName = String(guest.fullName ?? guest.full_name ?? '').trim();
-      const identityNumber = String(guest.identityNumber ?? guest.cccd ?? guest.identity_number ?? '').trim();
+      const rawIdentity = String(guest.identityNumber ?? guest.cccd ?? guest.identity_number ?? '').trim();
 
       if (!fullName) {
         throw new HttpError(400, `Vui lòng nhập họ tên khách thứ ${index + 1}`);
       }
-      if (!identityNumber) {
-        throw new HttpError(400, `Vui lòng nhập giấy tờ tùy thân của khách thứ ${index + 1}`);
-      }
-      if (!/^\d{12}$/.test(identityNumber)) {
-        throw new HttpError(400, `Số CCCD của khách thứ ${index + 1} (${fullName}) phải bao gồm đúng 12 chữ số (không chứa chữ cái hoặc ký hiệu)`);
+      
+      let identityNumber = null;
+      if (rawIdentity) {
+        if (!/^\d{12}$/.test(rawIdentity)) {
+          throw new HttpError(400, `Số CCCD của khách thứ ${index + 1} (${fullName}) phải bao gồm đúng 12 chữ số (không chứa chữ cái hoặc ký hiệu)`);
+        }
+        identityNumber = rawIdentity;
       }
 
       return {

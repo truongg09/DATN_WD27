@@ -652,7 +652,7 @@ const replaceBookingGuests = async (bookingId, guests, connection) => {
         INSERT INTO booking_guests (bookingId, fullName, identityNumber, phone, note)
         VALUES (?, ?, ?, ?, ?)
       `,
-      [bookingId, guest.fullName, guest.identityNumber, guest.phone || null, guest.note || null]
+      [bookingId, guest.fullName, guest.identityNumber || null, guest.phone || null, guest.note || null]
     );
   }
 };
