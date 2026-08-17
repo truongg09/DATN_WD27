@@ -503,6 +503,15 @@ const BookingDetail: React.FC = () => {
       </div>
 
       <div className="detail-container">
+        {booking.status === 'no_show' && (
+          <Alert
+            type="warning"
+            showIcon
+            message="Thông báo: Đặt phòng đã chuyển sang trạng thái No-show (Khách không đến)"
+            description="Theo quy định của khách sạn, đơn đặt phòng đã quá hạn giữ phòng nên phòng đã được giải phóng. Quý khách đã được tặng mã voucher giảm 10% cho lần đặt tiếp theo. Nếu quý khách có mặt tại khách sạn do sự cố đột xuất, vui lòng liên hệ ngay quầy lễ tân để được hỗ trợ khôi phục nhận phòng."
+            style={{ marginBottom: 16 }}
+          />
+        )}
         <Card title="Thông tin đặt phòng">
           <Descriptions column={{ xs: 1, sm: 2 }} bordered>
             <Descriptions.Item label="Mã đặt phòng">
