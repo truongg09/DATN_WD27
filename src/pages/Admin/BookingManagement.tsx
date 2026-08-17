@@ -1783,7 +1783,14 @@ const handleCheckIn = (booking: Booking) => {
                     <td style={tdStyle}>
                       {(() => {
                         const tag = getBookingDisplayTag(booking);
-                        return <Tag color={tag.color}>{tag.label}</Tag>;
+                        return (
+                          <div>
+                            <Tag color={tag.color}>{tag.label}</Tag>
+                            {isEarlyCheckIn(booking) && ['pending', 'confirmed'].includes(booking.status) && (
+                              <Tag color="cyan" style={{ marginTop: 4, display: 'inline-block' }}>🌅 Đến sớm</Tag>
+                            )}
+                          </div>
+                        );
                       })()}
                     </td>
                     <td style={tdStyle}>
@@ -1813,7 +1820,7 @@ const handleCheckIn = (booking: Booking) => {
                         </Tooltip>
 
                         {['pending', 'confirmed'].includes(booking.status) && (
-                          <Tooltip title="Nhận phòng cho khách">
+                          <Tooltip title={isEarlyCheckIn(booking) ? "Khách đến sớm — Nhận phòng & Phụ thu" : "Nhận phòng cho khách"}>
                             <Button
                               size="small"
                               icon={<CheckOutlined />}
