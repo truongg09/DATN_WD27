@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Card, Descriptions, Tag, Button, Spin, message, Divider, Rate, Input, Space, Upload, Modal, Select, Table } from 'antd';
+import { Card, Descriptions, Tag, Button, Spin, message, Divider, Rate, Input, Space, Upload, Modal, Select, Table, Row, Col } from 'antd';
 import type { UploadFile, UploadProps } from 'antd/es/upload/interface';
-import { FileTextOutlined, CreditCardOutlined, PlusOutlined, StarOutlined, EditOutlined } from '@ant-design/icons';
+import { FileTextOutlined, CreditCardOutlined, PlusOutlined, StarOutlined, EditOutlined, UserOutlined, DeleteOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { getBookingDetail, updateRequestedArrivalTime } from '../../services/bookingService';
 import { getPaymentByBookingId } from '../../services/paymentService';
@@ -144,6 +144,10 @@ const BookingDetail: React.FC = () => {
   const [arrivalNotes, setArrivalNotes] = useState('');
   const [updatingArrivalTime, setUpdatingArrivalTime] = useState(false);
 
+  const [isGuestModalOpen, setIsGuestModalOpen] = useState(false);
+  const [guestList, setGuestList] = useState<Array<{ fullName: string; identityNumber: string; phone?: string; note?: string }>>([]);
+  const [savingGuests, setSavingGuests] = useState(false);
+
   const handleUpdateArrivalTime = async () => {
     if (!newArrivalTime) {
       message.warning('Vui lòng chọn giờ đến dự kiến mới');
@@ -168,6 +172,65 @@ const BookingDetail: React.FC = () => {
       message.error(err.response?.data?.message || 'Không thể cập nhật giờ đến');
     } finally {
       setUpdatingArrivalTime(false);
+    }
+  };
+
+  const openGuestModal = () => {
+    if (bookingGuests.length > 0) {
+      setGuestList(
+        bookingGuests.map((g) => ({
+          fullName: String(g.fullName || ''),
+          identityNumber: String(g.identityNumber || ''),
+          phone: String(g.phone || ''),
+          note: String(g.note || ''),
+        }))
+      );
+    } else {
+      setGuestList([
+        {
+          fullName: String(booking?.guest_name || booking?.customer_name || ''),
+          identityNumber: '',
+          phone: String(booking?.guest_phone || booking?.customer_phone || ''),
+          note: '',
+        },
+      ]);
+    }
+    setIsGuestModalOpen(true);
+  };
+
+  const handleSaveGuests = async () => {
+    for (let i = 0; i < guestList.length; i++) {
+      const g = guestList[i];
+      if (!g.fullName.trim()) {
+        message.warning(`Vui lòng nhập họ tên khách thứ ${i + 1}`);
+        return;
+      }
+      const idNum = String(g.identityNumber || '').trim();
+      if (idNum && !/^\d{12}$/.test(idNum)) {
+        message.warning(`Số CCCD của khách "${g.fullName}" phải gồm đúng 12 chữ số`);
+        return;
+      }
+    }
+
+    setSavingGuests(true);
+    try {
+      await api.post(`/bookings/${bookingId}/guests`, {
+        guests: guestList.map((g) => ({
+          fullName: g.fullName.trim(),
+          identityNumber: g.identityNumber ? g.identityNumber.trim() : null,
+          phone: g.phone ? g.phone.trim() : null,
+          note: g.note ? g.note.trim() : null,
+        })),
+      });
+      message.success('Đã cập nhật thông tin khách lưu trú thành công!');
+      setIsGuestModalOpen(false);
+      const res = await getBookingDetail(bookingId);
+      setBooking(res.data as Record<string, unknown>);
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { message?: string } } };
+      message.error(err.response?.data?.message || 'Không thể lưu thông tin khách lưu trú');
+    } finally {
+      setSavingGuests(false);
     }
   };
 
@@ -617,8 +680,23 @@ const BookingDetail: React.FC = () => {
           )}
         </Card>
 
-        {bookingGuests.length > 0 && (
-          <Card title={`Danh sách khách lưu trú (${bookingGuests.length})`}>
+        <Card
+          title={`Danh sách khách lưu trú & CCCD (${bookingGuests.length})`}
+          extra={
+            ['pending', 'confirmed', 'checked_in'].includes(String(booking.status)) ? (
+              <Button
+                type="primary"
+                ghost
+                size="small"
+                icon={<UserOutlined />}
+                onClick={openGuestModal}
+              >
+                {bookingGuests.length > 0 ? 'Cập nhật / Bổ sung CCCD' : 'Khai báo thông tin khách & CCCD'}
+              </Button>
+            ) : null
+          }
+        >
+          {bookingGuests.length > 0 ? (
             <Descriptions column={{ xs: 1, sm: 2 }} bordered>
               {bookingGuests.map((guest, index) => (
                 <Descriptions.Item
@@ -626,13 +704,17 @@ const BookingDetail: React.FC = () => {
                   label={`Khách ${index + 1}`}
                 >
                   <strong>{String(guest.fullName)}</strong>
-                  <div>Giấy tờ: {String(guest.identityNumber || '-')}</div>
+                  <div>Giấy tờ / CCCD: {String(guest.identityNumber || 'Chưa bổ sung')}</div>
                   <div>SĐT: {String(guest.phone || '-')}</div>
                 </Descriptions.Item>
               ))}
             </Descriptions>
-          </Card>
-        )}
+          ) : (
+            <div style={{ padding: '8px 0', color: '#64748b' }}>
+              Chưa có thông tin CCCD người ở. Quý khách có thể bổ sung sau khi nhận phòng để thuận tiện cho việc lưu trú.
+            </div>
+          )}
+        </Card>
 
         {payment && (
           <Card
@@ -1063,6 +1145,108 @@ const BookingDetail: React.FC = () => {
             value={arrivalNotes}
             onChange={(e) => setArrivalNotes(e.target.value)}
           />
+        </div>
+      </Modal>
+
+      <Modal
+        title="Khai báo / Bổ sung thông tin khách lưu trú & CCCD"
+        open={isGuestModalOpen}
+        onCancel={() => !savingGuests && setIsGuestModalOpen(false)}
+        onOk={handleSaveGuests}
+        confirmLoading={savingGuests}
+        okText="Lưu thông tin"
+        cancelText="Đóng"
+        width={720}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '10px 14px', fontSize: 13, color: '#334155' }}>
+            Đặt phòng: <strong>#{String(booking?.booking_code || booking?.id || '')}</strong> · {String(booking?.room_type_name || '')}
+          </div>
+          <div style={{ fontSize: 13, color: '#64748b' }}>
+            Quý khách có thể bổ sung họ tên, CCCD/CMND của bản thân và các thành viên cùng phòng bất cứ lúc nào trước hoặc sau khi nhận phòng.
+          </div>
+          {guestList.map((guest, index) => (
+            <Card
+              key={index}
+              size="small"
+              title={<span style={{ fontWeight: 600, fontSize: 13 }}>Khách {index + 1} {index === 0 ? '(Người đại diện đặt)' : ''}</span>}
+              extra={
+                guestList.length > 1 ? (
+                  <Button
+                    danger
+                    type="text"
+                    size="small"
+                    icon={<DeleteOutlined />}
+                    onClick={() => {
+                      setGuestList((prev) => prev.filter((_, i) => i !== index));
+                    }}
+                  >
+                    Xóa
+                  </Button>
+                ) : null
+              }
+              style={{ borderRadius: 8 }}
+            >
+              <Row gutter={[12, 12]}>
+                <Col xs={24} sm={8}>
+                  <div style={{ marginBottom: 4, fontSize: 12, fontWeight: 500 }}>Họ và tên *</div>
+                  <Input
+                    placeholder="Họ tên người ở"
+                    value={guest.fullName}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setGuestList((prev) => {
+                        const next = [...prev];
+                        next[index] = { ...next[index], fullName: val };
+                        return next;
+                      });
+                    }}
+                  />
+                </Col>
+                <Col xs={24} sm={8}>
+                  <div style={{ marginBottom: 4, fontSize: 12, fontWeight: 500 }}>Số CCCD / CMND (Tùy chọn)</div>
+                  <Input
+                    placeholder="CCCD (12 chữ số)"
+                    maxLength={12}
+                    value={guest.identityNumber}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/\D/g, '').slice(0, 12);
+                      setGuestList((prev) => {
+                        const next = [...prev];
+                        next[index] = { ...next[index], identityNumber: val };
+                        return next;
+                      });
+                    }}
+                  />
+                </Col>
+                <Col xs={24} sm={8}>
+                  <div style={{ marginBottom: 4, fontSize: 12, fontWeight: 500 }}>Số điện thoại (Tùy chọn)</div>
+                  <Input
+                    placeholder="Số điện thoại"
+                    value={guest.phone || ''}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setGuestList((prev) => {
+                        const next = [...prev];
+                        next[index] = { ...next[index], phone: val };
+                        return next;
+                      });
+                    }}
+                  />
+                </Col>
+              </Row>
+            </Card>
+          ))}
+          <Button
+            type="dashed"
+            icon={<PlusOutlined />}
+            onClick={() => {
+              setGuestList((prev) => [...prev, { fullName: '', identityNumber: '', phone: '', note: '' }]);
+            }}
+            style={{ borderRadius: 8, height: 40 }}
+          >
+            Thêm người ở cùng phòng
+          </Button>
         </div>
       </Modal>
     </div>
