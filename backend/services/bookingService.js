@@ -4177,6 +4177,18 @@ const checkIn = async (bookingId, payload = {}, actor = null) => {
     }
     await bookingModel.updateActualCheckInTime(bookingId, now, connection);
 
+    let earlySurchargeRecord = null;
+    if (payload.applyEarlySurcharge && Number(payload.earlySurchargeAmount || 0) > 0) {
+      const surchargeAmt = Number(payload.earlySurchargeAmount);
+      const timeLabel = payload.earlyTimeLabel ? ` (${payload.earlyTimeLabel})` : '';
+      const [svcRes] = await connection.query(
+        `INSERT INTO booking_services (bookingId, roomId, serviceId, unitPrice, quantity, totalPrice, status, usedAt)
+         VALUES (?, ?, NULL, ?, 1, ?, 'used', ?)`,
+        [bookingId, roomIds[0] || null, surchargeAmt, surchargeAmt, now]
+      );
+      earlySurchargeRecord = { id: svcRes.insertId, amount: surchargeAmt };
+    }
+
     const wasLate = checkInTiming === "late";
     const timingLabel = CHECK_IN_TIMING_LABEL[checkInTiming];
     const roomNumbersStr = details.length > 0
@@ -4184,8 +4196,10 @@ const checkIn = async (bookingId, payload = {}, actor = null) => {
       : (booking.room_number || booking.room_id || "");
 
     const paymentNote = hasUnpaidDebt
-      ? ` (Đã thanh toán: ${displayMoney(paidAmount)}, còn lại: ${displayMoney(remainingAmount)})`
-      : ` (Đã thanh toán đủ: ${displayMoney(paidAmount)})`;
+      ? ` (Đã thanh toán: ${displayMoney(paidAmount)}, còn lại: ${displayMoney(remainingAmount + (earlySurchargeRecord?.amount || 0))})`
+      : earlySurchargeRecord
+        ? ` (Đã thanh toán: ${displayMoney(paidAmount)}, phụ thu check-in sớm: +${displayMoney(earlySurchargeRecord.amount)})`
+        : ` (Đã thanh toán đủ: ${displayMoney(paidAmount)})`;
 
     await logHistory(
       bookingId,
@@ -4209,11 +4223,12 @@ const checkIn = async (bookingId, payload = {}, actor = null) => {
       checkInTiming,
       lateCheckIn: wasLate,
       paidAmount,
-      remainingAmount,
-      hasUnpaidDebt,
+      remainingAmount: remainingAmount + (earlySurchargeRecord?.amount || 0),
+      hasUnpaidDebt: (remainingAmount + (earlySurchargeRecord?.amount || 0)) > 0,
+      earlySurcharge: earlySurchargeRecord,
       message:
         checkInTiming === "early"
-          ? "Check-in sớm thành công. Phòng đã sẵn sàng đón khách."
+          ? (earlySurchargeRecord ? `Check-in sớm thành công (+${displayMoney(earlySurchargeRecord.amount)} phụ thu). Phòng đã sẵn sàng đón khách.` : "Check-in sớm thành công. Phòng đã sẵn sàng đón khách.")
           : checkInTiming === "late"
             ? "Check-in muộn thành công. Phòng vẫn được giữ theo cam kết vì khách đã thanh toán."
             : "Check-in thành công",
@@ -4221,6 +4236,30 @@ const checkIn = async (bookingId, payload = {}, actor = null) => {
   } catch (error) {
     await connection.rollback();
     throw error;
+  } finally {
+    connection.release();
+  }
+};
+
+const markRoomCleaned = async (roomId, actor = null) => {
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [roomRows] = await connection.query(`SELECT id, roomNumber, status FROM rooms WHERE id = ? FOR UPDATE`, [roomId]);
+    const room = roomRows[0];
+    if (!room) {
+      throw new HttpError(404, "Không tìm thấy phòng");
+    }
+    await bookingModel.updateRoomStatus(roomId, "available", connection);
+    await connection.commit();
+    return {
+      success: true,
+      message: `Phòng ${room.roomNumber || roomId} đã được chuyển sang trạng thái Sẵn sàng`,
+      room: { id: Number(roomId), roomNumber: room.roomNumber, status: "available" }
+    };
+  } catch (err) {
+    await connection.rollback();
+    throw err;
   } finally {
     connection.release();
   }
@@ -5884,6 +5923,7 @@ module.exports = {
   checkIn,
   checkOut,
   markNoShow,
+  markRoomCleaned,
   processOverdueCheckIns,
   updateBookingRequestedCheckInTime,
   reassignConflictingBooking,
