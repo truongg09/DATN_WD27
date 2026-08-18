@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { useForm, Controller } from "react-hook-form";
 import { Button,
@@ -6,15 +6,12 @@ import { Button,
   Input,
   InputNumber,
   Select,
-  Space,
-  TimePicker,
   Tag,
   message,
 } from "antd";
 import {
   ArrowRightOutlined,
   CalendarOutlined,
-  ClockCircleOutlined,
   HistoryOutlined,
   MailOutlined,
   PhoneOutlined,
@@ -42,8 +39,6 @@ import type {
   RoomTypeSearchResult,
   NightlyPriceItem,
 } from "../../services/roomService";
-import { getServices } from "../../services/serviceService";
-import type { Service } from "../../types/service";
 import { unwrapList } from "../../utils/unwrapList";
 import { BOOKING_STATUS_META } from "../../constants/bookingStatus";
 import api from "../../services/api";
@@ -68,8 +63,6 @@ interface BookingFormData {
   adults: number;
   children: number;
   specialRequests: string;
-  requestedCheckInTime: string | null;
-  requestedCheckOutTime: string | null;
 }
 
 interface RoomTypeOption {
@@ -180,13 +173,6 @@ const Booking: React.FC = () => {
   const [extraTypePreview, setExtraTypePreview] = useState<
     Record<number, { total: number; prices: NightlyPriceItem[] }>
   >({});
-  const [services, setServices] = useState<Service[]>([]);
-  // Mỗi dòng là một lượt chọn riêng (key tự tăng), nên cùng một dịch vụ có thể
-  // xuất hiện nhiều dòng cho các phòng khác nhau.
-  const [serviceRequests, setServiceRequests] = useState<
-    { key: number; serviceId: number | null; quantity: number; roomIndex?: number }[]
-  >([]);
-  const serviceLineKey = useRef(1);
   const [childrenAges, setChildrenAges] = useState<(number | null)[]>([]);
   const [policies, setPolicies] = useState<PoliciesInfo | null>(null);
 
@@ -205,8 +191,6 @@ const Booking: React.FC = () => {
       adults: 2,
       children: 0,
       specialRequests: "",
-      requestedCheckInTime: null,
-      requestedCheckOutTime: null,
     },
   });
 
@@ -279,18 +263,6 @@ const Booking: React.FC = () => {
   }, [user, setValue]);
 
   useEffect(() => {
-    const loadServices = async () => {
-      try {
-        setServices(await getServices());
-      } catch {
-        setServices([]);
-      }
-    };
-
-    loadServices();
-  }, []);
-
-  useEffect(() => {
     const loadPolicies = async () => {
       try {
         const response = await getPolicies();
@@ -304,26 +276,6 @@ const Booking: React.FC = () => {
   }, []);
 
   const shortTime = (time?: string) => (time ? time.slice(0, 5) : "");
-
-  const addServiceLine = () => {
-    setServiceRequests((prev) => [
-      ...prev,
-      { key: serviceLineKey.current++, serviceId: null, quantity: 1, roomIndex: 1 },
-    ]);
-  };
-
-  const removeServiceLine = (key: number) => {
-    setServiceRequests((prev) => prev.filter((s) => s.key !== key));
-  };
-
-  const updateServiceLine = (
-    key: number,
-    patch: Partial<{ serviceId: number | null; quantity: number; roomIndex: number }>,
-  ) => {
-    setServiceRequests((prev) =>
-      prev.map((s) => (s.key === key ? { ...s, ...patch } : s)),
-    );
-  };
 
   const handleAddExtraRoomType = () => {
     if (!selectedRoom) return;
@@ -989,62 +941,6 @@ const Booking: React.FC = () => {
   const totalSelectedRooms =
     activeRoomQuantity + extraRoomTypes.reduce((sum, line) => sum + line.quantity, 0);
 
-  // Danh sách từng phòng vật lý theo ĐÚNG thứ tự máy chủ sẽ xếp phòng: hạng
-  // chính trước (nhân theo số lượng), rồi tới các hạng đặt thêm theo thứ tự
-  // khách thêm vào. Thứ tự này chính là ý nghĩa của roomIndex trong payload.
-  const roomSlots = selectedRoom
-    ? [
-        ...Array.from({ length: activeRoomQuantity }, () => ({
-          typeName: selectedRoom.name,
-        })),
-        ...extraRoomTypes.flatMap((line) => {
-          const type = roomTypes.find((t) => t.id === line.roomTypeId);
-          return Array.from({ length: line.quantity }, () => ({
-            typeName: type?.typeName || "Phòng",
-          }));
-        }),
-      ]
-    : [];
-
-  // Tên gợi nhớ do khách tự đặt cho từng phòng ("Phòng bố mẹ", "Phòng vợ chồng").
-  // Lúc đặt online khách chưa biết số phòng thật, nên đây là cách duy nhất để
-  // phân biệt các phòng CÙNG hạng khi gán dịch vụ.
-  const [roomLabels, setRoomLabels] = useState<string[]>([]);
-
-  const roomSlotLabel = (index: number) => {
-    const custom = (roomLabels[index] || "").trim();
-    const type = roomSlots[index]?.typeName;
-    if (custom) return type ? `${custom} (${type})` : custom;
-    return type ? `Phòng ${index + 1} (${type})` : `Phòng ${index + 1}`;
-  };
-
-  const updateRoomLabel = (index: number, value: string) => {
-    setRoomLabels((prev) => {
-      const next = [...prev];
-      while (next.length < totalSelectedRooms) next.push("");
-      next[index] = value;
-      return next.slice(0, totalSelectedRooms);
-    });
-  };
-
-  // Giảm số phòng thì các dòng dịch vụ đang trỏ tới phòng vừa bị bỏ phải kéo về
-  // trong khoảng hợp lệ, nếu không máy chủ trả 400 "Phòng được chọn không hợp lệ"
-  // mà trên màn hình vẫn thấy số phòng cũ.
-  useEffect(() => {
-    setServiceRequests((prev) => {
-      let changed = false;
-      const next = prev.map((line) => {
-        const clamped = Math.min(Math.max(line.roomIndex ?? 1, 1), totalSelectedRooms);
-        if (clamped !== line.roomIndex) {
-          changed = true;
-          return { ...line, roomIndex: clamped };
-        }
-        return line;
-      });
-      return changed ? next : prev;
-    });
-  }, [totalSelectedRooms]);
-
   // Hỏi máy chủ tiền phòng thật của từng hạng đặt thêm để khách nhìn thấy ngay
   // phần tăng giá ngày lễ / cuối tuần, thay vì chỉ nhân giá niêm yết với số đêm.
   const extraTypeIdsKey = extraRoomTypes
@@ -1086,35 +982,6 @@ const Booking: React.FC = () => {
       cancelled = true;
     };
   }, [extraTypeIdsKey, dateRange]);
-
-  const serviceAmount = serviceRequests.reduce((total, request) => {
-    if (!request.serviceId) return total;
-    const service = services.find((item) => item.id === request.serviceId);
-    return total + Number(service?.price || 0) * request.quantity;
-  }, 0);
-
-  const getServiceUsageRule = (service: Service) => {
-    const name = service.serviceName.toLocaleLowerCase("vi");
-    if (name.includes("breakfast") || name.includes("ăn sáng"))
-      return "Sử dụng 06:30–10:00 mỗi ngày lưu trú.";
-    if (name.includes("dinner") || name.includes("tối"))
-      return "Sử dụng 18:00–21:30; đăng ký trước 16:00.";
-    if (name.includes("spa") || name.includes("massage"))
-      return "Sử dụng 09:00–22:00; đặt lịch trước ít nhất 2 giờ.";
-    if (name.includes("airport") || name.includes("đưa đón"))
-      return "Cung cấp giờ bay trước ít nhất 24 giờ.";
-    if (
-      name.includes("laundry") ||
-      name.includes("giặt") ||
-      name.includes("sấy")
-    )
-      return "Nhận đồ trước 10:00, hoàn trả trong ngày hoặc theo mô tả.";
-    if (name.includes("extra bed") || name.includes("giường"))
-      return "Tối đa 1 giường phụ/phòng; đăng ký trước 18:00 ngày nhận phòng.";
-    if (name.includes("bicycle") || name.includes("xe đạp"))
-      return "Sử dụng 06:00–20:00, trả xe trong ngày.";
-    return "Sử dụng trong thời gian lưu trú; vui lòng liên hệ lễ tân để hẹn giờ.";
-  };
 
   const formatPrice = (price: number) => {
     return new Intl.NumberFormat("vi-VN").format(price) + "₫";
@@ -1324,28 +1191,6 @@ const Booking: React.FC = () => {
         children: totalBookingChildren,
         childrenAges: allValidChildrenAges,
         notes: data.specialRequests || null,
-        serviceRequests: serviceRequests
-          .filter((line) => line.serviceId)
-          .map(({ serviceId, quantity, roomIndex }) => ({
-            serviceId,
-            quantity,
-            // Đơn một phòng thì không cần chỉ định phòng nào. Kẹp lại trong
-            // khoảng hợp lệ để không gửi lên số phòng đã bị bỏ đi.
-            roomIndex:
-              totalSelectedRooms > 1
-                ? Math.min(Math.max(roomIndex ?? 1, 1), totalSelectedRooms)
-                : undefined,
-          })),
-        // Tên khách tự đặt cho từng phòng, theo đúng thứ tự roomIndex. Gửi lên
-        // để lễ tân biết phòng nào là phòng nào lúc mang dịch vụ tới.
-        roomLabels:
-          totalSelectedRooms > 1
-            ? Array.from({ length: totalSelectedRooms }, (_, idx) =>
-                (roomLabels[idx] || "").trim(),
-              )
-            : undefined,
-        requestedCheckInTime: data.requestedCheckInTime || null,
-        requestedCheckOutTime: data.requestedCheckOutTime || null,
         status: "confirmed",
       });
 
@@ -2148,202 +1993,6 @@ const Booking: React.FC = () => {
               </div>
             </div>
 
-            {/* Section 3: Dịch vụ bổ sung */}
-            <div className="booking-section services-section">
-              <h2>Dịch vụ bổ sung</h2>
-
-              {/* Đặt tên cho từng phòng. Lúc đặt online khách chưa biết số phòng
-                  thật (lễ tân xếp phòng khi nhận phòng), nên với các phòng cùng
-                  hạng thì tên gợi nhớ là cách duy nhất để phân biệt khi gán dịch
-                  vụ. Tên này cũng hiện lại cho lễ tân lúc phục vụ. */}
-              {totalSelectedRooms > 1 && (
-                <div className="form-group room-naming-block">
-                  <label>Đặt tên cho từng phòng (tùy chọn)</label>
-                  <small className="room-naming-hint">
-                    Giúp bạn chọn đúng phòng khi thêm dịch vụ bên dưới, ví dụ
-                    “Phòng bố mẹ”, “Phòng vợ chồng”. Bỏ trống cũng được.
-                  </small>
-                  <div className="room-naming-grid">
-                    {roomSlots.map((slot, idx) => (
-                      <div className="room-naming-row" key={idx}>
-                        <span className="room-naming-index">
-                          Phòng {idx + 1}
-                          <em>{slot.typeName}</em>
-                        </span>
-                        <Input
-                          size="middle"
-                          maxLength={40}
-                          allowClear
-                          placeholder={`Tên gợi nhớ cho phòng ${idx + 1}`}
-                          value={roomLabels[idx] || ""}
-                          onChange={(event) => updateRoomLabel(idx, event.target.value)}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div className="form-group">
-                <label>Dịch vụ của phòng (tùy chọn)</label>
-
-                {serviceRequests.length > 0 && (
-                  <div className="service-request-list">
-                    {serviceRequests.map((line) => {
-                      const svc = services.find((s) => s.id === line.serviceId);
-                      const isBedService = svc
-                        ? svc.serviceName.toLocaleLowerCase("vi").includes("extra bed") ||
-                          svc.serviceName.toLocaleLowerCase("vi").includes("giường")
-                        : false;
-                      return (
-                        <div className="service-request-row" key={line.key}>
-                          <span className="service-request-name" style={{ flex: 1 }}>
-                            <Select
-                              size="middle"
-                              style={{ width: "100%" }}
-                              placeholder="Chọn dịch vụ"
-                              value={line.serviceId ?? undefined}
-                              onChange={(v) => updateServiceLine(line.key, { serviceId: v })}
-                              optionFilterProp="label"
-                              showSearch
-                              options={services.map((sv) => ({
-                                value: sv.id,
-                                label: `${sv.serviceName} - ${formatMoney(sv.price)}`,
-                              }))}
-                            />
-                            {svc && (
-                              <small className="service-usage-rule">
-                                {getServiceUsageRule(svc)}
-                              </small>
-                            )}
-                          </span>
-                          <Space align="center">
-                            {/* Nhãn lấy từ tên khách tự đặt ở phần trên, kèm hạng
-                                phòng. Trước đây chỉ ghi "Phòng 1/2/3" nên đặt 3
-                                phòng cùng hạng thì ba lựa chọn giống hệt nhau,
-                                khách không có cách nào biết cái nào là cái nào. */}
-                            {totalSelectedRooms > 1 && (
-                              <Select
-                                size="middle"
-                                value={line.roomIndex || 1}
-                                onChange={(v) => updateServiceLine(line.key, { roomIndex: v })}
-                                style={{ minWidth: 190 }}
-                                title="Dịch vụ này dành cho phòng nào"
-                                options={Array.from({ length: totalSelectedRooms }, (_, idx) => ({
-                                  value: idx + 1,
-                                  label: roomSlotLabel(idx),
-                                }))}
-                              />
-                            )}
-                            <InputNumber
-                              min={1}
-                              max={isBedService ? 1 : 20}
-                              value={line.quantity}
-                              onChange={(v) =>
-                                updateServiceLine(line.key, { quantity: Number(v || 1) })
-                              }
-                              addonBefore="SL"
-                            />
-                            <Button
-                              type="text"
-                              danger
-                              onClick={() => removeServiceLine(line.key)}
-                            >
-                              Xóa
-                            </Button>
-                          </Space>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-
-                <Button
-                  type="dashed"
-                  block
-                  style={{ marginTop: serviceRequests.length > 0 ? 8 : 0 }}
-                  onClick={addServiceLine}
-                >
-                  + Thêm dịch vụ
-                </Button>
-                {serviceRequests.length > 0 && (
-                  <p className="service-request-note">
-                    * Dịch vụ đã chọn được giữ cùng phòng và cộng ngay vào tổng
-                    thanh toán. Có thể chọn cùng một dịch vụ cho nhiều phòng.
-                  </p>
-                )}
-              </div>
-            </div>
-
-            {/* Section 4: Tùy chọn thời gian */}
-            <div className="booking-section time-options-section">
-              <h2>Tùy chọn thời gian</h2>
-              <p className="section-subtitle-note">
-                Không bắt buộc · Lễ tân sẽ chuẩn bị phòng theo giờ bạn chọn; giờ trả chỉ nhận đến giờ chuẩn.
-              </p>
-              <div className="form-row two-col stay-time-grid">
-                <div className="form-group">
-                  <label>Giờ nhận phòng mong muốn</label>
-                  <Controller
-                    name="requestedCheckInTime"
-                    control={control}
-                    render={({ field }) => (
-                      <TimePicker
-                        style={{ width: "100%" }}
-                        size="large"
-                        format="HH:mm"
-                        minuteStep={15}
-                        placeholder={`Mặc định ${shortTime(policies?.checkInTime) || "14:00"}`}
-                        suffixIcon={<ClockCircleOutlined />}
-                        value={field.value ? dayjs(field.value, "HH:mm") : null}
-                        onChange={(time) =>
-                          field.onChange(time ? time.format("HH:mm") : null)
-                        }
-                      />
-                    )}
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Giờ trả phòng mong muốn</label>
-                  <Controller
-                    name="requestedCheckOutTime"
-                    control={control}
-                    render={({ field }) => {
-                      const standard = dayjs(
-                        policies?.checkOutTime || "12:00:00",
-                        "HH:mm:ss",
-                      );
-                      return (
-                        <TimePicker
-                          style={{ width: "100%" }}
-                          size="large"
-                          format="HH:mm"
-                          minuteStep={15}
-                          placeholder={`Mặc định ${shortTime(policies?.checkOutTime) || "12:00"}`}
-                          suffixIcon={<ClockCircleOutlined />}
-                          value={field.value ? dayjs(field.value, "HH:mm") : null}
-                          disabledTime={() => ({
-                            disabledHours: () =>
-                              Array.from({ length: 24 }, (_, h) => h).filter(
-                                (h) => h > standard.hour(),
-                              ),
-                            disabledMinutes: (selectedHour) =>
-                              selectedHour === standard.hour()
-                                ? Array.from({ length: 60 }, (_, m) => m).filter(
-                                    (m) => m > standard.minute(),
-                                  )
-                                : [],
-                          })}
-                          onChange={(time) =>
-                            field.onChange(time ? time.format("HH:mm") : null)
-                          }
-                        />
-                      );
-                    }}
-                  />
-                </div>
-              </div>
-            </div>
 
             {/* Section 5: Yêu cầu đặc biệt */}
             <div className="booking-section special-requests-section">
@@ -2558,20 +2207,13 @@ const Booking: React.FC = () => {
                               <span>+{formatPrice(totalExtraGuestFee)}</span>
                             </div>
                           )}
-                          {serviceAmount > 0 && (
-                            <div className="summary-row">
-                              <span>Dịch vụ bổ sung</span>
-                              <span>+{formatPrice(serviceAmount)}</span>
-                            </div>
-                          )}
                           <div className="summary-row total">
                             <span>Tổng cộng (tạm tính)</span>
                             <span className="total-price">
                               {formatPrice(
                                 actualStayRoomTotal +
                                   extraRoomsAmount +
-                                  totalExtraGuestFee +
-                                  serviceAmount,
+                                  totalExtraGuestFee,
                               )}
                             </span>
                           </div>
