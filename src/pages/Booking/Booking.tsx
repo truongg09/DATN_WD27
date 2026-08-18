@@ -2326,7 +2326,7 @@ const Booking: React.FC = () => {
                         <h4>{selectedRoom.name}</h4>
                         <div className="room-summary-heading-right">
                           <span className="room-summary-price">
-                            {formatMoney(selectedRoom.price)}/đêm
+                            {formatMoney(selectedRoom.price)}
                           </span>
                           {selectedRoom.mode === "room" && (
                             <span
@@ -2347,12 +2347,9 @@ const Booking: React.FC = () => {
                       <p className="room-summary-meta">
                         {activeRoomQuantity} phòng đã chọn
                       </p>
-                      <p>
-                        <FontAwesomeIcon icon={faBed} /> Sức chứa:{" "}
-                        {selectedRoom.beds}
-                      </p>
-                      {/* Phụ thu của chính hạng phòng này, để khách hiểu vì sao
-                          tổng cao hơn giá niêm yết nhân số đêm. */}
+                      {/* Phụ thu của chính hạng phòng này, đặt ngay dưới số
+                          lượng phòng để khách hiểu vì sao tổng cao hơn giá
+                          niêm yết nhân số đêm. */}
                       {nights > 0 &&
                         (() => {
                           const s = summarizeSurcharges(
@@ -2366,7 +2363,9 @@ const Booking: React.FC = () => {
                                 <span className="surcharge-line holiday">
                                   Phụ thu ngày lễ ({s.holidayNights} đêm
                                   {s.holidayNames.length > 0
-                                    ? `: ${s.holidayNames.join(", ")}`
+                                    ? `: ${s.holidayNames.slice(0, 2).join(", ")}${
+                                        s.holidayNames.length > 2 ? "…" : ""
+                                      }`
                                     : ""}
                                   ): +{formatMoney(s.holidayAmount)}
                                 </span>
@@ -2380,6 +2379,10 @@ const Booking: React.FC = () => {
                             </div>
                           );
                         })()}
+                      <p>
+                        <FontAwesomeIcon icon={faBed} /> Sức chứa:{" "}
+                        {selectedRoom.beds}
+                      </p>
                     </div>
                   </div>
 
@@ -2417,16 +2420,12 @@ const Booking: React.FC = () => {
                             <h4>{type.typeName}</h4>
                             <div className="room-summary-heading-right">
                               <span className="room-summary-price">
-                                {formatMoney(Number(type.defaultPrice || 0))}/đêm
+                                {formatMoney(Number(type.defaultPrice || 0))}
                               </span>
                             </div>
                           </div>
                           <p className="room-summary-meta">
                             {line.quantity} phòng đã chọn
-                          </p>
-                          <p>
-                            <FontAwesomeIcon icon={faBed} /> Sức chứa:{" "}
-                            {typeAdultCapacity} người lớn + {typeChildCapacity} trẻ em (Tối đa {typeMaxOccupancy} khách)
                           </p>
                           {nights > 0 &&
                             (() => {
@@ -2457,6 +2456,10 @@ const Booking: React.FC = () => {
                                 </div>
                               );
                             })()}
+                          <p>
+                            <FontAwesomeIcon icon={faBed} /> Sức chứa:{" "}
+                            {typeAdultCapacity} người lớn + {typeChildCapacity} trẻ em (Tối đa {typeMaxOccupancy} khách)
+                          </p>
                         </div>
                       </div>
                     );
