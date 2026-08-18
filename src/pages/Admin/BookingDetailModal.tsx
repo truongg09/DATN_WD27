@@ -209,6 +209,23 @@ const dateTime = (value?: string | null) => {
   return parsed.isValid() ? parsed.format('HH:mm — DD/MM/YYYY') : '—';
 };
 
+const roomStatusText: Record<string, string> = {
+  vacant: 'Còn trống',
+  occupied: 'Đang có khách',
+  reserved: 'Đã đặt trước',
+  dirty: 'Bẩn (chưa dọn)',
+  clean: 'Sạch',
+  maintenance: 'Bảo trì / Sửa chữa',
+  out_of_service: 'Ngừng sử dụng',
+  housekeeping: 'Đang dọn phòng',
+};
+
+const formatRoomStatus = (status?: string | null) => {
+  if (!status) return '—';
+  const key = String(status).trim().toLowerCase();
+  return roomStatusText[key] || status;
+};
+
 const statusText: Record<string, string> = {
   pending: 'Chờ xác nhận',
   confirmed: 'Đã xác nhận',
@@ -699,11 +716,6 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
             </div>
           )}
         </Descriptions.Item>
-        <Descriptions.Item label="Giờ check-in dự kiến">
-          {detail.requested_check_in_time
-            ? `${String(detail.requested_check_in_time).slice(0, 5)}${Number(detail.requested_check_in_day_offset || 0) === 1 ? ' (ngày hôm sau)' : ''}`
-            : '14:00 (Chuẩn)'}
-        </Descriptions.Item>
         <Descriptions.Item label="Ngày trả phòng">
           <div>{day(detail.check_out)} (Trước 12:00)</div>
           {detail.actual_check_out_time && (
@@ -717,7 +729,7 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
           {detail.adults ?? 0} người lớn, {detail.children ?? 0} trẻ em
         </Descriptions.Item>
         <Descriptions.Item label="Thời điểm đặt">{dateTime(detail.created_at)}</Descriptions.Item>
-        <Descriptions.Item label="Trạng thái phòng hiện tại">{detail.room_status || '—'}</Descriptions.Item>
+        <Descriptions.Item label="Trạng thái phòng hiện tại">{formatRoomStatus(detail.room_status)}</Descriptions.Item>
         <Descriptions.Item label="Ghi chú của khách" span={2}>{detail.notes || '—'}</Descriptions.Item>
         {detail.cancellation_reason && (
           <Descriptions.Item label="Lý do hủy" span={2}>{detail.cancellation_reason}</Descriptions.Item>

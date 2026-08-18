@@ -63,7 +63,9 @@ interface ServiceCharge {
   id: number;
   serviceId: number;
   serviceName: string;
+  roomId?: number | null;
   roomNumber?: string | null;
+  roomTypeName?: string | null;
   unitPrice: string | number;
   quantity: number;
   totalPrice: string | number;
@@ -249,7 +251,9 @@ interface DamageCharge {
   id: number;
   chargeType: string;
   itemName: string;
+  roomId?: number | null;
   roomNumber?: string | null;
+  roomTypeName?: string | null;
   quantity: number;
   unitPrice: string | number;
   totalPrice: string | number;
@@ -366,11 +370,39 @@ function BookingDetailPage() {
     setEditingCharge(charge || null);
     serviceForm.resetFields();
     if (charge) {
-      serviceForm.setFieldsValue({ quantity: charge.quantity, status: charge.status });
+      serviceForm.setFieldsValue({
+        quantity: charge.quantity,
+        status: charge.status,
+        roomId: charge.roomId ?? null,
+      });
     } else {
       serviceForm.setFieldsValue({ quantity: 1 });
     }
     setServiceModalOpen(true);
+  };
+
+  const bookingRooms = (booking?.booking_rooms || []).map((r) => {
+    const rec = r as Record<string, unknown>;
+    return {
+      id: Number(rec.id || rec.room_id || 0),
+      roomNumber: String(rec.room_number || rec.roomNumber || ''),
+      roomTypeName: String(rec.room_type_name || rec.roomTypeName || ''),
+    };
+  }).filter((r) => r.id > 0);
+
+  const roomInfoMap = new Map<number, { roomNumber: string; roomTypeName: string }>();
+  bookingRooms.forEach((r) => roomInfoMap.set(r.id, { roomNumber: r.roomNumber, roomTypeName: r.roomTypeName }));
+
+  const formatRoomLabel = (
+    roomId: number | null | undefined,
+    roomNumberFallback?: string | null,
+    roomTypeNameFallback?: string | null,
+  ) => {
+    const info = roomId ? roomInfoMap.get(Number(roomId)) : undefined;
+    const roomNumber = info?.roomNumber || String(roomNumberFallback || '');
+    const roomTypeName = info?.roomTypeName || String(roomTypeNameFallback || '');
+    const parts = [roomTypeName, roomNumber].filter(Boolean);
+    return parts.length > 0 ? parts.join(' - ') : '—';
   };
 
   const submitService = async () => {
@@ -381,12 +413,14 @@ function BookingDetailPage() {
         await updateBookingServiceCharge(bookingId, editingCharge.id, {
           quantity: values.quantity,
           status: values.status,
+          roomId: values.roomId ?? null,
         });
         message.success('Đã cập nhật dịch vụ');
       } else {
         await addBookingServiceCharge(bookingId, {
           serviceId: values.serviceId,
           quantity: values.quantity,
+          roomId: values.roomId ?? null,
         });
         message.success('Đã thêm dịch vụ vào đơn');
       }
@@ -469,6 +503,7 @@ function BookingDetailPage() {
         unitPrice: Number(charge.unitPrice),
         note: charge.note,
         status: charge.status,
+        roomId: charge.roomId ?? null,
       });
     } else {
       damageForm.setFieldsValue({ chargeType: 'damage', quantity: 1, status: 'used' });
@@ -480,12 +515,13 @@ function BookingDetailPage() {
     const values = await damageForm.validateFields();
     setWorking(true);
     try {
+      const payload = { ...values, roomId: values.roomId ?? null };
       if (editingDamage) {
-        await updateBookingDamageCharge(bookingId, editingDamage.id, values);
+        await updateBookingDamageCharge(bookingId, editingDamage.id, payload);
         message.success('Đã cập nhật khoản phí');
       } else {
-        await addBookingDamageCharge(bookingId, values);
-        message.success('Đã thêm khoản phí phát sinh');
+        await addBookingDamageCharge(bookingId, payload);
+        message.success('Đã thêm khoản phí vào đơn');
       }
       setDamageModalOpen(false);
       await loadBooking(true);
@@ -530,15 +566,29 @@ function BookingDetailPage() {
     }
   };
 
-  const serviceCharges = (booking?.services || []) as unknown as ServiceCharge[];
+  const serviceCharges = (booking?.services || []).map((raw) => {
+    const item = raw as unknown as Record<string, unknown>;
+    return {
+      ...item,
+      roomNumber: String(item.roomNumber ?? item.room_number ?? ''),
+      roomTypeName: String(item.roomTypeName ?? item.room_type_name ?? ''),
+    } as unknown as ServiceCharge;
+  });
   const serviceTotal = serviceCharges.reduce((sum, item) => sum + Number(item.totalPrice || 0), 0);
-  const damageCharges = (booking?.damages || []) as unknown as DamageCharge[];
+  const damageCharges = (booking?.damages || []).map((raw) => {
+    const item = raw as unknown as Record<string, unknown>;
+    return {
+      ...item,
+      roomNumber: String(item.roomNumber ?? item.room_number ?? ''),
+      roomTypeName: String(item.roomTypeName ?? item.room_type_name ?? ''),
+    } as unknown as DamageCharge;
+  });
   const damageTotal = damageCharges.reduce((sum, item) => sum + Number(item.totalPrice || 0), 0);
   const mainPayment: PaymentSnapshot | undefined = booking?.payment || booking?.payments?.[0];
   const remainingAmount = Number(mainPayment?.remainingAmount || 0);
   const paymentStatus = String(mainPayment?.paymentStatus || '');
-  // Đơn đã kết thúc thì khóa thao tác để không phát sinh thêm chi phí.
-  const canEditCharges = !!booking && ['confirmed', 'checked_in'].includes(booking.status);
+  // Chỉ cho thêm / sửa dịch vụ và khoản phí SAU khi đã check-in khách vào phòng.
+  const canEditCharges = !!booking && booking.status === 'checked_in';
 
   if (loading) {
     return (
@@ -783,7 +833,7 @@ function BookingDetailPage() {
           scroll={{ x: 760 }}
           columns={[
             { title: 'Dịch vụ', dataIndex: 'serviceName' },
-            { title: 'Phòng', dataIndex: 'roomNumber', render: (v?: string | null) => v || '—' },
+            { title: 'Phòng', render: (_, row: ServiceCharge) => formatRoomLabel(row.roomId, row.roomNumber, row.roomTypeName) },
             { title: 'Đơn giá', dataIndex: 'unitPrice', align: 'right', render: money },
             { title: 'SL', dataIndex: 'quantity', align: 'center', width: 60 },
             {
@@ -869,7 +919,7 @@ function BookingDetailPage() {
               dataIndex: 'chargeType',
               render: (value: string) => <Tag>{chargeTypeMeta[value] || value}</Tag>,
             },
-            { title: 'Phòng', dataIndex: 'roomNumber', render: (v?: string | null) => v || '—' },
+            { title: 'Phòng', render: (_, row: DamageCharge) => formatRoomLabel(row.roomId, row.roomNumber, row.roomTypeName) },
             { title: 'Đơn giá', dataIndex: 'unitPrice', align: 'right', render: money },
             { title: 'SL', dataIndex: 'quantity', align: 'center', width: 60 },
             {
@@ -1034,6 +1084,22 @@ function BookingDetailPage() {
           >
             <Input placeholder="Ví dụ: Khăn tắm, điều khiển TV, phụ phí dọn phòng..." />
           </Form.Item>
+          <Form.Item name="roomId" label="Phòng phát sinh" rules={[{ required: bookingRooms.length > 0, message: 'Chọn phòng' }]}>
+            <Select
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              placeholder={bookingRooms.length > 0 ? 'Chọn phòng' : 'Chưa có phòng vật lý (chưa xếp phòng)'}
+              disabled={bookingRooms.length === 0}
+              options={bookingRooms.map((r) => {
+                const parts = [r.roomTypeName, r.roomNumber].filter(Boolean);
+                return {
+                  value: r.id,
+                  label: parts.length > 0 ? parts.join(' - ') : `Phòng #${r.id}`,
+                };
+              })}
+            />
+          </Form.Item>
           <Row gutter={12}>
             <Col span={12}>
               <Form.Item name="quantity" label="Số lượng" rules={[{ required: true, message: 'Nhập số lượng' }]}>
@@ -1079,6 +1145,22 @@ function BookingDetailPage() {
               />
             </Form.Item>
           )}
+          <Form.Item name="roomId" label="Áp dụng cho phòng" rules={[{ required: bookingRooms.length > 0, message: 'Chọn phòng' }]}>
+            <Select
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              placeholder={bookingRooms.length > 0 ? 'Chọn phòng' : 'Chưa có phòng vật lý (chưa xếp phòng)'}
+              disabled={bookingRooms.length === 0}
+              options={bookingRooms.map((r) => {
+                const parts = [r.roomTypeName, r.roomNumber].filter(Boolean);
+                return {
+                  value: r.id,
+                  label: parts.length > 0 ? parts.join(' - ') : `Phòng #${r.id}`,
+                };
+              })}
+            />
+          </Form.Item>
           <Form.Item name="quantity" label="Số lượng" rules={[{ required: true, message: 'Nhập số lượng' }]}>
             <InputNumber min={1} style={{ width: '100%' }} />
           </Form.Item>
