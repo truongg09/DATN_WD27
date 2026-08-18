@@ -87,6 +87,10 @@ export interface NightlyPriceItem {
   date: string;
   stayDate?: string;
   price: number;
+  // Máy chủ luôn trả kèm hai trường này (xem calcNightlyPrices) nhưng kiểu cũ
+  // khai thiếu, nên nơi nào muốn tách phần phụ thu ra đều bị TypeScript chặn.
+  basePrice?: number;
+  surcharge?: number;
   priceType?: 'normal' | 'weekend' | 'sunday' | 'holiday' | 'season' | 'special';
   note?: string | null;
   dayOfWeek?: number;

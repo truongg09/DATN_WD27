@@ -38,7 +38,10 @@ import {
   getRoomTypeDetail,
   previewRoomPrice,
 } from "../../services/roomService";
-import type { RoomTypeSearchResult } from "../../services/roomService";
+import type {
+  RoomTypeSearchResult,
+  NightlyPriceItem,
+} from "../../services/roomService";
 import { getServices } from "../../services/serviceService";
 import type { Service } from "../../types/service";
 import { unwrapList } from "../../utils/unwrapList";
@@ -172,10 +175,10 @@ const Booking: React.FC = () => {
   const [extraRoomTypes, setExtraRoomTypes] = useState<ExtraRoomSelection[]>(
     [],
   );
-  // Giá mỗi đêm của các hạng đặt thêm do máy chủ tính (đã gồm phụ thu ngày lễ và
-  // cuối tuần), khóa theo id hạng phòng.
-  const [extraTypeStayAmount, setExtraTypeStayAmount] = useState<
-    Record<number, number>
+  // Giá của các hạng đặt thêm do máy chủ tính, khóa theo id hạng phòng. Giữ cả
+  // chi tiết từng đêm để hiện phụ thu ngày lễ / cuối tuần ngay tại hạng phòng đó.
+  const [extraTypePreview, setExtraTypePreview] = useState<
+    Record<number, { total: number; prices: NightlyPriceItem[] }>
   >({});
   const [services, setServices] = useState<Service[]>([]);
   // Mỗi dòng là một lượt chọn riêng (key tự tăng), nên cùng một dịch vụ có thể
@@ -887,13 +890,41 @@ const Booking: React.FC = () => {
   // Tạm tính cho các hạng đặt thêm. Ưu tiên tiền phòng do máy chủ tính (đã gồm
   // phụ thu ngày lễ và cuối tuần), chỉ khi chưa có mới tạm lấy giá niêm yết.
   const extraRoomsAmount = extraRoomTypes.reduce((total, line) => {
-    const stayAmount = extraTypeStayAmount[line.roomTypeId];
+    const stayAmount = extraTypePreview[line.roomTypeId]?.total || 0;
     if (stayAmount > 0) {
       return total + stayAmount * line.quantity;
     }
     const type = roomTypes.find((t) => t.id === line.roomTypeId);
     return total + Number(type?.defaultPrice || 0) * nights * line.quantity;
   }, 0);
+
+  // Gom phụ thu theo nhóm để hiện ngay tại từng hạng phòng, thay vì chỉ cộng
+  // vào tổng — khách nhìn giá niêm yết mà không hiểu vì sao tổng lại cao hơn.
+  const summarizeSurcharges = (
+    nightly: NightlyPriceItem[] | undefined,
+    quantity: number,
+  ) => {
+    const list = nightly || [];
+    const holiday = list.filter((n) => n.isHoliday);
+    const weekend = list.filter((n) => !n.isHoliday && (n.isSaturday || n.isSunday));
+    const sum = (items: NightlyPriceItem[]) =>
+      items.reduce((acc, n) => acc + (Number(n.surcharge) || 0), 0) * quantity;
+
+    return {
+      holidayAmount: sum(holiday),
+      holidayNights: holiday.length,
+      // Tên dịp lễ lấy từ ghi chú máy chủ trả về, bỏ phần "(+20%)" ở cuối.
+      holidayNames: Array.from(
+        new Set(
+          holiday
+            .map((n) => String(n.note || '').replace(/\s*\([^)]*\)\s*$/, '').trim())
+            .filter(Boolean),
+        ),
+      ),
+      weekendAmount: sum(weekend),
+      weekendNights: weekend.length,
+    };
+  };
   const totalSelectedRooms =
     activeRoomQuantity + extraRoomTypes.reduce((sum, line) => sum + line.quantity, 0);
 
@@ -965,7 +996,7 @@ const Booking: React.FC = () => {
     const checkIn = dateRange[0]?.format('YYYY-MM-DD');
     const checkOut = dateRange[1]?.format('YYYY-MM-DD');
     if (typeIds.length === 0 || !checkIn || !checkOut) {
-      setExtraTypeStayAmount({});
+      setExtraTypePreview({});
       return;
     }
 
@@ -973,12 +1004,21 @@ const Booking: React.FC = () => {
     Promise.all(
       typeIds.map((roomTypeId) =>
         previewRoomPrice({ roomTypeId, checkIn, checkOut })
-          .then((res) => [roomTypeId, Number(res.data?.total || 0)] as const)
-          .catch(() => [roomTypeId, 0] as const),
+          .then(
+            (res) =>
+              [
+                roomTypeId,
+                {
+                  total: Number(res.data?.total || 0),
+                  prices: res.data?.prices || [],
+                },
+              ] as const,
+          )
+          .catch(() => [roomTypeId, { total: 0, prices: [] }] as const),
       ),
     ).then((entries) => {
       if (cancelled) return;
-      setExtraTypeStayAmount(Object.fromEntries(entries));
+      setExtraTypePreview(Object.fromEntries(entries));
     });
 
     return () => {
@@ -2311,6 +2351,35 @@ const Booking: React.FC = () => {
                         <FontAwesomeIcon icon={faBed} /> Sức chứa:{" "}
                         {selectedRoom.beds}
                       </p>
+                      {/* Phụ thu của chính hạng phòng này, để khách hiểu vì sao
+                          tổng cao hơn giá niêm yết nhân số đêm. */}
+                      {nights > 0 &&
+                        (() => {
+                          const s = summarizeSurcharges(
+                            dateAvailability?.nightlyPrices as NightlyPriceItem[] | undefined,
+                            activeRoomQuantity,
+                          );
+                          if (s.holidayAmount <= 0 && s.weekendAmount <= 0) return null;
+                          return (
+                            <div className="room-surcharge-note">
+                              {s.holidayAmount > 0 && (
+                                <span className="surcharge-line holiday">
+                                  Phụ thu ngày lễ ({s.holidayNights} đêm
+                                  {s.holidayNames.length > 0
+                                    ? `: ${s.holidayNames.join(", ")}`
+                                    : ""}
+                                  ): +{formatMoney(s.holidayAmount)}
+                                </span>
+                              )}
+                              {s.weekendAmount > 0 && (
+                                <span className="surcharge-line weekend">
+                                  Phụ thu cuối tuần ({s.weekendNights} đêm): +
+                                  {formatMoney(s.weekendAmount)}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })()}
                     </div>
                   </div>
 
@@ -2359,6 +2428,35 @@ const Booking: React.FC = () => {
                             <FontAwesomeIcon icon={faBed} /> Sức chứa:{" "}
                             {typeAdultCapacity} người lớn + {typeChildCapacity} trẻ em (Tối đa {typeMaxOccupancy} khách)
                           </p>
+                          {nights > 0 &&
+                            (() => {
+                              const s = summarizeSurcharges(
+                                extraTypePreview[line.roomTypeId]?.prices,
+                                line.quantity,
+                              );
+                              if (s.holidayAmount <= 0 && s.weekendAmount <= 0) return null;
+                              return (
+                                <div className="room-surcharge-note">
+                                  {s.holidayAmount > 0 && (
+                                    <span className="surcharge-line holiday">
+                                      Phụ thu ngày lễ ({s.holidayNights} đêm
+                                      {s.holidayNames.length > 0
+                                        ? `: ${s.holidayNames.slice(0, 2).join(", ")}${
+                                            s.holidayNames.length > 2 ? "…" : ""
+                                          }`
+                                        : ""}
+                                      ): +{formatMoney(s.holidayAmount)}
+                                    </span>
+                                  )}
+                                  {s.weekendAmount > 0 && (
+                                    <span className="surcharge-line weekend">
+                                      Phụ thu cuối tuần ({s.weekendNights} đêm): +
+                                      {formatMoney(s.weekendAmount)}
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            })()}
                         </div>
                       </div>
                     );
