@@ -1211,7 +1211,7 @@ const calculateRefundRateByPolicy = (daysBeforeCheckIn) => {
 
 const expireUnpaidBookingHolds = () => bookingModel.expireUnpaidBookingHolds();
 
-const getRefundPolicy = (checkIn, paidAmount = 0) => {
+const getRefundPolicy = (checkIn, paidAmount = 0, policy = null) => {
   // Cả hai mốc phải cùng một hệ quy chiếu. Trước đây `today` là nửa đêm giờ địa
   // phương còn `checkInDate` là nửa đêm UTC, nên trên máy chủ VN (UTC+7) số ngày
   // luôn lệch: hủy 2 ngày trước khi nhận phòng bị tính thành 3 (hoàn 50% thay vì
@@ -1219,14 +1219,29 @@ const getRefundPolicy = (checkIn, paidAmount = 0) => {
   const today = dateToUtc(dayString(new Date()));
   const checkInDate = dateToUtc(dayString(checkIn));
   const daysBeforeCheckIn = Math.round((checkInDate - today) / MS_PER_DAY);
-  const rate =
+
+  // Mốc và mức phạt lấy từ bảng cancellation_policies để admin sửa trong màn
+  // hình Cài đặt là có tác dụng thật. Trước đây các con số 3/7/50/100 nằm cứng
+  // trong hàm này, nên chỉnh chính sách xong tiền hoàn vẫn y nguyên.
+  // Lưu ý: *TierPercent là PHÍ PHẠT giữ lại, tỉ lệ hoàn = 100 − phạt.
+  const nearMaxDays = Number(policy?.nearTierMaxDays ?? 3);
+  const midMaxDays = Number(policy?.midTierMaxDays ?? 7);
+  const nearPenalty = Number(policy?.nearTierPercent ?? 100);
+  const midPenalty = Number(policy?.midTierPercent ?? 50);
+  const farPenalty = Number(policy?.farTierPercent ?? 0);
+
+  const penaltyPercent =
     daysBeforeCheckIn < 0
-      ? 0
-      : daysBeforeCheckIn < 3
-        ? 0
-        : daysBeforeCheckIn <= 7
-          ? 0.5
-          : 1.0;
+      ? 100
+      : daysBeforeCheckIn < nearMaxDays
+        ? nearPenalty
+        : daysBeforeCheckIn <= midMaxDays
+          ? midPenalty
+          : farPenalty;
+
+  // Chia sau khi trừ để tránh sai số dấu phẩy động: 1 - 80/100 ra
+  // 0.19999999999999996, hiển thị lên màn hình thành "hoàn 19,999...%".
+  const rate = Math.min(Math.max(100 - penaltyPercent, 0), 100) / 100;
 
   return {
     daysBeforeCheckIn,
@@ -2390,7 +2405,11 @@ const getRefundPreview = async (bookingId) => {
     canCancel: ["pending", "confirmed"].includes(booking.status),
     bookingStatus: booking.status,
     paymentId: payment?.id || null,
-    ...getRefundPolicy(booking.check_in, payment?.paidAmount || 0),
+    ...getRefundPolicy(
+      booking.check_in,
+      payment?.paidAmount || 0,
+      await bookingModel.getCancellationPolicy(),
+    ),
   };
 };
 
@@ -2497,6 +2516,7 @@ const cancelBooking = async (
     const refundPolicy = getRefundPolicy(
       booking.check_in,
       payment?.paidAmount || 0,
+      await bookingModel.getCancellationPolicy(connection),
     );
 
     await bookingModel.updateBookingStatus(bookingId, "cancelled", connection);

@@ -1360,6 +1360,30 @@ const getCheckoutLateFeeTiers = async (connection) => {
   return rows[0] ? { ...DEFAULT_CHECKOUT_LATE_FEE_TIERS, ...rows[0] } : { ...DEFAULT_CHECKOUT_LATE_FEE_TIERS };
 };
 
+// Các cột *Percent là PHÍ PHẠT giữ lại, không phải phần trăm được hoàn:
+// phạt 100% nghĩa là hoàn 0%. Xem nhãn ở màn hình Cài đặt & Chính sách.
+const DEFAULT_CANCELLATION_POLICY = {
+  nearTierMaxDays: 3,
+  nearTierPercent: 100.0,
+  midTierMaxDays: 7,
+  midTierPercent: 50.0,
+  farTierPercent: 0.0
+};
+
+const getCancellationPolicy = async (connection) => {
+  try {
+    const [rows] = await run(connection).query('SELECT * FROM cancellation_policies WHERE id = 1');
+    return rows[0]
+      ? { ...DEFAULT_CANCELLATION_POLICY, ...rows[0] }
+      : { ...DEFAULT_CANCELLATION_POLICY };
+  } catch (error) {
+    // Thiếu bảng cấu hình thì vẫn hoàn tiền theo mức mặc định, không để hỏng
+    // luồng hủy đơn của khách.
+    console.error('Không đọc được cancellation_policies:', error.message);
+    return { ...DEFAULT_CANCELLATION_POLICY };
+  }
+};
+
 // Booking gần nhất nhận phòng TỪ ngày checkout của booking hiện tại trở đi, cùng phòng.
 const findNextBookingForRoom = async (roomId, fromDate, connection) => {
   const [rows] = await run(connection).query(
@@ -1654,6 +1678,7 @@ module.exports = {
   getOverdueCheckInCandidates,
   updateRequestedCheckInTime,
   getCheckoutLateFeeTiers,
+  getCancellationPolicy,
   findNextBookingForRoom,
   findAdjacentBookingsForRoom,
   addLateCheckoutCharge,
