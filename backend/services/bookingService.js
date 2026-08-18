@@ -1538,6 +1538,11 @@ const createMultiTypeBooking = async (payload, actor, connection) => {
         ...payload,
         roomId: roomItem.id,
         roomTypeId: group.roomType.id,
+        // slotIndex chạy đúng thứ tự mà roomIndex của dịch vụ tham chiếu tới,
+        // nên tên khách đặt cho phòng thứ N khớp với phòng thứ N ở đây.
+        roomLabel: Array.isArray(payload.roomLabels)
+          ? String(payload.roomLabels[slotIndex] || '').trim() || null
+          : null,
         adults: dist.adults,
         children: dist.children,
       };
@@ -1763,6 +1768,10 @@ const createBooking = async (payload, actor) => {
       const detailPayload = {
         ...payload,
         roomId: roomItem.id,
+        // i chạy đúng thứ tự mà roomIndex của dịch vụ tham chiếu tới.
+        roomLabel: Array.isArray(payload.roomLabels)
+          ? String(payload.roomLabels[i] || '').trim() || null
+          : null,
         adults: dist.adults,
         children: dist.children
       };
@@ -2287,12 +2296,17 @@ const getPaymentSummary = async (bookingId) => {
   }
 
   const [services] = await db.query(
+    // bd.roomLabel là tên khách tự đặt cho phòng lúc đặt online. Lấy theo
+    // bookingDetailId trước, vì đó mới là dòng phòng mà khách chỉ định.
     `SELECT bs.id, bs.roomId, r.roomNumber, bs.quantity, bs.totalPrice, bs.createdAt,
-            COALESCE(bs.status, 'used') AS status, s.serviceName
+            COALESCE(bs.status, 'used') AS status, s.serviceName,
+            COALESCE(bd.roomLabel, bd2.roomLabel) AS roomLabel
      FROM booking_services bs
      LEFT JOIN services s ON s.id = bs.serviceId
      LEFT JOIN bookings b ON b.id = bs.bookingId
      LEFT JOIN rooms r ON r.id = COALESCE(bs.roomId, b.room_id)
+     LEFT JOIN booking_details bd ON bd.id = bs.bookingDetailId
+     LEFT JOIN booking_details bd2 ON bd2.bookingId = bs.bookingId AND bd2.roomId = bs.roomId
      WHERE bs.bookingId = ?
      ORDER BY bs.id ASC`,
     [bookingId],

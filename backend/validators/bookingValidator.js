@@ -170,6 +170,13 @@ const normalizeBookingPayload = (body, userFromToken) => {
     guestEmail: body.guestEmail ?? body.guest_email ?? null,
     guestPhone: body.guestPhone ?? body.guest_phone ?? null,
     serviceRequests: normalizeServiceRequestsPayload(body.serviceRequests ?? body.service_requests),
+    // Tên khách tự đặt cho từng phòng, theo đúng thứ tự roomIndex. Cắt bớt để
+    // không ai nhét cả đoạn văn vào cột VARCHAR(60).
+    roomLabels: Array.isArray(body.roomLabels ?? body.room_labels)
+      ? (body.roomLabels ?? body.room_labels)
+          .slice(0, 20)
+          .map((label) => String(label ?? '').trim().slice(0, 60))
+      : null,
     requestedCheckInTime: normalizeOptionalTime(
       body.requestedCheckInTime ?? body.requested_check_in_time,
       'requestedCheckInTime'
