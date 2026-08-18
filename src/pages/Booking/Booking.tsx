@@ -781,14 +781,6 @@ const Booking: React.FC = () => {
   const totalBookingChildren =
     children + extraRoomTypes.reduce((sum, r) => sum + r.children, 0);
 
-  const totalStandardAdultCapacity =
-    room1StandardAdultCapacity +
-    extraRoomsBreakdown.reduce((sum, item) => sum + item.standardAdultCap, 0);
-
-  const totalStandardChildCapacity =
-    room1StandardChildCapacity +
-    extraRoomsBreakdown.reduce((sum, item) => sum + item.standardChildCap, 0);
-
   const totalMaxOccupancy =
     room1Capacity +
     extraRoomsBreakdown.reduce((sum, item) => sum + item.capacity, 0);
@@ -2361,19 +2353,7 @@ const Booking: React.FC = () => {
                   })}
 
                   <div className="capacity-preview-box">
-                    <span className="capacity-preview-title">Sức chứa</span>
-                    <div className="capacity-spec-row">
-                      <span className="spec-label">Tiêu chuẩn:</span>
-                      <span className="spec-val">
-                        {totalStandardAdultCapacity} người lớn + {totalStandardChildCapacity} trẻ em
-                      </span>
-                    </div>
-                    <div className="capacity-spec-row">
-                      <span className="spec-label">Tối đa:</span>
-                      <span className="spec-val">
-                        {totalMaxOccupancy} khách
-                      </span>
-                    </div>
+                    <span className="capacity-preview-title">Số khách</span>
                     <div className="capacity-spec-row">
                       <span className="spec-label">Khách của bạn:</span>
                       <span className="spec-val">
@@ -2423,16 +2403,6 @@ const Booking: React.FC = () => {
                       </div>
                     )}
                   </div>
-
-                  {selectedRoom.mode === "type" && (
-                    <p
-                      className="service-request-note"
-                      style={{ marginTop: 8 }}
-                    >
-                      * Số phòng cụ thể sẽ được khách sạn sắp xếp và thông báo
-                      khi nhận phòng.
-                    </p>
-                  )}
 
                   <div className="summary-details">
                     <div className="summary-row">
