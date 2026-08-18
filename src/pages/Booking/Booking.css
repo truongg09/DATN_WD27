@@ -469,6 +469,16 @@
   line-height: 1.35;
 }
 
+/* Giá niêm yết đứng cạnh tên hạng phòng, để đơn nhiều hạng biết giá nào của
+   hạng nào mà không phải dò xuống phần tổng bên dưới. */
+.room-summary-price {
+  display: block;
+  margin-top: 2px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #a98561;
+}
+
 .room-status-badge {
   flex-shrink: 0;
   display: inline-flex;
