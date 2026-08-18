@@ -905,6 +905,44 @@ const Booking: React.FC = () => {
   const totalSelectedRooms =
     activeRoomQuantity + extraRoomTypes.reduce((sum, line) => sum + line.quantity, 0);
 
+  // Danh sách từng phòng vật lý theo ĐÚNG thứ tự máy chủ sẽ xếp phòng: hạng
+  // chính trước (nhân theo số lượng), rồi tới các hạng đặt thêm theo thứ tự
+  // khách thêm vào. Thứ tự này chính là ý nghĩa của roomIndex trong payload.
+  const roomSlots = selectedRoom
+    ? [
+        ...Array.from({ length: activeRoomQuantity }, () => ({
+          typeName: selectedRoom.name,
+        })),
+        ...extraRoomTypes.flatMap((line) => {
+          const type = roomTypes.find((t) => t.id === line.roomTypeId);
+          return Array.from({ length: line.quantity }, () => ({
+            typeName: type?.typeName || "Phòng",
+          }));
+        }),
+      ]
+    : [];
+
+  // Tên gợi nhớ do khách tự đặt cho từng phòng ("Phòng bố mẹ", "Phòng vợ chồng").
+  // Lúc đặt online khách chưa biết số phòng thật, nên đây là cách duy nhất để
+  // phân biệt các phòng CÙNG hạng khi gán dịch vụ.
+  const [roomLabels, setRoomLabels] = useState<string[]>([]);
+
+  const roomSlotLabel = (index: number) => {
+    const custom = (roomLabels[index] || "").trim();
+    const type = roomSlots[index]?.typeName;
+    if (custom) return type ? `${custom} (${type})` : custom;
+    return type ? `Phòng ${index + 1} (${type})` : `Phòng ${index + 1}`;
+  };
+
+  const updateRoomLabel = (index: number, value: string) => {
+    setRoomLabels((prev) => {
+      const next = [...prev];
+      while (next.length < totalSelectedRooms) next.push("");
+      next[index] = value;
+      return next.slice(0, totalSelectedRooms);
+    });
+  };
+
   // Giảm số phòng thì các dòng dịch vụ đang trỏ tới phòng vừa bị bỏ phải kéo về
   // trong khoảng hợp lệ, nếu không máy chủ trả 400 "Phòng được chọn không hợp lệ"
   // mà trên màn hình vẫn thấy số phòng cũ.
@@ -1205,6 +1243,14 @@ const Booking: React.FC = () => {
                 ? Math.min(Math.max(roomIndex ?? 1, 1), totalSelectedRooms)
                 : undefined,
           })),
+        // Tên khách tự đặt cho từng phòng, theo đúng thứ tự roomIndex. Gửi lên
+        // để lễ tân biết phòng nào là phòng nào lúc mang dịch vụ tới.
+        roomLabels:
+          totalSelectedRooms > 1
+            ? Array.from({ length: totalSelectedRooms }, (_, idx) =>
+                (roomLabels[idx] || "").trim(),
+              )
+            : undefined,
         requestedCheckInTime: data.requestedCheckInTime || null,
         requestedCheckOutTime: data.requestedCheckOutTime || null,
         status: "confirmed",
@@ -2012,6 +2058,39 @@ const Booking: React.FC = () => {
             {/* Section 3: Dịch vụ bổ sung */}
             <div className="booking-section services-section">
               <h2>Dịch vụ bổ sung</h2>
+
+              {/* Đặt tên cho từng phòng. Lúc đặt online khách chưa biết số phòng
+                  thật (lễ tân xếp phòng khi nhận phòng), nên với các phòng cùng
+                  hạng thì tên gợi nhớ là cách duy nhất để phân biệt khi gán dịch
+                  vụ. Tên này cũng hiện lại cho lễ tân lúc phục vụ. */}
+              {totalSelectedRooms > 1 && (
+                <div className="form-group room-naming-block">
+                  <label>Đặt tên cho từng phòng (tùy chọn)</label>
+                  <small className="room-naming-hint">
+                    Giúp bạn chọn đúng phòng khi thêm dịch vụ bên dưới, ví dụ
+                    “Phòng bố mẹ”, “Phòng vợ chồng”. Bỏ trống cũng được.
+                  </small>
+                  <div className="room-naming-grid">
+                    {roomSlots.map((slot, idx) => (
+                      <div className="room-naming-row" key={idx}>
+                        <span className="room-naming-index">
+                          Phòng {idx + 1}
+                          <em>{slot.typeName}</em>
+                        </span>
+                        <Input
+                          size="middle"
+                          maxLength={40}
+                          allowClear
+                          placeholder={`Tên gợi nhớ cho phòng ${idx + 1}`}
+                          value={roomLabels[idx] || ""}
+                          onChange={(event) => updateRoomLabel(idx, event.target.value)}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="form-group">
                 <label>Dịch vụ của phòng (tùy chọn)</label>
 
@@ -2046,15 +2125,20 @@ const Booking: React.FC = () => {
                             )}
                           </span>
                           <Space align="center">
+                            {/* Nhãn lấy từ tên khách tự đặt ở phần trên, kèm hạng
+                                phòng. Trước đây chỉ ghi "Phòng 1/2/3" nên đặt 3
+                                phòng cùng hạng thì ba lựa chọn giống hệt nhau,
+                                khách không có cách nào biết cái nào là cái nào. */}
                             {totalSelectedRooms > 1 && (
                               <Select
                                 size="middle"
                                 value={line.roomIndex || 1}
                                 onChange={(v) => updateServiceLine(line.key, { roomIndex: v })}
-                                style={{ width: 110 }}
+                                style={{ minWidth: 190 }}
+                                title="Dịch vụ này dành cho phòng nào"
                                 options={Array.from({ length: totalSelectedRooms }, (_, idx) => ({
                                   value: idx + 1,
-                                  label: `Phòng ${idx + 1}`,
+                                  label: roomSlotLabel(idx),
                                 }))}
                               />
                             )}

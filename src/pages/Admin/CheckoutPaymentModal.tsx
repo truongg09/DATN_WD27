@@ -43,6 +43,9 @@ interface ChargeRow {
   createdAt?: string | null;
   roomId?: number | null;
   roomNumber?: string | null;
+  // Tên khách tự đặt cho phòng lúc đặt online ("Phòng bố mẹ"), giúp lễ tân biết
+  // dịch vụ này là của phòng nào khi đơn có nhiều phòng cùng hạng.
+  roomLabel?: string | null;
   status?: string;
   chargeType?: string;
 }
@@ -329,9 +332,22 @@ const CheckoutPaymentModal: React.FC<Props> = ({
     {
       title: "Phòng",
       key: "room",
-      width: 90,
-      render: (_: unknown, row: ChargeRow) =>
-        row.roomNumber ? `P.${row.roomNumber}` : <span style={{ color: '#aaa' }}>—</span>,
+      width: 130,
+      render: (_: unknown, row: ChargeRow) => {
+        if (!row.roomNumber && !row.roomLabel) {
+          return <span style={{ color: '#aaa' }}>—</span>;
+        }
+        return (
+          <div>
+            {row.roomNumber ? `P.${row.roomNumber}` : '—'}
+            {/* Tên khách tự đặt lúc đặt phòng, để lễ tân mang đồ đúng phòng khi
+                đơn có nhiều phòng cùng hạng. */}
+            {row.roomLabel && (
+              <div style={{ fontSize: 12, color: '#8c8c8c' }}>{row.roomLabel}</div>
+            )}
+          </div>
+        );
+      },
     },
     {
       title: "Khoản mục",
