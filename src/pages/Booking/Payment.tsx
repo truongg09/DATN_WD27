@@ -239,10 +239,10 @@ const PaymentPage: React.FC = () => {
       paidAmount,
       refundableNow: Math.round(paidAmount * rate),
       // Mốc ngày cụ thể cho từng mức hoàn
-      fullRefundFrom: checkInDay.subtract(2, 'day'),
-      halfRefundFrom: checkInDay.subtract(7, 'day'),    // từ ngày này...
+      fullRefundUntil: checkInDay.subtract(7, 'day'),   // đến hết ngày này: hoàn 100%
+      halfRefundFrom: checkInDay.subtract(6, 'day'),    // từ ngày này...
       halfRefundUntil: checkInDay.subtract(3, 'day'),   // ...đến hết ngày này: hoàn 50%
-      noRefundUntil: checkInDay.subtract(8, 'day'),
+      noRefundFrom: checkInDay.subtract(2, 'day'),      // từ ngày này trở đi: hoàn 0%
       checkInDay,
     };
   }, [booking, payment]);
@@ -635,9 +635,9 @@ const PaymentPage: React.FC = () => {
               <div className="policy-grid">
                 <div className="policy-item good">
                   <strong>100%</strong>
-                  <span>Hủy dưới 3 ngày</span>
+                  <span>Hủy trên 7 ngày</span>
                   {refundInfo && (
-                    <small>Từ {refundInfo.fullRefundFrom.format('DD/MM/YYYY')}</small>
+                    <small>Đến hết {refundInfo.fullRefundUntil.format('DD/MM/YYYY')}</small>
                   )}
                 </div>
                 <div className="policy-item mid">
@@ -651,9 +651,9 @@ const PaymentPage: React.FC = () => {
                 </div>
                 <div className="policy-item bad">
                   <strong>0%</strong>
-                  <span>Hủy trên 7 ngày</span>
+                  <span>Hủy dưới 3 ngày</span>
                   {refundInfo && (
-                    <small>Đến hết {refundInfo.noRefundUntil.format('DD/MM/YYYY')}</small>
+                    <small>Từ {refundInfo.noRefundFrom.format('DD/MM/YYYY')}</small>
                   )}
                 </div>
               </div>
@@ -690,8 +690,8 @@ const PaymentPage: React.FC = () => {
                   (tiền cọc hoặc toàn bộ), không tính trên giá phòng.
                 </li>
                 <li>
-                  <strong>Ví dụ:</strong> đã cọc 300.000₫ — hủy dưới 3 ngày nhận lại 300.000₫; hủy trong
-                  khoảng 3–7 ngày nhận lại 150.000₫; hủy trên 7 ngày không được hoàn.
+                  <strong>Ví dụ:</strong> đã cọc 300.000₫ — hủy trên 7 ngày nhận lại 300.000₫ (100%); hủy trong
+                  khoảng 3–7 ngày nhận lại 150.000₫ (50%); hủy dưới 3 ngày không được hoàn (0%).
                 </li>
                 <li>
                   <strong>Cách hủy:</strong> vào <em>Lịch sử đặt phòng</em> → bấm <em>Hủy</em> ở đơn tương ứng.

@@ -555,7 +555,7 @@ const RoomTypeDetail: React.FC = () => {
                 toán
               </li>
               <li>
-                <FontAwesomeIcon icon={faCheck} /> Hoàn 100% khi hủy dưới 3 ngày
+                <FontAwesomeIcon icon={faCheck} /> Hoàn 100% khi hủy trên 7 ngày
               </li>
             </ul>
           </div>
