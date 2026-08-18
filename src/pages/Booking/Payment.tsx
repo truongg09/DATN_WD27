@@ -238,9 +238,13 @@ const PaymentPage: React.FC = () => {
       rate,
       paidAmount,
       refundableNow: Math.round(paidAmount * rate),
-      // Mốc ngày cụ thể cho từng mức hoàn
-      fullRefundUntil: checkInDay.subtract(7, 'day'),   // đến hết ngày này: hoàn 100%
-      halfRefundFrom: checkInDay.subtract(6, 'day'),    // từ ngày này...
+      // Mốc ngày phải khớp đúng công thức phía trên. Mức 100% chỉ áp dụng khi
+      // còn HƠN 7 ngày, tức từ ngày (nhận phòng − 8) trở về trước; đúng ngày
+      // (nhận phòng − 7) đã rơi vào mức 50%. Bản cũ lấy −7 và −6 nên màn hình tự
+      // mâu thuẫn: khung mốc ghi "hoàn 100%" trong khi dòng thông báo ngay dưới
+      // tính ra 50% cho cùng một ngày.
+      fullRefundUntil: checkInDay.subtract(8, 'day'),   // đến hết ngày này: hoàn 100%
+      halfRefundFrom: checkInDay.subtract(7, 'day'),    // từ ngày này...
       halfRefundUntil: checkInDay.subtract(3, 'day'),   // ...đến hết ngày này: hoàn 50%
       noRefundFrom: checkInDay.subtract(2, 'day'),      // từ ngày này trở đi: hoàn 0%
       checkInDay,
