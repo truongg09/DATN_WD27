@@ -838,6 +838,52 @@
   font-style: italic;
 }
 
+/* Khối cho khách đặt tên gợi nhớ cho từng phòng khi đơn có nhiều phòng. */
+.room-naming-block {
+  margin-bottom: 22px;
+}
+
+.room-naming-hint {
+  display: block;
+  margin: 2px 0 10px;
+  font-size: 13px;
+  color: #8a8a8a;
+}
+
+.room-naming-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.room-naming-row {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  align-items: center;
+  gap: 12px;
+}
+
+.room-naming-index {
+  display: flex;
+  flex-direction: column;
+  font-size: 14px;
+  font-weight: 600;
+  color: #2f2924;
+}
+
+.room-naming-index em {
+  font-size: 12px;
+  font-weight: 400;
+  font-style: normal;
+  color: #8a8a8a;
+}
+
+@media (max-width: 640px) {
+  .room-naming-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+}
+
 .room-selection-grid {
   margin: 0 0 18px;
   gap: 16px;
