@@ -25,7 +25,6 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faBed,
   faCheck,
-  faExpandArrowsAlt,
 } from "@fortawesome/free-solid-svg-icons";
 import { useAuth } from "../../contexts/AuthContext";
 import { checkTypeAvailability,
@@ -2229,10 +2228,6 @@ const Booking: React.FC = () => {
                         <FontAwesomeIcon icon={faBed} /> Sức chứa:{" "}
                         {selectedRoom.beds}
                       </p>
-                      <p>
-                        <FontAwesomeIcon icon={faExpandArrowsAlt} />{" "}
-                        {selectedRoom.area}
-                      </p>
                     </div>
                   </div>
 
@@ -2489,13 +2484,20 @@ const Booking: React.FC = () => {
                   <div className="booking-policies">
                     <h4>Chính sách</h4>
                     <ul>
+                      {/* Các trường *TierPercent trong cấu hình là PHÍ PHẠT chứ
+                          không phải phần trăm được hoàn, nên phải lấy 100 trừ đi.
+                          Bản cũ in thẳng nearTierPercent (=100) ra thành "hoàn
+                          100% khi hủy dưới 3 ngày" — ngược hẳn thực tế, vì hủy
+                          sát ngày nhận phòng thì khách không được hoàn đồng nào. */}
                       <li>
-                        <FontAwesomeIcon icon={faCheck} /> Hoàn{" "}
-                        {policies?.nearTierPercent ?? 100}% khi hủy dưới{" "}
-                        {policies?.nearTierMaxDays ?? 3} ngày,{" "}
-                        {policies?.midTierPercent ?? 50}% khi hủy trước{" "}
+                        <FontAwesomeIcon icon={faCheck} /> Hủy trước{" "}
+                        {policies?.midTierMaxDays ?? 7} ngày hoàn{" "}
+                        {100 - (policies?.farTierPercent ?? 0)}%; hủy trong khoảng{" "}
                         {policies?.nearTierMaxDays ?? 3}–
-                        {policies?.midTierMaxDays ?? 7} ngày
+                        {policies?.midTierMaxDays ?? 7} ngày hoàn{" "}
+                        {100 - (policies?.midTierPercent ?? 50)}%; hủy dưới{" "}
+                        {policies?.nearTierMaxDays ?? 3} ngày hoàn{" "}
+                        {100 - (policies?.nearTierPercent ?? 100)}%
                       </li>
                       <li>
                         <FontAwesomeIcon icon={faCheck} /> Nhận phòng từ{" "}
