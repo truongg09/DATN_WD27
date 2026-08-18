@@ -46,8 +46,8 @@ interface AdminBookingModifyModalProps {
 
 const childAgeOptions = [
   { value: 4, label: "Dưới 5 tuổi (Miễn phí)" },
-  { value: 8, label: "Từ 6 - 11 tuổi (Phụ thu)" },
-  { value: 12, label: "Trên 11 tuổi (Tính người lớn)" },
+  { value: 8, label: "Từ 6 - 11 tuổi (Phụ thu trẻ em)" },
+  { value: 12, label: "Trên 12 tuổi (Tính người lớn)" },
 ];
 
 export const AdminBookingModifyModal: React.FC<AdminBookingModifyModalProps> = ({

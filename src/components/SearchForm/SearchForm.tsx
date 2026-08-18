@@ -179,7 +179,7 @@ const SearchForm: React.FC = () => {
                 >
                   <Option value={4}>Dưới 5 tuổi (Miễn phí)</Option>
                   <Option value={8}>Từ 6 - 11 tuổi (Phụ thu trẻ em)</Option>
-                  <Option value={12}>Trên 11 tuổi (Tính người lớn)</Option>
+                  <Option value={12}>Trên 12 tuổi (Tính người lớn)</Option>
                 </Select>
               </div>
             ))}

@@ -1645,10 +1645,11 @@ const Booking: React.FC = () => {
                                 prev.map((item, i) => (i === index ? value : item)),
                               )
                             }
-                            options={Array.from({ length: 18 }, (_, ageOption) => ({
-                              value: ageOption,
-                              label: `${ageOption} tuổi`,
-                            }))}
+                            options={[
+                              { value: 4, label: "Dưới 5 tuổi (Miễn phí)" },
+                              { value: 8, label: "Từ 6 - 11 tuổi (Phụ thu trẻ em)" },
+                              { value: 12, label: "Trên 12 tuổi (Tính người lớn)" },
+                            ]}
                             size="large"
                             style={{ width: "100%" }}
                           />
@@ -1839,10 +1840,11 @@ const Booking: React.FC = () => {
                                 onChange={(value) =>
                                   updateExtraRoomChildAge(index, childIdx, value)
                                 }
-                                options={Array.from({ length: 18 }, (_, ageOption) => ({
-                                  value: ageOption,
-                                  label: `${ageOption} tuổi`,
-                                }))}
+                                options={[
+                                  { value: 4, label: "Dưới 5 tuổi (Miễn phí)" },
+                                  { value: 8, label: "Từ 6 - 11 tuổi (Phụ thu trẻ em)" },
+                                  { value: 12, label: "Trên 12 tuổi (Tính người lớn)" },
+                                ]}
                                 size="large"
                                 style={{ width: "100%" }}
                               />
