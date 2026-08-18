@@ -4769,6 +4769,8 @@ const checkOut = async (
 
     let lateCheckout = null;
     let recalculatedPayment = null;
+    let lateCheckoutWarning = null;
+    let conflictingBookingId = null;
     const tiers = await bookingModel.getCheckoutLateFeeTiers(connection);
     if (tiers) {
       const standardCheckOut = combineDateTime(
@@ -4788,14 +4790,18 @@ const checkOut = async (
           tiers,
         );
 
+        // Quá mốc trả phòng muộn tối đa thì CẢNH BÁO chứ không chặn.
+        //
+        // Chặn ở đây là bế tắc: khách đang đứng ở quầy, tiền đã thu đủ, mà lễ
+        // tân không bấm trả phòng được. Phòng kẹt mãi ở trạng thái đang có
+        // khách, nên khách kế tiếp cũng không nhận phòng được — hỏng cả hai
+        // đơn thay vì một. Việc cần làm là thu phí bậc cao nhất rồi báo lễ tân
+        // xếp lại phòng cho khách sau.
         if (actualCheckOutTime > maxCheckoutTime) {
-          throw new HttpError(
-            409,
-            nextBooking
-              ? `Không thể trả phòng muộn vì phòng đã có khách khác nhận phòng ngày ${displayDate(nextBooking.checkInDate)}. Vui lòng chuyển phòng cho khách sau hoặc xử lý thủ công.`
-              : `Đã vượt quá thời gian trả phòng muộn tối đa (${tiers.absoluteMaxLateHours} giờ so với giờ chuẩn). Vui lòng lập gia hạn thêm đêm thay vì tính phí trễ giờ.`,
-            { conflictingBookingId: nextBooking?.id || null },
-          );
+          lateCheckoutWarning = nextBooking
+            ? `Phòng đã có khách khác nhận phòng ngày ${displayDate(nextBooking.checkInDate)}. Vui lòng dọn phòng gấp hoặc chuyển phòng cho khách đó.`
+            : `Khách trả phòng muộn quá ${tiers.absoluteMaxLateHours} giờ so với giờ chuẩn. Cân nhắc lập gia hạn thêm đêm thay vì chỉ thu phí trễ giờ.`;
+          conflictingBookingId = nextBooking?.id || null;
         }
 
         const nightlyRate = Number(
@@ -4848,6 +4854,21 @@ const checkOut = async (
             );
           }
         }
+
+        // Ghi lại để sau này còn truy được vì sao phòng bị trả trễ quá mốc.
+        if (lateCheckoutWarning) {
+          await logHistory(
+            bookingId,
+            "late_checkout_over_limit",
+            `Trả phòng muộn vượt mốc cho phép. ${lateCheckoutWarning}`,
+            {
+              entityType: "stay",
+              newValue: { conflictingBookingId },
+            },
+            actor,
+            connection,
+          );
+        }
       }
     }
 
@@ -4863,7 +4884,7 @@ const checkOut = async (
       // thanh toán; không rollback cùng lỗi check-out như các khoản nợ cũ.
       if (lateCheckout) {
         await connection.commit();
-        return { requiresPayment: true, lateCheckout };
+        return { requiresPayment: true, lateCheckout, lateCheckoutWarning, conflictingBookingId };
       }
       throw new HttpError(
         409,
@@ -5011,6 +5032,10 @@ const checkOut = async (
       ...completedBooking,
       earlyCheckout,
       lateCheckout,
+      // Trả phòng vẫn thành công, nhưng lễ tân cần biết phòng này đang kẹt lịch
+      // với khách kế tiếp để còn dọn gấp hoặc xếp lại phòng.
+      lateCheckoutWarning,
+      conflictingBookingId,
       invoice
     };
   } catch (error) {
