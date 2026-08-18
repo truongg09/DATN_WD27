@@ -925,6 +925,63 @@ const Booking: React.FC = () => {
       weekendNights: weekend.length,
     };
   };
+
+  // Gom phụ thu của mọi hạng phòng thành các dòng cho khung tổng tiền. Kèm tên
+  // hạng khi đơn có nhiều hạng, để khách biết phụ thu phát sinh ở hạng nào.
+  const surchargeRows = (() => {
+    const rows: { key: string; label: string; amount: number; kind: 'holiday' | 'weekend' }[] = [];
+    if (!selectedRoom || nights <= 0) return rows;
+
+    const hasManyTypes = extraRoomTypes.length > 0;
+    const push = (
+      typeName: string,
+      s: ReturnType<typeof summarizeSurcharges>,
+      keyPrefix: string,
+    ) => {
+      const suffix = hasManyTypes ? ` · ${typeName}` : '';
+      if (s.holidayAmount > 0) {
+        const names =
+          s.holidayNames.length > 0
+            ? `: ${s.holidayNames.slice(0, 2).join(', ')}${s.holidayNames.length > 2 ? '…' : ''}`
+            : '';
+        rows.push({
+          key: `${keyPrefix}-holiday`,
+          label: `Phụ thu ngày lễ (${s.holidayNights} đêm${names})${suffix}`,
+          amount: s.holidayAmount,
+          kind: 'holiday',
+        });
+      }
+      if (s.weekendAmount > 0) {
+        rows.push({
+          key: `${keyPrefix}-weekend`,
+          label: `Phụ thu cuối tuần (${s.weekendNights} đêm)${suffix}`,
+          amount: s.weekendAmount,
+          kind: 'weekend',
+        });
+      }
+    };
+
+    push(
+      selectedRoom.name,
+      summarizeSurcharges(
+        dateAvailability?.nightlyPrices as NightlyPriceItem[] | undefined,
+        activeRoomQuantity,
+      ),
+      'main',
+    );
+
+    extraRoomTypes.forEach((line) => {
+      const type = roomTypes.find((t) => t.id === line.roomTypeId);
+      push(
+        type?.typeName || 'Phòng',
+        summarizeSurcharges(extraTypePreview[line.roomTypeId]?.prices, line.quantity),
+        `extra-${line.id}`,
+      );
+    });
+
+    return rows;
+  })();
+
   const totalSelectedRooms =
     activeRoomQuantity + extraRoomTypes.reduce((sum, line) => sum + line.quantity, 0);
 
@@ -2347,38 +2404,6 @@ const Booking: React.FC = () => {
                       <p className="room-summary-meta">
                         {activeRoomQuantity} phòng đã chọn
                       </p>
-                      {/* Phụ thu của chính hạng phòng này, đặt ngay dưới số
-                          lượng phòng để khách hiểu vì sao tổng cao hơn giá
-                          niêm yết nhân số đêm. */}
-                      {nights > 0 &&
-                        (() => {
-                          const s = summarizeSurcharges(
-                            dateAvailability?.nightlyPrices as NightlyPriceItem[] | undefined,
-                            activeRoomQuantity,
-                          );
-                          if (s.holidayAmount <= 0 && s.weekendAmount <= 0) return null;
-                          return (
-                            <div className="room-surcharge-note">
-                              {s.holidayAmount > 0 && (
-                                <span className="surcharge-line holiday">
-                                  Phụ thu ngày lễ ({s.holidayNights} đêm
-                                  {s.holidayNames.length > 0
-                                    ? `: ${s.holidayNames.slice(0, 2).join(", ")}${
-                                        s.holidayNames.length > 2 ? "…" : ""
-                                      }`
-                                    : ""}
-                                  ): +{formatMoney(s.holidayAmount)}
-                                </span>
-                              )}
-                              {s.weekendAmount > 0 && (
-                                <span className="surcharge-line weekend">
-                                  Phụ thu cuối tuần ({s.weekendNights} đêm): +
-                                  {formatMoney(s.weekendAmount)}
-                                </span>
-                              )}
-                            </div>
-                          );
-                        })()}
                       <p>
                         <FontAwesomeIcon icon={faBed} /> Sức chứa:{" "}
                         {selectedRoom.beds}
@@ -2427,35 +2452,6 @@ const Booking: React.FC = () => {
                           <p className="room-summary-meta">
                             {line.quantity} phòng đã chọn
                           </p>
-                          {nights > 0 &&
-                            (() => {
-                              const s = summarizeSurcharges(
-                                extraTypePreview[line.roomTypeId]?.prices,
-                                line.quantity,
-                              );
-                              if (s.holidayAmount <= 0 && s.weekendAmount <= 0) return null;
-                              return (
-                                <div className="room-surcharge-note">
-                                  {s.holidayAmount > 0 && (
-                                    <span className="surcharge-line holiday">
-                                      Phụ thu ngày lễ ({s.holidayNights} đêm
-                                      {s.holidayNames.length > 0
-                                        ? `: ${s.holidayNames.slice(0, 2).join(", ")}${
-                                            s.holidayNames.length > 2 ? "…" : ""
-                                          }`
-                                        : ""}
-                                      ): +{formatMoney(s.holidayAmount)}
-                                    </span>
-                                  )}
-                                  {s.weekendAmount > 0 && (
-                                    <span className="surcharge-line weekend">
-                                      Phụ thu cuối tuần ({s.weekendNights} đêm): +
-                                      {formatMoney(s.weekendAmount)}
-                                    </span>
-                                  )}
-                                </div>
-                              );
-                            })()}
                           <p>
                             <FontAwesomeIcon icon={faBed} /> Sức chứa:{" "}
                             {typeAdultCapacity} người lớn + {typeChildCapacity} trẻ em (Tối đa {typeMaxOccupancy} khách)
@@ -2527,15 +2523,27 @@ const Booking: React.FC = () => {
                       <span>{nights > 0 ? `${nights} đêm` : "-"}</span>
                     </div>
                     {nights > 0 && (() => {
-                      // Giá từng hạng đã hiện ngay cạnh tên hạng phía trên, nên
-                      // ở đây chỉ còn MỘT dòng tổng tiền phòng, gộp cả hạng chính
-                      // lẫn các hạng đặt thêm và mọi phụ thu ngày lễ / cuối tuần.
-                      // Chi tiết từng đêm vẫn xem được ở bảng giá phía trên.
+                      // Giá niêm yết từng hạng đã hiện cạnh tên hạng phía trên.
+                      // Ở đây liệt kê phụ thu rồi mới tới tổng tiền phòng, để
+                      // khách thấy được vì sao tổng cao hơn giá niêm yết.
                       const actualStayRoomTotal = calculateBaseTotal();
                       const totalRoomAmount = actualStayRoomTotal + extraRoomsAmount;
 
                       return (
                         <>
+                          {surchargeRows.map((row) => (
+                            <div
+                              key={row.key}
+                              className="summary-row extra-row"
+                              style={{
+                                color: row.kind === 'holiday' ? '#cf1322' : '#d46b08',
+                                fontWeight: 600,
+                              }}
+                            >
+                              <span>{row.label}</span>
+                              <span>+{formatPrice(row.amount)}</span>
+                            </div>
+                          ))}
                           <div className="summary-row">
                             <span>Tổng tiền phòng</span>
                             <span>{formatPrice(totalRoomAmount)}</span>
