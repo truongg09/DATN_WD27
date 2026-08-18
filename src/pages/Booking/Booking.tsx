@@ -2281,7 +2281,14 @@ const Booking: React.FC = () => {
                     />
                     <div className="room-summary-info">
                       <div className="room-summary-heading">
-                        <h4>{selectedRoom.name}</h4>
+                        {/* Giá đứng ngay cạnh hạng phòng để đơn nhiều hạng biết
+                            giá nào của hạng nào; phần bên dưới chỉ còn tổng. */}
+                        <h4>
+                          {selectedRoom.name}
+                          <span className="room-summary-price">
+                            {formatMoney(selectedRoom.price)}/đêm
+                          </span>
+                        </h4>
                         {selectedRoom.mode === "room" && (
                           <span
                             className={`room-status-badge ${roomStatusMap[selectedRoom.status]?.className || "default"}`}
@@ -2338,7 +2345,12 @@ const Booking: React.FC = () => {
                         />
                         <div className="room-summary-info">
                           <div className="room-summary-heading">
-                            <h4>{type.typeName}</h4>
+                            <h4>
+                              {type.typeName}
+                              <span className="room-summary-price">
+                                {formatMoney(Number(type.defaultPrice || 0))}/đêm
+                              </span>
+                            </h4>
                           </div>
                           <p className="room-summary-meta">
                             {line.quantity} phòng đã chọn
@@ -2413,54 +2425,20 @@ const Booking: React.FC = () => {
                       <span>Số đêm</span>
                       <span>{nights > 0 ? `${nights} đêm` : "-"}</span>
                     </div>
-                    <div className="summary-row">
-                      <span>Giá phòng</span>
-                      <span>
-                        {formatPrice(selectedRoom.price)} / phòng / đêm
-                      </span>
-                    </div>
                     {nights > 0 && (() => {
-                      const baseStandardRoomTotal = nights * (selectedRoom?.price || 0) * activeRoomQuantity;
+                      // Giá từng hạng đã hiện ngay cạnh tên hạng phía trên, nên
+                      // ở đây chỉ còn MỘT dòng tổng tiền phòng, gộp cả hạng chính
+                      // lẫn các hạng đặt thêm và mọi phụ thu ngày lễ / cuối tuần.
+                      // Chi tiết từng đêm vẫn xem được ở bảng giá phía trên.
                       const actualStayRoomTotal = calculateBaseTotal();
-
-                      const nightlyList = (dateAvailability?.nightlyPrices as any[]) || [];
-                      const holidayNights = nightlyList.filter((n: any) => n.isHoliday);
-                      const weekendNights = nightlyList.filter((n: any) => !n.isHoliday && (n.isSaturday || n.isSunday));
-
-                      const holidaySurchargeTotal = holidayNights.length > 0
-                        ? holidayNights.reduce((sum: number, n: any) => sum + (Number(n.surcharge) || 0), 0) * activeRoomQuantity
-                        : 0;
-                      const weekendSurchargeTotal = weekendNights.length > 0
-                        ? weekendNights.reduce((sum: number, n: any) => sum + (Number(n.surcharge) || 0), 0) * activeRoomQuantity
-                        : 0;
-                      const otherSurcharge = Math.max(0, actualStayRoomTotal - baseStandardRoomTotal - holidaySurchargeTotal - weekendSurchargeTotal);
-
-                      const holidayNames = Array.from(new Set(holidayNights.map((n: any) => n.holidayName || n.note).filter(Boolean)));
+                      const totalRoomAmount = actualStayRoomTotal + extraRoomsAmount;
 
                       return (
                         <>
                           <div className="summary-row">
-                            <span>Tiền phòng tiêu chuẩn ({activeRoomQuantity} phòng)</span>
-                            <span>{formatPrice(baseStandardRoomTotal)}</span>
+                            <span>Tổng tiền phòng</span>
+                            <span>{formatPrice(totalRoomAmount)}</span>
                           </div>
-                          {holidaySurchargeTotal > 0 && (
-                            <div className="summary-row extra-row" style={{ color: '#cf1322', fontWeight: 600 }}>
-                              <span>Phụ thu Ngày lễ ({holidayNames.length > 0 ? holidayNames.join(', ') : '+20%'})</span>
-                              <span>+{formatPrice(holidaySurchargeTotal)}</span>
-                            </div>
-                          )}
-                          {weekendSurchargeTotal > 0 && (
-                            <div className="summary-row extra-row" style={{ color: '#d46b08', fontWeight: 600 }}>
-                              <span>Phụ thu Cuối tuần (Thứ 7 / CN - +10%)</span>
-                              <span>+{formatPrice(weekendSurchargeTotal)}</span>
-                            </div>
-                          )}
-                          {otherSurcharge > 0 && (
-                            <div className="summary-row extra-row" style={{ color: '#cf1322', fontWeight: 600 }}>
-                              <span>Phụ thu ngày đặc biệt</span>
-                              <span>+{formatPrice(otherSurcharge)}</span>
-                            </div>
-                          )}
                           {totalExtraGuestFee > 0 && (
                             <div className="summary-row extra-row">
                               <span>Phụ thu khách phát sinh</span>
@@ -2471,21 +2449,6 @@ const Booking: React.FC = () => {
                             <div className="summary-row">
                               <span>Dịch vụ bổ sung</span>
                               <span>+{formatPrice(serviceAmount)}</span>
-                            </div>
-                          )}
-                          {extraRoomsAmount > 0 && (
-                            <div className="summary-row">
-                              <span>
-                                Hạng phòng đặt thêm (
-                                {extraRoomTypes
-                                  .map((line) => {
-                                    const type = roomTypes.find((t) => t.id === line.roomTypeId);
-                                    return `${line.quantity} ${type?.typeName || ''}`;
-                                  })
-                                  .join(', ')}
-                                )
-                              </span>
-                              <span>+{formatPrice(extraRoomsAmount)}</span>
                             </div>
                           )}
                           <div className="summary-row total">
