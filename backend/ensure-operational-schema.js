@@ -239,6 +239,14 @@ const ensureOperationalSchema = async () => {
     // vấn danh sách đặt phòng đọc cột này (BOOKING_SELECT), nên thiếu nó là
     // GET /api/bookings trả 500 và cả trang quản lý đặt phòng trắng xóa. Bản
     // hotelbookingdb.sql chưa có cột này nên máy nào import mới cũng dính.
+    // Tên gợi nhớ khách tự đặt cho từng phòng lúc đặt online ("Phòng bố mẹ").
+    // Khách chưa biết số phòng thật nên với các phòng cùng hạng đây là cách duy
+    // nhất để phân biệt khi gán dịch vụ, và để lễ tân biết mang đồ tới phòng nào.
+    if (!bookingDetailColumns.some((column) => column.Field === 'roomLabel')) {
+      await db.query(
+        'ALTER TABLE booking_details ADD COLUMN roomLabel VARCHAR(60) NULL DEFAULT NULL AFTER roomId'
+      );
+    }
     if (!bookingDetailColumns.some((column) => column.Field === 'roomTypeId')) {
       await db.query(
         'ALTER TABLE booking_details ADD COLUMN roomTypeId INT NULL DEFAULT NULL AFTER roomId'

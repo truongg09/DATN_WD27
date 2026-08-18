@@ -452,13 +452,14 @@ const createBookingDetail = async (bookingId, payload, roomPrice, occupancySurch
   const [result] = await run(connection).query(
     `
       INSERT INTO booking_details
-        (bookingId, roomId, roomTypeId, checkInDate, checkOutDate, adults, children, roomPrice, occupancySurcharge,
+        (bookingId, roomId, roomLabel, roomTypeId, checkInDate, checkOutDate, adults, children, roomPrice, occupancySurcharge,
          requestedCheckInTime, requestedCheckOutTime)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       bookingId,
       payload.roomId,
+      payload.roomLabel || null,
       payload.roomTypeId || null,
       payload.checkIn,
       payload.checkOut,
