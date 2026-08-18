@@ -458,7 +458,7 @@
 
 .room-summary-heading {
   display: flex;
-  align-items: flex-start;
+  align-items: baseline;
   justify-content: space-between;
   gap: 10px;
   margin-bottom: 8px;
@@ -469,14 +469,21 @@
   line-height: 1.35;
 }
 
-/* Giá niêm yết đứng cạnh tên hạng phòng, để đơn nhiều hạng biết giá nào của
-   hạng nào mà không phải dò xuống phần tổng bên dưới. */
+/* Giá niêm yết nằm cùng hàng với tên hạng phòng nhưng dồn về mép phải, để đơn
+   nhiều hạng biết ngay giá nào của hạng nào mà không phải dò xuống phần tổng. */
+.room-summary-heading-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
 .room-summary-price {
-  display: block;
-  margin-top: 2px;
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 700;
   color: #a98561;
+  white-space: nowrap;
 }
 
 .room-status-badge {

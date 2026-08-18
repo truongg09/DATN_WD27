@@ -2280,23 +2280,23 @@ const Booking: React.FC = () => {
                       }
                     />
                     <div className="room-summary-info">
+                      {/* Giá nằm cùng hàng với tên hạng phòng, dồn về mép phải,
+                          để đơn nhiều hạng biết ngay giá nào của hạng nào. */}
                       <div className="room-summary-heading">
-                        {/* Giá đứng ngay cạnh hạng phòng để đơn nhiều hạng biết
-                            giá nào của hạng nào; phần bên dưới chỉ còn tổng. */}
-                        <h4>
-                          {selectedRoom.name}
+                        <h4>{selectedRoom.name}</h4>
+                        <div className="room-summary-heading-right">
                           <span className="room-summary-price">
                             {formatMoney(selectedRoom.price)}/đêm
                           </span>
-                        </h4>
-                        {selectedRoom.mode === "room" && (
-                          <span
-                            className={`room-status-badge ${roomStatusMap[selectedRoom.status]?.className || "default"}`}
-                          >
-                            {roomStatusMap[selectedRoom.status]?.label ||
-                              selectedRoom.status}
-                          </span>
-                        )}
+                          {selectedRoom.mode === "room" && (
+                            <span
+                              className={`room-status-badge ${roomStatusMap[selectedRoom.status]?.className || "default"}`}
+                            >
+                              {roomStatusMap[selectedRoom.status]?.label ||
+                                selectedRoom.status}
+                            </span>
+                          )}
+                        </div>
                       </div>
                       {selectedRoom.mode === "room" &&
                         selectedRoom.roomNumber && (
@@ -2345,12 +2345,12 @@ const Booking: React.FC = () => {
                         />
                         <div className="room-summary-info">
                           <div className="room-summary-heading">
-                            <h4>
-                              {type.typeName}
+                            <h4>{type.typeName}</h4>
+                            <div className="room-summary-heading-right">
                               <span className="room-summary-price">
                                 {formatMoney(Number(type.defaultPrice || 0))}/đêm
                               </span>
-                            </h4>
+                            </div>
                           </div>
                           <p className="room-summary-meta">
                             {line.quantity} phòng đã chọn
