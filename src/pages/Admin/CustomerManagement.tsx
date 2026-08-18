@@ -1,45 +1,31 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import {
   ConfigProvider,
   Table,
   Button,
   Modal,
-  Form,
   Input,
-  DatePicker,
-  Select,
   Segmented,
   message,
-  Popconfirm,
   Space,
   Avatar,
-  Dropdown,
   Tooltip,
   Empty
 } from 'antd';
-import type { MenuProps } from 'antd';
 import {
-  PlusOutlined,
   ReloadOutlined,
   SearchOutlined,
-  MoreOutlined,
   EyeOutlined,
-  EditOutlined,
   LockOutlined,
-  UnlockOutlined,
-  DeleteOutlined
+  UnlockOutlined
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import {
   fetchCustomers as fetchCustomersApi,
-  createCustomer,
-  updateCustomer,
-  deleteCustomer,
   lockCustomer
 } from '../../services/customerService';
 
-const { Option } = Select;
 const { TextArea } = Input;
 
 // Tông màu thương hiệu hiện có của hệ thống (đồng bộ với nút .ml-btn--primary #a78362)
@@ -111,7 +97,6 @@ function StatusPill({ status }: { status: 'active' | 'locked' }) {
 
 function CustomerManagement() {
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
 
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(false);
@@ -121,11 +106,6 @@ function CustomerManagement() {
   const [totalCount, setTotalCount] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'locked'>('all');
-
-  const [modalVisible, setModalVisible] = useState(false);
-  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
-  const [submitLoading, setSubmitLoading] = useState(false);
-  const [form] = Form.useForm();
 
   const [lockModalVisible, setLockModalVisible] = useState(false);
   const [lockTarget, setLockTarget] = useState<Customer | null>(null);
@@ -159,78 +139,8 @@ function CustomerManagement() {
     fetchCustomers();
   }, [currentPage, pageSize, searchQuery, filterStatus]);
 
-  const handleEdit = (customer: Customer) => {
-    setEditingCustomer(customer);
-    form.setFieldsValue({
-      email: customer.email,
-      fullName: customer.fullName,
-      phone: customer.phone,
-      gender: customer.gender,
-      dateOfBirth: customer.dateOfBirth ? dayjs(customer.dateOfBirth) : undefined,
-      citizenId: customer.citizenId,
-      nationality: customer.nationality,
-      address: customer.address,
-      status: customer.status
-    });
-    setModalVisible(true);
-  };
-
-  useEffect(() => {
-    const editId = searchParams.get('edit');
-    if (!editId || customers.length === 0) return;
-
-    const customer = customers.find((c) => c.id === Number(editId));
-    if (customer) {
-      handleEdit(customer);
-      setSearchParams({});
-    }
-  }, [customers, searchParams]);
-
-  const handleAdd = () => {
-    setEditingCustomer(null);
-    form.resetFields();
-    form.setFieldsValue({ status: 'active' });
-    setModalVisible(true);
-  };
-
   const handleViewDetail = (id: number) => {
     navigate(`/admin/customers/${id}`);
-  };
-
-  const handleDelete = async (id: number) => {
-    try {
-      await deleteCustomer(id);
-      message.success('Xóa khách hàng thành công');
-      fetchCustomers();
-    } catch (error: any) {
-      console.error('Error deleting customer:', error);
-      message.error(error.message || 'Lỗi khi xóa khách hàng');
-    }
-  };
-
-  const handleSubmit = async (values: any) => {
-    setSubmitLoading(true);
-    try {
-      const submitValues = {
-        ...values,
-        dateOfBirth: values.dateOfBirth ? values.dateOfBirth.format('YYYY-MM-DD') : null
-      };
-
-      if (editingCustomer) {
-        await updateCustomer({ ...submitValues, id: editingCustomer.id });
-      } else {
-        await createCustomer(submitValues);
-      }
-
-      message.success(editingCustomer ? 'Cập nhật khách hàng thành công' : 'Thêm khách hàng thành công');
-      setModalVisible(false);
-      fetchCustomers();
-    } catch (error: any) {
-      console.error('Error submitting form:', error);
-      message.error(error.message || 'Lỗi khi lưu thông tin');
-    } finally {
-      setSubmitLoading(false);
-    }
   };
 
   const openLockModal = (customer: Customer) => {
@@ -259,33 +169,6 @@ function CustomerManagement() {
       setLockLoading(false);
     }
   };
-
-  // Menu phụ: chỉ còn hành động ít dùng / nguy hiểm (Khóa, Xóa).
-  // Xem & Sửa đã chuyển ra thành nút icon hiện trực tiếp ở cột Hành động.
-  const getRowMenu = (record: Customer): MenuProps['items'] => [
-    {
-      key: 'lock',
-      label: record.status === 'active' ? 'Khóa tài khoản' : 'Mở khóa tài khoản',
-      icon: record.status === 'active' ? <LockOutlined /> : <UnlockOutlined />,
-      onClick: () => openLockModal(record)
-    },
-    { type: 'divider' },
-    {
-      key: 'delete',
-      label: (
-        <Popconfirm
-          title="Xóa khách hàng này?"
-          description="Hành động này không thể hoàn tác."
-          onConfirm={() => handleDelete(record.id)}
-          okText="Xóa"
-          cancelText="Hủy"
-        >
-          <span style={{ color: brand.danger }}>Xóa khách hàng</span>
-        </Popconfirm>
-      ),
-      icon: <DeleteOutlined style={{ color: brand.danger }} />
-    }
-  ];
 
   const columns = [
     {
@@ -328,7 +211,7 @@ function CustomerManagement() {
       title: 'Ngày đăng ký',
       dataIndex: 'registeredAt',
       key: 'registeredAt',
-      width: 130,
+      width: 110,
       render: (date: string) => (date ? dayjs(date).format('DD/MM/YYYY') : '—')
     },
     {
@@ -349,8 +232,6 @@ function CustomerManagement() {
           onClick={(e) => e.stopPropagation()}
           style={{ display: 'flex', justifyContent: 'center' }}
         >
-          {/* Cùng quy ước với các bảng khác: một nút chính tô đậm, thao tác
-              phụ dùng nút viền. */}
           <Tooltip title="Xem chi tiết khách hàng">
             <Button
               type="primary"
@@ -359,12 +240,14 @@ function CustomerManagement() {
               onClick={() => handleViewDetail(record.id)}
             />
           </Tooltip>
-          <Tooltip title="Sửa thông tin khách hàng">
-            <Button icon={<EditOutlined />} size="small" onClick={() => handleEdit(record)} />
+          <Tooltip title={record.status === 'active' ? 'Khóa tài khoản' : 'Mở khóa tài khoản'}>
+            <Button
+              danger={record.status === 'active'}
+              icon={record.status === 'active' ? <LockOutlined /> : <UnlockOutlined />}
+              size="small"
+              onClick={() => openLockModal(record)}
+            />
           </Tooltip>
-          <Dropdown menu={{ items: getRowMenu(record) }} trigger={['click']} placement="bottomRight">
-            <Button icon={<MoreOutlined />} size="small" />
-          </Dropdown>
         </Space>
       )
     }
@@ -421,14 +304,9 @@ function CustomerManagement() {
             </p>
           </div>
 
-          <Space>
-            <Button icon={<ReloadOutlined />} onClick={() => fetchCustomers()} loading={loading}>
-              Tải lại
-            </Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
-              Thêm khách hàng
-            </Button>
-          </Space>
+          <Button icon={<ReloadOutlined />} onClick={() => fetchCustomers()} loading={loading}>
+            Tải lại
+          </Button>
         </div>
 
         {/* Toolbar */}
@@ -513,101 +391,6 @@ function CustomerManagement() {
           />
         </div>
       </div>
-
-      {/* Modal Thêm/Sửa */}
-      <Modal
-        title={editingCustomer ? 'Sửa khách hàng' : 'Thêm khách hàng'}
-        open={modalVisible}
-        onCancel={() => setModalVisible(false)}
-        footer={null}
-        width={600}
-      >
-        <Form form={form} layout="vertical" onFinish={handleSubmit}>
-          <Form.Item
-            name="email"
-            label="Email"
-            rules={[
-              { required: true, message: 'Vui lòng nhập email' },
-              { type: 'email', message: 'Email không hợp lệ' }
-            ]}
-          >
-            <Input placeholder="Nhập email" />
-          </Form.Item>
-
-          {!editingCustomer && (
-            <Form.Item
-              name="password"
-              label="Mật khẩu"
-              rules={[
-                { required: true, message: 'Vui lòng nhập mật khẩu' },
-                { min: 6, message: 'Mật khẩu phải có ít nhất 6 ký tự' }
-              ]}
-            >
-              <Input.Password placeholder="Nhập mật khẩu" />
-            </Form.Item>
-          )}
-
-          <Form.Item
-            name="fullName"
-            label="Họ tên"
-            rules={[{ required: true, message: 'Vui lòng nhập họ tên' }]}
-          >
-            <Input placeholder="Nhập họ tên" />
-          </Form.Item>
-
-          <Form.Item
-            name="phone"
-            label="Số điện thoại"
-            rules={[{ required: true, message: 'Vui lòng nhập số điện thoại' }]}
-          >
-            <Input placeholder="Nhập số điện thoại" />
-          </Form.Item>
-
-          <Form.Item name="gender" label="Giới tính">
-            <Select placeholder="Chọn giới tính" allowClear>
-              <Option value="male">Nam</Option>
-              <Option value="female">Nữ</Option>
-              <Option value="other">Khác</Option>
-            </Select>
-          </Form.Item>
-
-          <Form.Item name="dateOfBirth" label="Ngày sinh">
-            <DatePicker style={{ width: '100%' }} disabledDate={(d) => d && d.isAfter(dayjs())} />
-          </Form.Item>
-
-          <Form.Item name="citizenId" label="CCCD">
-            <Input placeholder="Nhập số CCCD" />
-          </Form.Item>
-
-          <Form.Item name="nationality" label="Quốc tịch">
-            <Input placeholder="Nhập quốc tịch" />
-          </Form.Item>
-
-          <Form.Item name="address" label="Địa chỉ">
-            <Input placeholder="Nhập địa chỉ" />
-          </Form.Item>
-
-          {editingCustomer && (
-            <Form.Item name="status" label="Trạng thái" initialValue="active">
-              <Select>
-                <Option value="active">Hoạt động</Option>
-                <Option value="locked">Đã khóa</Option>
-              </Select>
-            </Form.Item>
-          )}
-
-          <Form.Item>
-            <Space>
-              <Button type="primary" htmlType="submit" loading={submitLoading} block>
-                {editingCustomer ? 'Cập nhật' : 'Thêm'}
-              </Button>
-              <Button onClick={() => setModalVisible(false)} block>
-                Hủy
-              </Button>
-            </Space>
-          </Form.Item>
-        </Form>
-      </Modal>
 
       {/* Modal Khóa/Mở khóa */}
       <Modal
