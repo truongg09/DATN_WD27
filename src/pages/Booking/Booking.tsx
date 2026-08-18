@@ -926,58 +926,62 @@ const Booking: React.FC = () => {
     };
   };
 
-  // Gom phụ thu của mọi hạng phòng thành các dòng cho khung tổng tiền. Kèm tên
-  // hạng khi đơn có nhiều hạng, để khách biết phụ thu phát sinh ở hạng nào.
+  // Gom phụ thu của mọi hạng phòng thành các dòng cho khung tổng tiền.
+  //
+  // Cộng gộp theo LOẠI phụ thu chứ không tách theo hạng phòng: cả đơn dùng
+  // chung một khoảng ngày nên các hạng đều rơi vào đúng những đêm lễ / cuối
+  // tuần đó, tách ra chỉ lặp lại cùng một dòng với vài mức tiền khác nhau.
   const surchargeRows = (() => {
     const rows: { key: string; label: string; amount: number; kind: 'holiday' | 'weekend' }[] = [];
     if (!selectedRoom || nights <= 0) return rows;
 
-    const hasManyTypes = extraRoomTypes.length > 0;
-    const push = (
-      typeName: string,
-      s: ReturnType<typeof summarizeSurcharges>,
-      keyPrefix: string,
-    ) => {
-      const suffix = hasManyTypes ? ` · ${typeName}` : '';
-      if (s.holidayAmount > 0) {
-        const names =
-          s.holidayNames.length > 0
-            ? `: ${s.holidayNames.slice(0, 2).join(', ')}${s.holidayNames.length > 2 ? '…' : ''}`
-            : '';
-        rows.push({
-          key: `${keyPrefix}-holiday`,
-          label: `Phụ thu ngày lễ (${s.holidayNights} đêm${names})${suffix}`,
-          amount: s.holidayAmount,
-          kind: 'holiday',
-        });
-      }
-      if (s.weekendAmount > 0) {
-        rows.push({
-          key: `${keyPrefix}-weekend`,
-          label: `Phụ thu cuối tuần (${s.weekendNights} đêm)${suffix}`,
-          amount: s.weekendAmount,
-          kind: 'weekend',
-        });
-      }
+    let holidayAmount = 0;
+    let holidayNights = 0;
+    let weekendAmount = 0;
+    let weekendNights = 0;
+    const holidayNames = new Set<string>();
+
+    const collect = (s: ReturnType<typeof summarizeSurcharges>) => {
+      holidayAmount += s.holidayAmount;
+      weekendAmount += s.weekendAmount;
+      // Số đêm giống nhau giữa các hạng, lấy mức lớn nhất phòng khi một hạng
+      // chưa kịp tải xong dữ liệu giá.
+      holidayNights = Math.max(holidayNights, s.holidayNights);
+      weekendNights = Math.max(weekendNights, s.weekendNights);
+      s.holidayNames.forEach((name) => holidayNames.add(name));
     };
 
-    push(
-      selectedRoom.name,
+    collect(
       summarizeSurcharges(
         dateAvailability?.nightlyPrices as NightlyPriceItem[] | undefined,
         activeRoomQuantity,
       ),
-      'main',
     );
-
     extraRoomTypes.forEach((line) => {
-      const type = roomTypes.find((t) => t.id === line.roomTypeId);
-      push(
-        type?.typeName || 'Phòng',
-        summarizeSurcharges(extraTypePreview[line.roomTypeId]?.prices, line.quantity),
-        `extra-${line.id}`,
-      );
+      collect(summarizeSurcharges(extraTypePreview[line.roomTypeId]?.prices, line.quantity));
     });
+
+    if (holidayAmount > 0) {
+      const names = Array.from(holidayNames);
+      const nameText =
+        names.length > 0
+          ? `: ${names.slice(0, 2).join(', ')}${names.length > 2 ? '…' : ''}`
+          : '';
+      rows.push({
+        key: 'holiday',
+        label: `Phụ thu ngày lễ (${holidayNights} đêm${nameText})`,
+        amount: holidayAmount,
+        kind: 'holiday',
+      });
+    }
+    if (weekendAmount > 0) {
+      rows.push({
+        key: 'weekend',
+        label: `Phụ thu cuối tuần (${weekendNights} đêm)`,
+        amount: weekendAmount,
+        kind: 'weekend',
+      });
+    }
 
     return rows;
   })();
