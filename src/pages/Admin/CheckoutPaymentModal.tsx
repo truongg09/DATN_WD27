@@ -287,6 +287,23 @@ const CheckoutPaymentModal: React.FC<Props> = ({
           ),
           okText: "Đã hiểu",
         });
+      } else if (result?.lateCheckoutWarning) {
+        // Trả phòng vẫn xong, nhưng phòng đang kẹt lịch với khách kế tiếp —
+        // lễ tân phải thấy ngay để dọn gấp hoặc xếp lại phòng.
+        Modal.warning({
+          title: "Đã trả phòng — cần xử lý phòng ngay",
+          content: (
+            <div>
+              <p>{result.lateCheckoutWarning}</p>
+              {lateFee > 0 && (
+                <p style={{ color: "#888", fontSize: 13 }}>
+                  Đã tính phí trễ giờ {money(lateFee)}.
+                </p>
+              )}
+            </div>
+          ),
+          okText: "Đã hiểu",
+        });
       } else {
         message.success(
           lateFee > 0
@@ -298,9 +315,36 @@ const CheckoutPaymentModal: React.FC<Props> = ({
       onCheckedOut();
       onClose();
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string } } })
-        .response?.data?.message;
-      message.error(msg || "Không thể trả phòng");
+      const res = (
+        err as {
+          response?: {
+            data?: {
+              message?: string;
+              data?: { lateCheckoutWarning?: string | null };
+            };
+          };
+        }
+      ).response?.data;
+      const msg = res?.message;
+      const warning = res?.data?.lateCheckoutWarning;
+
+      // Trường hợp phí trễ giờ vừa được cộng thêm: chưa trả phòng được vì còn
+      // nợ tiền, nhưng nếu phòng đang kẹt lịch với khách kế tiếp thì lễ tân
+      // phải biết luôn, không để lẫn vào một dòng báo lỗi rồi trôi mất.
+      if (warning) {
+        Modal.warning({
+          title: "Cần xử lý trước khi trả phòng",
+          content: (
+            <div>
+              {msg && <p>{msg}</p>}
+              <p>{warning}</p>
+            </div>
+          ),
+          okText: "Đã hiểu",
+        });
+      } else {
+        message.error(msg || "Không thể trả phòng");
+      }
       await loadSummary(true);
     } finally {
       setWorking(false);
