@@ -486,6 +486,29 @@
   white-space: nowrap;
 }
 
+/* Phụ thu ghi ngay tại hạng phòng phát sinh, để khách không phải đoán vì sao
+   tổng cao hơn giá niêm yết nhân số đêm. */
+.room-surcharge-note {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 6px;
+}
+
+.room-surcharge-note .surcharge-line {
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.room-surcharge-note .surcharge-line.holiday {
+  color: #cf1322;
+}
+
+.room-surcharge-note .surcharge-line.weekend {
+  color: #d46b08;
+}
+
 .room-status-badge {
   flex-shrink: 0;
   display: inline-flex;
