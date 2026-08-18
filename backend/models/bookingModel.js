@@ -182,7 +182,18 @@ const getSecuredConflictingBookings = async (
              COALESCE(p.paymentStatus, 'unpaid') AS paymentStatus,
              COALESCE(p.paidAmount, 0) AS paidAmount
       FROM bookings b
-      LEFT JOIN booking_details bd ON bd.bookingId = b.id
+      LEFT JOIN (
+        SELECT
+          bookingId,
+          MIN(roomId) AS roomId,
+          MIN(checkInDate) AS checkInDate,
+          MAX(checkOutDate) AS checkOutDate,
+          MIN(requestedCheckInTime) AS requestedCheckInTime,
+          MIN(requestedCheckOutTime) AS requestedCheckOutTime,
+          MIN(requestedCheckInDayOffset) AS requestedCheckInDayOffset
+        FROM booking_details
+        GROUP BY bookingId
+      ) bd ON bd.bookingId = b.id
       LEFT JOIN payments p ON p.id = (
         SELECT p2.id
         FROM payments p2
@@ -1212,9 +1223,15 @@ const listRoomHistory = async (roomId, connection) => {
   const [rows] = await run(connection).query(
     `
       SELECT h.id, h.bookingId, h.action, h.entityType, h.entityId, h.entityLabel,
-             h.description, h.oldValue, h.newValue, h.amount,
-             h.performedBy, h.performedByName, h.performedByRole, h.createdAt
+             h.description, h.oldValue, h.newValue, h.amount, h.performedBy,
+             COALESCE(NULLIF(h.performedByName, ''), NULLIF(e.fullName, ''),
+                      NULLIF(c.fullName, ''), NULLIF(a.full_name, ''), a.email) AS performedByName,
+             COALESCE(NULLIF(h.performedByRole, ''), a.role, 'system') AS performedByRole,
+             a.email AS performedByEmail, h.createdAt
       FROM booking_history h
+      LEFT JOIN accounts a ON a.id = h.performedBy
+      LEFT JOIN employees e ON e.accountId = a.id
+      LEFT JOIN customers c ON c.accountId = a.id
       WHERE (h.entityType = 'room' AND h.entityId = ?)
          OR h.bookingId IN (
            SELECT DISTINCT b.id
@@ -1231,21 +1248,27 @@ const listRoomHistory = async (roomId, connection) => {
 };
 
 const listBookingHistory = async (bookingId, connection, { entityType } = {}) => {
-  const conditions = ['bookingId = ?'];
+  const conditions = ['h.bookingId = ?'];
   const values = [bookingId];
   if (entityType) {
-    conditions.push('entityType = ?');
+    conditions.push('h.entityType = ?');
     values.push(entityType);
   }
 
   const [rows] = await run(connection).query(
     `
-      SELECT id, bookingId, action, entityType, entityId, entityLabel,
-             description, oldValue, newValue, amount,
-             performedBy, performedByName, performedByRole, createdAt
-      FROM booking_history
+      SELECT h.id, h.bookingId, h.action, h.entityType, h.entityId, h.entityLabel,
+             h.description, h.oldValue, h.newValue, h.amount, h.performedBy,
+             COALESCE(NULLIF(h.performedByName, ''), NULLIF(e.fullName, ''),
+                      NULLIF(c.fullName, ''), NULLIF(a.full_name, ''), a.email) AS performedByName,
+             COALESCE(NULLIF(h.performedByRole, ''), a.role, 'system') AS performedByRole,
+             a.email AS performedByEmail, h.createdAt
+      FROM booking_history h
+      LEFT JOIN accounts a ON a.id = h.performedBy
+      LEFT JOIN employees e ON e.accountId = a.id
+      LEFT JOIN customers c ON c.accountId = a.id
       WHERE ${conditions.join(' AND ')}
-      ORDER BY createdAt DESC, id DESC
+      ORDER BY h.createdAt DESC, h.id DESC
     `,
     values
   );
@@ -1257,8 +1280,9 @@ const getActorDisplayName = async (accountId, connection) => {
   if (!accountId) return null;
   const [rows] = await run(connection).query(
     `
-      SELECT COALESCE(NULLIF(c.fullName, ''), NULLIF(a.full_name, ''), a.email) AS name
+      SELECT COALESCE(NULLIF(e.fullName, ''), NULLIF(c.fullName, ''), NULLIF(a.full_name, ''), a.email) AS name
       FROM accounts a
+      LEFT JOIN employees e ON e.accountId = a.id
       LEFT JOIN customers c ON c.accountId = a.id
       WHERE a.id = ?
       LIMIT 1
@@ -1308,6 +1332,20 @@ const getOverdueCheckInCandidates = async (connection) => {
     `
   );
   return rows;
+};
+
+// Chỉ một tiến trình được phép chuyển đơn sang no-show. Điều kiện trong câu
+// UPDATE ngăn nhiều lịch quét đồng thời cùng ghi một thao tác vào lịch sử.
+const markBookingNoShowIfEligible = async (bookingId, connection) => {
+  const [result] = await run(connection).query(
+    `UPDATE bookings
+     SET status = 'no_show', bookingStatus = 'no_show'
+     WHERE id = ?
+       AND actualCheckInTime IS NULL
+       AND COALESCE(bookingStatus, status) IN ('pending', 'confirmed')`,
+    [bookingId]
+  );
+  return result.affectedRows > 0;
 };
 
 const updateRequestedCheckInTime = async (bookingId, requestedCheckInTime, dayOffset = 0, connection) => {
@@ -1677,6 +1715,7 @@ module.exports = {
   updateRoomStatus,
   listEligibleNoShowBookings,
   getOverdueCheckInCandidates,
+  markBookingNoShowIfEligible,
   updateRequestedCheckInTime,
   getCheckoutLateFeeTiers,
   getCancellationPolicy,
