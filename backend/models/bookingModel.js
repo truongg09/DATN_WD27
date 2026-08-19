@@ -1224,13 +1224,12 @@ const listRoomHistory = async (roomId, connection) => {
     `
       SELECT h.id, h.bookingId, h.action, h.entityType, h.entityId, h.entityLabel,
              h.description, h.oldValue, h.newValue, h.amount, h.performedBy,
-             COALESCE(NULLIF(h.performedByName, ''), NULLIF(e.fullName, ''),
-                      NULLIF(c.fullName, ''), NULLIF(a.full_name, ''), a.email) AS performedByName,
+             COALESCE(NULLIF(h.performedByName, ''), NULLIF(c.fullName, ''),
+                      NULLIF(a.full_name, ''), a.email) AS performedByName,
              COALESCE(NULLIF(h.performedByRole, ''), a.role, 'system') AS performedByRole,
              a.email AS performedByEmail, h.createdAt
       FROM booking_history h
       LEFT JOIN accounts a ON a.id = h.performedBy
-      LEFT JOIN employees e ON e.accountId = a.id
       LEFT JOIN customers c ON c.accountId = a.id
       WHERE (h.entityType = 'room' AND h.entityId = ?)
          OR h.bookingId IN (
@@ -1259,13 +1258,12 @@ const listBookingHistory = async (bookingId, connection, { entityType } = {}) =>
     `
       SELECT h.id, h.bookingId, h.action, h.entityType, h.entityId, h.entityLabel,
              h.description, h.oldValue, h.newValue, h.amount, h.performedBy,
-             COALESCE(NULLIF(h.performedByName, ''), NULLIF(e.fullName, ''),
-                      NULLIF(c.fullName, ''), NULLIF(a.full_name, ''), a.email) AS performedByName,
+             COALESCE(NULLIF(h.performedByName, ''), NULLIF(c.fullName, ''),
+                      NULLIF(a.full_name, ''), a.email) AS performedByName,
              COALESCE(NULLIF(h.performedByRole, ''), a.role, 'system') AS performedByRole,
              a.email AS performedByEmail, h.createdAt
       FROM booking_history h
       LEFT JOIN accounts a ON a.id = h.performedBy
-      LEFT JOIN employees e ON e.accountId = a.id
       LEFT JOIN customers c ON c.accountId = a.id
       WHERE ${conditions.join(' AND ')}
       ORDER BY h.createdAt DESC, h.id DESC
@@ -1280,9 +1278,8 @@ const getActorDisplayName = async (accountId, connection) => {
   if (!accountId) return null;
   const [rows] = await run(connection).query(
     `
-      SELECT COALESCE(NULLIF(e.fullName, ''), NULLIF(c.fullName, ''), NULLIF(a.full_name, ''), a.email) AS name
+      SELECT COALESCE(NULLIF(c.fullName, ''), NULLIF(a.full_name, ''), a.email) AS name
       FROM accounts a
-      LEFT JOIN employees e ON e.accountId = a.id
       LEFT JOIN customers c ON c.accountId = a.id
       WHERE a.id = ?
       LIMIT 1
