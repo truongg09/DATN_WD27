@@ -164,6 +164,23 @@ const ensureOperationalSchema = async () => {
     await db.query('ALTER TABLE rooms ADD COLUMN maintenanceExpectedCompletion DATE DEFAULT NULL');
   }
 
+  // Lưu dấu vết các thay đổi quan trọng trên phòng, kể cả khi phòng đã bị xóa mềm.
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS room_audit_logs (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      roomId INT NOT NULL,
+      roomNumber VARCHAR(50) NOT NULL,
+      action VARCHAR(50) NOT NULL,
+      oldValue JSON NULL,
+      newValue JSON NULL,
+      performedBy INT NULL,
+      performedByName VARCHAR(255) NULL,
+      performedByRole VARCHAR(50) NULL,
+      createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_room_audit_room_created (roomId, createdAt)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
   const [roomTypeColumns] = await db.query('DESCRIBE room_types');
   if (!roomTypeColumns.some((column) => column.Field === 'isDeleted')) {
     await db.query(
