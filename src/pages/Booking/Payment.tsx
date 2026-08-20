@@ -531,10 +531,7 @@ const PaymentPage: React.FC = () => {
                 </p>
 
                 {!isHoldExpired ? (
-                  <div className="hold-reset-bar" style={{ marginTop: 14, paddingTop: 10, borderTop: '1px dashed #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-                    <span style={{ fontSize: 13, color: '#64748b' }}>
-                      Cần thêm thời gian?
-                    </span>
+                  <div className="hold-reset-bar" style={{ marginTop: 14, paddingTop: 10, borderTop: '1px dashed #e2e8f0', display: 'flex', justifyContent: 'flex-end' }}>
                     <Button
                       size="small"
                       type="default"

@@ -5141,7 +5141,14 @@ const resetBookingHold = async (bookingId, actor) => {
       );
     }
 
-    const proposedExpiresMs = nowMs + HOLD_RESET_MINUTES * 60 * 1000;
+    // Gia hạn nghĩa là cộng thêm vào thời hạn đang chạy, không đặt lại bộ đếm
+    // thành đúng 5 phút kể từ lúc bấm. Ví dụ còn 8 phút thì sau khi gia hạn sẽ
+    // còn khoảng 13 phút (vẫn bị giới hạn bởi trần 20 phút từ lúc tạo đơn).
+    const currentExpiresMs = booking.hold_expires_at
+      ? new Date(booking.hold_expires_at).getTime()
+      : createdAtMs + HOLD_MINUTES * 60 * 1000;
+    const proposedExpiresMs = Math.max(currentExpiresMs, nowMs)
+      + HOLD_RESET_MINUTES * 60 * 1000;
     const newExpiresMs = Math.min(proposedExpiresMs, maxAllowedExpiresMs);
     const newExpiresAt = new Date(newExpiresMs);
     const newResetCount = currentResetCount + 1;
