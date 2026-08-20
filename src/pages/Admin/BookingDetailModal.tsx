@@ -25,7 +25,6 @@ import {
   addBookingServiceCharge,
   addBookingDamageCharge,
   updateBookingServiceCharge,
-  updateBookingServiceChargeStatus,
   deleteBookingServiceCharge,
   updateBookingDamageCharge,
   updateBookingDamageChargeStatus,
@@ -473,7 +472,9 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
   const refunds = detail?.refunds || [];
   const history = detail?.history || [];
 
-  const serviceTotal = services.reduce((sum, item) => sum + Number(item.totalPrice || 0), 0);
+  const serviceTotal = services
+    .filter((item) => (item.status || 'used') === 'used')
+    .reduce((sum, item) => sum + Number(item.totalPrice || 0), 0);
   const damageTotal = damages
     .filter((d) => (d.status || 'used') === 'used')
     .reduce((sum, item) => sum + Number(item.totalPrice || 0), 0);
@@ -525,8 +526,8 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
   }, [detail]);
 
   const svcStatusLabel: Record<string, string> = {
-    used: 'Đã sử dụng',
-    unused: 'Chưa sử dụng',
+    used: 'Đang sử dụng',
+    unused: 'Đang sử dụng',
     cancelled: 'Đã hủy',
   };
   const svcStatusColor: Record<string, string> = {
@@ -588,7 +589,7 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
         serviceId: values.serviceId,
         quantity: values.quantity,
         roomId: values.roomId ?? null,
-        status: values.status || 'used',
+        status: 'used',
       });
       message.success('Đã thêm dịch vụ');
       addServiceForm.resetFields();
@@ -626,18 +627,6 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
       if (errMsg) message.error(errMsg);
     } finally {
       setSavingService(false);
-    }
-  };
-
-  const handleStatusChange = async (row: ServiceRow, newStatus: string) => {
-    if (!bookingId) return;
-    try {
-      await updateBookingServiceChargeStatus(bookingId, row.id, newStatus);
-      message.success(`Đã chuyển trạng thái → ${svcStatusLabel[newStatus] || newStatus}`);
-      fetchDetail();
-    } catch (err: unknown) {
-      const errMsg = (err as { response?: { data?: { message?: string } } }).response?.data?.message;
-      if (errMsg) message.error(errMsg);
     }
   };
 
@@ -922,32 +911,11 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
         const s = (row.status || 'used').toLowerCase();
         if (s === 'cancelled') return <Tag>Đã hủy</Tag>;
 
-        // Status transition actions
-        const statusItems: { key: string; label: string }[] = [];
-        if (s === 'unused') {
-          statusItems.push({ key: 'used', label: 'Xác nhận đã sử dụng' });
-        }
-        if (s === 'used') {
-          statusItems.push({ key: 'unused', label: 'Chuyển về chưa sử dụng' });
-        }
-
         return (
           <Space size={4}>
             <Tooltip title="Sửa">
               <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEditService(row)} />
             </Tooltip>
-            {statusItems.length > 0 && (
-              <Dropdown
-                menu={{
-                  items: statusItems,
-                  onClick: ({ key }) => handleStatusChange(row, key),
-                }}
-              >
-                <Button type="link" size="small">
-                  Trạng thái <DownOutlined />
-                </Button>
-              </Dropdown>
-            )}
             <Popconfirm
               title="Hủy dịch vụ này?"
               description="Dịch vụ sẽ chuyển sang trạng thái Đã hủy và không tính tiền."
@@ -1014,12 +982,6 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
         </Form.Item>
         <Form.Item name="quantity" label="SL" initialValue={1} rules={[{ required: true, message: 'Nhập SL' }]}>
           <InputNumber min={1} max={100} style={{ width: 70 }} />
-        </Form.Item>
-        <Form.Item name="status" label="Trạng thái" initialValue="used">
-          <Select style={{ width: 150 }} options={[
-            { value: 'used', label: 'Đã sử dụng' },
-            { value: 'unused', label: 'Chưa sử dụng' },
-          ]} />
         </Form.Item>
         <Form.Item>
           <Button type="primary" loading={addingService} onClick={handleAddService}>
