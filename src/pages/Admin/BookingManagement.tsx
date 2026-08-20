@@ -1944,10 +1944,10 @@ const handleCheckIn = (booking: Booking) => {
                         );
                       })()}
                     </td>
-                    <td style={{ ...tdStyle, minWidth: 135 }}>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        {/* Hàng 1: Thao tác chính (Xem chi tiết, Sửa đơn, Check-in / Trả phòng, Khôi phục) */}
-                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                    <td style={{ ...tdStyle, minWidth: 140, textAlign: 'center' }}>
+                      <div style={{ display: 'inline-flex', flexDirection: 'column', gap: 4, alignItems: 'center' }}>
+                        {/* Hàng 1: Xem, Sửa, Check-in / Trả phòng, Thêm dịch vụ */}
+                        <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
                           <Tooltip title="Xem chi tiết đặt phòng">
                             <Button
                               type="primary"
@@ -1988,6 +1988,19 @@ const handleCheckIn = (booking: Booking) => {
                             </Tooltip>
                           )}
 
+                          {booking.status === 'checked_in' && (
+                            <Tooltip title="Thêm dịch vụ cho khách">
+                              <Button
+                                size="small"
+                                icon={<PlusOutlined />}
+                                onClick={() => openOperation('service', booking)}
+                              />
+                            </Tooltip>
+                          )}
+                        </div>
+
+                        {/* Hàng 2: Gia hạn giữ phòng, Khôi phục, Đền bù, Gia hạn ở, Chuyển phòng, Khai báo, No-show, Hủy */}
+                        <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
                           {['pending', 'confirmed'].includes(booking.status) && (
                             <Tooltip title="Gia hạn thời gian giữ phòng khi khách báo đến muộn">
                               <Button
@@ -2006,19 +2019,6 @@ const handleCheckIn = (booking: Booking) => {
                                 ghost
                                 icon={<UndoOutlined />}
                                 onClick={() => handleReactivateNoShow(booking)}
-                              />
-                            </Tooltip>
-                          )}
-                        </div>
-
-                        {/* Hàng 2: Thao tác mở rộng (Dịch vụ, Đền bù, Gia hạn ở, Chuyển phòng, Khai báo khách, No-show, Hủy) */}
-                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                          {booking.status === 'checked_in' && (
-                            <Tooltip title="Thêm dịch vụ cho khách">
-                              <Button
-                                size="small"
-                                icon={<PlusOutlined />}
-                                onClick={() => openOperation('service', booking)}
                               />
                             </Tooltip>
                           )}
