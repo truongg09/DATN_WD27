@@ -1943,6 +1943,7 @@ const handleCheckIn = (booking: Booking) => {
                           </div>
                         );
                       })()}
+                    </td>
                     <td style={{ ...tdStyle, minWidth: 135 }}>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                         {/* Hàng 1: Thao tác chính (Xem chi tiết, Sửa đơn, Check-in / Trả phòng, Khôi phục) */}
