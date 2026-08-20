@@ -77,7 +77,7 @@ export const getBookingServiceCharges = async (bookingId: number) => {
 
 export const addBookingServiceCharge = async (
   id: number,
-  data: { serviceId: number; quantity: number; roomId?: number | null; status?: string }
+  data: { serviceId: number; quantity: number; roomId?: number | null; customerId?: number | null; guestName?: string | null; status?: string }
 ) => {
   return api.post(`/bookings/${id}/services`, data);
 };
@@ -85,7 +85,7 @@ export const addBookingServiceCharge = async (
 export const updateBookingServiceCharge = async (
   id: number,
   serviceChargeId: number,
-  data: { quantity?: number; roomId?: number | null; status?: string }
+  data: { quantity?: number; roomId?: number | null; customerId?: number | null; guestName?: string | null; status?: string }
 ) => {
   return api.patch(`/bookings/${id}/services/${serviceChargeId}`, data);
 };
