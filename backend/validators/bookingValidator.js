@@ -140,12 +140,20 @@ const normalizeBookingPayload = (body, userFromToken) => {
         `rooms[${index}].roomTypeId`
       );
       const quantity = toPositiveInt(item.quantity ?? 1, `rooms[${index}].quantity`);
-      merged.set(typeId, (merged.get(typeId) || 0) + quantity);
+      const current = merged.get(typeId) || {
+        roomTypeId: typeId,
+        quantity: 0,
+        adults: 0,
+        children: 0,
+        childrenAges: []
+      };
+      current.quantity += quantity;
+      current.adults += Math.max(0, Number(item.adults || 0));
+      current.children += Math.max(0, Number(item.children || 0));
+      current.childrenAges.push(...normalizeChildrenAges(item.childrenAges ?? item.children_ages));
+      merged.set(typeId, current);
     });
-    roomGroups = [...merged.entries()].map(([typeId, quantity]) => ({
-      roomTypeId: typeId,
-      quantity
-    }));
+    roomGroups = [...merged.values()];
   }
 
   const payload = {

@@ -245,6 +245,11 @@ const ensureOperationalSchema = async () => {
         'ALTER TABLE booking_details ADD COLUMN occupancySurcharge DECIMAL(15,2) NOT NULL DEFAULT 0 AFTER roomPrice'
       );
     }
+    if (!bookingDetailColumns.some((column) => column.Field === 'childrenAges')) {
+      await db.query(
+        'ALTER TABLE booking_details ADD COLUMN childrenAges JSON NULL AFTER children'
+      );
+    }
     // Giờ khách mong muốn nhận/trả phòng, khai lúc đặt phòng. Đây là bản ghi
     // "sống" ở booking_details (giống checkInDate/checkOutDate); bookings có
     // cột cùng tên để dự phòng cho các booking không có booking_details.

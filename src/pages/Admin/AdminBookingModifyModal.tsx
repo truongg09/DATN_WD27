@@ -50,6 +50,19 @@ const childAgeOptions = [
   { value: 12, label: "Trên 12 tuổi (Tính người lớn)" },
 ];
 
+const readChildrenAges = (value: unknown, children: number): number[] => {
+  if (Array.isArray(value)) return value.map(Number).slice(0, children);
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) return parsed.map(Number).slice(0, children);
+    } catch {
+      // Booking cũ chưa lưu tuổi trẻ em riêng cho từng phòng.
+    }
+  }
+  return Array.from({ length: children }, () => 8);
+};
+
 export const AdminBookingModifyModal: React.FC<AdminBookingModifyModalProps> = ({
   open,
   bookingId,
@@ -119,7 +132,7 @@ export const AdminBookingModifyModal: React.FC<AdminBookingModifyModalProps> = (
             roomTypeId: matchTypeId(d),
             adults: Number(d.adults || 1),
             children: Number(d.children || 0),
-            childrenAges: Array.isArray(d.childrenAges) ? d.childrenAges : (d.children > 0 ? [8] : []),
+            childrenAges: readChildrenAges(d.childrenAges, Number(d.children || 0)),
           }));
           setRoomsList(mapped);
         } else if (Array.isArray(b.booking_rooms) && b.booking_rooms.length > 0) {
@@ -142,7 +155,7 @@ export const AdminBookingModifyModal: React.FC<AdminBookingModifyModalProps> = (
               roomTypeId: matchTypeId(b),
               adults: Number(b.adults || 1),
               children: Number(b.children || 0),
-              childrenAges: Array.isArray(b.childrenAges) ? b.childrenAges : (b.children > 0 ? [8] : []),
+              childrenAges: readChildrenAges(b.childrenAges, Number(b.children || 0)),
             },
           ]);
         }

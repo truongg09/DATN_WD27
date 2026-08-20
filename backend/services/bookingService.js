@@ -1363,6 +1363,13 @@ const createMultiTypeBooking = async (payload, actor, connection) => {
       quantity: group.quantity,
       rooms: availableRooms.slice(0, group.quantity),
       nightly,
+      // Giữ lựa chọn khách gắn với chính roomTypeId, không ghép lại bằng
+      // vị trí mảng vì danh sách phòng trống có thể được sắp xếp khác.
+      guestSelection: {
+        adults: Number(group.adults || 0),
+        children: Number(group.children || 0),
+        childrenAges: Array.isArray(group.childrenAges) ? group.childrenAges : [],
+      },
     });
   }
 
@@ -1448,16 +1455,27 @@ const createMultiTypeBooking = async (payload, actor, connection) => {
   let distributed = [];
   if (hasExplicitPerGroupGuests) {
     let slotOffset = 0;
-    payload.rooms.forEach((group) => {
-      const q = Math.max(1, Number(group.quantity) || 1);
+    groups.forEach((resolvedGroup) => {
+      const selection = resolvedGroup.guestSelection;
+      const q = Math.max(1, Number(resolvedGroup.quantity) || 1);
       const groupSlots = roomSlots.slice(slotOffset, slotOffset + q);
-      const groupAdults = Number(group.adults || 0);
-      const groupChildren = Number(group.children || 0);
+      const groupAges = selection.childrenAges;
+      const groupAdultsFromChildren = groupAges.filter(
+        (age) => Number(age) > childMaxAge,
+      ).length;
+      const groupAdults = selection.adults + groupAdultsFromChildren;
+      const groupChildren = Math.max(0, selection.children - groupAdultsFromChildren);
+      const effectiveChildAges = groupAges.filter((age) => Number(age) <= childMaxAge);
       if (q === 1) {
-        distributed.push({ adults: groupAdults, children: groupChildren });
+        distributed.push({ adults: groupAdults, children: groupChildren, childrenAges: effectiveChildAges });
       } else {
         const subDist = distributeGuestsAcrossMixedRooms(groupAdults, groupChildren, groupSlots);
-        distributed.push(...subDist);
+        let ageOffset = 0;
+        distributed.push(...subDist.map((roomGuests) => {
+          const roomAges = effectiveChildAges.slice(ageOffset, ageOffset + roomGuests.children);
+          ageOffset += roomGuests.children;
+          return { ...roomGuests, childrenAges: roomAges };
+        }));
       }
       slotOffset += q;
     });
@@ -1467,6 +1485,13 @@ const createMultiTypeBooking = async (payload, actor, connection) => {
       effectiveChildren,
       roomSlots,
     );
+    const effectiveChildAges = ages.filter((age) => Number(age) <= childMaxAge);
+    let ageOffset = 0;
+    distributed = distributed.map((roomGuests) => {
+      const roomAges = effectiveChildAges.slice(ageOffset, ageOffset + roomGuests.children);
+      ageOffset += roomGuests.children;
+      return { ...roomGuests, childrenAges: roomAges };
+    });
   }
 
   // bookings.room_id giữ phòng đầu tiên để tương thích các màn hình cũ
@@ -1481,6 +1506,9 @@ const createMultiTypeBooking = async (payload, actor, connection) => {
       quantity: group.quantity,
       pricePerNight: Number(group.roomType.defaultPrice || 0),
       stayTotal: group.nightly.total * group.quantity,
+      adults: group.guestSelection.adults,
+      children: group.guestSelection.children,
+      childrenAges: group.guestSelection.childrenAges,
     })),
     totalAdultCapacity,
     totalChildCapacity,
@@ -1512,6 +1540,7 @@ const createMultiTypeBooking = async (payload, actor, connection) => {
         ...roomItem,
         adults: dist.adults,
         children: dist.children,
+        childrenAges: dist.childrenAges || [],
         adultCapacity: Number(group.roomType.adultCapacity ?? group.roomType.capacity ?? 2),
         childCapacity: Number(group.roomType.childCapacity ?? 1),
         maxOccupancy: Number(group.roomType.maxOccupancy ?? 3),
@@ -2071,7 +2100,7 @@ const getBookingById = async (bookingId) => {
             COALESCE(bd.roomTypeId, r.roomTypeId) AS roomTypeId,
             DATE_FORMAT(bd.checkInDate, '%Y-%m-%d') AS checkInDate,
             DATE_FORMAT(bd.checkOutDate, '%Y-%m-%d') AS checkOutDate,
-            bd.adults, bd.children, bd.roomPrice, bd.occupancySurcharge,
+            bd.adults, bd.children, bd.childrenAges, bd.roomPrice, bd.occupancySurcharge,
             bd.requestedCheckInTime, bd.requestedCheckOutTime, bd.requestedCheckInDayOffset,
             r.roomNumber, r.floor AS roomFloor, r.area AS roomArea,
             rt.typeName, rt.defaultPrice

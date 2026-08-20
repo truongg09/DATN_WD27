@@ -463,9 +463,9 @@ const createBookingDetail = async (bookingId, payload, roomPrice, occupancySurch
   const [result] = await run(connection).query(
     `
       INSERT INTO booking_details
-        (bookingId, roomId, roomLabel, roomTypeId, checkInDate, checkOutDate, adults, children, roomPrice, occupancySurcharge,
+        (bookingId, roomId, roomLabel, roomTypeId, checkInDate, checkOutDate, adults, children, childrenAges, roomPrice, occupancySurcharge,
          requestedCheckInTime, requestedCheckOutTime)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       bookingId,
@@ -476,6 +476,7 @@ const createBookingDetail = async (bookingId, payload, roomPrice, occupancySurch
       payload.checkOut,
       payload.adults,
       payload.children,
+      JSON.stringify(Array.isArray(payload.childrenAges) ? payload.childrenAges : []),
       roomPrice,
       occupancySurcharge,
       payload.requestedCheckInTime || null,
@@ -1585,7 +1586,7 @@ const replaceBookingDetails = async (bookingId, detailsList, connection) => {
       await runner.query(
         `UPDATE booking_details
          SET roomId = ?, roomTypeId = ?, checkInDate = ?, checkOutDate = ?,
-             adults = ?, children = ?, roomPrice = ?, occupancySurcharge = ?,
+             adults = ?, children = ?, childrenAges = ?, roomPrice = ?, occupancySurcharge = ?,
              requestedCheckInTime = ?, requestedCheckOutTime = ?, requestedCheckInDayOffset = ?
          WHERE id = ? AND bookingId = ?`,
         [
@@ -1595,6 +1596,7 @@ const replaceBookingDetails = async (bookingId, detailsList, connection) => {
           detail.checkOutDate,
           detail.adults || 1,
           detail.children || 0,
+          JSON.stringify(Array.isArray(detail.childrenAges) ? detail.childrenAges : []),
           detail.roomPrice || 0,
           detail.occupancySurcharge || 0,
           detail.requestedCheckInTime || null,
@@ -1606,8 +1608,8 @@ const replaceBookingDetails = async (bookingId, detailsList, connection) => {
       );
     } else {
       const [insertRes] = await runner.query(
-        `INSERT INTO booking_details (bookingId, roomId, roomTypeId, checkInDate, checkOutDate, adults, children, roomPrice, occupancySurcharge, requestedCheckInTime, requestedCheckOutTime, requestedCheckInDayOffset)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO booking_details (bookingId, roomId, roomTypeId, checkInDate, checkOutDate, adults, children, childrenAges, roomPrice, occupancySurcharge, requestedCheckInTime, requestedCheckOutTime, requestedCheckInDayOffset)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           bookingId,
           detail.roomId || null,
@@ -1616,6 +1618,7 @@ const replaceBookingDetails = async (bookingId, detailsList, connection) => {
           detail.checkOutDate,
           detail.adults || 1,
           detail.children || 0,
+          JSON.stringify(Array.isArray(detail.childrenAges) ? detail.childrenAges : []),
           detail.roomPrice || 0,
           detail.occupancySurcharge || 0,
           detail.requestedCheckInTime || null,
