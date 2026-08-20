@@ -4,6 +4,7 @@ import { Alert, Button, Checkbox, DatePicker, Form, Input, InputNumber, message,
 import {
   CheckCircleOutlined,
   CheckOutlined,
+  ClearOutlined,
   ClockCircleOutlined,
   CloseOutlined,
   DeleteOutlined,
@@ -15,6 +16,7 @@ import {
   PlusOutlined,
   ReloadOutlined,
   RiseOutlined,
+  SearchOutlined,
   StopOutlined,
   SwapOutlined,
   ToolOutlined,
@@ -660,6 +662,11 @@ function BookingManagement() {
   const [rooms, setRooms] = useState<RoomItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [checkoutBookingId, setCheckoutBookingId] = useState<number | null>(null);
+
+  // Bộ lọc tìm kiếm & lọc trạng thái / khoảng ngày
+  const [searchText, setSearchText] = useState('');
+  const [selectedStatus, setSelectedStatus] = useState<string>('all');
+  const [dateRange, setDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null] | null>(null);
 
   const [adminModifyModalOpen, setAdminModifyModalOpen] = useState(false);
   const [adminModifyBookingId, setAdminModifyBookingId] = useState<number | null>(null);
@@ -1804,19 +1811,60 @@ const handleCheckIn = (booking: Booking) => {
     return null;
   };
 
-  // Lọc theo đúng ý nghĩa mà Bảng điều khiển đang đếm, để con số ở ô "Việc cần
-  // làm hôm nay" khớp với số dòng hiện ra sau khi bấm vào.
-  const hasFilter = Boolean(statusFilter || dueFilter);
+  // Lọc nâng cao kết hợp URL Search Params + Tìm kiếm từ khóa + Chọn trạng thái + Chọn khoảng ngày
+  const hasFilter = Boolean(
+    statusFilter ||
+      dueFilter ||
+      searchText.trim() ||
+      selectedStatus !== 'all' ||
+      (dateRange && dateRange[0] && dateRange[1])
+  );
   const today = dayjs().format('YYYY-MM-DD');
   const filteredBookings = bookings.filter((booking) => {
     const status = normalizeStatus(booking.status);
+
+    // 1. Phân loại theo URL Search Params (Phím tắt từ Bảng điều khiển)
     if (statusFilter && status !== statusFilter) return false;
     if (dueFilter) {
-      // Đơn đã hủy hoặc khách không đến thì không còn là việc phải xử lý hôm nay.
       if (['cancelled', 'no_show'].includes(status)) return false;
       const target = dueFilter === 'checkin' ? booking.check_in : booking.check_out;
       if (!target || dayjs(target).format('YYYY-MM-DD') !== today) return false;
     }
+
+    // 2. Lọc theo Trạng thái đơn
+    if (selectedStatus !== 'all' && status !== selectedStatus) return false;
+
+    // 3. Tìm kiếm từ khóa (Mã đơn, Tên khách hàng, Số điện thoại, Số phòng, Hạng phòng)
+    if (searchText.trim()) {
+      const q = searchText.trim().toLowerCase();
+      const code = String(booking.booking_code || booking.id || '').toLowerCase();
+      const name = String(booking.customer_name || '').toLowerCase();
+      const phone = String(booking.customer_phone || '').toLowerCase();
+      const roomNum = String(booking.room_number || '').toLowerCase();
+      const roomType = String(booking.room_type_name || '').toLowerCase();
+
+      const match =
+        code.includes(q) ||
+        name.includes(q) ||
+        phone.includes(q) ||
+        roomNum.includes(q) ||
+        roomType.includes(q);
+
+      if (!match) return false;
+    }
+
+    // 4. Lọc theo Khoảng ngày (Check-in / Check-out)
+    if (dateRange && dateRange[0] && dateRange[1]) {
+      const start = dateRange[0].startOf('day');
+      const end = dateRange[1].endOf('day');
+      const checkIn = booking.check_in ? dayjs(booking.check_in) : null;
+      const checkOut = booking.check_out ? dayjs(booking.check_out) : null;
+
+      if (!checkIn || !checkOut) return false;
+      const overlaps = checkIn.isBefore(end) && checkOut.isAfter(start);
+      if (!overlaps) return false;
+    }
+
     return true;
   });
 
@@ -1829,6 +1877,9 @@ const handleCheckIn = (booking: Booking) => {
         : '';
 
   const clearFilter = () => {
+    setSearchText('');
+    setSelectedStatus('all');
+    setDateRange(null);
     setSearchParams({});
     setPage(1);
   };
@@ -1850,14 +1901,92 @@ const handleCheckIn = (booking: Booking) => {
   return (
     <div style={{ padding: 24 }}>
       <div style={{ background: '#fff', borderRadius: 16, padding: 24, boxShadow: '0 8px 24px rgba(0,0,0,0.08)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <h2 style={{ margin: 0 }}>Quản lý đặt phòng</h2>
           <Button icon={<ReloadOutlined />} onClick={fetchBookings} loading={loading}>
             Làm mới
           </Button>
         </div>
 
-        {hasFilter && (
+        {/* Thanh Bộ lọc Đặt phòng */}
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            gap: 12,
+            marginBottom: 20,
+            padding: '14px 16px',
+            background: '#f8fafc',
+            border: '1px solid #e2e8f0',
+            borderRadius: 12,
+          }}
+        >
+          {/* Ô tìm kiếm từ khóa */}
+          <div style={{ flex: '1 1 240px', minWidth: 200 }}>
+            <Input
+              prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
+              placeholder="Tìm mã đơn, tên khách, SĐT, số phòng..."
+              allowClear
+              value={searchText}
+              onChange={(e) => {
+                setSearchText(e.target.value);
+                setPage(1);
+              }}
+            />
+          </div>
+
+          {/* Lọc theo Trạng thái */}
+          <div style={{ width: 170 }}>
+            <Select
+              style={{ width: '100%' }}
+              value={selectedStatus}
+              onChange={(val) => {
+                setSelectedStatus(val);
+                setPage(1);
+              }}
+              options={[
+                { value: 'all', label: 'Tất cả trạng thái' },
+                { value: 'pending', label: 'Chờ xác nhận' },
+                { value: 'confirmed', label: 'Đã xác nhận' },
+                { value: 'checked_in', label: 'Đang ở (Checked-in)' },
+                { value: 'checked_out', label: 'Đã trả phòng' },
+                { value: 'cancelled', label: 'Đã hủy' },
+                { value: 'no_show', label: 'Khách không đến' },
+              ]}
+            />
+          </div>
+
+          {/* Lọc theo Khoảng ngày */}
+          <div style={{ width: 250 }}>
+            <DatePicker.RangePicker
+              style={{ width: '100%' }}
+              format="DD/MM/YYYY"
+              placeholder={['Từ ngày', 'Đến ngày']}
+              value={dateRange}
+              onChange={(dates) => {
+                setDateRange(dates as any);
+                setPage(1);
+              }}
+            />
+          </div>
+
+          {/* Nút Xóa / Đặt lại bộ lọc */}
+          {hasFilter && (
+            <Button
+              icon={<ClearOutlined />}
+              onClick={clearFilter}
+            >
+              Đặt lại bộ lọc
+            </Button>
+          )}
+
+          <div style={{ marginLeft: 'auto', fontSize: 13, color: '#64748b', fontWeight: 500 }}>
+            Hiển thị <strong>{filteredBookings.length}</strong> / {bookings.length} đơn
+          </div>
+        </div>
+
+        {(statusFilter || dueFilter) && (
           <div
             style={{
               display: 'flex',
@@ -1871,28 +2000,25 @@ const handleCheckIn = (booking: Booking) => {
               borderRadius: 10,
             }}
           >
-            <span style={{ fontSize: 13, color: '#8c6d3f' }}>Đang lọc:</span>
+            <span style={{ fontSize: 13, color: '#8c6d3f' }}>Đang lọc từ Bảng điều khiển:</span>
             <Tag color="orange" style={{ margin: 0 }}>{filterLabel}</Tag>
-            <span style={{ fontSize: 13, color: '#8c6d3f' }}>
-              {filteredBookings.length} đơn
-            </span>
             <Button size="small" onClick={clearFilter}>
-              Xem tất cả đơn
+              Xem tất cả
             </Button>
           </div>
         )}
 
-        <div style={{ overflowX: 'auto' }}>
+        <div style={{ overflowX: 'auto', borderRadius: 12, border: '1px solid #e2e8f0', background: '#fff' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', background: '#fff' }}>
             <thead>
-              <tr style={{ background: '#f5f5f5' }}>
-                <th style={thStyle}>Mã</th>
+              <tr>
+                <th style={thStyle}>Mã đơn</th>
                 <th style={thStyle}>Khách hàng</th>
-                <th style={thStyle}>Phòng</th>
-                <th style={thStyle}>Thời gian</th>
+                <th style={thStyle}>Phòng & Hạng</th>
+                <th style={thStyle}>Thời gian ở</th>
                 <th style={thStyle}>Tổng tiền</th>
                 <th style={thStyle}>Trạng thái</th>
-                <th style={thStyle}>Thao tác</th>
+                <th style={{ ...thStyle, textAlign: 'center' }}>Thao tác</th>
               </tr>
             </thead>
             <tbody>
@@ -1910,21 +2036,23 @@ const handleCheckIn = (booking: Booking) => {
                 filteredBookings
                   .slice((currentPage - 1) * pageSize, currentPage * pageSize)
                   .map((booking) => (
-                  <tr key={booking.id}>
-                    <td style={tdStyle}>#{booking.id}</td>
+                  <tr key={booking.id} style={{ transition: 'background 0.2s' }}>
+                    <td style={{ ...tdStyle, fontWeight: 700, color: '#334155' }}>#{booking.booking_code || booking.id}</td>
                     <td style={tdStyle}>
-                      <strong>{booking.customer_name || 'N/A'}</strong>
+                      <strong style={{ color: '#0f172a' }}>{booking.customer_name || 'N/A'}</strong>
                       <div style={smallText}>{booking.customer_phone || ''}</div>
                     </td>
                     <td style={tdStyle}>
-                      <strong>{booking.room_number ? `Phòng ${booking.room_number}` : 'N/A'}</strong>
+                      <strong style={{ color: '#0f172a' }}>{booking.room_number ? `Phòng ${booking.room_number}` : 'N/A'}</strong>
                       <div style={smallText}>{booking.room_type_name || ''}</div>
                     </td>
-                    <td style={tdStyle}>
-                      <div>Nhận: {formatDate(booking.check_in)}</div>
-                      <div>Trả: {formatDate(booking.check_out)}</div>
+                    <td style={{ ...tdStyle, fontSize: 13 }}>
+                      <div>Nhận: <strong>{formatDate(booking.check_in)}</strong></div>
+                      <div>Trả: <strong>{formatDate(booking.check_out)}</strong></div>
                     </td>
-                    <td style={tdStyle}>{formatPrice(booking.payable_total ?? booking.total_price)}</td>
+                    <td style={{ ...tdStyle, fontWeight: 700, color: '#0f172a' }}>
+                      {formatPrice(booking.payable_total ?? booking.total_price)}
+                    </td>
                     <td style={tdStyle}>
                       {(() => {
                         const tag = getBookingDisplayTag(booking);
@@ -2242,29 +2370,35 @@ const handleCheckIn = (booking: Booking) => {
 }
 
 const thStyle: React.CSSProperties = {
-  padding: '14px 12px',
-  borderBottom: '1px solid #eee',
+  padding: '14px 16px',
+  background: '#f8fafc',
+  borderBottom: '2px solid #e2e8f0',
   textAlign: 'left',
-  fontWeight: 600,
+  fontWeight: 700,
+  fontSize: 13,
+  color: '#334155',
   whiteSpace: 'nowrap',
 };
 
 const tdStyle: React.CSSProperties = {
-  padding: '14px 12px',
-  borderBottom: '1px solid #eee',
+  padding: '14px 16px',
+  borderBottom: '1px solid #f1f5f9',
   verticalAlign: 'middle',
+  fontSize: 14,
+  color: '#1e293b',
 };
 
 const smallText: React.CSSProperties = {
   fontSize: 12,
-  color: '#666',
-  marginTop: 4,
+  color: '#64748b',
+  marginTop: 3,
 };
 
 const emptyStyle: React.CSSProperties = {
-  padding: 32,
+  padding: 40,
   textAlign: 'center',
-  color: '#999',
+  color: '#94a3b8',
+  fontSize: 14,
 };
 
 export default BookingManagement;

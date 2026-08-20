@@ -277,7 +277,7 @@ CREATE TABLE `booking_guests` (
   `id` int NOT NULL,
   `bookingId` int NOT NULL,
   `fullName` varchar(255) NOT NULL,
-  `identityNumber` varchar(50) NOT NULL,
+  `identityNumber` varchar(50) DEFAULT NULL,
   `phone` varchar(30) DEFAULT NULL,
   `note` text,
   `createdAt` datetime DEFAULT CURRENT_TIMESTAMP
