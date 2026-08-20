@@ -302,14 +302,14 @@ const Booking: React.FC = () => {
     }
   };
 
-  const updateExtraRoomType = (index: number, newTypeId: number) => {
+  const updateExtraRoomType = (lineId: number, newTypeId: number) => {
     const newType = roomTypes.find((t) => t.id === newTypeId);
     const newAdultCap = Number(
       newType?.adultCapacity ?? newType?.capacity ?? 2,
     );
     setExtraRoomTypes((prev) =>
-      prev.map((item, i) =>
-        i === index
+      prev.map((item) =>
+        item.id === lineId
           ? {
               ...item,
               roomTypeId: newTypeId,
@@ -320,24 +320,24 @@ const Booking: React.FC = () => {
     );
   };
 
-  const updateExtraRoomQuantity = (index: number, qty: number) => {
+  const updateExtraRoomQuantity = (lineId: number, qty: number) => {
     setExtraRoomTypes((prev) =>
-      prev.map((item, i) =>
-        i === index ? { ...item, quantity: Math.max(1, qty) } : item,
+      prev.map((item) =>
+        item.id === lineId ? { ...item, quantity: Math.max(1, qty) } : item,
       ),
     );
   };
 
-  const updateExtraRoomAdults = (index: number, val: number) => {
+  const updateExtraRoomAdults = (lineId: number, val: number) => {
     setExtraRoomTypes((prev) =>
-      prev.map((item, i) => (i === index ? { ...item, adults: val } : item)),
+      prev.map((item) => (item.id === lineId ? { ...item, adults: val } : item)),
     );
   };
 
-  const updateExtraRoomChildren = (index: number, val: number) => {
+  const updateExtraRoomChildren = (lineId: number, val: number) => {
     setExtraRoomTypes((prev) =>
-      prev.map((item, i) => {
-        if (i !== index) return item;
+      prev.map((item) => {
+        if (item.id !== lineId) return item;
         const currentAges = item.childrenAges;
         let nextAges = [...currentAges];
         if (val < currentAges.length) {
@@ -351,13 +351,13 @@ const Booking: React.FC = () => {
   };
 
   const updateExtraRoomChildAge = (
-    roomIndex: number,
+    lineId: number,
     childIndex: number,
     age: number | null,
   ) => {
     setExtraRoomTypes((prev) =>
-      prev.map((item, i) => {
-        if (i !== roomIndex) return item;
+      prev.map((item) => {
+        if (item.id !== lineId) return item;
         const nextAges = [...item.childrenAges];
         nextAges[childIndex] = age;
         return { ...item, childrenAges: nextAges };
@@ -365,8 +365,8 @@ const Booking: React.FC = () => {
     );
   };
 
-  const removeExtraRoom = (index: number) => {
-    setExtraRoomTypes((prev) => prev.filter((_, i) => i !== index));
+  const removeExtraRoom = (lineId: number) => {
+    setExtraRoomTypes((prev) => prev.filter((item) => item.id !== lineId));
   };
 
 
@@ -1142,10 +1142,19 @@ const Booking: React.FC = () => {
         ? hasExtraTypes
           ? {
               rooms: [
-                { roomTypeId: selectedRoom.roomTypeId, quantity: activeRoomQuantity },
+                {
+                  roomTypeId: selectedRoom.roomTypeId,
+                  quantity: activeRoomQuantity,
+                  adults,
+                  children,
+                  childrenAges: childrenAges.filter((age): age is number => age !== null),
+                },
                 ...extraRoomTypes.map((line) => ({
                   roomTypeId: line.roomTypeId,
                   quantity: line.quantity,
+                  adults: line.adults,
+                  children: line.children,
+                  childrenAges: line.childrenAges.filter((age): age is number => age !== null),
                 })),
               ],
             }
@@ -1701,7 +1710,7 @@ const Booking: React.FC = () => {
                           type="link"
                           danger
                           className="btn-remove-room-card"
-                          onClick={() => removeExtraRoom(index)}
+                          onClick={() => removeExtraRoom(line.id)}
                         >
                           Xóa phòng
                         </Button>
@@ -1718,7 +1727,7 @@ const Booking: React.FC = () => {
                             size="large"
                             style={{ width: "100%" }}
                             optionFilterProp="label"
-                            onChange={(newTypeId) => updateExtraRoomType(index, newTypeId)}
+                            onChange={(newTypeId) => updateExtraRoomType(line.id, newTypeId)}
                             options={roomTypes
                               .filter((t) => !usedIds.includes(t.id))
                               .map((t) => ({
@@ -1738,7 +1747,7 @@ const Booking: React.FC = () => {
                               className="quantity-stepper-button"
                               aria-label="Giảm số lượng phòng"
                               disabled={line.quantity <= 1}
-                              onClick={() => updateExtraRoomQuantity(index, line.quantity - 1)}
+                              onClick={() => updateExtraRoomQuantity(line.id, line.quantity - 1)}
                             >
                               −
                             </button>
@@ -1747,7 +1756,7 @@ const Booking: React.FC = () => {
                               max={5}
                               value={line.quantity}
                               onChange={(value) =>
-                                updateExtraRoomQuantity(index, Number(value || 1))
+                                updateExtraRoomQuantity(line.id, Number(value || 1))
                               }
                               controls={false}
                               className="room-quantity-input"
@@ -1758,7 +1767,7 @@ const Booking: React.FC = () => {
                               className="quantity-stepper-button"
                               aria-label="Tăng số lượng phòng"
                               disabled={line.quantity >= 5}
-                              onClick={() => updateExtraRoomQuantity(index, line.quantity + 1)}
+                              onClick={() => updateExtraRoomQuantity(line.id, line.quantity + 1)}
                             >
                               +
                             </button>
@@ -1783,7 +1792,7 @@ const Booking: React.FC = () => {
                           <label>Người lớn</label>
                           <Select
                             value={line.adults}
-                            onChange={(val) => updateExtraRoomAdults(index, val)}
+                            onChange={(val) => updateExtraRoomAdults(line.id, val)}
                             options={Array.from({ length: Math.max(5, line.adults) }, (_, i) => ({
                               value: i + 1,
                               label: `${i + 1} người lớn`,
@@ -1796,7 +1805,7 @@ const Booking: React.FC = () => {
                           <label>Trẻ em</label>
                           <Select
                             value={line.children}
-                            onChange={(val) => updateExtraRoomChildren(index, val)}
+                            onChange={(val) => updateExtraRoomChildren(line.id, val)}
                             options={Array.from({ length: Math.max(5, line.children + 1) }, (_, i) => ({
                               value: i,
                               label: i === 0 ? "Không có trẻ em" : `${i} trẻ em`,
@@ -1821,7 +1830,7 @@ const Booking: React.FC = () => {
                                 }
                                 placeholder="-- Chọn tuổi trẻ em --"
                                 onChange={(value) =>
-                                  updateExtraRoomChildAge(index, childIdx, value)
+                                  updateExtraRoomChildAge(line.id, childIdx, value)
                                 }
                                 options={[
                                   { value: 4, label: "Dưới 5 tuổi (Miễn phí)" },
