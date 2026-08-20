@@ -76,6 +76,7 @@ router.get('/me', requireAuth, async (req, res) => {
        LEFT JOIN customer_vouchers cv
          ON cv.voucherId = v.id AND cv.userId = ? AND cv.isUsed = 0
        WHERE v.status = 'active'
+         AND v.quantity > 0
          AND NOW() BETWEEN v.startDate AND v.endDate
          AND (
            cv.id IS NOT NULL
