@@ -1,10 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Card, Descriptions, Tag, Button, Spin, message, Divider, Rate, Input, Space, Upload, Modal, Select, Table, Row, Col, Alert } from 'antd';
+import { Card, Descriptions, Tag, Button, Spin, message, Divider, Rate, Input, Space, Upload, Modal, Table, Row, Col, Alert } from 'antd';
 import type { UploadFile, UploadProps } from 'antd/es/upload/interface';
-import { FileTextOutlined, CreditCardOutlined, PlusOutlined, StarOutlined, EditOutlined, UserOutlined, DeleteOutlined } from '@ant-design/icons';
+import { FileTextOutlined, CreditCardOutlined, PlusOutlined, StarOutlined, UserOutlined, DeleteOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { getBookingDetail, updateRequestedArrivalTime } from '../../services/bookingService';
+import { getBookingDetail } from '../../services/bookingService';
 import { getPaymentByBookingId } from '../../services/paymentService';
 import { getInvoiceByBookingId } from '../../services/invoiceService';
 import { createReview, getReviews, updateReview } from '../../services/reviewService';
@@ -81,21 +81,6 @@ const bookingStatusMap = BOOKING_STATUS_META;
 const getBookingDisplayTag = (b: Record<string, unknown> | null) => {
   if (!b) return { label: 'N/A', color: 'default' };
   const normStatus = String(b.status || 'pending').toLowerCase();
-  if (
-    ['pending', 'confirmed'].includes(normStatus) &&
-    !b.actual_check_in_time &&
-    b.check_in
-  ) {
-    const checkInStr = dayjs(String(b.check_in)).format('YYYY-MM-DD');
-    const reqTime = String(b.requested_check_in_time || '14:00:00');
-    const requestedDateTime = dayjs(`${checkInStr} ${reqTime}`);
-    const lateDeadline = requestedDateTime.add(6, 'hour');
-    const now = dayjs();
-
-    if (now.isAfter(requestedDateTime) && (now.isBefore(lateDeadline) || now.isSame(lateDeadline))) {
-      return { label: 'Check-in muộn', color: 'orange' };
-    }
-  }
   return bookingStatusMap[normStatus] || { label: normStatus, color: 'default' };
 };
 
@@ -139,41 +124,9 @@ const BookingDetail: React.FC = () => {
     images?: string[];
   } | null>(null);
 
-  const [isArrivalTimeModalOpen, setIsArrivalTimeModalOpen] = useState(false);
-  const [newArrivalTime, setNewArrivalTime] = useState('14:00');
-  const [arrivalNotes, setArrivalNotes] = useState('');
-  const [updatingArrivalTime, setUpdatingArrivalTime] = useState(false);
-
   const [isGuestModalOpen, setIsGuestModalOpen] = useState(false);
   const [guestList, setGuestList] = useState<Array<{ fullName: string; identityNumber: string; phone?: string; note?: string }>>([]);
   const [savingGuests, setSavingGuests] = useState(false);
-
-  const handleUpdateArrivalTime = async () => {
-    if (!newArrivalTime) {
-      message.warning('Vui lòng chọn giờ đến dự kiến mới');
-      return;
-    }
-    setUpdatingArrivalTime(true);
-    try {
-      let timeStr = newArrivalTime;
-      let dayOffset = 0;
-      if (timeStr.includes('+1')) {
-        timeStr = timeStr.replace('+1', '');
-        dayOffset = 1;
-      }
-      await updateRequestedArrivalTime(bookingId, timeStr, dayOffset, arrivalNotes.trim());
-      message.success('Đã cập nhật giờ đến dự kiến thành công!');
-      setIsArrivalTimeModalOpen(false);
-      setArrivalNotes('');
-      const res = await getBookingDetail(bookingId);
-      setBooking(res.data as Record<string, unknown>);
-    } catch (error: unknown) {
-      const err = error as { response?: { data?: { message?: string } } };
-      message.error(err.response?.data?.message || 'Không thể cập nhật giờ đến');
-    } finally {
-      setUpdatingArrivalTime(false);
-    }
-  };
 
   const openGuestModal = () => {
     if (bookingGuests.length > 0) {
@@ -548,33 +501,6 @@ const BookingDetail: React.FC = () => {
                 </div>
               ) : null}
             </Descriptions.Item>
-            <Descriptions.Item label="Giờ check-in dự kiến">
-              <Space wrap>
-                <span>
-                  {booking.requested_check_in_time
-                    ? `${String(booking.requested_check_in_time).slice(0, 5)}${Number(booking.requested_check_in_day_offset || 0) === 1 ? ' (ngày hôm sau)' : ''}`
-                    : '14:00 (Chuẩn)'}
-                </span>
-                {!booking.actual_check_in_time &&
-                  ['pending', 'confirmed'].includes(status) && (
-                    <Button
-                      type="link"
-                      size="small"
-                      icon={<EditOutlined />}
-                      onClick={() => {
-                        const timeStr = booking.requested_check_in_time
-                          ? String(booking.requested_check_in_time).slice(0, 5)
-                          : '14:00';
-                        const offset = Number(booking.requested_check_in_day_offset || 0);
-                        setNewArrivalTime(offset === 1 ? `${timeStr}+1` : timeStr);
-                        setIsArrivalTimeModalOpen(true);
-                      }}
-                    >
-                      Cập nhật giờ đến
-                    </Button>
-                  )}
-              </Space>
-            </Descriptions.Item>
             <Descriptions.Item label="Trả phòng">
               <div>{formatDate(String(booking.check_out))} (Trước 12:00)</div>
               {Boolean(booking.actual_check_out_time) ? (
@@ -683,26 +609,6 @@ const BookingDetail: React.FC = () => {
           </Card>
         )}
 
-        <Card title={`Dịch vụ đã chọn (${bookingServices.length})`}>
-          {bookingServices.length > 0 ? (
-            <Descriptions column={1} bordered>
-              {bookingServices.map((service) => (
-                <Descriptions.Item
-                  key={String(service.serviceId)}
-                  label={String(service.serviceName)}
-                >
-                  {String(service.quantity)} × {formatPrice(Number(service.unitPrice || 0))}
-                  {' = '}
-                  <strong>{formatPrice(Number(service.totalPrice || 0))}</strong>
-                  {service.description ? <div>{String(service.description)}</div> : null}
-                </Descriptions.Item>
-              ))}
-            </Descriptions>
-          ) : (
-            <p>Booking này không có dịch vụ bổ sung.</p>
-          )}
-        </Card>
-
         <Card
           title={`Danh sách khách lưu trú & CCCD (${bookingGuests.length})`}
           extra={
@@ -713,6 +619,7 @@ const BookingDetail: React.FC = () => {
                 size="small"
                 icon={<UserOutlined />}
                 onClick={openGuestModal}
+                style={{ color: '#fff' }}
               >
                 {bookingGuests.length > 0 ? 'Cập nhật / Bổ sung CCCD' : 'Khai báo thông tin khách & CCCD'}
               </Button>
@@ -1114,62 +1021,6 @@ const BookingDetail: React.FC = () => {
           </Link>
         </div>
       </div>
-
-      <Modal
-        title="Cập nhật giờ đến dự kiến"
-        open={isArrivalTimeModalOpen}
-        onOk={handleUpdateArrivalTime}
-        confirmLoading={updatingArrivalTime}
-        onCancel={() => setIsArrivalTimeModalOpen(false)}
-        okText="Lưu thay đổi"
-        cancelText="Hủy"
-      >
-        <div style={{ marginBottom: 16 }}>
-          <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>
-            Chọn giờ đến dự kiến mới:
-          </label>
-          <Select
-            style={{ width: '100%' }}
-            value={newArrivalTime}
-            onChange={(val) => setNewArrivalTime(val)}
-            options={[
-              { value: '12:00', label: '12:00 (Check-in sớm)' },
-              { value: '13:00', label: '13:00' },
-              { value: '14:00', label: '14:00 (Giờ chuẩn)' },
-              { value: '15:00', label: '15:00' },
-              { value: '16:00', label: '16:00' },
-              { value: '17:00', label: '17:00' },
-              { value: '18:00', label: '18:00' },
-              { value: '19:00', label: '19:00' },
-              { value: '20:00', label: '20:00' },
-              { value: '21:00', label: '21:00' },
-              { value: '22:00', label: '22:00' },
-              { value: '23:00', label: '23:00' },
-              { value: '00:00+1', label: '00:00 (ngày hôm sau)' },
-              { value: '01:00+1', label: '01:00 (ngày hôm sau)' },
-              { value: '02:00+1', label: '02:00 (ngày hôm sau)' },
-              { value: '03:00+1', label: '03:00 (ngày hôm sau)' },
-              { value: '04:00+1', label: '04:00 (ngày hôm sau)' },
-              { value: '05:00+1', label: '05:00 (ngày hôm sau)' },
-              { value: '06:00+1', label: '06:00 (ngày hôm sau)' }
-            ]}
-          />
-          <p style={{ marginTop: 8, color: '#666', fontSize: '13px' }}>
-            Hạn check-in của quý khách sẽ tự động được tính lại bằng <strong>Giờ đến + 6 giờ</strong>.
-          </p>
-        </div>
-        <div>
-          <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>
-            Ghi chú / Lý do (không bắt buộc):
-          </label>
-          <Input.TextArea
-            rows={3}
-            placeholder="Ví dụ: Chuyến bay bị hoãn, kẹt xe..."
-            value={arrivalNotes}
-            onChange={(e) => setArrivalNotes(e.target.value)}
-          />
-        </div>
-      </Modal>
 
       <Modal
         title="Khai báo / Bổ sung thông tin khách lưu trú & CCCD"

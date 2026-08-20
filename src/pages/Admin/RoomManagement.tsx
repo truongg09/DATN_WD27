@@ -37,6 +37,7 @@ import {
 } from '@ant-design/icons';
 import axios from 'axios';
 import dayjs from 'dayjs';
+import { useLocation } from 'react-router-dom';
 import api from '../../services/api';
 
 const { Option } = Select;
@@ -67,7 +68,21 @@ interface Room {
   maintenanceExpectedCompletion?: string | null;
 }
 
+interface CalendarBooking {
+  id: number;
+  bookingId: number;
+  detail_id: number | null;
+  room_id: number;
+  check_in: string;
+  check_out: string;
+  status: string;
+  customer_name?: string;
+  customer_phone?: string;
+}
+
 function RoomManagement() {
+  const location = useLocation();
+  const isAdminArea = location.pathname.startsWith('/admin');
   const [rooms, setRooms] = useState<Room[]>([]);
   const [roomTypes, setRoomTypes] = useState<RoomType[]>([]);
   const [bookings, setBookings] = useState<any[]>([]);
@@ -361,29 +376,39 @@ function RoomManagement() {
     }));
   };
 
-  const handleBulkSubmit = async () => {
+  const handleBulkSubmit = () => {
     if (bulkPreviewRooms.length === 0) {
       message.error('Vui lòng tạo bảng xem trước trước khi xác nhận!');
       return;
     }
 
-    try {
-      setLoading(true);
-      await api.post('/rooms/bulk', { rooms: bulkPreviewRooms });
-      message.success(`Đã tạo thành công ${bulkPreviewRooms.length} phòng mới!`);
-      setBulkModalVisible(false);
-      fetchRooms();
-    } catch (error: any) {
-      console.error('Bulk submit error:', error);
-      message.error(error.response?.data?.message || 'Có lỗi xảy ra khi tạo phòng hàng loạt.');
-    } finally {
-      setLoading(false);
-    }
+    Modal.confirm({
+      title: `Xác nhận tạo ${bulkPreviewRooms.length} phòng`,
+      content: 'Các phòng sẽ xuất hiện cho cả Admin và Lễ tân ngay sau khi tạo.',
+      okText: 'Tạo phòng',
+      cancelText: 'Kiểm tra lại',
+      onOk: async () => {
+        try {
+          setLoading(true);
+          await api.post('/rooms/bulk', { rooms: bulkPreviewRooms });
+          message.success(`Đã tạo thành công ${bulkPreviewRooms.length} phòng mới!`);
+          setBulkModalVisible(false);
+          await fetchRooms();
+        } catch (error: any) {
+          console.error('Bulk submit error:', error);
+          message.error(error.response?.data?.message || 'Có lỗi xảy ra khi tạo phòng hàng loạt.');
+          throw error;
+        } finally {
+          setLoading(false);
+        }
+      }
+    });
   };
 
   // Calendar states
   const [viewMode, setViewMode] = useState<'list' | 'calendar' | 'grid'>('list');
   const [calendarStartDate, setCalendarStartDate] = useState<dayjs.Dayjs>(dayjs());
+  const [calendarBookings, setCalendarBookings] = useState<CalendarBooking[]>([]);
 
   const totalRooms = rooms.length;
   const availableRooms = rooms.filter(r => r.status === 'available').length;
@@ -557,6 +582,34 @@ function RoomManagement() {
       }
     })();
   }, []);
+
+  // Hai khu vực Admin/Lễ tân dùng chung dữ liệu. Tự làm mới khi quay lại tab và
+  // polling nhẹ để phòng vừa được tạo ở khu vực kia xuất hiện mà không cần F5.
+  useEffect(() => {
+    const refreshSilently = () => {
+      void Promise.all([api.get('/rooms'), api.get('/bookings')]).then(([roomsRes, bookingsRes]) => {
+        setRooms(roomsRes.data || roomsRes);
+        setBookings(bookingsRes.data || bookingsRes);
+      }).catch(() => undefined);
+    };
+    const timer = window.setInterval(refreshSilently, 15000);
+    window.addEventListener('focus', refreshSilently);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refreshSilently);
+    };
+  }, []);
+
+  useEffect(() => {
+    const from = calendarStartDate.format('YYYY-MM-DD');
+    const to = calendarStartDate.add(7, 'day').format('YYYY-MM-DD');
+    void api.get('/rooms/calendar', { params: { from, to } })
+      .then((response) => setCalendarBookings(response.data || response))
+      .catch((error) => {
+        console.error('Error fetching room calendar:', error);
+        message.error('Không thể tải lịch phòng');
+      });
+  }, [calendarStartDate]);
 
   const handleAdd = () => {
     setEditingRoom(null);
@@ -779,16 +832,20 @@ function RoomManagement() {
           <Tooltip title="Quản lý vật tư trong phòng">
             <Button size="small" icon={<ToolOutlined />} onClick={() => handleManageItems(record)} />
           </Tooltip>
-          <Popconfirm
-            title="Bạn có chắc chắn muốn xóa?"
-            onConfirm={() => handleDelete(record.id)}
-            okText="Xóa"
-            cancelText="Hủy"
-          >
-            <Tooltip title="Xóa phòng">
-              <Button danger size="small" icon={<DeleteOutlined />} />
-            </Tooltip>
-          </Popconfirm>
+          {isAdminArea && (
+            <Popconfirm
+              title={`Xóa phòng ${record.roomNumber}?`}
+              description="Phòng sẽ bị ẩn và không thể nhận đặt phòng mới. Lịch sử đặt phòng vẫn được giữ lại."
+              onConfirm={() => handleDelete(record.id)}
+              okText="Xóa phòng"
+              cancelText="Hủy"
+              okButtonProps={{ danger: true }}
+            >
+              <Tooltip title="Chỉ quản trị viên được xóa phòng">
+                <Button danger size="small" icon={<DeleteOutlined />} />
+              </Tooltip>
+            </Popconfirm>
+          )}
         </Space>
       ),
     },
@@ -1060,7 +1117,7 @@ function RoomManagement() {
                               const dateStr = date.format('YYYY-MM-DD');
                               
                                // Check for booking
-                               const booking = bookings.find(b => {
+                               const booking = calendarBookings.find(b => {
                                  // Khách không đến (no-show) thì phòng thực tế đang trống,
                                  // không được vẽ là "đã đặt" chặn lễ tân bán lại phòng.
                                  if (b.status === 'cancelled' || b.status === 'no_show') return false;
@@ -1081,7 +1138,7 @@ function RoomManagement() {
                                    let foundNext = true;
                                    while (foundNext) {
                                      foundNext = false;
-                                     for (const b of bookings) {
+                                     for (const b of calendarBookings) {
                                        if (b.status === 'cancelled') continue;
                                        if (b.detail_id === startBooking.detail_id) continue;
                                        const bRoomId = b.room_id || b.roomId;

@@ -6,7 +6,7 @@ import {
 } from 'antd';
 import {
   ArrowLeftOutlined, DeleteOutlined, EditOutlined, LoginOutlined, LogoutOutlined,
-  PlusOutlined, ReloadOutlined,
+  PlusOutlined, ReloadOutlined, UserOutlined,
 } from '@ant-design/icons';
 import {
   addBookingDamageCharge, addBookingServiceCharge,
@@ -63,7 +63,9 @@ interface ServiceCharge {
   id: number;
   serviceId: number;
   serviceName: string;
+  roomId?: number | null;
   roomNumber?: string | null;
+  roomTypeName?: string | null;
   unitPrice: string | number;
   quantity: number;
   totalPrice: string | number;
@@ -95,8 +97,10 @@ interface HistoryEntry {
   oldValue?: unknown;
   newValue?: unknown;
   amount?: string | number | null;
+  performedBy?: number | null;
   performedByName?: string | null;
   performedByRole?: string | null;
+  performedByEmail?: string | null;
   createdAt: string;
 }
 
@@ -139,6 +143,14 @@ const historyActionText: Record<string, string> = {
   cancelled: 'Hủy đơn',
   no_show: 'Khách không đến',
   late_checkout_fee: 'Phí trả muộn',
+  late_checkout_fee_waived: 'Miễn phí trả phòng muộn',
+  update_arrival_time: 'Cập nhật giờ nhận phòng',
+  hold_extended: 'Gia hạn giữ phòng',
+  reactivated: 'Khôi phục đơn',
+  status_change: 'Đổi trạng thái',
+  updated: 'Cập nhật đơn',
+  room_cleaned: 'Xác nhận phòng đã dọn',
+  early_checkin_fee: 'Phí nhận phòng sớm',
 };
 
 const roleText: Record<string, string> = {
@@ -148,6 +160,113 @@ const roleText: Record<string, string> = {
   customer: 'Khách hàng',
   system: 'Hệ thống',
 };
+
+const historyFieldText: Record<string, string> = {
+  status: 'Trạng thái',
+  bookingStatus: 'Trạng thái đặt phòng',
+  roomId: 'Mã phòng',
+  roomNumber: 'Số phòng',
+  roomTypeId: 'Mã hạng phòng',
+  checkIn: 'Ngày nhận phòng',
+  checkOut: 'Ngày trả phòng',
+  checkInDate: 'Ngày nhận phòng',
+  checkOutDate: 'Ngày trả phòng',
+  fromDate: 'Từ ngày',
+  toDate: 'Đến ngày',
+  totalPrice: 'Tổng tiền',
+  totalAmount: 'Tổng tiền bill',
+  newTotalAmount: 'Tổng bill mới',
+  oldTotalAmount: 'Tổng bill cũ',
+  priceDifference: 'Chênh lệch giá',
+  newRemainingAmount: 'Còn lại thu/trả',
+  depositAmount: 'Tiền cọc',
+  paidAmount: 'Đã thanh toán',
+  remainingAmount: 'Còn phải thanh toán',
+  amount: 'Số tiền',
+  paymentStatus: 'Trạng thái thanh toán',
+  paymentMethod: 'Phương thức thanh toán',
+  transactionCode: 'Mã giao dịch',
+  quantity: 'Số lượng',
+  serviceId: 'Mã dịch vụ',
+  voucherCode: 'Mã ưu đãi',
+  reason: 'Lý do',
+  notes: 'Ghi chú',
+  rooms: 'Danh sách phòng',
+  newStagePrices: 'Chi tiết giá từng đêm mới',
+  stagePrices: 'Chi tiết giá từng đêm',
+  nightlyPrices: 'Chi tiết giá từng đêm',
+  adults: 'Người lớn',
+  children: 'Trẻ em',
+  childrenAges: 'Độ tuổi trẻ em',
+  roomPrice: 'Đơn giá phòng',
+  roomStayAmount: 'Tiền ở phòng',
+  childSurchargeAmount: 'Phụ thu trẻ em',
+  itemTotal: 'Thành tiền phòng',
+  surcharge: 'Phụ thu',
+};
+
+const historyValueText: Record<string, string> = {
+  pending: 'Chờ xác nhận', confirmed: 'Đã xác nhận', checked_in: 'Đang lưu trú',
+  checked_out: 'Đã trả phòng', cancelled: 'Đã hủy', no_show: 'Khách không đến',
+  unpaid: 'Chưa thanh toán', deposit_paid: 'Đã đặt cọc', paid: 'Đã thanh toán đủ',
+  refunded: 'Đã hoàn tiền', cash: 'Tiền mặt', bank_transfer: 'Chuyển khoản ngân hàng',
+  zalopay: 'ZaloPay', vnpay: 'VNPay', active: 'Đang hoạt động', available: 'Phòng trống',
+  occupied: 'Đang có khách', maintenance: 'Đang dọn hoặc bảo trì', true: 'Có', false: 'Không',
+};
+
+const formatHistoryValue = (key: string, value: unknown): React.ReactNode => {
+  if (value == null || value === '') return 'Không có';
+
+  // Định dạng danh sách phòng
+  if ((key === 'rooms' || key === 'roomList') && Array.isArray(value)) {
+    return (
+      <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {value.map((r: any, i: number) => (
+          <div key={i} style={{ background: '#fff', padding: '6px 10px', borderRadius: 6, border: '1px solid #e0e0e0', fontSize: 13 }}>
+            <strong>• {r.typeName || 'Phòng'} {r.roomNumber ? `(Phòng ${r.roomNumber})` : ''}</strong>: {r.adults ?? 0} người lớn, {r.children ?? 0} trẻ em
+            {r.itemTotal || r.roomStayAmount ? <span style={{ color: '#0f172a', fontWeight: 600, marginLeft: 6 }}>— {money(Number(r.itemTotal || r.roomStayAmount))}</span> : null}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // Định dạng bảng giá từng đêm
+  if ((key === 'newStagePrices' || key === 'nightlyPrices' || key === 'stagePrices') && Array.isArray(value)) {
+    return (
+      <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {value.map((np: any, i: number) => (
+          <div key={i} style={{ background: '#fff', padding: '4px 8px', borderRadius: 6, border: '1px solid #e0e0e0', fontSize: 12 }}>
+            <strong>{dayjs(np.date || np.stayDate).format('DD/MM/YYYY')}</strong> ({np.dayName || ''}): <span style={{ fontWeight: 600, color: '#d97706' }}>{money(Number(np.price || 0))}</span> {np.note ? <span style={{ color: '#666' }}>({np.note})</span> : ''}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (Array.isArray(value)) {
+    if (value.length === 0) return 'Không có';
+    if (typeof value[0] !== 'object') return value.join(', ');
+    return JSON.stringify(value);
+  }
+
+  if (typeof value === 'object') {
+    return JSON.stringify(value);
+  }
+
+  const raw = String(value);
+  if (historyValueText[raw.toLowerCase()]) return historyValueText[raw.toLowerCase()];
+  if (/amount|price|fee|total|difference/i.test(key) && Number.isFinite(Number(value))) return money(Number(value));
+  if (/date|checkin|checkout|createdat|updatedat/i.test(key) && dayjs(raw).isValid()) return dateTime(raw);
+  return raw;
+};
+
+const vietnameseDescription = (description?: string | null) =>
+  (description || 'Không có mô tả')
+    .replace(/\bBooking\b/gi, 'Đơn đặt phòng')
+    .replace(/\bNo-show\b/gi, 'khách không đến')
+    .replace(/check-in/gi, 'nhận phòng')
+    .replace(/check-out|checkout/gi, 'trả phòng');
 
 // Hiển thị dữ liệu cũ/mới dạng danh sách trường cho dễ đối chiếu.
 const renderValueBox = (title: string, value: unknown, color: string) => {
@@ -159,13 +278,13 @@ const renderValueBox = (title: string, value: unknown, color: string) => {
   if (entries.length === 0) return null;
 
   return (
-    <div style={{ flex: 1, minWidth: 180 }}>
-      <div style={{ fontSize: 12, color: '#888', marginBottom: 2 }}>{title}</div>
-      <div style={{ background: color, borderRadius: 6, padding: '6px 8px', fontSize: 12 }}>
+    <div style={{ flex: 1, minWidth: 220 }}>
+      <div style={{ fontSize: 13, fontWeight: 600, color: '#555', marginBottom: 4 }}>{title}</div>
+      <div style={{ background: color, borderRadius: 8, padding: '9px 11px', fontSize: 14, lineHeight: 1.7, border: '1px solid #e8e8e8' }}>
         {entries.map(([key, val]) => (
           <div key={key}>
-            {key && <span style={{ color: '#666' }}>{key}: </span>}
-            <span>{typeof val === 'object' ? JSON.stringify(val) : String(val)}</span>
+            {key && <span style={{ color: '#555', fontWeight: 600 }}>{historyFieldText[key] || key}: </span>}
+            <span style={{ color: '#222' }}>{formatHistoryValue(key, val)}</span>
           </div>
         ))}
       </div>
@@ -202,7 +321,9 @@ interface DamageCharge {
   id: number;
   chargeType: string;
   itemName: string;
+  roomId?: number | null;
   roomNumber?: string | null;
+  roomTypeName?: string | null;
   quantity: number;
   unitPrice: string | number;
   totalPrice: string | number;
@@ -319,11 +440,39 @@ function BookingDetailPage() {
     setEditingCharge(charge || null);
     serviceForm.resetFields();
     if (charge) {
-      serviceForm.setFieldsValue({ quantity: charge.quantity, status: charge.status });
+      serviceForm.setFieldsValue({
+        quantity: charge.quantity,
+        status: charge.status,
+        roomId: charge.roomId ?? null,
+      });
     } else {
       serviceForm.setFieldsValue({ quantity: 1 });
     }
     setServiceModalOpen(true);
+  };
+
+  const bookingRooms = (booking?.booking_rooms || []).map((r) => {
+    const rec = r as Record<string, unknown>;
+    return {
+      id: Number(rec.id || rec.room_id || 0),
+      roomNumber: String(rec.room_number || rec.roomNumber || ''),
+      roomTypeName: String(rec.room_type_name || rec.roomTypeName || ''),
+    };
+  }).filter((r) => r.id > 0);
+
+  const roomInfoMap = new Map<number, { roomNumber: string; roomTypeName: string }>();
+  bookingRooms.forEach((r) => roomInfoMap.set(r.id, { roomNumber: r.roomNumber, roomTypeName: r.roomTypeName }));
+
+  const formatRoomLabel = (
+    roomId: number | null | undefined,
+    roomNumberFallback?: string | null,
+    roomTypeNameFallback?: string | null,
+  ) => {
+    const info = roomId ? roomInfoMap.get(Number(roomId)) : undefined;
+    const roomNumber = info?.roomNumber || String(roomNumberFallback || '');
+    const roomTypeName = info?.roomTypeName || String(roomTypeNameFallback || '');
+    const parts = [roomTypeName, roomNumber].filter(Boolean);
+    return parts.length > 0 ? parts.join(' - ') : '—';
   };
 
   const submitService = async () => {
@@ -334,12 +483,14 @@ function BookingDetailPage() {
         await updateBookingServiceCharge(bookingId, editingCharge.id, {
           quantity: values.quantity,
           status: values.status,
+          roomId: values.roomId ?? null,
         });
         message.success('Đã cập nhật dịch vụ');
       } else {
         await addBookingServiceCharge(bookingId, {
           serviceId: values.serviceId,
           quantity: values.quantity,
+          roomId: values.roomId ?? null,
         });
         message.success('Đã thêm dịch vụ vào đơn');
       }
@@ -422,6 +573,7 @@ function BookingDetailPage() {
         unitPrice: Number(charge.unitPrice),
         note: charge.note,
         status: charge.status,
+        roomId: charge.roomId ?? null,
       });
     } else {
       damageForm.setFieldsValue({ chargeType: 'damage', quantity: 1, status: 'used' });
@@ -433,12 +585,13 @@ function BookingDetailPage() {
     const values = await damageForm.validateFields();
     setWorking(true);
     try {
+      const payload = { ...values, roomId: values.roomId ?? null };
       if (editingDamage) {
-        await updateBookingDamageCharge(bookingId, editingDamage.id, values);
+        await updateBookingDamageCharge(bookingId, editingDamage.id, payload);
         message.success('Đã cập nhật khoản phí');
       } else {
-        await addBookingDamageCharge(bookingId, values);
-        message.success('Đã thêm khoản phí phát sinh');
+        await addBookingDamageCharge(bookingId, payload);
+        message.success('Đã thêm khoản phí vào đơn');
       }
       setDamageModalOpen(false);
       await loadBooking(true);
@@ -483,15 +636,29 @@ function BookingDetailPage() {
     }
   };
 
-  const serviceCharges = (booking?.services || []) as unknown as ServiceCharge[];
+  const serviceCharges = (booking?.services || []).map((raw) => {
+    const item = raw as unknown as Record<string, unknown>;
+    return {
+      ...item,
+      roomNumber: String(item.roomNumber ?? item.room_number ?? ''),
+      roomTypeName: String(item.roomTypeName ?? item.room_type_name ?? ''),
+    } as unknown as ServiceCharge;
+  });
   const serviceTotal = serviceCharges.reduce((sum, item) => sum + Number(item.totalPrice || 0), 0);
-  const damageCharges = (booking?.damages || []) as unknown as DamageCharge[];
+  const damageCharges = (booking?.damages || []).map((raw) => {
+    const item = raw as unknown as Record<string, unknown>;
+    return {
+      ...item,
+      roomNumber: String(item.roomNumber ?? item.room_number ?? ''),
+      roomTypeName: String(item.roomTypeName ?? item.room_type_name ?? ''),
+    } as unknown as DamageCharge;
+  });
   const damageTotal = damageCharges.reduce((sum, item) => sum + Number(item.totalPrice || 0), 0);
   const mainPayment: PaymentSnapshot | undefined = booking?.payment || booking?.payments?.[0];
   const remainingAmount = Number(mainPayment?.remainingAmount || 0);
   const paymentStatus = String(mainPayment?.paymentStatus || '');
-  // Đơn đã kết thúc thì khóa thao tác để không phát sinh thêm chi phí.
-  const canEditCharges = !!booking && ['confirmed', 'checked_in'].includes(booking.status);
+  // Chỉ cho thêm / sửa dịch vụ và khoản phí SAU khi đã check-in khách vào phòng.
+  const canEditCharges = !!booking && booking.status === 'checked_in';
 
   if (loading) {
     return (
@@ -736,7 +903,7 @@ function BookingDetailPage() {
           scroll={{ x: 760 }}
           columns={[
             { title: 'Dịch vụ', dataIndex: 'serviceName' },
-            { title: 'Phòng', dataIndex: 'roomNumber', render: (v?: string | null) => v || '—' },
+            { title: 'Phòng', render: (_, row: ServiceCharge) => formatRoomLabel(row.roomId, row.roomNumber, row.roomTypeName) },
             { title: 'Đơn giá', dataIndex: 'unitPrice', align: 'right', render: money },
             { title: 'SL', dataIndex: 'quantity', align: 'center', width: 60 },
             {
@@ -822,7 +989,7 @@ function BookingDetailPage() {
               dataIndex: 'chargeType',
               render: (value: string) => <Tag>{chargeTypeMeta[value] || value}</Tag>,
             },
-            { title: 'Phòng', dataIndex: 'roomNumber', render: (v?: string | null) => v || '—' },
+            { title: 'Phòng', render: (_, row: DamageCharge) => formatRoomLabel(row.roomId, row.roomNumber, row.roomTypeName) },
             { title: 'Đơn giá', dataIndex: 'unitPrice', align: 'right', render: money },
             { title: 'SL', dataIndex: 'quantity', align: 'center', width: 60 },
             {
@@ -919,16 +1086,16 @@ function BookingDetailPage() {
                         : 'gray',
               children: (
                 <div>
-                  <Space wrap size={6} style={{ marginBottom: 2 }}>
-                    <Tag>{historyActionText[entry.action] || entry.action}</Tag>
-                    <span style={{ color: '#888', fontSize: 12 }}>{dateTime(entry.createdAt)}</span>
+                  <Space wrap size={8} style={{ marginBottom: 6 }}>
+                    <Tag style={{ fontSize: 14, fontWeight: 600, padding: '3px 9px' }}>{historyActionText[entry.action] || entry.action}</Tag>
+                    <span style={{ color: '#595959', fontSize: 13, fontWeight: 500 }}>{dateTime(entry.createdAt)}</span>
                     {entry.amount != null && Number(entry.amount) !== 0 && (
                       <strong>{money(entry.amount)}</strong>
                     )}
                     {entry.entityLabel && <Tag color="blue">{entry.entityLabel}</Tag>}
                   </Space>
 
-                  <div>{entry.description || '—'}</div>
+                  <div style={{ fontSize: 15, lineHeight: 1.65, color: '#262626' }}>{vietnameseDescription(entry.description)}</div>
 
                   {(entry.oldValue != null || entry.newValue != null) && (
                     <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
@@ -937,11 +1104,25 @@ function BookingDetailPage() {
                     </div>
                   )}
 
-                  <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>
-                    Người thao tác: {entry.performedByName || 'Hệ thống'}
-                    {entry.performedByRole
-                      ? ` (${roleText[entry.performedByRole] || entry.performedByRole})`
-                      : ''}
+                  <div style={{ marginTop: 10, padding: '11px 13px', borderRadius: 9, background: '#faf8f5', border: '1px solid #ddd4c9' }}>
+                    <Space size={8} align="start">
+                      <UserOutlined style={{ color: '#8c6d4a', marginTop: 3 }} />
+                      <div>
+                        <div style={{ fontSize: 13, color: '#666', fontWeight: 600, marginBottom: 3 }}>Người thực hiện</div>
+                        <Space size={6} wrap>
+                          <strong style={{ fontSize: 15, color: '#262626' }}>{entry.performedByName || 'Hệ thống tự động'}</strong>
+                          <Tag color={entry.performedByRole === 'admin' ? 'red' : entry.performedByRole === 'customer' ? 'blue' : 'gold'}>
+                            {roleText[entry.performedByRole || 'system'] || entry.performedByRole || 'Hệ thống'}
+                          </Tag>
+                        </Space>
+                        {(entry.performedByEmail || entry.performedBy) && (
+                          <div style={{ fontSize: 13, color: '#666', marginTop: 4 }}>
+                            {entry.performedByEmail || 'Không có email'}
+                            {entry.performedBy ? ` · ID tài khoản: ${entry.performedBy}` : ''}
+                          </div>
+                        )}
+                      </div>
+                    </Space>
                   </div>
                 </div>
               ),
@@ -972,6 +1153,22 @@ function BookingDetailPage() {
             rules={[{ required: true, message: 'Nhập tên khoản phí' }]}
           >
             <Input placeholder="Ví dụ: Khăn tắm, điều khiển TV, phụ phí dọn phòng..." />
+          </Form.Item>
+          <Form.Item name="roomId" label="Phòng phát sinh" rules={[{ required: bookingRooms.length > 0, message: 'Chọn phòng' }]}>
+            <Select
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              placeholder={bookingRooms.length > 0 ? 'Chọn phòng' : 'Chưa có phòng vật lý (chưa xếp phòng)'}
+              disabled={bookingRooms.length === 0}
+              options={bookingRooms.map((r) => {
+                const parts = [r.roomTypeName, r.roomNumber].filter(Boolean);
+                return {
+                  value: r.id,
+                  label: parts.length > 0 ? parts.join(' - ') : `Phòng #${r.id}`,
+                };
+              })}
+            />
           </Form.Item>
           <Row gutter={12}>
             <Col span={12}>
@@ -1018,6 +1215,22 @@ function BookingDetailPage() {
               />
             </Form.Item>
           )}
+          <Form.Item name="roomId" label="Áp dụng cho phòng" rules={[{ required: bookingRooms.length > 0, message: 'Chọn phòng' }]}>
+            <Select
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              placeholder={bookingRooms.length > 0 ? 'Chọn phòng' : 'Chưa có phòng vật lý (chưa xếp phòng)'}
+              disabled={bookingRooms.length === 0}
+              options={bookingRooms.map((r) => {
+                const parts = [r.roomTypeName, r.roomNumber].filter(Boolean);
+                return {
+                  value: r.id,
+                  label: parts.length > 0 ? parts.join(' - ') : `Phòng #${r.id}`,
+                };
+              })}
+            />
+          </Form.Item>
           <Form.Item name="quantity" label="Số lượng" rules={[{ required: true, message: 'Nhập số lượng' }]}>
             <InputNumber min={1} style={{ width: '100%' }} />
           </Form.Item>
