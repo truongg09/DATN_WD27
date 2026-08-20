@@ -1,27 +1,14 @@
 import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import {
-  Modal,
-  Form,
-  Input,
-  Select,
-  DatePicker,
-  message,
-  Popconfirm,
-} from "antd";
-import dayjs from "dayjs";
+import { message } from "antd";
 import EmptyState from "../../components/Common/EmptyState";
 import {
   fetchCustomerDetail,
   fetchCustomerBookings,
   fetchCustomerPayments,
   fetchCustomerReviews,
-  updateCustomer,
-  deleteCustomer,
 } from "../../services/customerService";
-
-const { Option } = Select;
 
 // Tông màu thương hiệu — đồng bộ với trang Quản lý khách hàng
 const brand = {
@@ -128,20 +115,6 @@ const btnBase: CSSProperties = {
   cursor: "pointer",
   boxShadow: "none",
   transition: "background 0.2s, border-color 0.2s, color 0.2s, opacity 0.2s",
-};
-
-const btnPrimary: CSSProperties = {
-  ...btnBase,
-  background: brand.primary,
-  borderColor: brand.primary,
-  color: "#fff",
-};
-
-const btnDanger: CSSProperties = {
-  ...btnBase,
-  background: "#fff",
-  borderColor: brand.danger,
-  color: brand.danger,
 };
 
 // Style override khi nút bị disabled tĩnh (vd. nút phân trang ở đầu/cuối danh sách)
@@ -267,27 +240,6 @@ function AdminCustomerDetail() {
 
   const bookingPageSize = 10;
 
-  const [formOpen, setFormOpen] = useState(false);
-  const [formLoading, setFormLoading] = useState(false);
-  const [form] = Form.useForm();
-
-  const fetchCustomerDetailData = async () => {
-    if (!customerId) return;
-
-    setLoading(true);
-    setError(null);
-
-    try {
-      const customerJson = await fetchCustomerDetail(customerId);
-      if (!customerJson.ok) throw new Error(customerJson.error);
-      setCustomer(customerJson.data);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Lỗi không xác định");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
     if (!customerId) {
       setError("Invalid customer ID");
@@ -334,62 +286,6 @@ function AdminCustomerDetail() {
       if (!json.ok) throw new Error(json.error);
       setBookings(json.data);
       setBookingPage(page);
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : "Không xác định");
-    }
-  };
-
-  const handleEdit = () => {
-    if (!customer) return;
-
-    form.setFieldsValue({
-      email: customer.email,
-      fullName: customer.fullName,
-      phone: customer.phone,
-      gender: customer.gender || undefined,
-      dateOfBirth: customer.dateOfBirth ? dayjs(customer.dateOfBirth.slice(0, 10)) : undefined,
-      citizenId: customer.citizenId,
-      nationality: customer.nationality || "Vietnam",
-      address: customer.address,
-      status: customer.status,
-    });
-
-    setFormOpen(true);
-  };
-
-  const handleSubmitForm = async (values: any) => {
-    if (!customerId) return;
-
-    setFormLoading(true);
-
-    try {
-      const submitValues = {
-        ...values,
-        dateOfBirth: values.dateOfBirth ? values.dateOfBirth.format("YYYY-MM-DD") : null,
-      };
-
-      await updateCustomer({
-        id: Number(customerId),
-        ...submitValues,
-      });
-
-      message.success("Cập nhật khách hàng thành công");
-      setFormOpen(false);
-      fetchCustomerDetailData();
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : "Không xác định");
-    } finally {
-      setFormLoading(false);
-    }
-  };
-
-  const handleDelete = async () => {
-    if (!customerId) return;
-
-    try {
-      await deleteCustomer(customerId);
-      message.success("Xóa khách hàng thành công");
-      navigate("/admin/customers");
     } catch (e) {
       message.error(e instanceof Error ? e.message : "Không xác định");
     }
@@ -463,24 +359,6 @@ function AdminCustomerDetail() {
           >
             ← Quay lại
           </button>
-          <button
-            className="ml-btn ml-btn--primary"
-            style={btnPrimary}
-            onClick={handleEdit}
-          >
-            Sửa
-          </button>
-          <Popconfirm
-            title="Xóa khách hàng này?"
-            description="Hành động này không thể hoàn tác."
-            onConfirm={handleDelete}
-            okText="Xóa"
-            cancelText="Hủy"
-          >
-            <button className="ml-btn" style={btnDanger}>
-              Xóa
-            </button>
-          </Popconfirm>
         </div>
       </div>
 
@@ -871,94 +749,6 @@ function AdminCustomerDetail() {
           </div>
         )}
       </div>
-      <Modal
-        title="Sửa khách hàng"
-        open={formOpen}
-        onCancel={() => setFormOpen(false)}
-        footer={null}
-        width={600}
-      >
-        <Form form={form} layout="vertical" onFinish={handleSubmitForm}>
-          <Form.Item
-            name="email"
-            label="Email"
-            rules={[
-              { required: true, message: "Vui lòng nhập email" },
-              { type: "email", message: "Email không hợp lệ" },
-            ]}
-          >
-            <Input placeholder="Nhập email" />
-          </Form.Item>
-
-          <Form.Item
-            name="fullName"
-            label="Họ tên"
-            rules={[{ required: true, message: "Vui lòng nhập họ tên" }]}
-          >
-            <Input placeholder="Nhập họ tên" />
-          </Form.Item>
-
-          <Form.Item
-            name="phone"
-            label="Số điện thoại"
-            rules={[{ required: true, message: "Vui lòng nhập số điện thoại" }]}
-          >
-            <Input placeholder="Nhập số điện thoại" />
-          </Form.Item>
-
-          <Form.Item name="gender" label="Giới tính">
-            <Select placeholder="Chọn giới tính" allowClear>
-              <Option value="male">Nam</Option>
-              <Option value="female">Nữ</Option>
-              <Option value="other">Khác</Option>
-            </Select>
-          </Form.Item>
-
-          <Form.Item name="dateOfBirth" label="Ngày sinh">
-            <DatePicker style={{ width: "100%" }} disabledDate={(d) => d && d.isAfter(dayjs())} />
-          </Form.Item>
-
-          <Form.Item name="citizenId" label="CCCD">
-            <Input placeholder="Nhập số CCCD" />
-          </Form.Item>
-
-          <Form.Item name="nationality" label="Quốc tịch">
-            <Input placeholder="Nhập quốc tịch" />
-          </Form.Item>
-
-          <Form.Item name="address" label="Địa chỉ">
-            <Input placeholder="Nhập địa chỉ" />
-          </Form.Item>
-
-          <Form.Item name="status" label="Trạng thái">
-            <Select>
-              <Option value="active">Hoạt động</Option>
-              <Option value="locked">Đã khóa</Option>
-            </Select>
-          </Form.Item>
-
-          <Form.Item style={{ marginBottom: 0 }}>
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-              <button
-                type="button"
-                className="ml-btn"
-                style={btnBase}
-                onClick={() => setFormOpen(false)}
-              >
-                Hủy
-              </button>
-              <button
-                type="submit"
-                className="ml-btn ml-btn--primary"
-                style={{ ...btnPrimary, opacity: formLoading ? 0.7 : 1 }}
-                disabled={formLoading}
-              >
-                {formLoading ? "Đang lưu..." : "Lưu"}
-              </button>
-            </div>
-          </Form.Item>
-        </Form>
-      </Modal>
     </div>
   );
 }

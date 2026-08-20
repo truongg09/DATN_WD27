@@ -4497,14 +4497,15 @@ const processOverdueCheckIns = async () => {
 
       if (isFullyPaid) {
         if (now > checkOutDeadline) {
-          await bookingModel.updateBookingStatus(candidate.id, 'no_show', connection);
+          const changed = await bookingModel.markBookingNoShowIfEligible(candidate.id, connection);
+          if (!changed) continue;
           if (candidate.room_id) {
             await bookingModel.updateRoomStatus(candidate.room_id, 'available', connection);
           }
           await logHistory(
             candidate.id,
             'no_show',
-            'Khách đã thanh toán 100% nhưng không đến trong suốt thời gian đặt phòng (đã qua thời gian checkout). Đặt phòng được chuyển sang No-show.',
+            'Khách đã thanh toán đủ nhưng không đến trong thời gian lưu trú. Đơn đặt phòng được chuyển sang trạng thái khách không đến.',
             { oldValue: { status: candidate.status }, newValue: { status: 'no_show' } },
             { role: 'system' },
             connection
@@ -4515,14 +4516,15 @@ const processOverdueCheckIns = async () => {
         }
       } else {
         if (now > lateCheckInDeadline) {
-          await bookingModel.updateBookingStatus(candidate.id, 'no_show', connection);
+          const changed = await bookingModel.markBookingNoShowIfEligible(candidate.id, connection);
+          if (!changed) continue;
           if (candidate.room_id) {
             await bookingModel.updateRoomStatus(candidate.room_id, 'available', connection);
           }
           await logHistory(
             candidate.id,
             'no_show',
-            'Khách không đến trong thời hạn check-in cho phép. Booking được chuyển sang No-show. Tiền cọc không hoàn lại theo chính sách.',
+            'Khách không đến trong thời hạn nhận phòng cho phép. Đơn đặt phòng được chuyển sang trạng thái khách không đến. Tiền cọc không hoàn lại theo chính sách.',
             { oldValue: { status: candidate.status }, newValue: { status: 'no_show' } },
             { role: 'system' },
             connection

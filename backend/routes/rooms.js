@@ -2,11 +2,50 @@ const express = require('express');
 const db = require('../config/db');
 const roomTypeService = require('../services/roomTypeService');
 
-const { requireAuth, requireStaff } = require('../middleware/auth');
+const { requireAuth, requireStaff, requireAdmin } = require('../middleware/auth');
 
 const router = express.Router();
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const ROOM_STATUSES = new Set(['available', 'occupied', 'maintenance', 'reserved']);
+
+const normalizeRoomPayload = (body = {}) => {
+  const roomNumber = String(body.roomNumber || '').trim();
+  const roomTypeId = Number(body.roomTypeId);
+  const floor = Number(body.floor);
+  const area = Number(body.area);
+  const status = body.status || 'available';
+  const maintenanceExpectedCompletion = body.maintenanceExpectedCompletion || null;
+
+  if (!roomNumber || roomNumber.length > 50) return { error: 'Số phòng phải có từ 1 đến 50 ký tự' };
+  if (!Number.isInteger(roomTypeId) || roomTypeId <= 0) return { error: 'Hạng phòng không hợp lệ' };
+  if (!Number.isInteger(floor) || floor < 0) return { error: 'Tầng phải là số nguyên lớn hơn hoặc bằng 0' };
+  if (!Number.isFinite(area) || area <= 0) return { error: 'Diện tích phòng phải lớn hơn 0' };
+  if (!ROOM_STATUSES.has(status)) return { error: 'Trạng thái phòng không hợp lệ' };
+  if (maintenanceExpectedCompletion && !DATE_PATTERN.test(maintenanceExpectedCompletion)) {
+    return { error: 'Ngày hoàn thành bảo trì phải theo định dạng YYYY-MM-DD' };
+  }
+
+  return {
+    data: {
+      roomNumber,
+      roomTypeId,
+      floor,
+      area,
+      status,
+      maintenanceNote: status === 'maintenance' ? String(body.maintenanceNote || '').trim() || null : null,
+      maintenanceExpectedCompletion: status === 'maintenance' ? maintenanceExpectedCompletion : null
+    }
+  };
+};
+
+const ensureActiveRoomType = async (roomTypeId, connection = db) => {
+  const [rows] = await connection.query(
+    "SELECT id FROM room_types WHERE id = ? AND isDeleted = 0 AND status = 'active'",
+    [roomTypeId]
+  );
+  return rows.length > 0;
+};
 
 // Chỉ nhận cặp ngày hợp lệ; thiếu hoặc sai định dạng thì coi như tìm không kèm ngày
 const parseDateRangeQuery = (query) => {
@@ -106,6 +145,50 @@ router.get('/types', async (req, res) => {
       details: error.message,
       code: error.code
     });
+  }
+});
+
+// Lịch phòng trả về từng booking_detail thay vì một dòng tổng hợp cho cả booking.
+// Nhờ đó booking nhiều phòng xuất hiện đúng ở từng phòng và đúng khoảng ngày.
+router.get('/calendar', requireAuth, requireStaff, async (req, res) => {
+  try {
+    const from = String(req.query.from || '');
+    const to = String(req.query.to || '');
+    if (!DATE_PATTERN.test(from) || !DATE_PATTERN.test(to) || to <= from) {
+      return res.status(400).json({ message: 'from/to phải theo định dạng YYYY-MM-DD và to sau from' });
+    }
+
+    const [rows] = await db.query(
+      `SELECT b.id, b.id AS bookingId, bd.id AS detail_id, bd.roomId AS room_id,
+              DATE(bd.checkInDate) AS check_in, DATE(bd.checkOutDate) AS check_out,
+              b.status, COALESCE(b.guest_name, c.fullName, a.full_name, a.email) AS customer_name,
+              COALESCE(b.guest_phone, c.phone, a.phone) AS customer_phone
+       FROM bookings b
+       JOIN booking_details bd ON bd.bookingId = b.id
+       LEFT JOIN customers c ON c.accountId = b.user_id
+       LEFT JOIN accounts a ON a.id = b.user_id
+       JOIN rooms r ON r.id = bd.roomId AND r.isDeleted = 0
+       WHERE b.status NOT IN ('cancelled', 'checked_out', 'no_show')
+         AND bd.checkInDate < ? AND bd.checkOutDate > ?
+       UNION ALL
+       SELECT b.id, b.id AS bookingId, NULL AS detail_id, b.room_id,
+              DATE(b.check_in) AS check_in, DATE(b.check_out) AS check_out,
+              b.status, COALESCE(b.guest_name, c.fullName, a.full_name, a.email) AS customer_name,
+              COALESCE(b.guest_phone, c.phone, a.phone) AS customer_phone
+       FROM bookings b
+       LEFT JOIN customers c ON c.accountId = b.user_id
+       LEFT JOIN accounts a ON a.id = b.user_id
+       JOIN rooms r ON r.id = b.room_id AND r.isDeleted = 0
+       WHERE b.status NOT IN ('cancelled', 'checked_out', 'no_show')
+         AND b.check_in < ? AND b.check_out > ?
+         AND NOT EXISTS (SELECT 1 FROM booking_details bd WHERE bd.bookingId = b.id)
+       ORDER BY check_in ASC, bookingId ASC`,
+      [to, from, to, from]
+    );
+    res.json({ data: rows });
+  } catch (error) {
+    console.error('Get room calendar error:', error);
+    res.status(500).json({ message: 'Lỗi khi tải lịch phòng' });
   }
 });
 
@@ -407,7 +490,17 @@ router.post('/bulk', requireAuth, requireStaff, async (req, res) => {
       return res.status(400).json({ message: 'Danh sách phòng không hợp lệ!' });
     }
 
-    const roomNumbers = rooms.map(r => String(r.roomNumber).trim());
+    const normalizedRooms = [];
+    for (const room of rooms) {
+      const normalized = normalizeRoomPayload(room);
+      if (normalized.error) return res.status(400).json({ message: normalized.error });
+      normalizedRooms.push(normalized.data);
+    }
+
+    const roomNumbers = normalizedRooms.map(r => r.roomNumber);
+    if (new Set(roomNumbers.map((number) => number.toLocaleUpperCase('vi-VN'))).size !== roomNumbers.length) {
+      return res.status(400).json({ message: 'Danh sách tạo có số phòng bị trùng' });
+    }
     const [existing] = await db.query('SELECT roomNumber FROM rooms WHERE roomNumber IN (?) AND isDeleted = 0', [roomNumbers]);
     
     if (existing.length > 0) {
@@ -417,12 +510,21 @@ router.post('/bulk', requireAuth, requireStaff, async (req, res) => {
       });
     }
 
-    const values = rooms.map(r => [
-      String(r.roomNumber).trim(),
+    const roomTypeIds = [...new Set(normalizedRooms.map((room) => room.roomTypeId))];
+    const [activeTypes] = await db.query(
+      `SELECT id FROM room_types WHERE id IN (?) AND isDeleted = 0 AND status = 'active'`,
+      [roomTypeIds]
+    );
+    if (activeTypes.length !== roomTypeIds.length) {
+      return res.status(400).json({ message: 'Danh sách có hạng phòng không tồn tại hoặc đã ngừng hoạt động' });
+    }
+
+    const values = normalizedRooms.map(r => [
+      r.roomNumber,
       r.roomTypeId,
       r.floor,
-      r.area || 0,
-      r.status || 'available'
+      r.area,
+      r.status
     ]);
 
     await db.query(
@@ -440,7 +542,15 @@ router.post('/bulk', requireAuth, requireStaff, async (req, res) => {
 // Create new room
 router.post('/', requireAuth, requireStaff, async (req, res) => {
   try {
-    const { roomNumber, roomTypeId, floor, area, status, maintenanceNote, maintenanceExpectedCompletion } = req.body;
+    const normalized = normalizeRoomPayload(req.body);
+    if (normalized.error) return res.status(400).json({ message: normalized.error });
+    const { roomNumber, roomTypeId, floor, area, status, maintenanceNote, maintenanceExpectedCompletion } = normalized.data;
+    if (status === 'occupied' || status === 'reserved') {
+      return res.status(400).json({ message: 'Phòng mới chỉ có thể ở trạng thái trống hoặc bảo trì' });
+    }
+    if (!(await ensureActiveRoomType(roomTypeId))) {
+      return res.status(400).json({ message: 'Hạng phòng không tồn tại hoặc đã ngừng hoạt động' });
+    }
     
     // Check if room number already exists
     const [existing] = await db.query('SELECT id FROM rooms WHERE roomNumber = ? AND isDeleted = 0', [roomNumber]);
@@ -462,8 +572,34 @@ router.post('/', requireAuth, requireStaff, async (req, res) => {
 // Update room
 router.put('/:id', requireAuth, requireStaff, async (req, res) => {
   try {
-    const { id } = req.params;
-    const { roomNumber, roomTypeId, floor, area, status, maintenanceNote, maintenanceExpectedCompletion } = req.body;
+    const id = parseRoomId(req.params.id);
+    if (!id) return res.status(400).json({ message: 'Mã phòng không hợp lệ' });
+    const normalized = normalizeRoomPayload(req.body);
+    if (normalized.error) return res.status(400).json({ message: normalized.error });
+    const { roomNumber, roomTypeId, floor, area, status, maintenanceNote, maintenanceExpectedCompletion } = normalized.data;
+    if (!(await ensureActiveRoomType(roomTypeId))) {
+      return res.status(400).json({ message: 'Hạng phòng không tồn tại hoặc đã ngừng hoạt động' });
+    }
+
+    const [target] = await db.query('SELECT id, status FROM rooms WHERE id = ? AND isDeleted = 0', [id]);
+    if (target.length === 0) return res.status(404).json({ message: 'Không tìm thấy phòng' });
+
+    if (target[0].status !== status && (target[0].status === 'occupied' || status === 'occupied')) {
+      const [checkedInBookings] = await db.query(
+        `SELECT b.id FROM bookings b
+         LEFT JOIN booking_details bd ON bd.bookingId = b.id
+         WHERE COALESCE(bd.roomId, b.room_id) = ? AND b.status = 'checked_in'
+         LIMIT 1`,
+        [id]
+      );
+      if (checkedInBookings.length > 0 || status === 'occupied') {
+        return res.status(409).json({
+          message: checkedInBookings.length > 0
+            ? 'Không thể đổi trạng thái thủ công khi phòng đang có khách. Hãy thực hiện check-out.'
+            : 'Trạng thái đang ở chỉ được thiết lập thông qua thao tác check-in.'
+        });
+      }
+    }
 
     // Check if room number already exists for another room
     const [existing] = await db.query('SELECT id FROM rooms WHERE roomNumber = ? AND id != ? AND isDeleted = 0', [roomNumber, id]);
@@ -483,39 +619,79 @@ router.put('/:id', requireAuth, requireStaff, async (req, res) => {
 });
 
 // Delete room
-router.delete('/:id', requireAuth, requireStaff, async (req, res) => {
+router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
+  const connection = await db.getConnection();
   try {
-    const { id } = req.params;
+    const id = parseRoomId(req.params.id);
+    if (!id) return res.status(400).json({ message: 'Mã phòng không hợp lệ' });
+    await connection.beginTransaction();
 
     // Check if the room exists and its status
-    const [rooms] = await db.query('SELECT status, roomNumber FROM rooms WHERE id = ? AND isDeleted = 0', [id]);
+    const [rooms] = await connection.query(
+      'SELECT id, roomNumber, roomTypeId, floor, area, status FROM rooms WHERE id = ? AND isDeleted = 0 FOR UPDATE',
+      [id]
+    );
     if (rooms.length === 0) {
+      await connection.rollback();
       return res.status(404).json({ message: 'Không tìm thấy phòng!' });
     }
 
     if (rooms[0].status === 'occupied') {
+      await connection.rollback();
       return res.status(400).json({ message: 'Không thể xóa phòng đang có khách ở!' });
     }
 
     // Check if the room is associated with any active bookings (status is not 'cancelled' and not 'checked_out')
-    const [activeBookings] = await db.query(`
+    const [activeBookings] = await connection.query(`
       SELECT b.id, b.status 
       FROM bookings b
       JOIN booking_details bd ON bd.bookingId = b.id
-      WHERE bd.roomId = ? AND b.status NOT IN ('cancelled', 'checked_out')
+      WHERE bd.roomId = ? AND b.status NOT IN ('cancelled', 'checked_out', 'no_show')
+      FOR UPDATE
     `, [id]);
 
     if (activeBookings.length > 0) {
+      await connection.rollback();
       return res.status(400).json({ message: 'Không thể xóa phòng đang có đơn đặt phòng (hoặc đã cọc) chưa hoàn thành!' });
     }
 
+    const [legacyActiveBookings] = await connection.query(
+      `SELECT b.id, b.status FROM bookings b
+       WHERE b.room_id = ? AND b.status NOT IN ('cancelled', 'checked_out', 'no_show')
+         AND NOT EXISTS (SELECT 1 FROM booking_details bd WHERE bd.bookingId = b.id)
+       FOR UPDATE`,
+      [id]
+    );
+    if (legacyActiveBookings.length > 0) {
+      await connection.rollback();
+      return res.status(400).json({ message: 'Không thể xóa phòng đang có đơn đặt phòng chưa hoàn thành!' });
+    }
+
     // Perform soft delete
-    await db.query('UPDATE rooms SET isDeleted = 1 WHERE id = ?', [id]);
+    await connection.query('UPDATE rooms SET isDeleted = 1 WHERE id = ?', [id]);
+    await connection.query(
+      `INSERT INTO room_audit_logs
+         (roomId, roomNumber, action, oldValue, newValue, performedBy, performedByName, performedByRole)
+       VALUES (?, ?, 'room_deleted', ?, ?, ?, ?, ?)`,
+      [
+        id,
+        rooms[0].roomNumber,
+        JSON.stringify(rooms[0]),
+        JSON.stringify({ isDeleted: 1 }),
+        req.user?.userId || null,
+        req.user?.fullName || req.user?.email || null,
+        req.user?.role || null
+      ]
+    );
+    await connection.commit();
 
     res.json({ message: 'Xóa phòng thành công' });
   } catch (error) {
+    await connection.rollback();
     console.error('Delete room error:', error);
     res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
+  } finally {
+    connection.release();
   }
 });
 

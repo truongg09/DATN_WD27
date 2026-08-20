@@ -1890,7 +1890,6 @@ const handleCheckIn = (booking: Booking) => {
                 <th style={thStyle}>Khách hàng</th>
                 <th style={thStyle}>Phòng</th>
                 <th style={thStyle}>Thời gian</th>
-                <th style={thStyle}>Số khách</th>
                 <th style={thStyle}>Tổng tiền</th>
                 <th style={thStyle}>Trạng thái</th>
                 <th style={thStyle}>Thao tác</th>
@@ -1898,10 +1897,10 @@ const handleCheckIn = (booking: Booking) => {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={8} style={emptyStyle}>Đang tải dữ liệu...</td></tr>
+                <tr><td colSpan={7} style={emptyStyle}>Đang tải dữ liệu...</td></tr>
               ) : filteredBookings.length === 0 ? (
                 <tr>
-                  <td colSpan={8} style={emptyStyle}>
+                  <td colSpan={7} style={emptyStyle}>
                     {hasFilter
                       ? 'Không có đơn nào khớp bộ lọc đang chọn'
                       : 'Không có dữ liệu đặt phòng'}
@@ -1925,7 +1924,6 @@ const handleCheckIn = (booking: Booking) => {
                       <div>Nhận: {formatDate(booking.check_in)}</div>
                       <div>Trả: {formatDate(booking.check_out)}</div>
                     </td>
-                    <td style={tdStyle}>{booking.adults ?? 0} người lớn, {booking.children ?? 0} trẻ em</td>
                     <td style={tdStyle}>{formatPrice(booking.payable_total ?? booking.total_price)}</td>
                     <td style={tdStyle}>
                       {(() => {
@@ -1946,146 +1944,148 @@ const handleCheckIn = (booking: Booking) => {
                         );
                       })()}
                     </td>
-                    <td style={tdStyle}>
-                      {/* Quy ước nút thao tác: mỗi dòng chỉ MỘT nút chính (xem
-                          chi tiết) tô đậm; các thao tác nghiệp vụ dùng nút viền
-                          trung tính; thao tác không hoàn tác được dùng tone đỏ.
-                          Tất cả cùng cỡ nhỏ, chỉ icon, mô tả nằm ở tooltip. */}
-                      <Space size={4} wrap>
-                        <Tooltip title="Xem chi tiết đặt phòng">
-                          <Button
-                            type="primary"
-                            size="small"
-                            icon={<EyeOutlined />}
-                            onClick={() => navigate(`${areaPrefix}/bookings/${booking.id}`)}
-                          />
-                        </Tooltip>
-
-                        <Tooltip title="Chỉnh sửa đặt phòng (đổi phòng, đổi hạng, đổi ngày)">
-                          <Button
-                            size="small"
-                            icon={<EditOutlined />}
-                            onClick={() => {
-                              setAdminModifyBookingId(booking.id);
-                              setAdminModifyModalOpen(true);
-                            }}
-                          />
-                        </Tooltip>
-
-                        {['pending', 'confirmed'].includes(booking.status) && (
-                          <Tooltip title={isEarlyCheckIn(booking) ? "Khách đến sớm — Nhận phòng & Phụ thu" : "Nhận phòng cho khách"}>
+                    <td style={{ ...tdStyle, minWidth: 140, textAlign: 'center' }}>
+                      <div style={{ display: 'inline-flex', flexDirection: 'column', gap: 4, alignItems: 'center' }}>
+                        {/* Hàng 1: Xem, Sửa, Check-in / Trả phòng, Thêm dịch vụ */}
+                        <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
+                          <Tooltip title="Xem chi tiết đặt phòng">
                             <Button
-                              size="small"
-                              icon={<CheckOutlined />}
-                              onClick={() => handleCheckIn(booking)}
-                            />
-                          </Tooltip>
-                        )}
-
-                        {booking.status === 'checked_in' && (
-                          <Tooltip title="Trả phòng">
-                            <Button
-                              size="small"
-                              icon={<LogoutOutlined />}
-                              onClick={() => handleCheckOut(booking.id)}
-                            />
-                          </Tooltip>
-                        )}
-
-                        {booking.status === 'checked_in' && (
-                          <Tooltip title="Thêm dịch vụ cho khách">
-                            <Button
-                              size="small"
-                              icon={<PlusOutlined />}
-                              onClick={() => openOperation('service', booking)}
-                            />
-                          </Tooltip>
-                        )}
-
-                        {booking.status === 'checked_in' && (
-                          <Tooltip title="Ghi nhận hư hỏng / đền bù">
-                            <Button
-                              size="small"
-                              icon={<ToolOutlined />}
-                              onClick={() => openOperation('damage', booking)}
-                            />
-                          </Tooltip>
-                        )}
-
-                        {['confirmed', 'checked_in'].includes(booking.status) && (
-                          <Tooltip title="Gia hạn thời gian ở">
-                            <Button
-                              size="small"
-                              icon={<ClockCircleOutlined />}
-                              onClick={() => openOperation('extend', booking)}
-                            />
-                          </Tooltip>
-                        )}
-
-                        {booking.status === 'checked_in' && (
-                          <Tooltip title="Chuyển phòng">
-                            <Button
-                              size="small"
-                              icon={<SwapOutlined />}
-                              onClick={() => openOperation('transfer', booking)}
-                            />
-                          </Tooltip>
-                        )}
-
-                        {booking.status === 'checked_in' && (
-                          <Tooltip title="Khai báo khách ở cùng">
-                            <Button
-                              size="small"
-                              icon={<UserAddOutlined />}
-                              onClick={() => openOperation('declareGuests', booking)}
-                            />
-                          </Tooltip>
-                        )}
-
-                        {['pending', 'confirmed'].includes(booking.status) && (
-                          <Tooltip title="Gia hạn thời gian giữ phòng khi khách báo đến muộn">
-                            <Button
-                              size="small"
-                              icon={<FieldTimeOutlined />}
-                              onClick={() => handleExtendHold(booking)}
-                            />
-                          </Tooltip>
-                        )}
-
-                        {booking.status === 'no_show' && (
-                          <Tooltip title="Khôi phục đặt phòng & Check-in cho khách đến trễ">
-                            <Button
-                              size="small"
                               type="primary"
-                              ghost
-                              icon={<UndoOutlined />}
-                              onClick={() => handleReactivateNoShow(booking)}
-                            />
-                          </Tooltip>
-                        )}
-
-                        {['pending', 'confirmed'].includes(booking.status) && (
-                          <Tooltip title="Đánh dấu khách không đến (không hoàn tiền, giải phóng phòng, tặng voucher 10%)">
-                            <Button
-                              danger
                               size="small"
-                              icon={<StopOutlined />}
-                              onClick={() => handleNoShow(booking)}
+                              icon={<EyeOutlined />}
+                              onClick={() => navigate(`${areaPrefix}/bookings/${booking.id}`)}
                             />
                           </Tooltip>
-                        )}
 
-                        {['pending', 'confirmed'].includes(booking.status) && (
-                          <Tooltip title="Hủy đặt phòng">
+                          <Tooltip title="Chỉnh sửa đặt phòng (đổi phòng, đổi hạng, đổi ngày)">
                             <Button
-                              danger
                               size="small"
-                              icon={<CloseOutlined />}
-                              onClick={() => handleCancel(booking.id)}
+                              icon={<EditOutlined />}
+                              onClick={() => {
+                                setAdminModifyBookingId(booking.id);
+                                setAdminModifyModalOpen(true);
+                              }}
                             />
                           </Tooltip>
-                        )}
-                      </Space>
+
+                          {['pending', 'confirmed'].includes(booking.status) && (
+                            <Tooltip title={isEarlyCheckIn(booking) ? "Khách đến sớm — Nhận phòng & Phụ thu" : "Nhận phòng cho khách"}>
+                              <Button
+                                size="small"
+                                icon={<CheckOutlined />}
+                                onClick={() => handleCheckIn(booking)}
+                              />
+                            </Tooltip>
+                          )}
+
+                          {booking.status === 'checked_in' && (
+                            <Tooltip title="Trả phòng">
+                              <Button
+                                size="small"
+                                icon={<LogoutOutlined />}
+                                onClick={() => handleCheckOut(booking.id)}
+                              />
+                            </Tooltip>
+                          )}
+
+                          {booking.status === 'checked_in' && (
+                            <Tooltip title="Thêm dịch vụ cho khách">
+                              <Button
+                                size="small"
+                                icon={<PlusOutlined />}
+                                onClick={() => openOperation('service', booking)}
+                              />
+                            </Tooltip>
+                          )}
+                        </div>
+
+                        {/* Hàng 2: Gia hạn giữ phòng, Khôi phục, Đền bù, Gia hạn ở, Chuyển phòng, Khai báo, No-show, Hủy */}
+                        <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
+                          {['pending', 'confirmed'].includes(booking.status) && (
+                            <Tooltip title="Gia hạn thời gian giữ phòng khi khách báo đến muộn">
+                              <Button
+                                size="small"
+                                icon={<FieldTimeOutlined />}
+                                onClick={() => handleExtendHold(booking)}
+                              />
+                            </Tooltip>
+                          )}
+
+                          {booking.status === 'no_show' && (
+                            <Tooltip title="Khôi phục đặt phòng & Check-in cho khách đến trễ">
+                              <Button
+                                size="small"
+                                type="primary"
+                                ghost
+                                icon={<UndoOutlined />}
+                                onClick={() => handleReactivateNoShow(booking)}
+                              />
+                            </Tooltip>
+                          )}
+
+                          {booking.status === 'checked_in' && (
+                            <Tooltip title="Ghi nhận hư hỏng / đền bù">
+                              <Button
+                                size="small"
+                                icon={<ToolOutlined />}
+                                onClick={() => openOperation('damage', booking)}
+                              />
+                            </Tooltip>
+                          )}
+
+                          {['confirmed', 'checked_in'].includes(booking.status) && (
+                            <Tooltip title="Gia hạn thời gian ở">
+                              <Button
+                                size="small"
+                                icon={<ClockCircleOutlined />}
+                                onClick={() => openOperation('extend', booking)}
+                              />
+                            </Tooltip>
+                          )}
+
+                          {booking.status === 'checked_in' && (
+                            <Tooltip title="Chuyển phòng">
+                              <Button
+                                size="small"
+                                icon={<SwapOutlined />}
+                                onClick={() => openOperation('transfer', booking)}
+                              />
+                            </Tooltip>
+                          )}
+
+                          {booking.status === 'checked_in' && (
+                            <Tooltip title="Khai báo khách ở cùng">
+                              <Button
+                                size="small"
+                                icon={<UserAddOutlined />}
+                                onClick={() => openOperation('declareGuests', booking)}
+                              />
+                            </Tooltip>
+                          )}
+
+                          {['pending', 'confirmed'].includes(booking.status) && (
+                            <Tooltip title="Đánh dấu khách không đến (không hoàn tiền, giải phóng phòng, tặng voucher 10%)">
+                              <Button
+                                danger
+                                size="small"
+                                icon={<StopOutlined />}
+                                onClick={() => handleNoShow(booking)}
+                              />
+                            </Tooltip>
+                          )}
+
+                          {['pending', 'confirmed'].includes(booking.status) && (
+                            <Tooltip title="Hủy đặt phòng">
+                              <Button
+                                danger
+                                size="small"
+                                icon={<CloseOutlined />}
+                                onClick={() => handleCancel(booking.id)}
+                              />
+                            </Tooltip>
+                          )}
+                        </div>
+                      </div>
                     </td>
                   </tr>
                 ))

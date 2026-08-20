@@ -16,6 +16,7 @@ import {
   RollbackOutlined,
   SwapOutlined,
   ToolOutlined,
+  UserOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../../services/api';
@@ -38,8 +39,12 @@ export interface BookingHistoryEntry {
   action: string;
   description: string | null;
   amount: string | number | null;
+  performedBy: number | null;
   performedByName: string | null;
   performedByRole: string | null;
+  performedByEmail: string | null;
+  oldValue?: unknown;
+  newValue?: unknown;
   createdAt: string;
 }
 
@@ -207,6 +212,23 @@ const dateTime = (value?: string | null) => {
   return parsed.isValid() ? parsed.format('HH:mm — DD/MM/YYYY') : '—';
 };
 
+const roomStatusText: Record<string, string> = {
+  vacant: 'Còn trống',
+  occupied: 'Đang có khách',
+  reserved: 'Đã đặt trước',
+  dirty: 'Bẩn (chưa dọn)',
+  clean: 'Sạch',
+  maintenance: 'Bảo trì / Sửa chữa',
+  out_of_service: 'Ngừng sử dụng',
+  housekeeping: 'Đang dọn phòng',
+};
+
+const formatRoomStatus = (status?: string | null) => {
+  if (!status) return '—';
+  const key = String(status).trim().toLowerCase();
+  return roomStatusText[key] || status;
+};
+
 const statusText: Record<string, string> = {
   pending: 'Chờ xác nhận',
   confirmed: 'Đã xác nhận',
@@ -265,6 +287,13 @@ const actionMeta: Record<string, { label: string; color: string; icon: React.Rea
   refund: { label: 'Hoàn tiền', color: 'red', icon: <RollbackOutlined /> },
   refund_approved: { label: 'Duyệt hoàn tiền', color: 'green', icon: <RollbackOutlined /> },
   refund_rejected: { label: 'Từ chối hoàn tiền', color: 'red', icon: <RollbackOutlined /> },
+  service_updated: { label: 'Sửa dịch vụ', color: 'cyan', icon: <EditOutlined /> },
+  service_removed: { label: 'Xóa dịch vụ', color: 'red', icon: <DeleteOutlined /> },
+  damage_updated: { label: 'Sửa phí phát sinh', color: 'orange', icon: <EditOutlined /> },
+  status_change: { label: 'Đổi trạng thái', color: 'blue', icon: <ClockCircleOutlined /> },
+  update_arrival_time: { label: 'Cập nhật giờ nhận phòng', color: 'blue', icon: <ClockCircleOutlined /> },
+  room_reassigned: { label: 'Đổi phòng', color: 'purple', icon: <SwapOutlined /> },
+  room_cleaned: { label: 'Xác nhận phòng đã dọn', color: 'green', icon: <HomeOutlined /> },
 };
 
 const roleText: Record<string, string> = {
@@ -274,6 +303,120 @@ const roleText: Record<string, string> = {
   customer: 'Khách hàng',
   system: 'Hệ thống',
 };
+
+const historyFieldText: Record<string, string> = {
+  status: 'Trạng thái',
+  bookingStatus: 'Trạng thái đặt phòng',
+  roomId: 'Mã phòng',
+  roomNumber: 'Số phòng',
+  roomTypeId: 'Mã hạng phòng',
+  checkIn: 'Ngày nhận phòng',
+  checkOut: 'Ngày trả phòng',
+  checkInDate: 'Ngày nhận phòng',
+  checkOutDate: 'Ngày trả phòng',
+  fromDate: 'Từ ngày',
+  toDate: 'Đến ngày',
+  totalPrice: 'Tổng tiền',
+  totalAmount: 'Tổng tiền bill',
+  newTotalAmount: 'Tổng bill mới',
+  oldTotalAmount: 'Tổng bill cũ',
+  priceDifference: 'Chênh lệch giá',
+  newRemainingAmount: 'Còn lại thu/trả',
+  depositAmount: 'Tiền cọc',
+  paidAmount: 'Đã thanh toán',
+  remainingAmount: 'Còn phải thanh toán',
+  amount: 'Số tiền',
+  paymentStatus: 'Trạng thái thanh toán',
+  paymentMethod: 'Phương thức thanh toán',
+  transactionCode: 'Mã giao dịch',
+  quantity: 'Số lượng',
+  serviceId: 'Mã dịch vụ',
+  voucherCode: 'Mã ưu đãi',
+  reason: 'Lý do',
+  notes: 'Ghi chú',
+  rooms: 'Danh sách phòng',
+  newStagePrices: 'Chi tiết giá từng đêm mới',
+  stagePrices: 'Chi tiết giá từng đêm',
+  nightlyPrices: 'Chi tiết giá từng đêm',
+  adults: 'Người lớn',
+  children: 'Trẻ em',
+  childrenAges: 'Độ tuổi trẻ em',
+  roomPrice: 'Đơn giá phòng',
+  roomStayAmount: 'Tiền ở phòng',
+  childSurchargeAmount: 'Phụ thu trẻ em',
+  itemTotal: 'Thành tiền phòng',
+  surcharge: 'Phụ thu',
+};
+
+const historyValueText: Record<string, string> = {
+  pending: 'Chờ xác nhận', confirmed: 'Đã xác nhận', checked_in: 'Đang lưu trú', checked_out: 'Đã trả phòng',
+  cancelled: 'Đã hủy', no_show: 'Khách không đến', unpaid: 'Chưa thanh toán', deposit_paid: 'Đã đặt cọc',
+  paid: 'Đã thanh toán đủ', refunded: 'Đã hoàn tiền', cash: 'Tiền mặt', bank_transfer: 'Chuyển khoản ngân hàng',
+  available: 'Phòng trống', occupied: 'Đang có khách', maintenance: 'Đang dọn hoặc bảo trì', true: 'Có', false: 'Không',
+};
+
+const formatHistoryVal = (key: string, value: unknown): React.ReactNode => {
+  if (value == null || value === '') return 'Không có';
+
+  if ((key === 'rooms' || key === 'roomList') && Array.isArray(value)) {
+    return (
+      <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {value.map((r: any, i: number) => (
+          <div key={i} style={{ background: '#fff', padding: '6px 10px', borderRadius: 6, border: '1px solid #e0e0e0', fontSize: 13 }}>
+            <strong>• {r.typeName || 'Phòng'} {r.roomNumber ? `(Phòng ${r.roomNumber})` : ''}</strong>: {r.adults ?? 0} người lớn, {r.children ?? 0} trẻ em
+            {r.itemTotal || r.roomStayAmount ? <span style={{ color: '#0f172a', fontWeight: 600, marginLeft: 6 }}>— {money(Number(r.itemTotal || r.roomStayAmount))}</span> : null}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if ((key === 'newStagePrices' || key === 'nightlyPrices' || key === 'stagePrices') && Array.isArray(value)) {
+    return (
+      <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {value.map((np: any, i: number) => (
+          <div key={i} style={{ background: '#fff', padding: '4px 8px', borderRadius: 6, border: '1px solid #e0e0e0', fontSize: 12 }}>
+            <strong>{dayjs(np.date || np.stayDate).format('DD/MM/YYYY')}</strong> ({np.dayName || ''}): <span style={{ fontWeight: 600, color: '#d97706' }}>{money(Number(np.price || 0))}</span> {np.note ? <span style={{ color: '#666' }}>({np.note})</span> : ''}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (Array.isArray(value)) {
+    if (value.length === 0) return 'Không có';
+    if (typeof value[0] !== 'object') return value.join(', ');
+    return JSON.stringify(value);
+  }
+
+  if (typeof value === 'object') {
+    return JSON.stringify(value);
+  }
+
+  const raw = String(value);
+  if (historyValueText[raw.toLowerCase()]) return historyValueText[raw.toLowerCase()];
+  if (/amount|price|fee|total|difference/i.test(key) && Number.isFinite(Number(value))) return money(Number(value));
+  if (/date|checkin|checkout|createdat|updatedat/i.test(key) && dayjs(raw).isValid()) return dateTime(raw);
+  return raw;
+};
+
+const renderHistoryValue = (title: string, value: unknown, background: string) => {
+  if (value == null) return null;
+  const entries = typeof value === 'object' && !Array.isArray(value)
+    ? Object.entries(value as Record<string, unknown>) : [['', value] as [string, unknown]];
+  return <div style={{ flex: 1, minWidth: 220, background, padding: '10px 12px', borderRadius: 8, border: '1px solid #e8e8e8' }}>
+    <strong style={{ fontSize: 13, color: '#444' }}>{title}</strong>
+    {entries.map(([key, val]) => (
+      <div key={key || title} style={{ fontSize: 14, lineHeight: 1.7, color: '#262626' }}>
+        {key && <span style={{ fontWeight: 600, color: '#555' }}>{historyFieldText[key] || key}: </span>}{formatHistoryVal(key, val)}
+      </div>
+    ))}
+  </div>;
+};
+
+const vietnameseDescription = (value?: string | null) => (value || 'Không có mô tả')
+  .replace(/\bBooking\b/gi, 'Đơn đặt phòng').replace(/\bNo-show\b/gi, 'khách không đến')
+  .replace(/check-in/gi, 'nhận phòng').replace(/check-out|checkout/gi, 'trả phòng');
 
 const emptyBox = (text: string) => ({
   emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={text} />,
@@ -661,11 +804,6 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
             </div>
           )}
         </Descriptions.Item>
-        <Descriptions.Item label="Giờ check-in dự kiến">
-          {detail.requested_check_in_time
-            ? `${String(detail.requested_check_in_time).slice(0, 5)}${Number(detail.requested_check_in_day_offset || 0) === 1 ? ' (ngày hôm sau)' : ''}`
-            : '14:00 (Chuẩn)'}
-        </Descriptions.Item>
         <Descriptions.Item label="Ngày trả phòng">
           <div>{day(detail.check_out)} (Trước 12:00)</div>
           {detail.actual_check_out_time && (
@@ -679,7 +817,7 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
           {detail.adults ?? 0} người lớn, {detail.children ?? 0} trẻ em
         </Descriptions.Item>
         <Descriptions.Item label="Thời điểm đặt">{dateTime(detail.created_at)}</Descriptions.Item>
-        <Descriptions.Item label="Trạng thái phòng hiện tại">{detail.room_status || '—'}</Descriptions.Item>
+        <Descriptions.Item label="Trạng thái phòng hiện tại">{formatRoomStatus(detail.room_status)}</Descriptions.Item>
         <Descriptions.Item label="Ghi chú của khách" span={2}>{detail.notes || '—'}</Descriptions.Item>
         {detail.cancellation_reason && (
           <Descriptions.Item label="Lý do hủy" span={2}>{detail.cancellation_reason}</Descriptions.Item>
@@ -1352,19 +1490,41 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
             dot: meta.icon,
             children: (
               <div>
-                <div style={{ marginBottom: 2 }}>
-                  <Tag color={meta.color}>{meta.label}</Tag>
+                <div style={{ marginBottom: 6 }}>
+                  <Tag color={meta.color} style={{ fontSize: 14, fontWeight: 600, padding: '3px 9px' }}>{meta.label}</Tag>
                   <Tooltip title="Thời điểm thực hiện">
-                    <span style={{ color: '#888', fontSize: 12 }}>{dateTime(entry.createdAt)}</span>
+                    <span style={{ color: '#595959', fontSize: 13, fontWeight: 500 }}>{dateTime(entry.createdAt)}</span>
                   </Tooltip>
                   {entry.amount != null && Number(entry.amount) !== 0 && (
                     <strong style={{ marginLeft: 8 }}>{money(entry.amount)}</strong>
                   )}
                 </div>
-                <div>{entry.description || '—'}</div>
-                <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>
-                  Người thực hiện: {entry.performedByName || 'Hệ thống'}
-                  {entry.performedByRole ? ` (${roleText[entry.performedByRole] || entry.performedByRole})` : ''}
+                <div style={{ fontSize: 15, lineHeight: 1.65, color: '#262626' }}>{vietnameseDescription(entry.description)}</div>
+                {(entry.oldValue != null || entry.newValue != null) && (
+                  <div style={{ display: 'flex', gap: 8, marginTop: 7, flexWrap: 'wrap' }}>
+                    {renderHistoryValue('Trước thay đổi', entry.oldValue, '#fff1f0')}
+                    {renderHistoryValue('Sau thay đổi', entry.newValue, '#f6ffed')}
+                  </div>
+                )}
+                <div style={{ marginTop: 10, padding: '11px 13px', borderRadius: 9, background: '#f7f5f2', border: '1px solid #ddd4c9' }}>
+                  <Space size={8} align="start">
+                    <UserOutlined style={{ color: '#8c6d4a', marginTop: 3 }} />
+                    <div>
+                      <div style={{ fontSize: 13, color: '#666', fontWeight: 600, marginBottom: 3 }}>Người thực hiện</div>
+                      <Space size={6} wrap>
+                        <strong style={{ fontSize: 15, color: '#262626' }}>{entry.performedByName || 'Hệ thống tự động'}</strong>
+                        <Tag color={entry.performedByRole === 'admin' ? 'red' : entry.performedByRole === 'customer' ? 'blue' : 'gold'}>
+                          {roleText[entry.performedByRole || 'system'] || entry.performedByRole || 'Hệ thống'}
+                        </Tag>
+                      </Space>
+                      {(entry.performedByEmail || entry.performedBy) && (
+                        <div style={{ fontSize: 13, color: '#666', marginTop: 4 }}>
+                          {entry.performedByEmail || 'Không có email'}
+                          {entry.performedBy ? ` · ID tài khoản: ${entry.performedBy}` : ''}
+                        </div>
+                      )}
+                    </div>
+                  </Space>
                 </div>
               </div>
             ),
