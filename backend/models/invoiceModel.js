@@ -8,28 +8,17 @@ const INVOICE_SELECT = `
     p.depositAmount AS deposit_amount,
     p.paidAmount AS paid_amount,
     p.remainingAmount AS remaining_amount,
-    b.customerId AS user_id,
+    COALESCE(b.customerId, b.user_id) AS user_id,
     COALESCE(b.guest_name, c.fullName, a.email) AS customer_name,
-    a.email AS customer_email,
-    COALESCE(c.phone, a.phone) AS customer_phone,
-    r.roomNumber AS room_number,
-    rt.typeName AS room_type_name,
-    DATE(bd.checkInDate) AS check_in,
-    DATE(bd.checkOutDate) AS check_out,
-    COALESCE(bd.occupancySurcharge, 0) AS occupancy_surcharge,
-    COALESCE(bd.children, 0) AS children_count,
-    COALESCE(
-      bd.roomPrice * GREATEST(DATEDIFF(bd.checkOutDate, bd.checkInDate), 1),
-      0
-    ) AS stay_room_amount
+    COALESCE(b.guest_email, a.email) AS customer_email,
+    COALESCE(b.guest_phone, c.phone, a.phone) AS customer_phone,
+    DATE(b.check_in) AS check_in,
+    DATE(b.check_out) AS check_out
   FROM invoices i
   LEFT JOIN payments p ON p.id = i.paymentId
   JOIN bookings b ON b.id = i.bookingId
   LEFT JOIN customers c ON c.id = b.customerId
   LEFT JOIN accounts a ON a.id = c.accountId
-  LEFT JOIN booking_details bd ON bd.bookingId = b.id
-  LEFT JOIN rooms r ON r.id = bd.roomId
-  LEFT JOIN room_types rt ON rt.id = r.roomTypeId
 `;
 
 const createInvoice = async (payload, connection) => {
@@ -237,12 +226,67 @@ const getNextInvoiceSequence = async (connection) => {
   return Number(rows[0].count) + 1;
 };
 
+const listInvoiceRooms = async (bookingId, connection) => {
+  const [details] = await run(connection).query(
+    `
+      SELECT
+        bd.id AS bookingDetailId,
+        bd.roomId,
+        r.roomNumber,
+        COALESCE(bd.roomTypeId, r.roomTypeId) AS roomTypeId,
+        rt.typeName,
+        bd.roomPrice,
+        DATE_FORMAT(bd.checkInDate, '%Y-%m-%d') AS checkInDate,
+        DATE_FORMAT(bd.checkOutDate, '%Y-%m-%d') AS checkOutDate,
+        COALESCE(bd.adults, 1) AS adults,
+        COALESCE(bd.children, 0) AS children,
+        COALESCE(bd.occupancySurcharge, 0) AS occupancySurcharge
+      FROM booking_details bd
+      LEFT JOIN rooms r ON r.id = bd.roomId
+      LEFT JOIN room_types rt ON rt.id = COALESCE(bd.roomTypeId, r.roomTypeId)
+      WHERE bd.bookingId = ?
+      ORDER BY bd.id ASC
+    `,
+    [bookingId]
+  );
+
+  if (details.length > 0) {
+    return details;
+  }
+
+  // Fallback for legacy scalar bookings without booking_details rows
+  const [legacy] = await run(connection).query(
+    `
+      SELECT
+        NULL AS bookingDetailId,
+        b.room_id AS roomId,
+        r.roomNumber,
+        COALESCE(b.room_type_id, r.roomTypeId) AS roomTypeId,
+        rt.typeName,
+        b.room_price AS roomPrice,
+        DATE_FORMAT(b.check_in, '%Y-%m-%d') AS checkInDate,
+        DATE_FORMAT(b.check_out, '%Y-%m-%d') AS checkOutDate,
+        COALESCE(b.adults, 1) AS adults,
+        COALESCE(b.children, 0) AS children,
+        0 AS occupancySurcharge
+      FROM bookings b
+      LEFT JOIN rooms r ON r.id = b.room_id
+      LEFT JOIN room_types rt ON rt.id = COALESCE(b.room_type_id, r.roomTypeId)
+      WHERE b.id = ?
+    `,
+    [bookingId]
+  );
+
+  return legacy;
+};
+
 module.exports = {
   createInvoice,
   updateInvoiceAmounts,
   getInvoiceById,
   getInvoiceByNumber,
   getInvoiceByBookingId,
+  listInvoiceRooms,
   listInvoiceServices,
   listInvoiceNightlyPrices,
   listInvoiceTransfers,

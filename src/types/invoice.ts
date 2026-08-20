@@ -66,6 +66,21 @@ export interface InvoiceBreakdown {
   totalAmount: number;
 }
 
+export interface InvoiceRoom {
+  bookingDetailId?: number | null;
+  roomId?: number | null;
+  roomNumber: string;
+  roomTypeId?: number | null;
+  typeName: string;
+  roomTypeName?: string;
+  roomPrice: number;
+  checkInDate: string;
+  checkOutDate: string;
+  adults?: number;
+  children?: number;
+  occupancySurcharge?: number;
+}
+
 export interface Invoice {
   id: number;
   invoiceNumber: string;
@@ -82,6 +97,7 @@ export interface Invoice {
   stayRoomAmount?: number;
   roomAmount: number;
   serviceAmount: number;
+  rooms?: InvoiceRoom[];
   services?: InvoiceServiceItem[];
   damages?: InvoiceDamageItem[];
   transfers?: InvoiceTransfer[];
