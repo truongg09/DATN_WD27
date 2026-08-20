@@ -27,7 +27,11 @@ import {
   ReloadOutlined,
   DownOutlined,
   EyeOutlined,
-  DollarCircleOutlined
+  DollarCircleOutlined,
+  SearchOutlined,
+  AppstoreOutlined,
+  CheckCircleOutlined,
+  StopOutlined
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import axios from 'axios';
@@ -382,7 +386,7 @@ function RoomTypeManagement() {
       dataIndex: 'typeName',
       key: 'typeName',
       sorter: (a: RoomType, b: RoomType) => a.typeName.localeCompare(b.typeName),
-      render: (text: string) => <strong>{text}</strong>
+      render: (text: string) => <span style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>{text}</span>
     },
     {
       title: 'Sức chứa',
@@ -393,32 +397,23 @@ function RoomTypeManagement() {
         const child = record.childCapacity ?? 0;
         const max = record.maxOccupancy ?? record.capacity ?? (adult + child);
         return (
-          <div style={{ lineHeight: '1.4' }}>
-            <div>
-              <span style={{ color: '#64748b', fontSize: '12px' }}>Tiêu chuẩn: </span>
-              <strong>{adult} người lớn{child > 0 ? ` + ${child} trẻ em` : ''}</strong>
-            </div>
-            <div>
-              <span style={{ color: '#64748b', fontSize: '12px' }}>Tối đa: </span>
-              <Tag color="blue" style={{ margin: 0, fontSize: '11px', padding: '0 4px' }}>
-                {max} khách
-              </Tag>
-            </div>
+          <div style={{ fontSize: 13, color: '#334155', lineHeight: 1.4 }}>
+            <div><strong>{adult} NL</strong>{child > 0 ? ` + ${child} TE` : ''}</div>
+            <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>Tối đa {max} khách</div>
           </div>
         );
       }
     },
     {
-      title: 'Phụ thu phát sinh',
+      title: 'Phụ thu',
       key: 'extraFees',
       render: (_: unknown, record: RoomType) => {
         const adultFee = typeof record.extraAdultFee === 'number' ? record.extraAdultFee : parseFloat(record.extraAdultFee as string) || 0;
         const childFee = typeof record.extraChildFee === 'number' ? record.extraChildFee : parseFloat(record.extraChildFee as string) || 0;
         return (
-          <div style={{ fontSize: '12px', lineHeight: '1.4' }}>
-            <div><span style={{ color: '#475569' }}>Người lớn:</span> <strong>{new Intl.NumberFormat('vi-VN').format(adultFee)}đ</strong></div>
-            <div><span style={{ color: '#475569' }}>Trẻ em:</span> <strong>{new Intl.NumberFormat('vi-VN').format(childFee)}đ</strong></div>
-            <div style={{ color: '#94a3b8', fontSize: '10px' }}>/người/đêm</div>
+          <div style={{ fontSize: 12, color: '#475569', lineHeight: 1.4 }}>
+            <div>NL: <strong style={{ color: '#0f172a' }}>+{new Intl.NumberFormat('vi-VN').format(adultFee)}đ</strong></div>
+            <div>TE: <strong style={{ color: '#0f172a' }}>+{new Intl.NumberFormat('vi-VN').format(childFee)}đ</strong></div>
           </div>
         );
       }
@@ -429,31 +424,31 @@ function RoomTypeManagement() {
       key: 'roomCount',
       sorter: (a: RoomType, b: RoomType) => (a.roomCount || 0) - (b.roomCount || 0),
       render: (count: number, record: RoomType) => (
-        <div>
-          <div style={{ marginBottom: 4 }}><strong>{count || 0} phòng</strong></div>
+        <div style={{ lineHeight: 1.4 }}>
+          <div><strong>{count || 0} phòng</strong></div>
           {count > 0 && (
-            <Space size={4} wrap>
+            <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap', marginTop: 3 }}>
               {record.availableCount !== undefined && record.availableCount > 0 && (
-                <Tag color="green" style={{ margin: 0, fontSize: '11px', padding: '0 4px' }}>
+                <Tag color="green" style={{ margin: 0, fontSize: '10px', padding: '0 4px' }}>
                   {record.availableCount} trống
                 </Tag>
               )}
               {record.occupiedCount !== undefined && record.occupiedCount > 0 && (
-                <Tag color="blue" style={{ margin: 0, fontSize: '11px', padding: '0 4px' }}>
+                <Tag color="blue" style={{ margin: 0, fontSize: '10px', padding: '0 4px' }}>
                   {record.occupiedCount} ở
                 </Tag>
               )}
               {record.reservedCount !== undefined && record.reservedCount > 0 && (
-                <Tag color="orange" style={{ margin: 0, fontSize: '11px', padding: '0 4px' }}>
+                <Tag color="orange" style={{ margin: 0, fontSize: '10px', padding: '0 4px' }}>
                   {record.reservedCount} cọc
                 </Tag>
               )}
               {record.maintenanceCount !== undefined && record.maintenanceCount > 0 && (
-                <Tag color="red" style={{ margin: 0, fontSize: '11px', padding: '0 4px' }}>
+                <Tag color="red" style={{ margin: 0, fontSize: '10px', padding: '0 4px' }}>
                   {record.maintenanceCount} bảo trì
                 </Tag>
               )}
-            </Space>
+            </div>
           )}
         </div>
       )
@@ -463,7 +458,7 @@ function RoomTypeManagement() {
       dataIndex: 'defaultPrice',
       key: 'defaultPrice',
       sorter: (a: RoomType, b: RoomType) => (parseFloat(a.defaultPrice as string) || 0) - (parseFloat(b.defaultPrice as string) || 0),
-      render: (price: string | number) => formatPrice(price)
+      render: (price: string | number) => <strong style={{ color: '#0f172a', fontSize: 13 }}>{formatPrice(price)}</strong>
     },
     {
       title: 'Trạng thái',
@@ -474,7 +469,7 @@ function RoomTypeManagement() {
           <Select
             value={status || 'active'}
             onChange={(newStatus) => handleQuickStatusChange(record.id, newStatus, record)}
-            style={{ width: 140 }}
+            style={{ width: 125 }}
             bordered={false}
             popupMatchSelectWidth={false}
             suffixIcon={<DownOutlined style={{ fontSize: '10px', color: '#bfbfbf' }} />}
@@ -483,7 +478,7 @@ function RoomTypeManagement() {
               <Tag style={{ cursor: 'pointer', margin: 0, backgroundColor: '#bbf7d0', color: '#166534', borderColor: '#86efac' }}>Hoạt động</Tag>
             </Option>
             <Option value="inactive">
-              <Tag style={{ cursor: 'pointer', margin: 0, backgroundColor: '#fecdd3', color: '#9f1239', borderColor: '#fda4af' }}>Ngừng hoạt động</Tag>
+              <Tag style={{ cursor: 'pointer', margin: 0, backgroundColor: '#fecdd3', color: '#9f1239', borderColor: '#fda4af' }}>Tạm ngưng</Tag>
             </Option>
           </Select>
         );
@@ -498,9 +493,7 @@ function RoomTypeManagement() {
     {
       title: 'Thao tác',
       key: 'actions',
-      width: 200,
-      // Cùng quy ước với các bảng khác: một nút chính tô đậm, thao tác phụ dùng
-      // nút viền, thao tác xóa dùng tone đỏ.
+      align: 'center',
       render: (_: unknown, record: RoomType) => (
         <Space size={4}>
           <Tooltip title="Xem chi tiết hạng phòng">
@@ -542,65 +535,95 @@ function RoomTypeManagement() {
   ];
 
   return (
-    <Card
-      title="Quản lý hạng phòng"
-      extra={
-        <Space>
-          <Button icon={<ReloadOutlined />} onClick={fetchRoomTypes} loading={loading}>
-            Tải lại
-          </Button>
-          <Button
-            style={{ backgroundColor: '#f59e0b', color: '#fff', borderColor: '#f59e0b' }}
-            icon={<DollarCircleOutlined />}
-            onClick={() => handleOpenPricingModal()}
-          >
-            Bảng giá Lễ & Chủ nhật
-          </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
-            Thêm hạng phòng
-          </Button>
-        </Space>
-      }
-      style={{ margin: 24 }}
-    >
-      <Space orientation="vertical" style={{ width: '100%' }} size="large">
-        <Row gutter={[16, 16]}>
+    <div style={{ padding: 24 }}>
+      <div style={{ background: '#fff', borderRadius: 16, padding: 24, boxShadow: '0 8px 24px rgba(0,0,0,0.08)' }}>
+        {/* Header bar */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#0f172a' }}>Quản lý hạng phòng</h2>
+            <div style={{ fontSize: 13, color: '#64748b', marginTop: 4 }}>
+              Cấu hình thông tin hạng phòng, sức chứa, đơn giá và quy tắc giá phụ thu
+            </div>
+          </div>
+          <Space>
+            <Button icon={<ReloadOutlined />} onClick={fetchRoomTypes} loading={loading}>
+              Tải lại
+            </Button>
+            <Button
+              style={{ backgroundColor: '#f59e0b', color: '#fff', borderColor: '#f59e0b' }}
+              icon={<DollarCircleOutlined />}
+              onClick={() => handleOpenPricingModal()}
+            >
+              Bảng giá Lễ & Chủ nhật
+            </Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
+              Thêm hạng phòng
+            </Button>
+          </Space>
+        </div>
+
+        {/* 3 Thẻ Thống kê */}
+        <Row gutter={[16, 16]} style={{ marginBottom: 20 }}>
           <Col xs={24} sm={8}>
-            <Card style={{ backgroundColor: '#e2e8f0', borderLeft: '4px solid #334155', borderRadius: '8px', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
-              <div style={{ color: '#334155', fontSize: '14px', fontWeight: '500' }}>Tổng số hạng phòng</div>
-              <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#0f172a', marginTop: '4px' }}>{totalTypes}</div>
-            </Card>
+            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ color: '#64748b', fontSize: 13, fontWeight: 600 }}>Tổng số hạng phòng</div>
+                <div style={{ fontSize: 26, fontWeight: 800, color: '#0f172a', marginTop: 4 }}>{totalTypes}</div>
+              </div>
+              <div style={{ width: 44, height: 44, borderRadius: 10, background: '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#334155', fontSize: 20 }}>
+                <AppstoreOutlined />
+              </div>
+            </div>
           </Col>
+
           <Col xs={24} sm={8}>
-            <Card style={{ backgroundColor: '#bbf7d0', borderLeft: '4px solid #15803d', borderRadius: '8px', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
-              <div style={{ color: '#166534', fontSize: '14px', fontWeight: '500' }}>Hoạt động</div>
-              <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#14532d', marginTop: '4px' }}>{activeTypes}</div>
-            </Card>
+            <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 12, padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ color: '#166534', fontSize: 13, fontWeight: 600 }}>Đang hoạt động</div>
+                <div style={{ fontSize: 26, fontWeight: 800, color: '#14532d', marginTop: 4 }}>{activeTypes}</div>
+              </div>
+              <div style={{ width: 44, height: 44, borderRadius: 10, background: '#dcfce7', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#15803d', fontSize: 20 }}>
+                <CheckCircleOutlined />
+              </div>
+            </div>
           </Col>
+
           <Col xs={24} sm={8}>
-            <Card style={{ backgroundColor: '#fecdd3', borderLeft: '4px solid #be123c', borderRadius: '8px', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
-              <div style={{ color: '#9f1239', fontSize: '14px', fontWeight: '500' }}>Ngừng hoạt động</div>
-              <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#881337', marginTop: '4px' }}>{inactiveTypes}</div>
-            </Card>
+            <div style={{ background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: 12, padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ color: '#9f1239', fontSize: 13, fontWeight: 600 }}>Ngừng hoạt động</div>
+                <div style={{ fontSize: 26, fontWeight: 800, color: '#881337', marginTop: 4 }}>{inactiveTypes}</div>
+              </div>
+              <div style={{ width: 44, height: 44, borderRadius: 10, background: '#ffe4e6', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#be123c', fontSize: 20 }}>
+                <StopOutlined />
+              </div>
+            </div>
           </Col>
         </Row>
 
-        <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
-          <Input.Search
+        {/* Thanh tìm kiếm */}
+        <div style={{ marginBottom: 18 }}>
+          <Input
+            prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
             placeholder="Tìm kiếm theo tên hạng phòng hoặc mô tả..."
             allowClear
-            onChange={e => setSearchText(e.target.value)}
-            style={{ width: 350 }}
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+            style={{ maxWidth: 380 }}
           />
         </div>
-        <Table
-          columns={columns}
-          dataSource={filteredRoomTypes}
-          rowKey="id"
-          loading={loading}
-          pagination={{ pageSize: 10 }}
-        />
-      </Space>
+
+        {/* Bảng hạng phòng */}
+        <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, overflow: 'hidden' }}>
+          <Table
+            columns={columns}
+            dataSource={filteredRoomTypes}
+            rowKey="id"
+            loading={loading}
+            pagination={{ pageSize: 10 }}
+          />
+        </div>
+      </div>
 
       <Modal
         title={editingType ? 'Chỉnh sửa hạng phòng' : 'Thêm hạng phòng mới'}
@@ -1202,7 +1225,7 @@ function RoomTypeManagement() {
           </Form.Item>
         </Form>
       </Modal>
-    </Card>
+    </div>
   );
 }
 
