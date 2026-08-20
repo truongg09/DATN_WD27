@@ -134,6 +134,7 @@ function AdminLayout() {
               </NavLink>
             </li>
             <li><NavLink to="/admin/payment-settings">Cài đặt & Chính sách</NavLink></li>
+            <li><NavLink to="/admin/holidays">Lịch ngày lễ</NavLink></li>
             <li><NavLink to="/admin/reports">Báo cáo</NavLink></li>
           </ul>
         </nav>

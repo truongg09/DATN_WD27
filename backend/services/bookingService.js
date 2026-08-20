@@ -321,6 +321,17 @@ const calcNightlyPrices = async (
   const nights = getStayDates(dayString(checkIn), dayString(checkOut));
   const ranges = await bookingModel.listRoomPriceRanges(roomTypeId || null, connection);
 
+  // Lấy danh sách Lịch ngày lễ từ cơ sở dữ liệu
+  let dbHolidays = [];
+  try {
+    const [hRows] = await (connection || db).query(
+      "SELECT * FROM holidays WHERE status = 'active'"
+    );
+    dbHolidays = hRows || [];
+  } catch (err) {
+    dbHolidays = [];
+  }
+
   // Lấy thông tin hạng phòng để nhận diện hạng sang / giá niêm yết
   let roomTypeInfo = null;
   if (roomTypeId) {
@@ -339,15 +350,35 @@ const calcNightlyPrices = async (
     ? Number(fallbackPrice)
     : Number(roomTypeInfo?.defaultPrice || 0);
 
-  const weekendSurchargeAmount = Math.round(basePriceValue * 0.10); // +10%
-  const holidaySurchargeAmount = Math.round(basePriceValue * 0.20); // +20%
+  const weekendSurchargeAmount = Math.round(basePriceValue * 0.05); // +5%
+  const defaultHolidaySurchargeAmount = Math.round(basePriceValue * 0.10); // +10%
 
   const prices = nights.map((night) => {
     const dayInfo = getDayOfWeekInfo(night);
     const holidayCheck = checkHolidayDate(night);
 
-    // 1. Ưu tiên cao nhất: Ngày lễ (Holiday) (+20%)
-    // (Nếu rơi vào Thứ 7/CN thì vẫn chỉ tính +20% ngày lễ, không cộng dồn +10%)
+    // Tìm trong bảng holidays động
+    const mmdd = night.slice(5, 10);
+    const matchedDbHoliday = dbHolidays.find((h) => {
+      const start = dayString(h.startDate);
+      const end = dayString(h.endDate);
+      if (start <= night && night <= end) return true;
+      if (h.isRecurring && h.calendarType === 'solar') {
+        const hStartMMDD = start.slice(5, 10);
+        const hEndMMDD = end.slice(5, 10);
+        if (hStartMMDD <= hEndMMDD) {
+          return hStartMMDD <= mmdd && mmdd <= hEndMMDD;
+        }
+      }
+      return false;
+    });
+
+    const isHoliday = !!matchedDbHoliday || holidayCheck.isHoliday;
+    const holidayName = matchedDbHoliday?.name || holidayCheck.name || 'Ngày lễ';
+    const holidayPercent = matchedDbHoliday ? Number(matchedDbHoliday.surchargePercent || 10) : 10;
+    const holidaySurchargeAmount = Math.round(basePriceValue * (holidayPercent / 100));
+
+    // 1. Ưu tiên cao nhất: Ngày lễ (Holiday) (+10%)
     const holidayRange = ranges.find(
       (item) =>
         item.priceType === 'holiday' &&
@@ -364,10 +395,10 @@ const calcNightlyPrices = async (
         price,
         basePrice: basePriceValue,
         surcharge,
-        surchargePercent: basePriceValue > 0 ? Math.round((surcharge / basePriceValue) * 100) : 20,
+        surchargePercent: basePriceValue > 0 ? Math.round((surcharge / basePriceValue) * 100) : holidayPercent,
         priceType: 'holiday',
-        note: holidayRange.note || `Giá ngày lễ (+20%)`,
-        holidayName: holidayCheck.name || 'Ngày lễ',
+        note: holidayRange.note || `Giá ngày lễ (+${holidayPercent}%)`,
+        holidayName,
         dayOfWeek: dayInfo.dayOfWeek,
         dayName: dayInfo.dayName,
         isHoliday: true,
@@ -378,7 +409,7 @@ const calcNightlyPrices = async (
       };
     }
 
-    if (holidayCheck.isHoliday) {
+    if (isHoliday) {
       const price = basePriceValue + holidaySurchargeAmount;
       return {
         date: night,
@@ -386,10 +417,10 @@ const calcNightlyPrices = async (
         price,
         basePrice: basePriceValue,
         surcharge: holidaySurchargeAmount,
-        surchargePercent: 20,
+        surchargePercent: holidayPercent,
         priceType: 'holiday',
-        note: `${holidayCheck.name} (+20%)`,
-        holidayName: holidayCheck.name,
+        note: `${holidayName} (+${holidayPercent}%)`,
+        holidayName,
         dayOfWeek: dayInfo.dayOfWeek,
         dayName: dayInfo.dayName,
         isHoliday: true,
@@ -484,7 +515,7 @@ const calcNightlyPrices = async (
         });
       }
 
-      // Giá cuối tuần Chủ nhật mặc định (+10%)
+      // Giá cuối tuần Chủ nhật mặc định (+5%)
       const price = basePriceValue + weekendSurchargeAmount;
       return withSeasonFloor({
         date: night,
@@ -492,9 +523,9 @@ const calcNightlyPrices = async (
         price,
         basePrice: basePriceValue,
         surcharge: weekendSurchargeAmount,
-        surchargePercent: 10,
+        surchargePercent: 5,
         priceType: 'sunday',
-        note: `Cuối tuần (Chủ nhật) (+10%)`,
+        note: `Cuối tuần (Chủ nhật) (+5%)`,
         holidayName: '',
         dayOfWeek: dayInfo.dayOfWeek,
         dayName: dayInfo.dayName,
@@ -520,9 +551,9 @@ const calcNightlyPrices = async (
           price,
           basePrice: basePriceValue,
           surcharge,
-          surchargePercent: basePriceValue > 0 ? Math.round((surcharge / basePriceValue) * 100) : 10,
+          surchargePercent: basePriceValue > 0 ? Math.round((surcharge / basePriceValue) * 100) : 5,
           priceType: 'weekend',
-          note: satRange.note || `Giá Thứ 7 (+10%)`,
+          note: satRange.note || `Giá Thứ 7 (+5%)`,
           holidayName: '',
           dayOfWeek: dayInfo.dayOfWeek,
           dayName: dayInfo.dayName,
@@ -534,7 +565,7 @@ const calcNightlyPrices = async (
         });
       }
 
-      // Giá cuối tuần Thứ 7 mặc định (+10%)
+      // Giá cuối tuần Thứ 7 mặc định (+5%)
       const price = basePriceValue + weekendSurchargeAmount;
       return withSeasonFloor({
         date: night,
@@ -542,9 +573,9 @@ const calcNightlyPrices = async (
         price,
         basePrice: basePriceValue,
         surcharge: weekendSurchargeAmount,
-        surchargePercent: 10,
+        surchargePercent: 5,
         priceType: 'weekend',
-        note: `Cuối tuần (Thứ 7) (+10%)`,
+        note: `Cuối tuần (Thứ 7) (+5%)`,
         holidayName: '',
         dayOfWeek: dayInfo.dayOfWeek,
         dayName: dayInfo.dayName,
@@ -2703,7 +2734,12 @@ const addServiceCharge = async (bookingId, payload, actor = null) => {
       service,
       payload.quantity,
       connection,
-      { roomId: payload.roomId, status: payload.status },
+      {
+        roomId: payload.roomId,
+        customerId: payload.customerId,
+        guestName: payload.guestName,
+        status: payload.status
+      },
     );
 
     const payment = await paymentService.recalculatePaymentForBooking(

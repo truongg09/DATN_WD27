@@ -33,6 +33,8 @@ import ChangePassword from "../pages/Profile/ChangePassword";
 
 import ReviewPage from "../pages/Review/ReviewPage";
 
+import HolidayManagement from "../pages/Admin/HolidayManagement";
+
 // Admin Pages
 import Dashboard from "../pages/Admin/Dashboard";
 import RoomManagement from "../pages/Admin/RoomManagement";
@@ -149,6 +151,11 @@ const AppRoutes = () => {
           <Route
             path="payment-settings"
             element={<PaymentSettings />}
+          />
+
+          <Route
+            path="holidays"
+            element={<HolidayManagement />}
           />
 
           <Route

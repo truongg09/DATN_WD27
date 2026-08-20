@@ -1089,6 +1089,114 @@ const ensureOperationalSchema = async () => {
   } catch (err) {
     console.error('Lỗi khi điền bookingCode cho đơn cũ:', err.message);
   }
+
+  // ── Dịch vụ phát sinh: Cột customerId & guestName ──
+  try {
+    const [bsCols] = await db.query('DESCRIBE booking_services');
+    if (!bsCols.some((col) => col.Field === 'customerId')) {
+      await db.query('ALTER TABLE booking_services ADD COLUMN customerId INT NULL AFTER roomId');
+    }
+    if (!bsCols.some((col) => col.Field === 'guestName')) {
+      await db.query('ALTER TABLE booking_services ADD COLUMN guestName VARCHAR(255) NULL AFTER customerId');
+    }
+  } catch (err) {
+    console.warn('Lỗi bổ sung cột customerId/guestName cho booking_services:', err.message);
+  }
+
+  // ── Vật dụng hỏng: Bổ sung compensationPrice cho bảng amenities ──
+  try {
+    const [amenityCols] = await db.query('DESCRIBE amenities');
+    if (!amenityCols.some((col) => col.Field === 'compensationPrice')) {
+      await db.query('ALTER TABLE amenities ADD COLUMN compensationPrice DECIMAL(15,2) NOT NULL DEFAULT 0 AFTER icon');
+    }
+
+    // Nạp giá bồi thường đề xuất mặc định cho một số vật dụng phổ biến
+    const defaultPrices = [
+      { name: 'TV', price: 3000000 },
+      { name: 'Tivi', price: 3000000 },
+      { name: 'Tủ lạnh', price: 2500000 },
+      { name: 'Máy sấy tóc', price: 300000 },
+      { name: 'Ấm siêu tốc', price: 250000 },
+      { name: 'Điều hòa', price: 1500000 },
+      { name: 'Remote điều hòa', price: 200000 },
+      { name: 'Ly thủy tinh', price: 50000 },
+      { name: 'Khăn tắm', price: 150000 },
+      { name: 'Chăn ga gối', price: 350000 },
+      { name: 'Bình hoa', price: 100000 },
+      { name: 'Khóa cửa', price: 500000 }
+    ];
+
+    for (const item of defaultPrices) {
+      await db.query(
+        'UPDATE amenities SET compensationPrice = ? WHERE LOWER(name) LIKE ? AND (compensationPrice = 0 OR compensationPrice IS NULL)',
+        [item.price, `%${item.name.toLowerCase()}%`]
+      );
+    }
+  } catch (err) {
+    console.warn('Lỗi nâng cấp giá đền bù cho amenities:', err.message);
+  }
+
+  // ── Lịch các ngày lễ & Tết ──
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS holidays (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        calendarType ENUM('solar', 'lunar_variable', 'custom') NOT NULL DEFAULT 'solar',
+        year INT NULL,
+        startDate DATE NOT NULL,
+        endDate DATE NOT NULL,
+        surchargePercent DECIMAL(5,2) NOT NULL DEFAULT 10.00,
+        isRecurring BOOLEAN DEFAULT FALSE,
+        description TEXT NULL,
+        status ENUM('active', 'inactive') DEFAULT 'active',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+
+    const [existingHolidays] = await db.query('SELECT COUNT(*) AS count FROM holidays');
+    if (existingHolidays[0].count === 0) {
+      const initialHolidays = [
+        // Lễ cố định hàng năm
+        { name: 'Tết Dương Lịch', type: 'solar', year: null, start: '2026-01-01', end: '2026-01-01', percent: 10.0, recurring: 1, desc: 'Tết Dương Lịch hàng năm' },
+        { name: 'Kỳ nghỉ 30/4 - 1/5', type: 'solar', year: null, start: '2026-04-30', end: '2026-05-01', percent: 10.0, recurring: 1, desc: 'Ngày Giải phóng & Quốc tế Lao động' },
+        { name: 'Quốc khánh 2/9', type: 'solar', year: null, start: '2026-09-02', end: '2026-09-02', percent: 10.0, recurring: 1, desc: 'Kỳ nghỉ Quốc khánh 2/9' },
+
+        // Tết Âm lịch 2025
+        { name: 'Tết Nguyên Đán 2025 (Ất Tỵ)', type: 'lunar_variable', year: 2025, start: '2025-01-27', end: '2025-02-02', percent: 10.0, recurring: 0, desc: 'Tết Âm lịch (từ 28 Tết đến Mùng 5 Tết)' },
+        { name: 'Giỗ tổ Hùng Vương 2025', type: 'lunar_variable', year: 2025, start: '2025-04-07', end: '2025-04-07', percent: 10.0, recurring: 0, desc: '10/3 Âm lịch' },
+
+        // Tết Âm lịch 2026
+        { name: 'Tết Nguyên Đán 2026 (Bính Ngọ)', type: 'lunar_variable', year: 2026, start: '2026-02-15', end: '2026-02-22', percent: 10.0, recurring: 0, desc: 'Tết Âm lịch (từ 28 Tết đến Mùng 5 Tết)' },
+        { name: 'Giỗ tổ Hùng Vương 2026', type: 'lunar_variable', year: 2026, start: '2026-04-26', end: '2026-04-26', percent: 10.0, recurring: 0, desc: '10/3 Âm lịch' },
+
+        // Tết Âm lịch 2027
+        { name: 'Tết Nguyên Đán 2027 (Đinh Mùi)', type: 'lunar_variable', year: 2027, start: '2027-02-05', end: '2027-02-12', percent: 10.0, recurring: 0, desc: 'Tết Âm lịch (từ 28 Tết đến Mùng 5 Tết)' },
+        { name: 'Giỗ tổ Hùng Vương 2027', type: 'lunar_variable', year: 2027, start: '2027-04-15', end: '2027-04-15', percent: 10.0, recurring: 0, desc: '10/3 Âm lịch' },
+
+        // Tết Âm lịch 2028
+        { name: 'Tết Nguyên Đán 2028 (Mậu Thân)', type: 'lunar_variable', year: 2028, start: '2028-01-25', end: '2028-02-01', percent: 10.0, recurring: 0, desc: 'Tết Âm lịch' },
+
+        // Tết Âm lịch 2029
+        { name: 'Tết Nguyên Đán 2029 (Kỷ Dậu)', type: 'lunar_variable', year: 2029, start: '2029-02-12', end: '2029-02-19', percent: 10.0, recurring: 0, desc: 'Tết Âm lịch' },
+
+        // Tết Âm lịch 2030
+        { name: 'Tết Nguyên Đán 2030 (Canh Tuất)', type: 'lunar_variable', year: 2030, start: '2030-02-01', end: '2030-02-08', percent: 10.0, recurring: 0, desc: 'Tết Âm lịch' }
+      ];
+
+      for (const h of initialHolidays) {
+        await db.query(
+          `INSERT INTO holidays (name, calendarType, year, startDate, endDate, surchargePercent, isRecurring, description)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [h.name, h.type, h.year, h.start, h.end, h.percent, h.recurring, h.desc]
+        );
+      }
+      console.log('Đã tạo danh mục Lịch các ngày lễ & Tết Âm lịch mặc định.');
+    }
+  } catch (err) {
+    console.error('Lỗi khi tạo bảng hoặc nạp lịch ngày lễ:', err.message);
+  }
 };
 
 module.exports = ensureOperationalSchema;

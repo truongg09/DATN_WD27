@@ -48,6 +48,9 @@ interface ServiceRow {
   bookingId?: number;
   roomId?: number | null;
   roomNumber?: string | null;
+  customerId?: number | null;
+  customerName?: string | null;
+  guestName?: string | null;
   serviceId?: number;
   serviceName: string;
   description?: string | null;
@@ -356,16 +359,21 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
   // ─── Damage tab: state & helpers ────────────────────────────────
   const [addDamageForm] = Form.useForm();
   const [editDamageForm] = Form.useForm();
+  const [allAmenities, setAllAmenities] = useState<{ id: number; name: string; compensationPrice?: number }[]>([]);
   const [addingDamage, setAddingDamage] = useState(false);
   const [editingDamage, setEditingDamage] = useState<DamageRow | null>(null);
   const [savingDamage, setSavingDamage] = useState(false);
 
-  // Load danh sách dịch vụ khách sạn 1 lần khi modal mở.
+  // Load danh sách dịch vụ và tiện nghi khách sạn khi modal mở.
   useEffect(() => {
     if (!open) return;
     getServices()
       .then(setAllServices)
       .catch(() => setAllServices([]));
+
+    api.get('/amenities')
+      .then((res: any) => setAllAmenities(res?.data || []))
+      .catch(() => setAllAmenities([]));
   }, [open]);
 
   // Danh sách phòng thuộc booking: source of truth = booking_details (API trả booking_rooms).
@@ -445,6 +453,7 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
         serviceId: values.serviceId,
         quantity: values.quantity,
         roomId: values.roomId ?? null,
+        guestName: values.guestName || null,
         status: values.status || 'used',
       });
       message.success('Đã thêm dịch vụ');
@@ -767,6 +776,13 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
         </div>
       ),
     },
+    {
+      title: 'Khách sử dụng',
+      key: 'customerName',
+      render: (_: unknown, row: ServiceRow) => (
+        <span>{row.customerName || row.guestName || detail?.customer_name || 'Khách ở'}</span>
+      )
+    },
     { title: 'Đơn giá', dataIndex: 'unitPrice', align: 'right' as const, render: money },
     { title: 'SL', dataIndex: 'quantity', align: 'center' as const, width: 60 },
     { title: 'Thành tiền', dataIndex: 'totalPrice', align: 'right' as const, render: (v: string | number) => <strong>{money(v)}</strong> },
@@ -865,6 +881,18 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
             options={bookingRooms.map((r) => ({ value: r.id, label: `P.${r.number}` }))}
           />
         </Form.Item>
+        <Form.Item name="guestName" label="Khách sử dụng">
+          <Select
+            placeholder="Chọn / Nhập tên khách"
+            showSearch
+            allowClear
+            style={{ width: 180 }}
+            options={[
+              ...(detail?.customer_name ? [{ value: detail.customer_name, label: `${detail.customer_name} (Chủ đơn)` }] : []),
+              ...guests.map((g) => ({ value: g.fullName, label: `${g.fullName} (Khách ở)` }))
+            ]}
+          />
+        </Form.Item>
         <Form.Item name="serviceId" label="Dịch vụ" rules={[{ required: true, message: 'Chọn dịch vụ' }]}>
           <Select
             placeholder="Chọn dịch vụ"
@@ -899,7 +927,7 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
         okText="Lưu"
         cancelText="Hủy"
         destroyOnHidden
-        width={420}
+        width={450}
       >
         <Form form={editServiceForm} layout="vertical">
           <Form.Item name="roomId" label="Phòng">
@@ -924,15 +952,19 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
 
   const dmgColumns = [
     {
-      title: 'Loại', dataIndex: 'chargeType', width: 130,
-      render: (v?: string | null) => {
-        const t = v || 'damage';
-        return <Tag color={chargeTypeColor[t] || 'default'}>{chargeTypeLabel[t] || t}</Tag>;
-      },
+      title: 'Nội dung phát sinh / Hư hỏng', dataIndex: 'itemName', render: (value: string, row: DamageRow) => (
+        <div>
+          <strong>{value}</strong>
+          {row.chargeType && (
+            <Tag color={chargeTypeColor[row.chargeType] || 'default'} style={{ marginLeft: 8 }}>
+              {chargeTypeLabel[row.chargeType] || row.chargeType}
+            </Tag>
+          )}
+        </div>
+      ),
     },
-    { title: 'Nội dung', dataIndex: 'itemName' },
-    { title: 'SL', dataIndex: 'quantity', align: 'center' as const, width: 60 },
     { title: 'Đơn giá', dataIndex: 'unitPrice', align: 'right' as const, render: money },
+    { title: 'SL', dataIndex: 'quantity', align: 'center' as const, width: 60 },
     { title: 'Thành tiền', dataIndex: 'totalPrice', align: 'right' as const, render: (v: string | number) => <strong>{money(v)}</strong> },
     {
       title: 'Trạng thái', dataIndex: 'status', width: 130,
@@ -1018,8 +1050,8 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
         </div>
       )}
 
-      {/* ── Form thêm khoản phát sinh ── */}
-      <Divider titlePlacement="left" style={{ margin: '16px 0 8px' }}>Thêm khoản phát sinh</Divider>
+      {/* ── Form thêm khoản phát sinh / hỏng hóc ── */}
+      <Divider titlePlacement="left" style={{ margin: '16px 0 8px' }}>Thêm khoản phát sinh / hỏng hóc</Divider>
       <Form form={addDamageForm} layout="inline" style={{ flexWrap: 'wrap', gap: 8 }}>
         <Form.Item name="roomId" label="Phòng">
           <Select
@@ -1030,14 +1062,43 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
           />
         </Form.Item>
         <Form.Item name="chargeType" label="Loại" initialValue="damage" rules={[{ required: true, message: 'Chọn loại' }]}>
-          <Select style={{ width: 150 }} options={[
+          <Select style={{ width: 130 }} options={[
             { value: 'damage', label: 'Hư hỏng' },
             { value: 'extra_fee', label: 'Phí phát sinh' },
             { value: 'other', label: 'Khoản thu khác' },
           ]} />
         </Form.Item>
+        <Form.Item label="Vật dụng">
+          <Select
+            placeholder="Chọn từ danh mục tiện nghi"
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            style={{ width: 220 }}
+            onChange={(val) => {
+              if (val === 'custom') {
+                addDamageForm.setFieldsValue({ itemName: '', unitPrice: 0 });
+              } else {
+                const item = allAmenities.find((a) => a.id === val);
+                if (item) {
+                  addDamageForm.setFieldsValue({
+                    itemName: item.name,
+                    unitPrice: Number(item.compensationPrice || 0)
+                  });
+                }
+              }
+            }}
+            options={[
+              ...allAmenities.map((a) => ({
+                value: a.id,
+                label: `${a.name} ${a.compensationPrice ? `(${Number(a.compensationPrice).toLocaleString('vi-VN')}đ)` : ''}`
+              })),
+              { value: 'custom', label: '➕ Khác (Vật dụng ngoài danh mục)' }
+            ]}
+          />
+        </Form.Item>
         <Form.Item name="itemName" label="Nội dung" rules={[{ required: true, message: 'Nhập nội dung' }]}>
-          <Input placeholder="Ví dụ: Vỡ bình hoa" style={{ width: 180 }} />
+          <Input placeholder="Ví dụ: Vỡ ly thủy tinh..." style={{ width: 180 }} />
         </Form.Item>
         <Form.Item name="quantity" label="SL" initialValue={1} rules={[{ required: true, message: 'Nhập SL' }]}>
           <InputNumber min={1} max={100} style={{ width: 70 }} />
@@ -1046,10 +1107,10 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
           <InputNumber min={0} style={{ width: 130 }} formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')} parser={(v) => Number((v || '').replace(/,/g, '')) as unknown as 0} />
         </Form.Item>
         <Form.Item name="note" label="Ghi chú">
-          <Input placeholder="Tùy chọn" style={{ width: 150 }} />
+          <Input placeholder="Tùy chọn" style={{ width: 140 }} />
         </Form.Item>
         <Form.Item name="status" label="Trạng thái" initialValue="used">
-          <Select style={{ width: 150 }} options={[
+          <Select style={{ width: 130 }} options={[
             { value: 'used', label: 'Đã xác nhận' },
             { value: 'unused', label: 'Chưa xác nhận' },
           ]} />

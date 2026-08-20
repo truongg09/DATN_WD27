@@ -496,6 +496,8 @@ const validateRoomInBooking = async (bookingId, roomId, connection) => {
 const addBookingService = async (bookingId, service, quantity, connection, options = {}) => {
   const roomId = options.roomId ? Number(options.roomId) : null;
   const bookingDetailId = options.bookingDetailId ? Number(options.bookingDetailId) : null;
+  const customerId = options.customerId ? Number(options.customerId) : null;
+  const guestName = options.guestName ? options.guestName.trim() : null;
   const status = options.status || 'used';
   const unitPrice = Number(service.price || 0);
   const totalPrice = unitPrice * Number(quantity);
@@ -503,10 +505,10 @@ const addBookingService = async (bookingId, service, quantity, connection, optio
 
   const [result] = await run(connection).query(
     `
-      INSERT INTO booking_services (bookingId, bookingDetailId, roomId, serviceId, unitPrice, quantity, status, usedAt, totalPrice)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO booking_services (bookingId, bookingDetailId, roomId, customerId, guestName, serviceId, unitPrice, quantity, status, usedAt, totalPrice)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
-    [bookingId, bookingDetailId, roomId, service.id, unitPrice, quantity, status, usedAt, totalPrice]
+    [bookingId, bookingDetailId, roomId, customerId, guestName, service.id, unitPrice, quantity, status, usedAt, totalPrice]
   );
 
   return {
@@ -514,6 +516,8 @@ const addBookingService = async (bookingId, service, quantity, connection, optio
     bookingId,
     bookingDetailId,
     roomId,
+    customerId,
+    guestName,
     serviceId: service.id,
     serviceName: service.serviceName,
     unitPrice,
@@ -526,13 +530,17 @@ const addBookingService = async (bookingId, service, quantity, connection, optio
 
 const getBookingServiceChargeById = async (svcId, connection) => {
   const [rows] = await run(connection).query(
-    `SELECT bs.id, bs.bookingId, bs.roomId, r.roomNumber, bs.serviceId, s.serviceName,
+    `SELECT bs.id, bs.bookingId, bs.roomId, r.roomNumber, bs.customerId, bs.guestName,
+            COALESCE(NULLIF(c.fullName, ''), a.email, bs.guestName) AS customerName,
+            bs.serviceId, s.serviceName,
             COALESCE(bs.unitPrice, s.price) AS unitPrice, bs.quantity, bs.totalPrice,
             COALESCE(bs.status, 'used') AS status, bs.usedAt, bs.createdAt
      FROM booking_services bs
      LEFT JOIN services s ON s.id = bs.serviceId
      LEFT JOIN bookings b ON b.id = bs.bookingId
      LEFT JOIN rooms r ON r.id = COALESCE(bs.roomId, b.room_id)
+     LEFT JOIN accounts a ON a.id = bs.customerId
+     LEFT JOIN customers c ON c.accountId = a.id
      WHERE bs.id = ?`,
     [Number(svcId)]
   );
@@ -541,13 +549,17 @@ const getBookingServiceChargeById = async (svcId, connection) => {
 
 const getBookingServicesByBookingId = async (bookingId, connection) => {
   const [rows] = await run(connection).query(
-    `SELECT bs.id, bs.bookingId, bs.roomId, r.roomNumber, bs.serviceId, s.serviceName, s.description,
+    `SELECT bs.id, bs.bookingId, bs.roomId, r.roomNumber, bs.customerId, bs.guestName,
+            COALESCE(NULLIF(c.fullName, ''), a.email, bs.guestName) AS customerName,
+            bs.serviceId, s.serviceName, s.description,
             COALESCE(bs.unitPrice, s.price) AS unitPrice, bs.quantity, bs.totalPrice,
             COALESCE(bs.status, 'used') AS status, bs.usedAt, bs.createdAt
      FROM booking_services bs
      LEFT JOIN services s ON s.id = bs.serviceId
      LEFT JOIN bookings b ON b.id = bs.bookingId
      LEFT JOIN rooms r ON r.id = COALESCE(bs.roomId, b.room_id)
+     LEFT JOIN accounts a ON a.id = bs.customerId
+     LEFT JOIN customers c ON c.accountId = a.id
      WHERE bs.bookingId = ?
      ORDER BY bs.id ASC`,
     [Number(bookingId)]
@@ -565,6 +577,14 @@ const updateBookingServiceCharge = async (svcId, payload, connection) => {
   if (payload.roomId !== undefined) {
     fields.push('roomId = ?');
     params.push(payload.roomId ? Number(payload.roomId) : null);
+  }
+  if (payload.customerId !== undefined) {
+    fields.push('customerId = ?');
+    params.push(payload.customerId ? Number(payload.customerId) : null);
+  }
+  if (payload.guestName !== undefined) {
+    fields.push('guestName = ?');
+    params.push(payload.guestName ? payload.guestName.trim() : null);
   }
   if (payload.quantity != null) {
     const unitPrice = Number(current.unitPrice || 0);
