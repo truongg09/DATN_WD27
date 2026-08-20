@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Alert, Button, Card, DatePicker, Descriptions, Empty, Input, Modal, Select, Table, Tag, Tooltip, Typography, message } from 'antd';
 import { EyeOutlined, PrinterOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
@@ -17,6 +18,10 @@ const formatCurrency = (value: number) => new Intl.NumberFormat('vi-VN', { style
 const formatDateTime = (value?: string) => value ? dayjs(value).format('DD/MM/YYYY HH:mm') : 'Chưa cập nhật';
 
 function InvoiceManagement() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const areaPrefix = location.pathname.startsWith('/staff') ? '/staff' : '/admin';
+
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -50,8 +55,16 @@ function InvoiceManagement() {
   const filteredInvoices = useMemo(() => {
     const keyword = query.trim().toLocaleLowerCase('vi');
     return invoices.filter((invoice) => {
-      const matchesQuery = !keyword || [invoice.invoiceNumber, invoice.customerName, invoice.customerEmail, invoice.customerPhone, invoice.roomNumber, invoice.bookingId]
-        .some((value) => String(value || '').toLocaleLowerCase('vi').includes(keyword));
+      const matchesQuery = !keyword || [
+        invoice.invoiceNumber,
+        invoice.customerName,
+        invoice.customerEmail,
+        invoice.customerPhone,
+        invoice.roomNumber,
+        invoice.bookingId,
+        ...(invoice.rooms?.map((r) => r.roomNumber) || []),
+        ...(invoice.rooms?.map((r) => r.typeName) || [])
+      ].some((value) => String(value || '').toLocaleLowerCase('vi').includes(keyword));
       const issuedDate = dayjs(invoice.issuedAt);
       return matchesQuery
         && (!dateRange?.[0] || !issuedDate.isBefore(dateRange[0], 'day'))
@@ -60,9 +73,85 @@ function InvoiceManagement() {
   }, [dateRange, invoices, query]);
 
   const columns = [
-    { title: 'Mã hóa đơn', dataIndex: 'invoiceNumber', key: 'invoiceNumber', width: 175, render: (value: string) => <Typography.Text strong copyable>{value}</Typography.Text> },
-    { title: 'Khách hàng', key: 'customer', render: (_: unknown, invoice: Invoice) => <div className="invoice-cell"><strong>{invoice.customerName || 'Khách lẻ'}</strong><span>{invoice.customerEmail || invoice.customerPhone || 'Chưa có liên hệ'}</span></div> },
-    { title: 'Đặt phòng', key: 'booking', width: 145, render: (_: unknown, invoice: Invoice) => <div className="invoice-cell"><strong>#{invoice.bookingId}</strong><span>Phòng {invoice.roomNumber || 'Chưa xếp'}</span></div> },
+    {
+      title: 'Mã hóa đơn',
+      dataIndex: 'invoiceNumber',
+      key: 'invoiceNumber',
+      width: 175,
+      render: (value: string, invoice: Invoice) => (
+        <Tooltip title="Xem chi tiết hóa đơn">
+          <Button
+            type="link"
+            size="small"
+            style={{
+              padding: 0,
+              height: 'auto',
+              fontWeight: 600,
+              fontSize: 13,
+              cursor: 'pointer',
+            }}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setSelectedInvoice(invoice);
+            }}
+          >
+            {value}
+          </Button>
+        </Tooltip>
+      ),
+    },
+    {
+      title: 'Khách hàng',
+      key: 'customer',
+      render: (_: unknown, invoice: Invoice) => (
+        <div className="invoice-cell">
+          <strong>{invoice.customerName || 'Khách lẻ'}</strong>
+          <span>{invoice.customerEmail || invoice.customerPhone || 'Chưa có liên hệ'}</span>
+        </div>
+      ),
+    },
+    {
+      title: 'Đặt phòng',
+      key: 'booking',
+      width: 165,
+      render: (_: unknown, invoice: Invoice) => {
+        const roomList = invoice.rooms && invoice.rooms.length > 0
+          ? invoice.rooms.map((r) => r.roomNumber).filter(Boolean)
+          : (invoice.roomNumber ? [invoice.roomNumber] : []);
+        return (
+          <div className="invoice-cell">
+            <Tooltip title="Xem chi tiết đặt phòng">
+              <Button
+                type="link"
+                size="small"
+                style={{
+                  padding: 0,
+                  height: 'auto',
+                  fontWeight: 600,
+                  fontSize: 13,
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  display: 'inline-block',
+                }}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  navigate(`${areaPrefix}/bookings/${invoice.bookingId}`);
+                }}
+              >
+                #{invoice.bookingId}
+              </Button>
+            </Tooltip>
+            <span>
+              {roomList.length > 0 ? (
+                roomList.length === 1 ? `Phòng ${roomList[0]}` : `Phòng: ${roomList.join(', ')} (${roomList.length} phòng)`
+              ) : 'Chưa xếp'}
+            </span>
+          </div>
+        );
+      },
+    },
     { title: 'Ngày phát hành', dataIndex: 'issuedAt', key: 'issuedAt', width: 165, sorter: (a: Invoice, b: Invoice) => dayjs(a.issuedAt).valueOf() - dayjs(b.issuedAt).valueOf(), render: formatDateTime },
     { title: 'Tổng tiền', dataIndex: 'totalAmount', key: 'totalAmount', width: 165, align: 'right' as const, sorter: (a: Invoice, b: Invoice) => a.totalAmount - b.totalAmount, render: (value: number) => <strong className="invoice-total">{formatCurrency(value)}</strong> },
     { title: 'Trạng thái', dataIndex: 'status', key: 'status', width: 135, render: (value: InvoiceStatus) => { const meta = STATUS_META[value] || { label: value, color: 'default' }; return <Tag color={meta.color}>{meta.label}</Tag>; } },
@@ -84,18 +173,42 @@ function InvoiceManagement() {
         : <Table rowKey="id" columns={columns} dataSource={filteredInvoices} loading={loading} scroll={{ x: 1050 }} locale={{ emptyText: <Empty description="Không tìm thấy hóa đơn phù hợp" /> }} pagination={{ pageSize: 10, showSizeChanger: true, showTotal: (total) => `${total} hóa đơn` }} />}
     </Card>
 
-    <Modal open={Boolean(selectedInvoice)} onCancel={() => setSelectedInvoice(null)} width={760} title={selectedInvoice ? `Hóa đơn ${selectedInvoice.invoiceNumber}` : 'Chi tiết hóa đơn'} footer={[<Button key="close" onClick={() => setSelectedInvoice(null)}>Đóng</Button>, <Button key="print" type="primary" icon={<PrinterOutlined />} onClick={() => window.print()}>In hóa đơn</Button>]}>
-      {selectedInvoice ? <InvoiceDetail invoice={selectedInvoice} /> : null}
+    <Modal
+      open={Boolean(selectedInvoice)}
+      onCancel={() => setSelectedInvoice(null)}
+      width={760}
+      title={selectedInvoice ? `Hóa đơn ${selectedInvoice.invoiceNumber}` : 'Chi tiết hóa đơn'}
+      footer={[
+        <Button key="close" onClick={() => setSelectedInvoice(null)}>Đóng</Button>,
+        <Button key="print" type="primary" icon={<PrinterOutlined />} onClick={() => window.print()}>In hóa đơn</Button>
+      ]}
+    >
+      {selectedInvoice ? (
+        <InvoiceDetail
+          invoice={selectedInvoice}
+          onNavigateBooking={(bookingId) => {
+            setSelectedInvoice(null);
+            navigate(`${areaPrefix}/bookings/${bookingId}`);
+          }}
+        />
+      ) : null}
     </Modal>
   </div>;
 }
 
-function InvoiceDetail({ invoice }: { invoice: Invoice }) {
+function InvoiceDetail({
+  invoice,
+  onNavigateBooking,
+}: {
+  invoice: Invoice;
+  onNavigateBooking?: (bookingId: number) => void;
+}) {
   const status = STATUS_META[invoice.status] || { label: invoice.status, color: 'default' };
   const breakdown = invoice.breakdown;
   const nightlyPrices = invoice.nightlyPrices || [];
   const transfers = invoice.transfers || [];
   const damages = invoice.damages || [];
+  const rooms = invoice.rooms || [];
 
   return (
     <div className="invoice-print-sheet">
@@ -115,14 +228,89 @@ function InvoiceDetail({ invoice }: { invoice: Invoice }) {
 
       <Descriptions bordered column={{ xs: 1, sm: 2 }} size="small" style={{ marginBottom: 16 }}>
         <Descriptions.Item label="Khách hàng">{invoice.customerName || 'Khách lẻ'}</Descriptions.Item>
-        <Descriptions.Item label="Mã Đặt phòng">#{invoice.bookingId}</Descriptions.Item>
+        <Descriptions.Item label="Mã Đặt phòng">
+          {invoice.bookingId ? (
+            <Tooltip title="Xem chi tiết đặt phòng">
+              <Button
+                type="link"
+                size="small"
+                style={{
+                  padding: 0,
+                  height: 'auto',
+                  fontWeight: 600,
+                  fontSize: 14,
+                  cursor: 'pointer',
+                  color: '#1677ff',
+                }}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onNavigateBooking?.(invoice.bookingId);
+                }}
+              >
+                #{invoice.bookingId}
+              </Button>
+            </Tooltip>
+          ) : (
+            <span>Chưa có mã</span>
+          )}
+        </Descriptions.Item>
         <Descriptions.Item label="Email">{invoice.customerEmail || 'Chưa cập nhật'}</Descriptions.Item>
         <Descriptions.Item label="Điện thoại">{invoice.customerPhone || 'Chưa cập nhật'}</Descriptions.Item>
-        <Descriptions.Item label="Phòng">{invoice.roomNumber ? `Phòng ${invoice.roomNumber}` : 'Chưa xếp'} · {invoice.roomTypeName || 'Chưa cập nhật'}</Descriptions.Item>
-        <Descriptions.Item label="Thời gian lưu trú">
+        <Descriptions.Item label="Thời gian lưu trú" span={2}>
           {dayjs(invoice.checkIn).format('DD/MM/YYYY')} đến {dayjs(invoice.checkOut).format('DD/MM/YYYY')}
         </Descriptions.Item>
       </Descriptions>
+
+      {/* DANH SÁCH PHÒNG LƯU TRÚ (MULTI-ROOM SUPPORT) */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontWeight: 600, color: '#1e293b', marginBottom: 8, fontSize: 13 }}>
+          Thông tin phòng lưu trú ({rooms.length > 0 ? `${rooms.length} phòng` : '1 phòng'}):
+        </div>
+        {rooms.length > 0 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {rooms.map((rm, idx) => (
+              <div
+                key={rm.bookingDetailId || idx}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '8px 12px',
+                  background: '#f8fafc',
+                  borderRadius: 8,
+                  border: '1px solid #e2e8f0',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <Tag color="cyan" style={{ fontWeight: 600, fontSize: 13, padding: '2px 8px' }}>
+                    Phòng {rm.roomNumber || rm.roomId || 'Chưa xếp'}
+                  </Tag>
+                  <strong style={{ color: '#0f172a' }}>{rm.typeName || rm.roomTypeName || 'Chưa cập nhật'}</strong>
+                  <span style={{ color: '#64748b', fontSize: 12 }}>
+                    ({dayjs(rm.checkInDate || invoice.checkIn).format('DD/MM/YYYY')} – {dayjs(rm.checkOutDate || invoice.checkOut).format('DD/MM/YYYY')})
+                  </span>
+                  {(rm.adults || rm.children) ? (
+                    <span style={{ color: '#8d8478', fontSize: 12 }}>
+                      · {rm.adults || 1} người lớn{rm.children ? `, ${rm.children} trẻ em` : ''}
+                    </span>
+                  ) : null}
+                </div>
+                {rm.roomPrice > 0 && (
+                  <div style={{ color: '#047857', fontWeight: 600, fontSize: 13, whiteSpace: 'nowrap' }}>
+                    {formatCurrency(rm.roomPrice)}/đêm
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={{ padding: '8px 12px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+            <Tag color="cyan">Phòng {invoice.roomNumber || 'Chưa xếp'}</Tag>
+            <strong>{invoice.roomTypeName || 'Chưa cập nhật'}</strong>
+          </div>
+        )}
+      </div>
 
       {transfers.length > 0 && (
         <div style={{ marginBottom: 16, padding: '10px 14px', background: '#f6ffed', border: '1px solid #b7eb8f', borderRadius: 8 }}>
