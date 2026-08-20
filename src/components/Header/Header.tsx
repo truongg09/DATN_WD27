@@ -14,6 +14,7 @@ import {
   faInstagram 
 } from '@fortawesome/free-brands-svg-icons';
 import { useAuth } from '../../contexts/AuthContext';
+import { CustomerNotificationBell } from './CustomerNotificationBell';
 import './header.css';
 
 const Header: React.FC = () => {
@@ -78,6 +79,7 @@ const Header: React.FC = () => {
           <div className={`auth-buttons${menuOpen ? ' open' : ''}`}>
             {isAuthenticated && user ? (
               <div className="user-info">
+                {user.role === 'customer' && <CustomerNotificationBell />}
                 {user.role === 'customer' ? (
                   <Link to="/profile" style={{ textDecoration: 'none' }} onClick={closeMenu}>
                     <span className="user-greeting is-link">
