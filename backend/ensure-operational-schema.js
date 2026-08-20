@@ -283,13 +283,22 @@ const ensureOperationalSchema = async () => {
       id INT AUTO_INCREMENT PRIMARY KEY,
       bookingId INT NOT NULL,
       fullName VARCHAR(255) NOT NULL,
-      identityNumber VARCHAR(50) NOT NULL,
+      identityNumber VARCHAR(50) NULL,
       phone VARCHAR(30) NULL,
       note TEXT NULL,
       createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (bookingId) REFERENCES bookings(id) ON DELETE CASCADE
     )
   `);
+
+  // Luồng check-in nhanh cho phép khai báo CCCD sau. Validator và model đều
+  // đã dùng NULL khi chưa có CCCD, nên schema cũ NOT NULL làm API check-in trả
+  // 500 dù dữ liệu nghiệp vụ hợp lệ.
+  const [bookingGuestColumns] = await db.query('DESCRIBE booking_guests');
+  const identityColumn = bookingGuestColumns.find((column) => column.Field === 'identityNumber');
+  if (identityColumn && identityColumn.Null === 'NO') {
+    await db.query('ALTER TABLE booking_guests MODIFY identityNumber VARCHAR(50) NULL');
+  }
 
   const [invoiceTables] = await db.query('SHOW TABLES LIKE "invoices"');
   if (invoiceTables.length > 0) {
