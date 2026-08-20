@@ -1890,7 +1890,6 @@ const handleCheckIn = (booking: Booking) => {
                 <th style={thStyle}>Khách hàng</th>
                 <th style={thStyle}>Phòng</th>
                 <th style={thStyle}>Thời gian</th>
-                <th style={thStyle}>Số khách</th>
                 <th style={thStyle}>Tổng tiền</th>
                 <th style={thStyle}>Trạng thái</th>
                 <th style={thStyle}>Thao tác</th>
@@ -1898,10 +1897,10 @@ const handleCheckIn = (booking: Booking) => {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={8} style={emptyStyle}>Đang tải dữ liệu...</td></tr>
+                <tr><td colSpan={7} style={emptyStyle}>Đang tải dữ liệu...</td></tr>
               ) : filteredBookings.length === 0 ? (
                 <tr>
-                  <td colSpan={8} style={emptyStyle}>
+                  <td colSpan={7} style={emptyStyle}>
                     {hasFilter
                       ? 'Không có đơn nào khớp bộ lọc đang chọn'
                       : 'Không có dữ liệu đặt phòng'}
@@ -1925,7 +1924,6 @@ const handleCheckIn = (booking: Booking) => {
                       <div>Nhận: {formatDate(booking.check_in)}</div>
                       <div>Trả: {formatDate(booking.check_out)}</div>
                     </td>
-                    <td style={tdStyle}>{booking.adults ?? 0} người lớn, {booking.children ?? 0} trẻ em</td>
                     <td style={tdStyle}>{formatPrice(booking.payable_total ?? booking.total_price)}</td>
                     <td style={tdStyle}>
                       {(() => {
