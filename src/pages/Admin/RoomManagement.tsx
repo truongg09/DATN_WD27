@@ -73,6 +73,7 @@ interface CalendarBooking {
   bookingId: number;
   detail_id: number | null;
   room_id: number;
+  roomId?: number;
   check_in: string;
   check_out: string;
   status: string;
