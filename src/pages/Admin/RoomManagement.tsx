@@ -1144,7 +1144,7 @@ function RoomManagement() {
                                  // Khách không đến (no-show) thì phòng thực tế đang trống,
                                  // không được vẽ là "đã đặt" chặn lễ tân bán lại phòng.
                                  if (b.status === 'cancelled' || b.status === 'no_show') return false;
-                                 const bRoomId = b.room_id || b.roomId;
+                                 const bRoomId = b.room_id;
                                  if (Number(bRoomId) !== room.id) return false;
                                  
                                  const checkIn = dayjs(b.check_in).format('YYYY-MM-DD');
@@ -1164,7 +1164,7 @@ function RoomManagement() {
                                      for (const b of calendarBookings) {
                                        if (b.status === 'cancelled') continue;
                                        if (b.detail_id === startBooking.detail_id) continue;
-                                       const bRoomId = b.room_id || b.roomId;
+                                       const bRoomId = b.room_id;
                                        if (Number(bRoomId) !== room.id) continue;
                                        
                                        const bCheckIn = dayjs(b.check_in).format('YYYY-MM-DD');

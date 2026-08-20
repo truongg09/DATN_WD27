@@ -104,7 +104,7 @@ const listInvoiceServices = async (bookingId, connection) => {
         bs.totalPrice
       FROM booking_services bs
       JOIN services s ON s.id = bs.serviceId
-      WHERE bs.bookingId = ?
+      WHERE bs.bookingId = ? AND COALESCE(bs.status, 'used') = 'used'
       ORDER BY bs.id ASC
     `,
     [bookingId]

@@ -12,7 +12,7 @@ import {
   addBookingDamageCharge, addBookingServiceCharge,
   deleteBookingDamageCharge, deleteBookingServiceCharge,
   updateBookingDamageCharge, updateBookingDamageChargeStatus,
-  updateBookingServiceCharge, updateBookingServiceChargeStatus,
+  updateBookingServiceCharge,
 } from '../../services/bookingService';
 import dayjs from 'dayjs';
 import api from '../../services/api';
@@ -76,8 +76,8 @@ interface ServiceCharge {
 // Trạng thái một dòng dịch vụ / khoản phí. Phải khớp đúng danh sách backend
 // chấp nhận (ALLOWED_SERVICE_STATUSES), nếu không thao tác sẽ bị từ chối.
 const chargeStatusMeta: Record<string, { label: string; color: string }> = {
-  unused: { label: 'Chưa sử dụng', color: 'orange' },
-  used: { label: 'Đã sử dụng', color: 'green' },
+  unused: { label: 'Đang sử dụng', color: 'green' },
+  used: { label: 'Đang sử dụng', color: 'green' },
   cancelled: { label: 'Đã hủy', color: 'red' },
 };
 
@@ -442,7 +442,6 @@ function BookingDetailPage() {
     if (charge) {
       serviceForm.setFieldsValue({
         quantity: charge.quantity,
-        status: charge.status,
         roomId: charge.roomId ?? null,
       });
     } else {
@@ -455,7 +454,9 @@ function BookingDetailPage() {
     const rec = r as Record<string, unknown>;
     return {
       id: Number(rec.id || rec.room_id || 0),
-      roomNumber: String(rec.room_number || rec.roomNumber || ''),
+      // API booking_rooms hiện trả số phòng ở thuộc tính `number`.
+      // Vẫn hỗ trợ các tên cũ để không hiển thị nhầm roomId thành số phòng.
+      roomNumber: String(rec.number || rec.room_number || rec.roomNumber || ''),
       roomTypeName: String(rec.room_type_name || rec.roomTypeName || ''),
     };
   }).filter((r) => r.id > 0);
@@ -482,7 +483,6 @@ function BookingDetailPage() {
       if (editingCharge) {
         await updateBookingServiceCharge(bookingId, editingCharge.id, {
           quantity: values.quantity,
-          status: values.status,
           roomId: values.roomId ?? null,
         });
         message.success('Đã cập nhật dịch vụ');
@@ -491,6 +491,7 @@ function BookingDetailPage() {
           serviceId: values.serviceId,
           quantity: values.quantity,
           roomId: values.roomId ?? null,
+          status: 'used',
         });
         message.success('Đã thêm dịch vụ vào đơn');
       }
@@ -501,17 +502,6 @@ function BookingDetailPage() {
       showApiError(err, 'Không lưu được dịch vụ');
     } finally {
       setWorking(false);
-    }
-  };
-
-  const changeServiceStatus = async (charge: ServiceCharge, status: string) => {
-    try {
-      await updateBookingServiceChargeStatus(bookingId, charge.id, status);
-      message.success('Đã đổi trạng thái dịch vụ');
-      await loadBooking(true);
-      await loadHistory(historyGroup);
-    } catch (err) {
-      showApiError(err, 'Không đổi được trạng thái');
     }
   };
 
@@ -644,7 +634,10 @@ function BookingDetailPage() {
       roomTypeName: String(item.roomTypeName ?? item.room_type_name ?? ''),
     } as unknown as ServiceCharge;
   });
-  const serviceTotal = serviceCharges.reduce((sum, item) => sum + Number(item.totalPrice || 0), 0);
+  // Chỉ dịch vụ đã sử dụng mới được tính vào hóa đơn.
+  const serviceTotal = serviceCharges
+    .filter((item) => (item.status || 'used') === 'used')
+    .reduce((sum, item) => sum + Number(item.totalPrice || 0), 0);
   const damageCharges = (booking?.damages || []).map((raw) => {
     const item = raw as unknown as Record<string, unknown>;
     return {
@@ -915,24 +908,20 @@ function BookingDetailPage() {
             {
               title: 'Trạng thái',
               dataIndex: 'status',
-              render: (value: string, row) => (
-                <Select
-                  size="small"
-                  value={value}
-                  style={{ width: 140 }}
-                  disabled={!canEditCharges}
-                  onChange={(next) => changeServiceStatus(row, next)}
-                  options={chargeStatusOptions}
-                />
-              ),
+              render: (value: string) => {
+                const status = value || 'unused';
+                const meta = chargeStatusMeta[status] || { label: status, color: 'default' };
+                return <Tag color={meta.color} style={{ fontWeight: 600 }}>{meta.label}</Tag>;
+              },
             },
             { title: 'Thời điểm', dataIndex: 'createdAt', render: dateTime },
             {
               title: '',
               key: 'actions',
               width: 90,
-              render: (_: unknown, row) =>
-                canEditCharges && (
+              render: (_: unknown, row) => {
+                if (row.status === 'cancelled') return null;
+                return canEditCharges && (
                   <Space size={4}>
                     <Button size="small" icon={<EditOutlined />} onClick={() => openServiceModal(row)} />
                     <Popconfirm
@@ -944,7 +933,8 @@ function BookingDetailPage() {
                       <Button size="small" danger icon={<DeleteOutlined />} />
                     </Popconfirm>
                   </Space>
-                ),
+                );
+              },
             },
           ]}
           summary={() =>
@@ -1165,7 +1155,7 @@ function BookingDetailPage() {
                 const parts = [r.roomTypeName, r.roomNumber].filter(Boolean);
                 return {
                   value: r.id,
-                  label: parts.length > 0 ? parts.join(' - ') : `Phòng #${r.id}`,
+                  label: parts.length > 0 ? `Phòng ${parts.join(' - ')}` : 'Chưa có số phòng',
                 };
               })}
             />
@@ -1226,7 +1216,7 @@ function BookingDetailPage() {
                 const parts = [r.roomTypeName, r.roomNumber].filter(Boolean);
                 return {
                   value: r.id,
-                  label: parts.length > 0 ? parts.join(' - ') : `Phòng #${r.id}`,
+                  label: parts.length > 0 ? `Phòng ${parts.join(' - ')}` : 'Chưa có số phòng',
                 };
               })}
             />
@@ -1234,11 +1224,6 @@ function BookingDetailPage() {
           <Form.Item name="quantity" label="Số lượng" rules={[{ required: true, message: 'Nhập số lượng' }]}>
             <InputNumber min={1} style={{ width: '100%' }} />
           </Form.Item>
-          {editingCharge && (
-            <Form.Item name="status" label="Trạng thái">
-              <Select options={chargeStatusOptions} />
-            </Form.Item>
-          )}
         </Form>
       </Modal>
     </div>

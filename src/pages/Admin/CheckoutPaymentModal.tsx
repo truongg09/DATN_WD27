@@ -744,16 +744,16 @@ const CheckoutPaymentModal: React.FC<Props> = ({
             </>
           )}
 
-          {summary.services.length > 0 && (
+          {summary.services.some((service) => service.status === 'used') && (
             <>
               <Divider style={{ margin: "12px 0" }}>
-                Dịch vụ ({summary.services.filter(s => s.status !== 'cancelled').length})
+                Dịch vụ đã sử dụng ({summary.services.filter(s => s.status === 'used').length})
               </Divider>
               <Table
                 rowKey={(row, index) => `svc-${row.id || index}`}
                 size="small"
                 pagination={false}
-                dataSource={summary.services}
+                dataSource={summary.services.filter((service) => service.status === 'used')}
                 columns={chargeColumns}
               />
             </>
