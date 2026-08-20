@@ -2,8 +2,22 @@ const express = require('express');
 const db = require('../config/db');
 
 const { requireAuth, requireStaff, requireAdmin } = require('../middleware/auth');
+const notificationService = require('../services/notificationService');
 
 const router = express.Router();
+
+const buildVoucherNotification = (voucher) => {
+  const discountText = voucher.discountType === 'percentage'
+    ? `${Number(voucher.discountValue)}%${voucher.maxDiscount ? ` (tối đa ${new Intl.NumberFormat('vi-VN').format(voucher.maxDiscount)}đ)` : ''}`
+    : `${new Intl.NumberFormat('vi-VN').format(voucher.discountValue)}đ`;
+  const minAmountText = voucher.minBookingAmount ? ` cho đơn từ ${new Intl.NumberFormat('vi-VN').format(voucher.minBookingAmount)}đ` : '';
+  const expiryText = voucher.endDate ? ` đến hết ${new Date(voucher.endDate).toLocaleDateString('vi-VN')}` : '';
+
+  const title = `Ưu đãi mới: Mã giảm giá ${voucher.code}`;
+  const content = `Nhận ngay ưu đãi giảm ${discountText}${minAmountText}${expiryText}. Số lượng có hạn, hãy nhanh tay áp dụng khi đặt phòng!`;
+
+  return { title, content };
+};
 
 const normalizeVoucherPayload = (body) => {
   const discountType = body.discountType === 'percent' ? 'percentage' : body.discountType;
@@ -148,6 +162,19 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
         [code, discountType, discountValue, maxDiscount, minBookingAmount, quantity, startDate, endDate, status]
       );
       await replaceVoucherRoomTypes(connection, result.insertId, normalized.data.roomTypeIds);
+
+      // Nếu voucher tạo ra ở trạng thái active -> thông báo cho khách hàng
+      if (status === 'active') {
+        const { title, content } = buildVoucherNotification(normalized.data);
+        await notificationService.createNotificationForCustomers({
+          type: 'voucher',
+          title,
+          content,
+          referenceType: 'voucher',
+          referenceId: result.insertId
+        }, connection);
+      }
+
       await connection.commit();
       res.status(201).json({ data: { id: result.insertId }, message: 'Tạo voucher thành công' });
     } catch (error) {
@@ -176,6 +203,10 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
       return res.status(400).json({ message: 'Thiếu thông tin voucher' });
     }
 
+    // Lấy trạng thái cũ của voucher để kiểm tra xem đã từng active chưa
+    const [existingVouchers] = await db.query('SELECT status, code FROM vouchers WHERE id = ?', [voucherId]);
+    const oldStatus = existingVouchers[0]?.status;
+
     const connection = await db.getConnection();
     try {
       await connection.beginTransaction();
@@ -186,6 +217,19 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
         [code, discountType, discountValue, maxDiscount, minBookingAmount, quantity, startDate, endDate, status || 'active', voucherId]
       );
       await replaceVoucherRoomTypes(connection, voucherId, normalized.data.roomTypeIds);
+
+      // Nếu voucher chuyển từ trạng thái không active sang active lần đầu -> thông báo cho khách hàng
+      if (oldStatus !== 'active' && (status === 'active' || (!status && oldStatus !== 'active'))) {
+        const { title, content } = buildVoucherNotification(normalized.data);
+        await notificationService.createNotificationForCustomers({
+          type: 'voucher',
+          title,
+          content,
+          referenceType: 'voucher',
+          referenceId: voucherId
+        }, connection);
+      }
+
       await connection.commit();
       res.json({ message: 'Cập nhật voucher thành công' });
     } catch (error) {

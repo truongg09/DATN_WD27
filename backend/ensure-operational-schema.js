@@ -98,6 +98,17 @@ const ensureOperationalSchema = async () => {
     `UPDATE vouchers SET discountType = 'percentage' WHERE discountType = 'percent'`
   );
 
+  const [notifCols] = await db.query('DESCRIBE notifications');
+  if (!notifCols.some((c) => c.Field === 'type')) {
+    await db.query("ALTER TABLE notifications ADD COLUMN type VARCHAR(50) DEFAULT 'general' AFTER accountId");
+  }
+  if (!notifCols.some((c) => c.Field === 'referenceType')) {
+    await db.query("ALTER TABLE notifications ADD COLUMN referenceType VARCHAR(50) NULL DEFAULT NULL AFTER content");
+  }
+  if (!notifCols.some((c) => c.Field === 'referenceId')) {
+    await db.query("ALTER TABLE notifications ADD COLUMN referenceId INT NULL DEFAULT NULL AFTER referenceType");
+  }
+
   // Luôn có dịch vụ giường phụ để khách có thể chọn ngay trên trang đặt phòng.
   const [extraBeds] = await db.query(
     `SELECT id FROM services

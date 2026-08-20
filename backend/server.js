@@ -37,6 +37,7 @@ const walletRoutes = require('./routes/wallet');
 const reportRoutes = require('./routes/reports');
 const uploadRoutes = require('./routes/upload');
 const employeeRoutes = require('./routes/employees');
+const notificationRoutes = require('./routes/notifications');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/rooms', roomRoutes);
@@ -53,6 +54,7 @@ app.use('/api/booking-services', bookingServiceRoutes);
 app.use('/api/service-requests', serviceRequestRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/vouchers', voucherRoutes);
+app.use('/api/notifications', notificationRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/refunds', refundRoutes);
 app.use('/api/wallet', walletRoutes);
