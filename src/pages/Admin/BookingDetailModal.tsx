@@ -302,11 +302,47 @@ const roleText: Record<string, string> = {
 };
 
 const historyFieldText: Record<string, string> = {
-  status: 'Trạng thái', bookingStatus: 'Trạng thái đặt phòng', roomId: 'Mã phòng', roomNumber: 'Số phòng',
-  checkIn: 'Ngày nhận phòng', checkOut: 'Ngày trả phòng', totalPrice: 'Tổng tiền', totalAmount: 'Tổng cộng',
-  paidAmount: 'Đã thanh toán', remainingAmount: 'Còn phải thanh toán', paymentStatus: 'Trạng thái thanh toán',
-  paymentMethod: 'Phương thức thanh toán', requestedCheckInTime: 'Giờ nhận phòng mong muốn',
-  requestedCheckOutTime: 'Giờ trả phòng mong muốn', quantity: 'Số lượng', reason: 'Lý do', notes: 'Ghi chú',
+  status: 'Trạng thái',
+  bookingStatus: 'Trạng thái đặt phòng',
+  roomId: 'Mã phòng',
+  roomNumber: 'Số phòng',
+  roomTypeId: 'Mã hạng phòng',
+  checkIn: 'Ngày nhận phòng',
+  checkOut: 'Ngày trả phòng',
+  checkInDate: 'Ngày nhận phòng',
+  checkOutDate: 'Ngày trả phòng',
+  fromDate: 'Từ ngày',
+  toDate: 'Đến ngày',
+  totalPrice: 'Tổng tiền',
+  totalAmount: 'Tổng tiền bill',
+  newTotalAmount: 'Tổng bill mới',
+  oldTotalAmount: 'Tổng bill cũ',
+  priceDifference: 'Chênh lệch giá',
+  newRemainingAmount: 'Còn lại thu/trả',
+  depositAmount: 'Tiền cọc',
+  paidAmount: 'Đã thanh toán',
+  remainingAmount: 'Còn phải thanh toán',
+  amount: 'Số tiền',
+  paymentStatus: 'Trạng thái thanh toán',
+  paymentMethod: 'Phương thức thanh toán',
+  transactionCode: 'Mã giao dịch',
+  quantity: 'Số lượng',
+  serviceId: 'Mã dịch vụ',
+  voucherCode: 'Mã ưu đãi',
+  reason: 'Lý do',
+  notes: 'Ghi chú',
+  rooms: 'Danh sách phòng',
+  newStagePrices: 'Chi tiết giá từng đêm mới',
+  stagePrices: 'Chi tiết giá từng đêm',
+  nightlyPrices: 'Chi tiết giá từng đêm',
+  adults: 'Người lớn',
+  children: 'Trẻ em',
+  childrenAges: 'Độ tuổi trẻ em',
+  roomPrice: 'Đơn giá phòng',
+  roomStayAmount: 'Tiền ở phòng',
+  childSurchargeAmount: 'Phụ thu trẻ em',
+  itemTotal: 'Thành tiền phòng',
+  surcharge: 'Phụ thu',
 };
 
 const historyValueText: Record<string, string> = {
@@ -316,19 +352,62 @@ const historyValueText: Record<string, string> = {
   available: 'Phòng trống', occupied: 'Đang có khách', maintenance: 'Đang dọn hoặc bảo trì', true: 'Có', false: 'Không',
 };
 
+const formatHistoryVal = (key: string, value: unknown): React.ReactNode => {
+  if (value == null || value === '') return 'Không có';
+
+  if ((key === 'rooms' || key === 'roomList') && Array.isArray(value)) {
+    return (
+      <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {value.map((r: any, i: number) => (
+          <div key={i} style={{ background: '#fff', padding: '6px 10px', borderRadius: 6, border: '1px solid #e0e0e0', fontSize: 13 }}>
+            <strong>• {r.typeName || 'Phòng'} {r.roomNumber ? `(Phòng ${r.roomNumber})` : ''}</strong>: {r.adults ?? 0} người lớn, {r.children ?? 0} trẻ em
+            {r.itemTotal || r.roomStayAmount ? <span style={{ color: '#0f172a', fontWeight: 600, marginLeft: 6 }}>— {money(Number(r.itemTotal || r.roomStayAmount))}</span> : null}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if ((key === 'newStagePrices' || key === 'nightlyPrices' || key === 'stagePrices') && Array.isArray(value)) {
+    return (
+      <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {value.map((np: any, i: number) => (
+          <div key={i} style={{ background: '#fff', padding: '4px 8px', borderRadius: 6, border: '1px solid #e0e0e0', fontSize: 12 }}>
+            <strong>{dayjs(np.date || np.stayDate).format('DD/MM/YYYY')}</strong> ({np.dayName || ''}): <span style={{ fontWeight: 600, color: '#d97706' }}>{money(Number(np.price || 0))}</span> {np.note ? <span style={{ color: '#666' }}>({np.note})</span> : ''}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (Array.isArray(value)) {
+    if (value.length === 0) return 'Không có';
+    if (typeof value[0] !== 'object') return value.join(', ');
+    return JSON.stringify(value);
+  }
+
+  if (typeof value === 'object') {
+    return JSON.stringify(value);
+  }
+
+  const raw = String(value);
+  if (historyValueText[raw.toLowerCase()]) return historyValueText[raw.toLowerCase()];
+  if (/amount|price|fee|total|difference/i.test(key) && Number.isFinite(Number(value))) return money(Number(value));
+  if (/date|checkin|checkout|createdat|updatedat/i.test(key) && dayjs(raw).isValid()) return dateTime(raw);
+  return raw;
+};
+
 const renderHistoryValue = (title: string, value: unknown, background: string) => {
   if (value == null) return null;
   const entries = typeof value === 'object' && !Array.isArray(value)
     ? Object.entries(value as Record<string, unknown>) : [['', value] as [string, unknown]];
   return <div style={{ flex: 1, minWidth: 220, background, padding: '10px 12px', borderRadius: 8, border: '1px solid #e8e8e8' }}>
     <strong style={{ fontSize: 13, color: '#444' }}>{title}</strong>
-    {entries.map(([key, val]) => {
-      const raw = val == null ? '' : String(val);
-      const shown = historyValueText[raw.toLowerCase()] || (/amount|price|fee/i.test(key) ? money(Number(val || 0)) : raw || 'Không có');
-      return <div key={key || title} style={{ fontSize: 14, lineHeight: 1.7, color: '#262626' }}>
-        {key && <span style={{ fontWeight: 600, color: '#555' }}>{historyFieldText[key] || key}: </span>}{shown}
-      </div>;
-    })}
+    {entries.map(([key, val]) => (
+      <div key={key || title} style={{ fontSize: 14, lineHeight: 1.7, color: '#262626' }}>
+        {key && <span style={{ fontWeight: 600, color: '#555' }}>{historyFieldText[key] || key}: </span>}{formatHistoryVal(key, val)}
+      </div>
+    ))}
   </div>;
 };
 
