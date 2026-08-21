@@ -25,7 +25,6 @@ import {
   ReloadOutlined,
   DownOutlined,
   EyeOutlined,
-  DollarCircleOutlined,
   SearchOutlined,
   AppstoreOutlined,
   CheckCircleOutlined,
@@ -391,7 +390,7 @@ function RoomTypeManagement() {
     {
       title: 'Thao tác',
       key: 'actions',
-      align: 'center',
+      align: 'center' as const,
       render: (_: unknown, record: RoomType) => (
         <Space size={4}>
           <Tooltip title="Xem chi tiết hạng phòng">
@@ -898,7 +897,6 @@ function RoomTypeManagement() {
           );
         })()}
       </Modal>
-      </div>
     </div>
   );
 }
