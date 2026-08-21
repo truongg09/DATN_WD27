@@ -1,26 +1,44 @@
-import { Tabs } from 'antd';
+import { useState } from 'react';
+import { Tabs, Button } from 'antd';
 import {
   CustomerServiceOutlined,
   AppstoreOutlined,
   ToolOutlined,
   ProfileOutlined,
   InboxOutlined,
+  CalendarOutlined,
+  DollarCircleOutlined
 } from '@ant-design/icons';
 import ServicesTab from './service/ServicesTab';
 import RoomItemsTab from './service/RoomItemsTab';
 import DamageReportsTab from './service/DamageReportsTab';
 import BookingServicesTab from './service/BookingServicesTab';
 import ServiceRequestsTab from './service/ServiceRequestsTab';
+import HolidayPriceManagementTab from './service/HolidayPriceManagementTab';
 import './service/service-management.css';
 
 function ServiceManagement() {
+  const [activeTab, setActiveTab] = useState('services');
+
   return (
     <div className="service-management" style={{ padding: '24px' }}>
-      <h1 style={{ fontSize: 24, fontWeight: 'bold', marginBottom: 16 }}>
-        Quản Lý Dịch Vụ &amp; Tài Sản Phòng
-      </h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <h1 style={{ fontSize: 24, fontWeight: 'bold', margin: 0 }}>
+          Quản Lý Dịch Vụ &amp; Bảng Giá Ngày Lễ
+        </h1>
+        <Button
+          type="primary"
+          icon={<DollarCircleOutlined />}
+          style={{ backgroundColor: '#f59e0b', borderColor: '#f59e0b', fontWeight: 600 }}
+          onClick={() => setActiveTab('holiday-pricing')}
+        >
+          Bảng giá Lễ &amp; Chủ nhật
+        </Button>
+      </div>
+
       <Tabs
-        defaultActiveKey="services"
+        activeKey={activeTab}
+        onChange={(key) => setActiveTab(key)}
         type="card"
         items={[
           {
@@ -31,6 +49,15 @@ function ServiceManagement() {
               </span>
             ),
             children: <ServicesTab />,
+          },
+          {
+            key: 'holiday-pricing',
+            label: (
+              <span>
+                <CalendarOutlined /> Bảng giá Lễ &amp; Ngày tùy chọn
+              </span>
+            ),
+            children: <HolidayPriceManagementTab />,
           },
           {
             key: 'service-requests',

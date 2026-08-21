@@ -424,23 +424,40 @@
   background: linear-gradient(105deg, #fdf7f0, #fff);
 }
 
-.booking-summary-scroll {
-  padding: 14px 18px 4px;
-  max-height: calc(100vh - 240px);
+.booking-summary-content {
+  display: flex;
+  flex-direction: column;
   overflow-y: auto;
+  flex: 1;
 }
 
-.booking-summary-scroll::-webkit-scrollbar {
+.selected-rooms-scroll-list {
+  padding: 14px 18px 4px;
+}
+
+.selected-rooms-scroll-list.has-multiple-rooms {
+  max-height: 220px;
+  overflow-y: auto;
+  padding-right: 12px;
+  border-bottom: 1px dashed #eadfd3;
+  margin-bottom: 10px;
+}
+
+.selected-rooms-scroll-list.has-multiple-rooms::-webkit-scrollbar {
   width: 5px;
 }
 
-.booking-summary-scroll::-webkit-scrollbar-track {
+.selected-rooms-scroll-list.has-multiple-rooms::-webkit-scrollbar-track {
   background: #fdf8f4;
 }
 
-.booking-summary-scroll::-webkit-scrollbar-thumb {
+.selected-rooms-scroll-list.has-multiple-rooms::-webkit-scrollbar-thumb {
   background: #d8c2ad;
   border-radius: 4px;
+}
+
+.booking-summary-fixed-details {
+  padding: 0 18px 14px;
 }
 
 .selected-room {

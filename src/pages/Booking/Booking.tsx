@@ -2018,268 +2018,271 @@ const Booking: React.FC = () => {
             <div className="booking-summary">
               <h3>Tóm tắt đặt phòng</h3>
 
-              <div className="booking-summary-scroll">
+              <div className="booking-summary-content">
               {selectedRoom ? (
                 <>
-                  <div className="selected-room">
-                    <img
-                      src={selectedRoom.image}
-                      alt={selectedRoom.name}
-                      onError={(e) =>
-                        handleRoomImageError(e, selectedRoom.name)
-                      }
-                    />
-                    <div className="room-summary-info">
-                      {/* Giá nằm cùng hàng với tên hạng phòng, dồn về mép phải,
-                          để đơn nhiều hạng biết ngay giá nào của hạng nào. */}
-                      <div className="room-summary-heading">
-                        <h4>{selectedRoom.name}</h4>
-                        <div className="room-summary-heading-right">
-                          <span className="room-summary-price">
-                            {formatMoney(selectedRoom.price)}
-                          </span>
-                          {selectedRoom.mode === "room" && (
-                            <span
-                              className={`room-status-badge ${roomStatusMap[selectedRoom.status]?.className || "default"}`}
-                            >
-                              {roomStatusMap[selectedRoom.status]?.label ||
-                                selectedRoom.status}
+                  <div
+                    className={`selected-rooms-scroll-list ${
+                      totalSelectedRooms >= 2 ? "has-multiple-rooms" : ""
+                    }`}
+                  >
+                    <div className="selected-room">
+                      <img
+                        src={selectedRoom.image}
+                        alt={selectedRoom.name}
+                        onError={(e) =>
+                          handleRoomImageError(e, selectedRoom.name)
+                        }
+                      />
+                      <div className="room-summary-info">
+                        {/* Giá nằm cùng hàng với tên hạng phòng, dồn về mép phải,
+                            để đơn nhiều hạng biết ngay giá nào của hạng nào. */}
+                        <div className="room-summary-heading">
+                          <h4>{selectedRoom.name}</h4>
+                          <div className="room-summary-heading-right">
+                            <span className="room-summary-price">
+                              {formatMoney(selectedRoom.price)}
                             </span>
-                          )}
-                        </div>
-                      </div>
-                      {selectedRoom.mode === "room" &&
-                        selectedRoom.roomNumber && (
-                          <p className="room-number-line">
-                            Phòng {selectedRoom.roomNumber}
-                          </p>
-                        )}
-                      <p className="room-summary-meta">
-                        {activeRoomQuantity} phòng đã chọn
-                      </p>
-                      <p>
-                        <FontAwesomeIcon icon={faBed} /> Sức chứa:{" "}
-                        {selectedRoom.beds}
-                      </p>
-                    </div>
-                  </div>
-
-                  {extraRoomTypes.map((line) => {
-                    const type = roomTypes.find(
-                      (roomType) => roomType.id === line.roomTypeId,
-                    );
-                    if (!type) return null;
-
-                    const typeAdultCapacity = Number(
-                      type.adultCapacity ?? type.capacity ?? 2,
-                    );
-                    const typeChildCapacity = Number(
-                      type.childCapacity ?? (type.adultCapacity !== undefined ? 0 : 1),
-                    );
-                    const typeMaxOccupancy = Number(
-                      type.maxOccupancy ??
-                        typeAdultCapacity + typeChildCapacity,
-                    );
-
-                    return (
-                      <div
-                        className="selected-room selected-extra-room"
-                        key={line.id}
-                      >
-                        <img
-                          src={getRoomTypeCardImage(type.typeName)}
-                          alt={type.typeName}
-                          onError={(event) =>
-                            handleRoomImageError(event, type.typeName)
-                          }
-                        />
-                        <div className="room-summary-info">
-                          <div className="room-summary-heading">
-                            <h4>{type.typeName}</h4>
-                            <div className="room-summary-heading-right">
-                              <span className="room-summary-price">
-                                {formatMoney(Number(type.defaultPrice || 0))}
+                            {selectedRoom.mode === "room" && (
+                              <span
+                                className={`room-status-badge ${roomStatusMap[selectedRoom.status]?.className || "default"}`}
+                              >
+                                {roomStatusMap[selectedRoom.status]?.label ||
+                                  selectedRoom.status}
                               </span>
-                            </div>
-                          </div>
-                          <p className="room-summary-meta">
-                            {line.quantity} phòng đã chọn
-                          </p>
-                          <p>
-                            <FontAwesomeIcon icon={faBed} /> Sức chứa:{" "}
-                            {typeAdultCapacity} người lớn + {typeChildCapacity} trẻ em (Tối đa {typeMaxOccupancy} khách)
-                          </p>
-                        </div>
-                      </div>
-                    );
-                  })}
-
-                  <div className="capacity-preview-box">
-                    <span className="capacity-preview-title">Số khách</span>
-                    <div className="capacity-spec-row">
-                      <span className="spec-label">Khách của bạn:</span>
-                      <span className="spec-val">
-                        {effectiveAdults} người lớn + {effectiveChildren} trẻ em
-                      </span>
-                    </div>
-                    {(extraAdults > 0 || extraChildren > 0) && (
-                      <div className="capacity-spec-row extra">
-                        <span className="spec-label">Phát sinh</span>
-                        <span className="spec-val highlight">
-                          {extraAdults} người lớn + {extraChildren} trẻ em
-                        </span>
-                      </div>
-                    )}
-
-                    {totalExtraGuestFee > 0 && (
-                      <div className="extra-fee-box">
-                        <span className="extra-fee-title">
-                          Phụ thu khách phát sinh
-                        </span>
-                        {extraAdults > 0 && (
-                          <div className="extra-fee-item">
-                            <span>{extraAdults} người lớn</span>
-                            {extraRoomTypes.length === 0 && (
-                              <small>
-                                {extraAdults} × {formatMoney(extraAdultFee)} × {nights} đêm
-                              </small>
                             )}
-                            <strong>= {formatMoney(extraAdultAmount)}</strong>
                           </div>
-                        )}
-                        {extraChildren > 0 && (
-                          <div className="extra-fee-item">
-                            <span>{extraChildren} trẻ em</span>
-                            {extraRoomTypes.length === 0 && (
-                              <small>
-                                {extraChildren} × {formatMoney(extraChildFee)} × {nights} đêm
-                              </small>
-                            )}
-                            <strong>= {formatMoney(extraChildAmount)}</strong>
-                          </div>
-                        )}
-                        <div className="extra-fee-total">
-                          <span>Tổng phụ thu</span>
-                          <strong>{formatMoney(totalExtraGuestFee)}</strong>
                         </div>
+                        {selectedRoom.mode === "room" &&
+                          selectedRoom.roomNumber && (
+                            <p className="room-number-line">
+                              Phòng {selectedRoom.roomNumber}
+                            </p>
+                          )}
+                        <p className="room-summary-meta">
+                          {activeRoomQuantity} phòng đã chọn
+                        </p>
+                        <p>
+                          <FontAwesomeIcon icon={faBed} /> Sức chứa:{" "}
+                          {selectedRoom.beds}
+                        </p>
                       </div>
-                    )}
-                  </div>
+                    </div>
 
-                  <div className="summary-details">
-                    <div className="summary-row">
-                      <span>Số lượng phòng</span>
-                      <span>{totalSelectedRooms} phòng</span>
-                    </div>
-                    <div className="summary-row">
-                      <span>Số đêm</span>
-                      <span>{nights > 0 ? `${nights} đêm` : "-"}</span>
-                    </div>
-                    {nights > 0 && (() => {
-                      // Giá niêm yết từng hạng đã hiện cạnh tên hạng phía trên.
-                      // Ở đây liệt kê phụ thu rồi mới tới tổng tiền phòng, để
-                      // khách thấy được vì sao tổng cao hơn giá niêm yết.
-                      const actualStayRoomTotal = calculateBaseTotal();
-                      const totalRoomAmount = actualStayRoomTotal + extraRoomsAmount;
+                    {extraRoomTypes.map((line) => {
+                      const type = roomTypes.find(
+                        (roomType) => roomType.id === line.roomTypeId,
+                      );
+                      if (!type) return null;
+
+                      const typeAdultCapacity = Number(
+                        type.adultCapacity ?? type.capacity ?? 2,
+                      );
+                      const typeChildCapacity = Number(
+                        type.childCapacity ?? (type.adultCapacity !== undefined ? 0 : 1),
+                      );
+                      const typeMaxOccupancy = Number(
+                        type.maxOccupancy ??
+                          typeAdultCapacity + typeChildCapacity,
+                      );
 
                       return (
-                        <>
-                          {surchargeRows.map((row) => (
-                            <div
-                              key={row.key}
-                              className="summary-row extra-row"
-                              style={{
-                                color: row.kind === 'holiday' ? '#cf1322' : '#d46b08',
-                                fontWeight: 600,
-                              }}
-                            >
-                              <span>{row.label}</span>
-                              <span>+{formatPrice(row.amount)}</span>
+                        <div
+                          className="selected-room selected-extra-room"
+                          key={line.id}
+                        >
+                          <img
+                            src={getRoomTypeCardImage(type.typeName)}
+                            alt={type.typeName}
+                            onError={(event) =>
+                              handleRoomImageError(event, type.typeName)
+                            }
+                          />
+                          <div className="room-summary-info">
+                            <div className="room-summary-heading">
+                              <h4>{type.typeName}</h4>
+                              <div className="room-summary-heading-right">
+                                <span className="room-summary-price">
+                                  {formatMoney(Number(type.defaultPrice || 0))}
+                                </span>
+                              </div>
                             </div>
-                          ))}
-                          <div className="summary-row">
-                            <span>Tổng tiền phòng</span>
-                            <span>{formatPrice(totalRoomAmount)}</span>
+                            <p className="room-summary-meta">
+                              {line.quantity} phòng đã chọn
+                            </p>
+                            <p>
+                              <FontAwesomeIcon icon={faBed} /> Sức chứa:{" "}
+                              {typeAdultCapacity} người lớn + {typeChildCapacity} trẻ em (Tối đa {typeMaxOccupancy} khách)
+                            </p>
                           </div>
-                          {totalExtraGuestFee > 0 && (
-                            <div className="summary-row extra-row">
-                              <span>Phụ thu khách phát sinh</span>
-                              <span>+{formatPrice(totalExtraGuestFee)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="booking-summary-fixed-details">
+                    <div className="capacity-preview-box">
+                      <span className="capacity-preview-title">Số khách</span>
+                      <div className="capacity-spec-row">
+                        <span className="spec-label">Khách của bạn:</span>
+                        <span className="spec-val">
+                          {effectiveAdults} người lớn + {effectiveChildren} trẻ em
+                        </span>
+                      </div>
+                      {(extraAdults > 0 || extraChildren > 0) && (
+                        <div className="capacity-spec-row extra">
+                          <span className="spec-label">Phát sinh</span>
+                          <span className="spec-val highlight">
+                            {extraAdults} người lớn + {extraChildren} trẻ em
+                          </span>
+                        </div>
+                      )}
+
+                      {totalExtraGuestFee > 0 && (
+                        <div className="extra-fee-box">
+                          <span className="extra-fee-title">
+                            Phụ thu khách phát sinh
+                          </span>
+                          {extraAdults > 0 && (
+                            <div className="extra-fee-item">
+                              <span>{extraAdults} người lớn</span>
+                              {extraRoomTypes.length === 0 && (
+                                <small>
+                                  {extraAdults} × {formatMoney(extraAdultFee)} × {nights} đêm
+                                </small>
+                              )}
+                              <strong>= {formatMoney(extraAdultAmount)}</strong>
                             </div>
                           )}
-                          <div className="summary-row total">
-                            <span>Tổng cộng (tạm tính)</span>
-                            <span className="total-price">
-                              {formatPrice(
-                                actualStayRoomTotal +
-                                  extraRoomsAmount +
-                                  totalExtraGuestFee,
+                          {extraChildren > 0 && (
+                            <div className="extra-fee-item">
+                              <span>{extraChildren} trẻ em</span>
+                              {extraRoomTypes.length === 0 && (
+                                <small>
+                                  {extraChildren} × {formatMoney(extraChildFee)} × {nights} đêm
+                                </small>
                               )}
-                            </span>
+                              <strong>= {formatMoney(extraChildAmount)}</strong>
+                            </div>
+                          )}
+                          <div className="extra-fee-total">
+                            <span>Tổng phụ thu</span>
+                            <strong>{formatMoney(totalExtraGuestFee)}</strong>
                           </div>
-                        </>
-                      );
-                    })()}
-                  </div>
-                  {nights > 0 && (
-                    <div
-                      className={`date-availability-note ${
-                        availabilityChecking
-                          ? "checking"
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="summary-details">
+                      <div className="summary-row">
+                        <span>Số lượng phòng</span>
+                        <span>{totalSelectedRooms} phòng</span>
+                      </div>
+                      <div className="summary-row">
+                        <span>Số đêm</span>
+                        <span>{nights > 0 ? `${nights} đêm` : "-"}</span>
+                      </div>
+                      {nights > 0 && (() => {
+                        // Giá niêm yết từng hạng đã hiện cạnh tên hạng phía trên.
+                        // Ở đây liệt kê phụ thu rồi mới tới tổng tiền phòng, để
+                        // khách thấy được vì sao tổng cao hơn giá niêm yết.
+                        const actualStayRoomTotal = calculateBaseTotal();
+                        const totalRoomAmount = actualStayRoomTotal + extraRoomsAmount;
+
+                        return (
+                          <>
+                            {surchargeRows.map((row) => (
+                              <div
+                                key={row.key}
+                                className="summary-row extra-row"
+                                style={{
+                                  color: row.kind === 'holiday' ? '#cf1322' : '#d46b08',
+                                  fontWeight: 600,
+                                }}
+                              >
+                                <span>{row.label}</span>
+                                <span>+{formatPrice(row.amount)}</span>
+                              </div>
+                            ))}
+                            <div className="summary-row">
+                              <span>Tổng tiền phòng</span>
+                              <span>{formatPrice(totalRoomAmount)}</span>
+                            </div>
+                            {totalExtraGuestFee > 0 && (
+                              <div className="summary-row extra-row">
+                                <span>Phụ thu khách phát sinh</span>
+                                <span>+{formatPrice(totalExtraGuestFee)}</span>
+                              </div>
+                            )}
+                            <div className="summary-row total">
+                              <span>Tổng cộng (tạm tính)</span>
+                              <span className="total-price">
+                                {formatPrice(
+                                  actualStayRoomTotal +
+                                    extraRoomsAmount +
+                                    totalExtraGuestFee,
+                                )}
+                              </span>
+                            </div>
+                          </>
+                        );
+                      })()}
+                    </div>
+                    {nights > 0 && (
+                      <div
+                        className={`date-availability-note ${
+                          availabilityChecking
+                            ? "checking"
+                            : isRoomDateUnavailable
+                              ? "unavailable"
+                              : dateAvailability?.available
+                                ? "available"
+                                : ""
+                        }`}
+                      >
+                        {availabilityChecking
+                          ? "Đang kiểm tra phòng trống theo ngày đã chọn..."
                           : isRoomDateUnavailable
-                            ? "unavailable"
+                            ? selectedRoom.mode === "type"
+                              ? "Rất tiếc, hạng phòng này đã hết phòng trống trong khoảng ngày bạn chọn. Vui lòng chọn ngày khác hoặc hạng phòng khác."
+                              : "Rất tiếc, phòng này đã có khách giữ chỗ trong khoảng ngày bạn chọn. Bạn vui lòng chọn ngày khác hoặc tham khảo phòng còn trống nhé."
                             : dateAvailability?.available
-                              ? "available"
-                              : ""
-                      }`}
-                    >
-                      {availabilityChecking
-                        ? "Đang kiểm tra phòng trống theo ngày đã chọn..."
-                        : isRoomDateUnavailable
-                          ? selectedRoom.mode === "type"
-                            ? "Rất tiếc, hạng phòng này đã hết phòng trống trong khoảng ngày bạn chọn. Vui lòng chọn ngày khác hoặc hạng phòng khác."
-                            : "Rất tiếc, phòng này đã có khách giữ chỗ trong khoảng ngày bạn chọn. Bạn vui lòng chọn ngày khác hoặc tham khảo phòng còn trống nhé."
-                          : dateAvailability?.available
-                            ? selectedRoom.mode === "type" &&
-                              dateAvailability.availableRooms !== undefined
-                              ? `Còn ${dateAvailability.availableRooms} phòng trống trong khoảng ngày đã chọn.`
-                              : "Phòng còn trống trong khoảng ngày đã chọn."
-                            : "Chọn ngày để kiểm tra phòng trống."}
+                              ? selectedRoom.mode === "type" &&
+                                dateAvailability.availableRooms !== undefined
+                                ? `Còn ${dateAvailability.availableRooms} phòng trống trong khoảng ngày đã chọn.`
+                                : "Phòng còn trống trong khoảng ngày đã chọn."
+                              : "Chọn ngày để kiểm tra phòng trống."}
+                      </div>
+                    )}
+                    {isRoomBlockedByStatus && (
+                      <div className="room-unavailable-note">
+                        Phòng này hiện không thể đặt. Vui lòng quay lại danh sách
+                        phòng để chọn phòng còn trống.
+                      </div>
+                    )}
+                    <div className="booking-policies">
+                      <h4>Chính sách</h4>
+                      <ul>
+                        <li>
+                          <FontAwesomeIcon icon={faCheck} /> Hủy trước{" "}
+                          {policies?.midTierMaxDays ?? 7} ngày hoàn{" "}
+                          {100 - (policies?.farTierPercent ?? 0)}%; hủy trong khoảng{" "}
+                          {policies?.nearTierMaxDays ?? 3}–
+                          {policies?.midTierMaxDays ?? 7} ngày hoàn{" "}
+                          {100 - (policies?.midTierPercent ?? 50)}%; hủy dưới{" "}
+                          {policies?.nearTierMaxDays ?? 3} ngày hoàn{" "}
+                          {100 - (policies?.nearTierPercent ?? 100)}%
+                        </li>
+                        <li>
+                          <FontAwesomeIcon icon={faCheck} /> Nhận phòng từ{" "}
+                          {shortTime(policies?.checkInTime) || "14:00"}
+                        </li>
+                        <li>
+                          <FontAwesomeIcon icon={faCheck} /> Trả phòng trước{" "}
+                          {shortTime(policies?.checkOutTime) || "12:00"}
+                        </li>
+                      </ul>
                     </div>
-                  )}
-                  {isRoomBlockedByStatus && (
-                    <div className="room-unavailable-note">
-                      Phòng này hiện không thể đặt. Vui lòng quay lại danh sách
-                      phòng để chọn phòng còn trống.
-                    </div>
-                  )}
-                  <div className="booking-policies">
-                    <h4>Chính sách</h4>
-                    <ul>
-                      {/* Các trường *TierPercent trong cấu hình là PHÍ PHẠT chứ
-                          không phải phần trăm được hoàn, nên phải lấy 100 trừ đi.
-                          Bản cũ in thẳng nearTierPercent (=100) ra thành "hoàn
-                          100% khi hủy dưới 3 ngày" — ngược hẳn thực tế, vì hủy
-                          sát ngày nhận phòng thì khách không được hoàn đồng nào. */}
-                      <li>
-                        <FontAwesomeIcon icon={faCheck} /> Hủy trước{" "}
-                        {policies?.midTierMaxDays ?? 7} ngày hoàn{" "}
-                        {100 - (policies?.farTierPercent ?? 0)}%; hủy trong khoảng{" "}
-                        {policies?.nearTierMaxDays ?? 3}–
-                        {policies?.midTierMaxDays ?? 7} ngày hoàn{" "}
-                        {100 - (policies?.midTierPercent ?? 50)}%; hủy dưới{" "}
-                        {policies?.nearTierMaxDays ?? 3} ngày hoàn{" "}
-                        {100 - (policies?.nearTierPercent ?? 100)}%
-                      </li>
-                      <li>
-                        <FontAwesomeIcon icon={faCheck} /> Nhận phòng từ{" "}
-                        {shortTime(policies?.checkInTime) || "14:00"}
-                      </li>
-                      <li>
-                        <FontAwesomeIcon icon={faCheck} /> Trả phòng trước{" "}
-                        {shortTime(policies?.checkOutTime) || "12:00"}
-                      </li>
-                    </ul>
                   </div>
                 </>
               ) : (
