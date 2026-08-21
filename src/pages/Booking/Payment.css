@@ -411,9 +411,16 @@
   gap: 8px;
 }
 
-.voucher-apply .ant-input {
+.voucher-apply .ant-input,
+.voucher-apply .ant-select,
+.voucher-apply .ant-select-selector {
   height: 40px;
   border-radius: 8px;
+}
+
+.voucher-apply .ant-select-selector {
+  display: flex;
+  align-items: center;
 }
 
 .voucher-apply .ant-btn {

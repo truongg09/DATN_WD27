@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
-import { Button, Spin, message, Tag, Alert, Modal, QRCode, Radio, Tooltip, Input } from 'antd';
+import { Button, Spin, message, Tag, Alert, Modal, QRCode, Radio, Tooltip, Select } from 'antd';
 import {
   CheckCircleFilled,
   CopyOutlined,
@@ -13,6 +13,7 @@ import dayjs from 'dayjs';
 import { getBookingDetail, resetBookingHold } from '../../services/bookingService';
 import { applyVoucher, createGatewayOrder, getPaymentByBookingId, processPayment, submitTransferConfirmation } from '../../services/paymentService';
 import { getPaymentSettings, type PaymentSettings } from '../../services/settingsService';
+import { getMyVouchers, type CustomerVoucher } from '../../services/voucherService';
 import { buildVietQrPayload, findBankByBin, toTransferText } from '../../utils/vietqr';
 import type { Payment, PaymentMethod } from '../../types/payment';
 import zalopayLogo from '../../assets/payment/zalopay.svg';
@@ -117,6 +118,8 @@ const PaymentPage: React.FC = () => {
   const [roomTakenError, setRoomTakenError] = useState(false);
   const [qrModalOpen, setQrModalOpen] = useState(false);
   const [voucherCode, setVoucherCode] = useState('');
+  const [availableVouchers, setAvailableVouchers] = useState<CustomerVoucher[]>([]);
+  const [loadingVouchers, setLoadingVouchers] = useState(false);
   const [applyingVoucher, setApplyingVoucher] = useState(false);
   const [appliedVoucherCode, setAppliedVoucherCode] = useState('');
 
@@ -154,6 +157,16 @@ const PaymentPage: React.FC = () => {
         setPaymentSettings(settingsRes.data);
       } catch {
         // Không chặn thanh toán nếu chưa cấu hình tài khoản nhận tiền
+      }
+
+      setLoadingVouchers(true);
+      try {
+        const voucherRes = await getMyVouchers();
+        setAvailableVouchers(Array.isArray(voucherRes.data) ? voucherRes.data : []);
+      } catch {
+        message.error('Không thể tải danh sách mã giảm giá');
+      } finally {
+        setLoadingVouchers(false);
       }
     };
 
@@ -531,10 +544,7 @@ const PaymentPage: React.FC = () => {
                 </p>
 
                 {!isHoldExpired ? (
-                  <div className="hold-reset-bar" style={{ marginTop: 14, paddingTop: 10, borderTop: '1px dashed #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-                    <span style={{ fontSize: 13, color: '#64748b' }}>
-                      Cần thêm thời gian?
-                    </span>
+                  <div className="hold-reset-bar" style={{ marginTop: 14, paddingTop: 10, borderTop: '1px dashed #e2e8f0', display: 'flex', justifyContent: 'flex-end' }}>
                     <Button
                       size="small"
                       type="default"
@@ -732,16 +742,29 @@ const PaymentPage: React.FC = () => {
                     ) : (
                       <>
                         <div className="voucher-apply">
-                          <Input
+                          <Select
                             id="voucher-code"
-                            value={voucherCode}
-                            placeholder="Nhập mã voucher"
-                            maxLength={50}
+                            value={voucherCode || undefined}
+                            placeholder={loadingVouchers ? 'Đang tải mã giảm giá...' : 'Chọn mã giảm giá'}
+                            loading={loadingVouchers}
+                            showSearch
+                            allowClear
+                            optionFilterProp="label"
                             disabled={Boolean(appliedVoucherCode)}
-                            onChange={(event) => {
-                              setVoucherCode(event.target.value.toUpperCase());
-                            }}
-                            onPressEnter={handleApplyVoucher}
+                            onChange={(value) => setVoucherCode(value || '')}
+                            notFoundContent={loadingVouchers ? 'Đang tải...' : 'Tài khoản chưa có mã giảm giá khả dụng'}
+                            options={availableVouchers.map((voucher) => {
+                              const discount = voucher.discountType === 'percentage'
+                                ? `Giảm ${Number(voucher.discountValue).toLocaleString('vi-VN')}%`
+                                : `Giảm ${formatPrice(Number(voucher.discountValue))}`;
+                              const maxDiscount = voucher.discountType === 'percentage' && Number(voucher.maxDiscount || 0) > 0
+                                ? `, tối đa ${formatPrice(Number(voucher.maxDiscount))}`
+                                : '';
+                              return {
+                                value: voucher.code,
+                                label: `${voucher.code} — ${discount}${maxDiscount} — HSD ${formatDate(voucher.endDate)}`
+                              };
+                            })}
                           />
                           <Button
                             type="primary"

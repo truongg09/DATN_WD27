@@ -17,7 +17,9 @@ import {
   Badge,
   Modal,
   InputNumber,
-  Radio
+  Radio,
+  List,
+  Empty
 } from "antd";
 import {
   UserOutlined,
@@ -32,10 +34,11 @@ import {
   SolutionOutlined,
   DollarCircleOutlined,
   CopyOutlined,
-  ExclamationCircleOutlined
+  ExclamationCircleOutlined,
+  InfoCircleOutlined
 } from "@ant-design/icons";
 import { useAuth } from "../../contexts/AuthContext";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import api from "../../services/api";
 import { getMyRefunds, type RefundRow } from "../../services/refundService";
 import {
@@ -44,6 +47,12 @@ import {
   type WalletBalance,
   type WalletTransaction
 } from "../../services/walletService";
+import {
+  getMyNotifications,
+  markNotificationRead,
+  markAllNotificationsRead
+} from "../../services/notificationService";
+import type { NotificationItem } from "../../types/notification";
 import { VIETQR_BANKS } from "../../utils/vietqr";
 import { getBookingStatusMeta } from "../../constants/bookingStatus";
 import dayjs from "dayjs";
@@ -86,6 +95,8 @@ interface VoucherItem {
 function Profile() {
   const { user, logout, updateUser } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [form] = Form.useForm();
   // Form đổi mật khẩu là một Form riêng. Trước đây nó gọi form.resetFields() của
   // form hồ sơ (đã bị gỡ khỏi cây khi chuyển tab) nên các ô mật khẩu vẫn còn
@@ -93,7 +104,16 @@ function Profile() {
   const [passwordForm] = Form.useForm();
 
   // State quản lý tab đang chọn trong sidebar
-  const [activeTab, setActiveTab] = useState<string>("profile-edit");
+  const getInitialTab = () => {
+    const tabParam = searchParams.get("tab") || (location.state as { tab?: string } | null)?.tab;
+    const validTabs = ["profile-edit", "bookings", "refunds", "notifications", "vouchers", "change-password"];
+    if (tabParam && validTabs.includes(tabParam)) {
+      return tabParam;
+    }
+    return "profile-edit";
+  };
+
+  const [activeTab, setActiveTab] = useState<string>(getInitialTab);
   const [profile, setProfile] = useState<CustomerProfile | null>(null);
   const [bookings, setBookings] = useState<BookingHistoryItem[]>([]);
   const [vouchers, setVouchers] = useState<VoucherItem[]>([]);
@@ -242,6 +262,23 @@ function Profile() {
     }
   };
 
+  const [profileNotifications, setProfileNotifications] = useState<NotificationItem[]>([]);
+  const [notificationsLoading, setNotificationsLoading] = useState(false);
+  const [unreadNotifCount, setUnreadNotifCount] = useState(0);
+
+  const fetchProfileNotifications = async () => {
+    try {
+      setNotificationsLoading(true);
+      const res = await getMyNotifications({ limit: 50 });
+      setProfileNotifications(res.data || []);
+      setUnreadNotifCount(res.unreadCount || 0);
+    } catch {
+      // Ignored
+    } finally {
+      setNotificationsLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (!user) {
       navigate("/login");
@@ -251,7 +288,24 @@ function Profile() {
     fetchVouchers();
     fetchRefunds();
     fetchWallet();
+    fetchProfileNotifications();
   }, [user]);
+
+  useEffect(() => {
+    const tabParam = searchParams.get("tab") || (location.state as { tab?: string } | null)?.tab;
+    const validTabs = ["profile-edit", "bookings", "refunds", "notifications", "vouchers", "change-password"];
+    if (tabParam && validTabs.includes(tabParam) && tabParam !== activeTab) {
+      setActiveTab(tabParam);
+      if (tabParam === "vouchers") {
+        fetchVouchers();
+      } else if (tabParam === "notifications") {
+        fetchProfileNotifications();
+      } else if (tabParam === "refunds") {
+        fetchRefunds();
+        fetchWallet();
+      }
+    }
+  }, [searchParams, location.state]);
 
   // Cập nhật thông tin hồ sơ
   const handleUpdateProfile = async (values: any) => {
@@ -392,12 +446,18 @@ function Profile() {
                 </Space>
               </div>
 
-              <div style={menuItemStyle("price-notifications")} onClick={() => {
-                setActiveTab("price-notifications");
-                message.info("Chúng tôi sẽ sớm cập nhật tính năng thông báo giá!");
+              <div style={menuItemStyle("notifications")} onClick={() => {
+                setActiveTab("notifications");
+                fetchProfileNotifications();
               }}>
                 <BellOutlined style={{ marginRight: "12px", fontSize: "17px" }} />
-                <span>Thông báo giá vé máy bay</span>
+                <Space>
+                  <span>Thông báo của tôi</span>
+                  <Badge
+                    count={unreadNotifCount}
+                    style={{ backgroundColor: "#1677ff", color: "#fff", fontSize: "10px" }}
+                  />
+                </Space>
               </div>
 
               <div style={menuItemStyle("saved-passengers")} onClick={() => {
@@ -970,6 +1030,113 @@ function Profile() {
                     )}
                   </div>
                 </Modal>
+              </div>
+            )}
+
+            {/* TAB: THÔNG BÁO CỦA TÔI */}
+            {activeTab === "notifications" && (
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+                  <Title level={3} style={{ margin: 0, color: "#2b2420" }}>Thông báo của tôi</Title>
+                  {unreadNotifCount > 0 && (
+                    <Button
+                      type="link"
+                      onClick={async () => {
+                        await markAllNotificationsRead();
+                        setProfileNotifications((prev) => prev.map((n) => ({ ...n, isRead: 1 })));
+                        setUnreadNotifCount(0);
+                        message.success("Đã đánh dấu tất cả thông báo là đã đọc");
+                      }}
+                    >
+                      Đánh dấu tất cả đã đọc
+                    </Button>
+                  )}
+                </div>
+
+                <List
+                  loading={notificationsLoading}
+                  dataSource={profileNotifications}
+                  locale={{ emptyText: <Empty description="Bạn chưa có thông báo nào" /> }}
+                  renderItem={(item) => {
+                    const isUnread = !item.isRead;
+                    const isVoucher = item.type === "voucher" || item.referenceType === "voucher";
+                    return (
+                      <List.Item
+                        key={item.id}
+                        style={{
+                          padding: "14px 16px",
+                          marginBottom: "8px",
+                          borderRadius: "8px",
+                          backgroundColor: isUnread ? "#f0f7ff" : "#fbfbfb",
+                          border: isUnread ? "1px solid #bae0ff" : "1px solid #f0f0f0",
+                          cursor: isUnread ? "pointer" : "default",
+                        }}
+                        onClick={async () => {
+                          if (isUnread) {
+                            try {
+                              await markNotificationRead(item.id);
+                              setProfileNotifications((prev) =>
+                                prev.map((n) => (n.id === item.id ? { ...n, isRead: 1 } : n))
+                              );
+                              setUnreadNotifCount((prev) => Math.max(0, prev - 1));
+                            } catch {
+                              // Ignored
+                            }
+                          }
+                          if (isVoucher) {
+                            setActiveTab("vouchers");
+                            setSearchParams({ tab: "vouchers" });
+                            fetchVouchers();
+                          } else if (item.type === "booking" || item.referenceType === "booking") {
+                            if (item.referenceId) {
+                              navigate(`/booking/${item.referenceId}`);
+                            } else {
+                              setActiveTab("bookings");
+                              setSearchParams({ tab: "bookings" });
+                            }
+                          } else if (item.type === "review" || item.referenceType === "review") {
+                            navigate("/reviews");
+                          }
+                        }}
+                      >
+                        <List.Item.Meta
+                          avatar={
+                            <div
+                              style={{
+                                width: 36,
+                                height: 36,
+                                borderRadius: "50%",
+                                backgroundColor: isVoucher ? "#fef3c7" : "#e0f2fe",
+                                color: isVoucher ? "#d97706" : "#0284c7",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                fontSize: 16,
+                              }}
+                            >
+                              {isVoucher ? <GiftOutlined /> : <InfoCircleOutlined />}
+                            </div>
+                          }
+                          title={
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                              <span style={{ fontWeight: isUnread ? 700 : 500, fontSize: 14 }}>
+                                {item.title}
+                              </span>
+                              <span style={{ fontSize: 12, color: "#94a3b8" }}>
+                                {dayjs(item.createdAt).format("DD/MM/YYYY HH:mm")}
+                              </span>
+                            </div>
+                          }
+                          description={
+                            <div style={{ marginTop: 4, color: "#475467", fontSize: 13 }}>
+                              {item.content}
+                            </div>
+                          }
+                        />
+                      </List.Item>
+                    );
+                  }}
+                />
               </div>
             )}
 

@@ -408,7 +408,10 @@ const BookingDetail: React.FC = () => {
   const bookingServices = Array.isArray(booking.services)
     ? booking.services as Array<Record<string, unknown>>
     : [];
-  const bookingServiceAmount = bookingServices.reduce(
+  const usedBookingServices = bookingServices.filter(
+    (service) => String(service.status || 'used') === 'used'
+  );
+  const bookingServiceAmount = usedBookingServices.reduce(
     (sum, service) => sum + Number(service.totalPrice || 0),
     0
   );
@@ -422,7 +425,7 @@ const BookingDetail: React.FC = () => {
     : 0;
   const invoiceServices = invoice?.services?.length
     ? invoice.services
-    : bookingServices.map((service) => ({
+    : usedBookingServices.map((service) => ({
         serviceId: Number(service.serviceId || 0),
         serviceName: String(service.serviceName || 'Dịch vụ'),
         quantity: Number(service.quantity || 0),

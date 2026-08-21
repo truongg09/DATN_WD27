@@ -16,7 +16,13 @@ export const checkTypeAvailability = async (
   data: {
     checkIn: string;
     checkOut: string;
-    rooms: Array<{ roomTypeId: number; quantity: number }>;
+    rooms: Array<{
+      roomTypeId: number;
+      quantity: number;
+      adults?: number;
+      children?: number;
+      childrenAges?: number[];
+    }>;
   }
 ) => {
   return api.post("/bookings/check-type-availability", data);

@@ -98,6 +98,17 @@ const ensureOperationalSchema = async () => {
     `UPDATE vouchers SET discountType = 'percentage' WHERE discountType = 'percent'`
   );
 
+  const [notifCols] = await db.query('DESCRIBE notifications');
+  if (!notifCols.some((c) => c.Field === 'type')) {
+    await db.query("ALTER TABLE notifications ADD COLUMN type VARCHAR(50) DEFAULT 'general' AFTER accountId");
+  }
+  if (!notifCols.some((c) => c.Field === 'referenceType')) {
+    await db.query("ALTER TABLE notifications ADD COLUMN referenceType VARCHAR(50) NULL DEFAULT NULL AFTER content");
+  }
+  if (!notifCols.some((c) => c.Field === 'referenceId')) {
+    await db.query("ALTER TABLE notifications ADD COLUMN referenceId INT NULL DEFAULT NULL AFTER referenceType");
+  }
+
   // Luôn có dịch vụ giường phụ để khách có thể chọn ngay trên trang đặt phòng.
   const [extraBeds] = await db.query(
     `SELECT id FROM services
@@ -234,6 +245,11 @@ const ensureOperationalSchema = async () => {
         'ALTER TABLE booking_details ADD COLUMN occupancySurcharge DECIMAL(15,2) NOT NULL DEFAULT 0 AFTER roomPrice'
       );
     }
+    if (!bookingDetailColumns.some((column) => column.Field === 'childrenAges')) {
+      await db.query(
+        'ALTER TABLE booking_details ADD COLUMN childrenAges JSON NULL AFTER children'
+      );
+    }
     // Giờ khách mong muốn nhận/trả phòng, khai lúc đặt phòng. Đây là bản ghi
     // "sống" ở booking_details (giống checkInDate/checkOutDate); bookings có
     // cột cùng tên để dự phòng cho các booking không có booking_details.
@@ -283,13 +299,22 @@ const ensureOperationalSchema = async () => {
       id INT AUTO_INCREMENT PRIMARY KEY,
       bookingId INT NOT NULL,
       fullName VARCHAR(255) NOT NULL,
-      identityNumber VARCHAR(50) NOT NULL,
+      identityNumber VARCHAR(50) NULL,
       phone VARCHAR(30) NULL,
       note TEXT NULL,
       createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (bookingId) REFERENCES bookings(id) ON DELETE CASCADE
     )
   `);
+
+  // Luồng check-in nhanh cho phép khai báo CCCD sau. Validator và model đều
+  // đã dùng NULL khi chưa có CCCD, nên schema cũ NOT NULL làm API check-in trả
+  // 500 dù dữ liệu nghiệp vụ hợp lệ.
+  const [bookingGuestColumns] = await db.query('DESCRIBE booking_guests');
+  const identityColumn = bookingGuestColumns.find((column) => column.Field === 'identityNumber');
+  if (identityColumn && identityColumn.Null === 'NO') {
+    await db.query('ALTER TABLE booking_guests MODIFY identityNumber VARCHAR(50) NULL');
+  }
 
   const [invoiceTables] = await db.query('SHOW TABLES LIKE "invoices"');
   if (invoiceTables.length > 0) {
