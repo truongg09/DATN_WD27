@@ -1178,6 +1178,27 @@ const ensureOperationalSchema = async () => {
     console.warn('Lỗi nâng cấp giá đền bù cho amenities:', err.message);
   }
 
+  // ── Bảng thông báo khách hàng (Notifications) ──
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS notifications (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        accountId INT NOT NULL,
+        type VARCHAR(50) NOT NULL DEFAULT 'info',
+        title VARCHAR(255) NOT NULL,
+        content TEXT NULL,
+        referenceType VARCHAR(50) NULL DEFAULT NULL,
+        referenceId INT NULL DEFAULT NULL,
+        isRead TINYINT(1) NOT NULL DEFAULT 0,
+        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_notifications_account (accountId),
+        INDEX idx_notifications_reference (referenceType, referenceId)
+      )
+    `);
+  } catch (err) {
+    console.warn('Lỗi tạo bảng notifications:', err.message);
+  }
+
   // ── Lịch các ngày lễ & Tết ──
   try {
     await db.query(`

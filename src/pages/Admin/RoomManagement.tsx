@@ -21,8 +21,7 @@ import {
   Divider,
   Image,
   Tabs,
-  Spin,
-  Badge
+  Spin
 } from 'antd';
 import { 
   PlusOutlined, 
@@ -40,8 +39,7 @@ import {
   ArrowRightOutlined,
   DollarOutlined,
   CustomerServiceOutlined,
-  UserOutlined,
-  SolutionOutlined
+  UserOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
 import dayjs from 'dayjs';
@@ -1654,7 +1652,7 @@ function RoomManagement() {
                                 size="small"
                                 pagination={false}
                                 dataSource={guests}
-                                rowKey={(g, idx) => g.id || idx}
+                                rowKey={(g: any, idx) => g.id || idx}
                                 columns={[
                                   { title: 'Họ tên', dataIndex: 'fullName', key: 'fullName', render: (t, r: any) => <strong>{t || r.full_name || 'N/A'}</strong> },
                                   { title: 'Số CCCD', dataIndex: 'identityCard', key: 'identityCard', render: (t, r: any) => t || r.identity_card || 'N/A' },
@@ -1687,7 +1685,7 @@ function RoomManagement() {
                               size="small"
                               pagination={false}
                               dataSource={services}
-                              rowKey={(s, idx) => s.id || idx}
+                              rowKey={(s: any, idx) => s.id || idx}
                               style={{ marginBottom: 16 }}
                               columns={[
                                 { title: 'Tên dịch vụ', dataIndex: 'serviceName', key: 'serviceName', render: (t, r: any) => <strong>{t || r.service_name || 'Dịch vụ'}</strong> },
@@ -1715,7 +1713,7 @@ function RoomManagement() {
                               size="small"
                               pagination={false}
                               dataSource={damages}
-                              rowKey={(d, idx) => d.id || idx}
+                              rowKey={(d: any, idx) => d.id || idx}
                               columns={[
                                 { title: 'Nội dung / Vật tư', dataIndex: 'description', key: 'description', render: (t, r: any) => <strong>{t || r.itemName || r.item_name || 'Vật tư'}</strong> },
                                 { title: 'Số lượng', dataIndex: 'quantity', key: 'quantity', width: 80, align: 'center', render: (q) => q || 1 },
