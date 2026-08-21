@@ -19,7 +19,10 @@ import {
   DatePicker,
   Tooltip,
   Divider,
-  Image
+  Image,
+  Tabs,
+  Spin,
+  Badge
 } from 'antd';
 import { 
   PlusOutlined, 
@@ -33,11 +36,16 @@ import {
   LeftOutlined,
   RightOutlined,
   ToolOutlined,
-  AppstoreOutlined
+  AppstoreOutlined,
+  ArrowRightOutlined,
+  DollarOutlined,
+  CustomerServiceOutlined,
+  UserOutlined,
+  SolutionOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
 import dayjs from 'dayjs';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 
 const { Option } = Select;
@@ -100,15 +108,29 @@ function RoomManagement() {
   const [filterFloor, setFilterFloor] = useState<number | null>(null);
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
   
+  const navigate = useNavigate();
+  
   // Quick View Booking states
   const [bookingDetailVisible, setBookingDetailVisible] = useState(false);
   const [selectedBooking, setSelectedBooking] = useState<any | null>(null);
+  const [bookingDetailLoading, setBookingDetailLoading] = useState(false);
 
-  const handleShowBookingDetail = (booking: any) => {
+  const handleShowBookingDetail = async (booking: any) => {
     const targetId = booking.bookingId || booking.id;
-    const fullBooking = bookings.find(b => b.id === targetId);
-    setSelectedBooking(fullBooking || booking);
+    const initialBooking = bookings.find(b => b.id === targetId) || booking;
+    setSelectedBooking(initialBooking);
     setBookingDetailVisible(true);
+    setBookingDetailLoading(true);
+    try {
+      const response: any = await api.get(`/bookings/${targetId}`);
+      if (response && response.data) {
+        setSelectedBooking(response.data);
+      }
+    } catch (err) {
+      console.error('Error fetching full booking detail:', err);
+    } finally {
+      setBookingDetailLoading(false);
+    }
   };
 
   const handleCalendarCheckIn = async (bookingId: number, _customerName: string, _customerPhone: string) => {
@@ -1122,7 +1144,7 @@ function RoomManagement() {
                                  // Khách không đến (no-show) thì phòng thực tế đang trống,
                                  // không được vẽ là "đã đặt" chặn lễ tân bán lại phòng.
                                  if (b.status === 'cancelled' || b.status === 'no_show') return false;
-                                 const bRoomId = b.room_id || b.roomId;
+                                 const bRoomId = b.room_id;
                                  if (Number(bRoomId) !== room.id) return false;
                                  
                                  const checkIn = dayjs(b.check_in).format('YYYY-MM-DD');
@@ -1142,7 +1164,7 @@ function RoomManagement() {
                                      for (const b of calendarBookings) {
                                        if (b.status === 'cancelled') continue;
                                        if (b.detail_id === startBooking.detail_id) continue;
-                                       const bRoomId = b.room_id || b.roomId;
+                                       const bRoomId = b.room_id;
                                        if (Number(bRoomId) !== room.id) continue;
                                        
                                        const bCheckIn = dayjs(b.check_in).format('YYYY-MM-DD');
@@ -1545,70 +1567,248 @@ function RoomManagement() {
 
       {/* Booking Detail Modal */}
       <Modal
-        title="Chi tiết đơn đặt phòng"
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span>Chi tiết đơn đặt phòng #{selectedBooking?.booking_code || selectedBooking?.id}</span>
+            {selectedBooking && (
+              <Tag color={
+                selectedBooking.status === 'checked_in' ? 'green' :
+                selectedBooking.status === 'confirmed' ? 'blue' :
+                selectedBooking.status === 'pending' ? 'orange' :
+                selectedBooking.status === 'checked_out' ? 'default' : 'red'
+              }>
+                {selectedBooking.status === 'checked_in' ? 'Đang ở' :
+                 selectedBooking.status === 'confirmed' ? 'Đã xác nhận' :
+                 selectedBooking.status === 'pending' ? 'Chờ duyệt' :
+                 selectedBooking.status === 'checked_out' ? 'Đã trả phòng' : 'Đã hủy'}
+              </Tag>
+            )}
+          </div>
+        }
         open={bookingDetailVisible}
         onCancel={() => setBookingDetailVisible(false)}
         footer={null}
-        width={600}
+        width={720}
       >
-        {selectedBooking && (
-          <div>
-            <Descriptions bordered column={1} size="small">
-              <Descriptions.Item label="Mã đặt phòng"><strong>#{selectedBooking.id || selectedBooking.bookingId}</strong></Descriptions.Item>
-              <Descriptions.Item label="Khách hàng">{selectedBooking.customer_name || 'N/A'}</Descriptions.Item>
-              <Descriptions.Item label="Số điện thoại">{selectedBooking.customer_phone || 'N/A'}</Descriptions.Item>
-              <Descriptions.Item label="Email">{selectedBooking.customer_email || 'N/A'}</Descriptions.Item>
-              <Descriptions.Item label="Thời gian ở">
-                <strong>{dayjs(selectedBooking.check_in).format('DD/MM/YYYY')}</strong> đến <strong>{dayjs(selectedBooking.check_out).format('DD/MM/YYYY')}</strong>
-                {' '}({dayjs(selectedBooking.check_out).diff(dayjs(selectedBooking.check_in), 'day')} đêm)
-              </Descriptions.Item>
-              <Descriptions.Item label="Hạng phòng & Số phòng">
-                {selectedBooking.room_type_name || 'N/A'} - <strong>Phòng {selectedBooking.room_number || 'N/A'}</strong>
-              </Descriptions.Item>
-              <Descriptions.Item label="Số khách">{selectedBooking.adults} người lớn{selectedBooking.children > 0 ? `, ${selectedBooking.children} trẻ em` : ''}</Descriptions.Item>
-              <Descriptions.Item label="Tổng tiền phòng">{formatPrice(selectedBooking.total_price)}</Descriptions.Item>
-              <Descriptions.Item label="Trạng thái">
-                <Tag color={
-                  selectedBooking.status === 'checked_in' ? 'green' :
-                  selectedBooking.status === 'confirmed' ? 'blue' :
-                  selectedBooking.status === 'pending' ? 'orange' :
-                  selectedBooking.status === 'checked_out' ? 'default' : 'red'
-                }>
-                  {selectedBooking.status === 'checked_in' ? 'Đang ở' :
-                   selectedBooking.status === 'confirmed' ? 'Đã xác nhận' :
-                   selectedBooking.status === 'pending' ? 'Chờ duyệt' :
-                   selectedBooking.status === 'checked_out' ? 'Đã trả phòng' : 'Đã hủy'}
-                </Tag>
-              </Descriptions.Item>
-              {selectedBooking.notes && (
-                <Descriptions.Item label="Ghi chú">{selectedBooking.notes}</Descriptions.Item>
-              )}
-            </Descriptions>
+        <Spin spinning={bookingDetailLoading}>
+          {selectedBooking && (() => {
+            const b = selectedBooking;
+            const services = b.services || b.service_charges || [];
+            const damages = b.damages || [];
+            const guests = b.guests || [];
 
-            {/* Quick Actions */}
-            <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-              {selectedBooking.status === 'confirmed' && (
-                <Button 
-                  type="primary" 
-                  style={{ backgroundColor: '#22c55e', borderColor: '#22c55e' }}
-                  onClick={() => handleCalendarCheckIn(selectedBooking.id, selectedBooking.customer_name, selectedBooking.customer_phone)}
-                >
-                  Check-in nhanh
-                </Button>
-              )}
-              {selectedBooking.status === 'checked_in' && (
-                <Button 
-                  type="primary" 
-                  danger
-                  onClick={() => handleCalendarCheckOut(selectedBooking.id)}
-                >
-                  Check-out nhanh
-                </Button>
-              )}
-              <Button onClick={() => setBookingDetailVisible(false)}>Đóng</Button>
-            </div>
-          </div>
-        )}
+            const serviceTotal = services.reduce((sum: number, s: any) => sum + Number(s.totalPrice || s.total_price || (s.price * s.quantity) || 0), 0);
+            const damageTotal = damages.reduce((sum: number, d: any) => sum + Number(d.totalPrice || d.total_price || d.fee || d.amount || 0), 0);
+            const roomPrice = Number(b.total_price || b.roomPrice || 0);
+            const grandTotal = Number(b.payable_total ?? (roomPrice + serviceTotal + damageTotal));
+            const paidAmount = Number(b.paid_amount || b.deposit_amount || 0);
+            const remainingAmount = Number(b.remaining_amount ?? (grandTotal - paidAmount));
+
+            return (
+              <div>
+                <Tabs
+                  defaultActiveKey="summary"
+                  items={[
+                    {
+                      key: 'summary',
+                      label: (
+                        <span>
+                          <UserOutlined /> Thông tin & Khách ở
+                        </span>
+                      ),
+                      children: (
+                        <div style={{ paddingTop: 8 }}>
+                          <Descriptions bordered column={2} size="small">
+                            <Descriptions.Item label="Mã đặt phòng" span={2}>
+                              <strong style={{ color: '#0f172a', fontSize: 15 }}>#{b.booking_code || b.id}</strong>
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Tên khách hàng">
+                              <strong>{b.customer_name || 'N/A'}</strong>
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Số điện thoại">
+                              <strong>{b.customer_phone || 'N/A'}</strong>
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Email">{b.customer_email || 'N/A'}</Descriptions.Item>
+                            <Descriptions.Item label="Số CCCD">{b.customer_identity_card || b.identity_card || 'Chưa cập nhật'}</Descriptions.Item>
+                            <Descriptions.Item label="Phòng & Hạng phòng" span={2}>
+                              <strong>Phòng {b.room_number || b.roomNumber || 'N/A'}</strong> ({b.room_type_name || b.roomTypeName || 'N/A'})
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Thời gian lưu trú" span={2}>
+                              <strong>{dayjs(b.check_in).format('DD/MM/YYYY')}</strong> đến <strong>{dayjs(b.check_out).format('DD/MM/YYYY')}</strong>
+                              {' '}({dayjs(b.check_out).diff(dayjs(b.check_in), 'day')} đêm)
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Số lượng khách" span={2}>
+                              {b.adults || 2} người lớn{b.children > 0 ? `, ${b.children} trẻ em` : ''}
+                            </Descriptions.Item>
+                            {b.notes && (
+                              <Descriptions.Item label="Ghi chú" span={2}>{b.notes}</Descriptions.Item>
+                            )}
+                          </Descriptions>
+
+                          {guests.length > 0 && (
+                            <div style={{ marginTop: 16 }}>
+                              <div style={{ fontWeight: 600, fontSize: 13, color: '#334155', marginBottom: 8 }}>
+                                📋 Khai báo khách lưu trú ({guests.length} người):
+                              </div>
+                              <Table
+                                size="small"
+                                pagination={false}
+                                dataSource={guests}
+                                rowKey={(g, idx) => g.id || idx}
+                                columns={[
+                                  { title: 'Họ tên', dataIndex: 'fullName', key: 'fullName', render: (t, r: any) => <strong>{t || r.full_name || 'N/A'}</strong> },
+                                  { title: 'Số CCCD', dataIndex: 'identityCard', key: 'identityCard', render: (t, r: any) => t || r.identity_card || 'N/A' },
+                                  { title: 'SĐT', dataIndex: 'phone', key: 'phone', render: (t, r: any) => t || r.phone || 'N/A' },
+                                ]}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      )
+                    },
+                    {
+                      key: 'services',
+                      label: (
+                        <span>
+                          <CustomerServiceOutlined /> Dịch vụ & Vật tư ({services.length + damages.length})
+                        </span>
+                      ),
+                      children: (
+                        <div style={{ paddingTop: 8 }}>
+                          <div style={{ fontWeight: 600, fontSize: 13, color: '#0f172a', marginBottom: 8 }}>
+                            🛒 Dịch vụ đã gọi ({services.length})
+                          </div>
+                          {services.length === 0 ? (
+                            <div style={{ padding: 16, background: '#f8fafc', borderRadius: 8, textAlign: 'center', color: '#94a3b8', fontSize: 13, marginBottom: 16 }}>
+                              Khách chưa gọi dịch vụ phát sinh nào
+                            </div>
+                          ) : (
+                            <Table
+                              size="small"
+                              pagination={false}
+                              dataSource={services}
+                              rowKey={(s, idx) => s.id || idx}
+                              style={{ marginBottom: 16 }}
+                              columns={[
+                                { title: 'Tên dịch vụ', dataIndex: 'serviceName', key: 'serviceName', render: (t, r: any) => <strong>{t || r.service_name || 'Dịch vụ'}</strong> },
+                                { title: 'Số lượng', dataIndex: 'quantity', key: 'quantity', width: 80, align: 'center' },
+                                { title: 'Đơn giá', dataIndex: 'price', key: 'price', width: 110, render: (p, r: any) => formatPrice(p || r.unit_price) },
+                                { title: 'Thành tiền', key: 'total', width: 120, render: (_, r: any) => <strong style={{ color: '#0f172a' }}>{formatPrice(r.totalPrice || r.total_price || (r.price * r.quantity))}</strong> },
+                                { title: 'Trạng thái', dataIndex: 'status', key: 'status', width: 100, render: (st) => (
+                                  <Tag color={st === 'served' ? 'green' : st === 'cancelled' ? 'red' : 'orange'}>
+                                    {st === 'served' ? 'Đã phục vụ' : st === 'cancelled' ? 'Hủy' : 'Chờ xử lý'}
+                                  </Tag>
+                                )}
+                              ]}
+                            />
+                          )}
+
+                          <div style={{ fontWeight: 600, fontSize: 13, color: '#0f172a', marginBottom: 8 }}>
+                            ⚠️ Phụ thu vật tư / Hư hỏng ({damages.length})
+                          </div>
+                          {damages.length === 0 ? (
+                            <div style={{ padding: 16, background: '#f8fafc', borderRadius: 8, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>
+                              Không có ghi nhận phí hư hỏng / phụ thu vật tư
+                            </div>
+                          ) : (
+                            <Table
+                              size="small"
+                              pagination={false}
+                              dataSource={damages}
+                              rowKey={(d, idx) => d.id || idx}
+                              columns={[
+                                { title: 'Nội dung / Vật tư', dataIndex: 'description', key: 'description', render: (t, r: any) => <strong>{t || r.itemName || r.item_name || 'Vật tư'}</strong> },
+                                { title: 'Số lượng', dataIndex: 'quantity', key: 'quantity', width: 80, align: 'center', render: (q) => q || 1 },
+                                { title: 'Phí đền bù', key: 'fee', width: 130, render: (_, r: any) => <strong style={{ color: '#dc2626' }}>{formatPrice(r.fee || r.amount || r.totalPrice || r.total_price)}</strong> },
+                              ]}
+                            />
+                          )}
+                        </div>
+                      )
+                    },
+                    {
+                      key: 'payment',
+                      label: (
+                        <span>
+                          <DollarOutlined /> Thanh toán
+                        </span>
+                      ),
+                      children: (
+                        <div style={{ paddingTop: 8 }}>
+                          <Card size="small" style={{ background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px dashed #e2e8f0' }}>
+                              <span style={{ color: '#64748b' }}>Tiền phòng:</span>
+                              <strong>{formatPrice(roomPrice)}</strong>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px dashed #e2e8f0' }}>
+                              <span style={{ color: '#64748b' }}>Tiền dịch vụ phát sinh:</span>
+                              <strong>+{formatPrice(serviceTotal)}</strong>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px dashed #e2e8f0' }}>
+                              <span style={{ color: '#64748b' }}>Phí đền bù vật tư / hư hỏng:</span>
+                              <strong style={{ color: damageTotal > 0 ? '#dc2626' : '#0f172a' }}>+{formatPrice(damageTotal)}</strong>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0 6px', fontSize: 15 }}>
+                              <strong>Tổng hóa đơn:</strong>
+                              <strong style={{ fontSize: 16, color: '#0f172a' }}>{formatPrice(grandTotal)}</strong>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', color: '#166534', background: '#f0fdf4', borderRadius: 6, paddingLeft: 8, paddingRight: 8, marginTop: 4 }}>
+                              <span>Đã cọc / Đã thanh toán:</span>
+                              <strong>-{formatPrice(paidAmount)}</strong>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 8px 8px', background: remainingAmount > 0 ? '#fff7ed' : '#f0fdf4', borderRadius: 6, marginTop: 8 }}>
+                              <strong style={{ color: remainingAmount > 0 ? '#c2410c' : '#15803d' }}>
+                                {remainingAmount > 0 ? 'Còn phải thu khi check-out:' : 'Đã thanh toán đủ:'}
+                              </strong>
+                              <strong style={{ fontSize: 17, color: remainingAmount > 0 ? '#c2410c' : '#15803d' }}>
+                                {formatPrice(Math.abs(remainingAmount))}
+                              </strong>
+                            </div>
+                          </Card>
+                        </div>
+                      )
+                    }
+                  ]}
+                />
+
+                {/* Footer buttons */}
+                <div style={{ marginTop: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 12, borderTop: '1px solid #f1f5f9' }}>
+                  <Button
+                    type="dashed"
+                    icon={<ArrowRightOutlined />}
+                    onClick={() => {
+                      setBookingDetailVisible(false);
+                      navigate(`/admin/bookings/${b.id}`);
+                    }}
+                  >
+                    Xem trang chi tiết đầy đủ Admin
+                  </Button>
+                  <Space>
+                    {b.status === 'confirmed' && (
+                      <Button
+                        type="primary"
+                        style={{ backgroundColor: '#22c55e', borderColor: '#22c55e' }}
+                        onClick={() => handleCalendarCheckIn(b.id, b.customer_name, b.customer_phone)}
+                      >
+                        Check-in nhanh
+                      </Button>
+                    )}
+                    {b.status === 'checked_in' && (
+                      <Button
+                        type="primary"
+                        danger
+                        onClick={() => handleCalendarCheckOut(b.id)}
+                      >
+                        Check-out nhanh
+                      </Button>
+                    )}
+                    <Button onClick={() => setBookingDetailVisible(false)}>Đóng</Button>
+                  </Space>
+                </div>
+              </div>
+            );
+          })()}
+        </Spin>
       </Modal>
 
       {/* Room Items Modal */}
