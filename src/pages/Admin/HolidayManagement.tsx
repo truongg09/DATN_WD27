@@ -56,6 +56,7 @@ const HolidayManagement: React.FC = () => {
   const [editingHoliday, setEditingHoliday] = useState<Holiday | null>(null);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [filterYear, setFilterYear] = useState<number | undefined>(undefined);
+  const [filterDays, setFilterDays] = useState<'15' | '30' | '90' | 'all'>('90');
 
   const [form] = Form.useForm();
 
@@ -64,6 +65,7 @@ const HolidayManagement: React.FC = () => {
     try {
       const params: any = {};
       if (filterYear) params.year = filterYear;
+      if (filterDays !== 'all') params.daysAhead = Number(filterDays);
       const res: any = await api.get('/holidays', { params });
       if (res?.data) {
         setHolidays(res.data);
@@ -78,7 +80,7 @@ const HolidayManagement: React.FC = () => {
 
   useEffect(() => {
     fetchHolidays();
-  }, [filterYear]);
+  }, [filterYear, filterDays]);
 
   const handleOpenAddModal = () => {
     setEditingHoliday(null);
@@ -268,11 +270,23 @@ const HolidayManagement: React.FC = () => {
           <Title level={3} style={{ margin: 0 }}>Quản lý Lịch Các Ngày Lễ & Tết</Title>
           <Text type="secondary">Cấu hình linh hoạt các đợt nghỉ lễ Tết và tỷ lệ phụ thu tiền phòng tự động</Text>
         </div>
-        <Space>
+        <Space wrap>
+          <Select
+            placeholder="Khoảng thời gian"
+            style={{ width: 160 }}
+            value={filterDays}
+            onChange={(val) => setFilterDays(val)}
+            options={[
+              { label: '⚡ 15 ngày tới', value: '15' },
+              { label: '⚡ 30 ngày tới', value: '30' },
+              { label: '⚡ 90 ngày tới', value: '90' },
+              { label: 'Tất cả ngày lễ', value: 'all' }
+            ]}
+          />
           <Select
             placeholder="Lọc theo năm"
             allowClear
-            style={{ width: 140 }}
+            style={{ width: 130 }}
             value={filterYear}
             onChange={(val) => setFilterYear(val)}
             options={[
@@ -280,9 +294,7 @@ const HolidayManagement: React.FC = () => {
               { label: 'Năm 2025', value: 2025 },
               { label: 'Năm 2026', value: 2026 },
               { label: 'Năm 2027', value: 2027 },
-              { label: 'Năm 2028', value: 2028 },
-              { label: 'Năm 2029', value: 2029 },
-              { label: 'Năm 2030', value: 2030 }
+              { label: 'Năm 2028', value: 2028 }
             ]}
           />
           <Button icon={<ReloadOutlined />} onClick={fetchHolidays} loading={loading}>Làm mới</Button>
