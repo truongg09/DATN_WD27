@@ -675,6 +675,11 @@ const calcNightlyPrices = async (
     .reduce((sum, p) => sum + Math.max(0, p.price - (p.basePrice || p.price)), 0);
   const holidayNightsCount = prices.filter((p) => p.isHoliday).length;
   const weekendNightsCount = prices.filter((p) => (p.isSunday || p.isSaturday) && !p.isHoliday).length;
+  // Phụ thu ngày lễ giờ tính theo từng dịp (mỗi dịp một mức % riêng trong bảng
+  // holidays), nên biến này chỉ còn khai được BÊN TRONG vòng lặp từng đêm. Trả
+  // thẳng nó ra ngoài như trước là ReferenceError, làm chết luôn API tìm phòng
+  // theo hạng. Lấy lại từ chính các đêm đã tính.
+  const holidaySurchargeAmount = prices.find((p) => p.isHoliday)?.surcharge || 0;
 
   return {
     nights: prices.length,
