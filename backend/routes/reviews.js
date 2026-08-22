@@ -374,9 +374,13 @@ router.put("/:id", requireAuth, async (req, res) => {
       });
     }
 
-    // Nếu khách sửa lại nội dung của 1 review đã bị từ chối/ẩn -> đưa review
-    // về trạng thái "pending" để admin/staff duyệt lại, đồng thời xoá lý do ẩn cũ.
-    const shouldResendForReview = existing.status === "hidden" && contentChanged;
+    // Sửa nội dung thì phải duyệt lại, dù đánh giá đang ở trạng thái nào.
+    //
+    // Trước đây chỉ áp cho đánh giá đang bị ẩn, nên đánh giá ĐÃ DUYỆT sửa nội
+    // dung vẫn giữ nguyên 'approved': khách viết bài sạch để được duyệt rồi sửa
+    // thành nội dung bẩn, và nó lên thẳng trang công khai không qua ai xem lại.
+    const shouldResendForReview =
+      contentChanged && ["hidden", "approved"].includes(existing.status);
 
     const setClauses = ["rating = COALESCE(?, rating)", "comment = COALESCE(?, comment)"];
     const params = [rating ?? null, comment ?? null];
