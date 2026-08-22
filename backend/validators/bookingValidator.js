@@ -59,12 +59,38 @@ const normalizeOptionalTime = (value, fieldName) => {
   return `${str}:00`;
 };
 
-const assertDateRange = (checkIn, checkOut) => {
+// Số đêm tối đa cho một đơn. Không chặn thì một đơn đặt tới năm 9999 khóa phòng
+// suốt nhiều năm trên lịch, và mọi hàm tính giá theo từng đêm phải dựng mảng
+// hàng triệu phần tử — đủ để treo cả máy chủ.
+const MAX_NIGHTS_PER_BOOKING = 30;
+// Trần số phòng mỗi đơn. Không chặn thì một request quét sạch phòng trống của
+// cả một hạng phòng.
+const MAX_ROOMS_PER_BOOKING = 5;
+
+const assertDateRange = (checkIn, checkOut, { allowPast = false } = {}) => {
   const checkInDate = new Date(`${checkIn}T00:00:00.000Z`);
   const checkOutDate = new Date(`${checkOut}T00:00:00.000Z`);
 
   if (checkOutDate <= checkInDate) {
     throw new HttpError(400, 'Ngày trả phòng phải sau ngày nhận phòng');
+  }
+
+  if (!allowPast) {
+    const now = new Date();
+    const todayUtc = new Date(
+      `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}T00:00:00.000Z`
+    );
+    if (checkInDate < todayUtc) {
+      throw new HttpError(400, 'Ngày nhận phòng không thể ở quá khứ');
+    }
+  }
+
+  const nights = Math.round((checkOutDate - checkInDate) / 86400000);
+  if (nights > MAX_NIGHTS_PER_BOOKING) {
+    throw new HttpError(
+      400,
+      `Mỗi lần đặt tối đa ${MAX_NIGHTS_PER_BOOKING} đêm. Nghỉ dài hơn vui lòng liên hệ khách sạn.`
+    );
   }
 };
 
@@ -211,6 +237,13 @@ const normalizeBookingPayload = (body, userFromToken) => {
   }
 
   assertDateRange(payload.checkIn, payload.checkOut);
+
+  if (payload.roomQuantity > MAX_ROOMS_PER_BOOKING) {
+    throw new HttpError(
+      400,
+      `Mỗi lần đặt tối đa ${MAX_ROOMS_PER_BOOKING} phòng. Đặt nhiều hơn vui lòng liên hệ khách sạn.`
+    );
+  }
   return payload;
 };
 
