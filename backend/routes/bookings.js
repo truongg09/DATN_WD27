@@ -2,11 +2,33 @@ const express = require('express');
 const bookingController = require('../controllers/bookingController');
 const { requireAuth, requireStaff } = require('../middleware/auth');
 
+const { rateLimit } = require('../middleware/rateLimit');
+
 const router = express.Router();
 
-router.post('/check-availability', bookingController.checkAvailability);
-router.post('/check-type-availability', bookingController.checkTypeAvailability);
-router.post('/', requireAuth, bookingController.createBooking);
+// Hai API tra cứu này KHÔNG cần đăng nhập, mà mỗi lần gọi đều chạy vài lệnh
+// UPDATE dọn đơn hết hạn cộng nhiều truy vấn theo từng hạng phòng. Pool chỉ có
+// vài kết nối nên gọi dồn dập là nghẽn cả site.
+const availabilityLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  scope: 'availability',
+  message: 'Bạn tra cứu quá nhanh, vui lòng chờ một chút rồi thử lại.'
+});
+
+// Tạo đơn: đã có hạn mức đơn chờ thanh toán ở tầng nghiệp vụ, thêm chặn tần
+// suất để không ai dội hàng trăm request một lúc.
+const createBookingLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 5,
+  keyBy: (req) => `user:${req.user?.userId || req.ip}`,
+  message: 'Bạn đặt phòng quá nhanh, vui lòng chờ một chút rồi thử lại.'
+});
+
+
+router.post('/check-availability', availabilityLimiter, bookingController.checkAvailability);
+router.post('/check-type-availability', availabilityLimiter, bookingController.checkTypeAvailability);
+router.post('/', requireAuth, createBookingLimiter, bookingController.createBooking);
 router.get('/me', requireAuth, bookingController.listMyBookings);
 // Khách đăng nhập chỉ nhận được đặt phòng của chính mình (controller tự ép lọc
 // theo userId trong token); nhân viên mới xem được toàn bộ danh sách.
