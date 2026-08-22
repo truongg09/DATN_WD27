@@ -7,6 +7,8 @@ const { requireAuth, requireStaff, requireAdmin } = require('../middleware/auth'
 const router = express.Router();
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+// Trần số đêm cho các API xem trước giá. Xem chú thích ở /price-preview.
+const MAX_PREVIEW_NIGHTS = 30;
 const ROOM_STATUSES = new Set(['available', 'occupied', 'maintenance', 'reserved']);
 
 const normalizeRoomPayload = (body = {}) => {
@@ -384,7 +386,7 @@ router.get('/prices', async (req, res) => {
     res.json({ data: prices });
   } catch (error) {
     console.error('List room prices error:', error);
-    res.status(500).json({ message: 'Lỗi máy chủ nội bộ', details: error.message });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
   }
 });
 
@@ -398,6 +400,19 @@ router.get('/price-preview', async (req, res) => {
       return res.status(400).json({ message: 'Ngày checkIn / checkOut không hợp lệ (YYYY-MM-DD)' });
     }
 
+    // Chốt chặn bắt buộc: hàm tính giá dựng một phần tử cho MỖI ĐÊM, nên
+    // checkOut=9999-12-31 sinh mảng vài triệu phần tử và treo cả tiến trình.
+    // Đây là API công khai, không cần đăng nhập, nên thiếu chặn này là bất kỳ ai
+    // cũng làm sập được máy chủ bằng một đường dẫn.
+    const nightCount = Math.round(
+      (new Date(`${checkOut}T00:00:00.000Z`) - new Date(`${checkIn}T00:00:00.000Z`)) / 86400000
+    );
+    if (nightCount > MAX_PREVIEW_NIGHTS) {
+      return res
+        .status(400)
+        .json({ message: `Chỉ xem trước giá tối đa ${MAX_PREVIEW_NIGHTS} đêm một lần.` });
+    }
+
     const nightly = await bookingService.calcNightlyPrices(
       roomTypeId ? Number(roomTypeId) : null,
       Number(fallbackPrice || 0),
@@ -408,7 +423,7 @@ router.get('/price-preview', async (req, res) => {
     res.json({ data: nightly });
   } catch (error) {
     console.error('Preview price error:', error);
-    res.status(500).json({ message: 'Lỗi máy chủ nội bộ', details: error.message });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
   }
 });
 
@@ -726,7 +741,7 @@ router.post('/prices', requireAuth, requireStaff, async (req, res) => {
     res.status(201).json({ data: created, message: 'Thêm cấu hình giá thành công' });
   } catch (error) {
     console.error('Create room price error:', error);
-    res.status(500).json({ message: 'Lỗi máy chủ nội bộ', details: error.message });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
   }
 });
 
@@ -767,7 +782,7 @@ router.put('/prices/:id', requireAuth, requireStaff, async (req, res) => {
     res.json({ data: updated, message: 'Cập nhật cấu hình giá thành công' });
   } catch (error) {
     console.error('Update room price error:', error);
-    res.status(500).json({ message: 'Lỗi máy chủ nội bộ', details: error.message });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
   }
 });
 
