@@ -4,6 +4,10 @@ const { requireAuth, isStaff } = require('../middleware/auth');
 
 const router = express.Router();
 
+// Chống spam hàng đợi duyệt rút tiền của kế toán.
+const MIN_WITHDRAW_AMOUNT = 50000;
+const MAX_PENDING_WITHDRAWALS = 3;
+
 const requireStaff = (req, res, next) => {
   if (!isStaff(req.user)) {
     return res.status(403).json({ message: 'Chỉ quản trị viên được thao tác' });
@@ -118,6 +122,27 @@ router.post('/withdraw', requireAuth, async (req, res) => {
     if (amount <= 0) {
       await connection.rollback();
       return res.status(400).json({ message: 'Số tiền rút phải lớn hơn 0' });
+    }
+
+    // Mức rút tối thiểu: không chặn thì khách rút 1₫ mỗi lệnh, số dư 2 triệu
+    // thành 2 triệu phiếu chờ duyệt, ngập hàng đợi của kế toán.
+    if (amount < MIN_WITHDRAW_AMOUNT) {
+      await connection.rollback();
+      return res.status(400).json({
+        message: `Số tiền rút tối thiểu là ${MIN_WITHDRAW_AMOUNT.toLocaleString('vi-VN')}₫`
+      });
+    }
+
+    // Mỗi khách chỉ được có vài lệnh rút chờ duyệt cùng lúc.
+    const [[pendingRow]] = await connection.query(
+      "SELECT COUNT(*) AS total FROM wallet_transactions WHERE customerId = ? AND type = 'withdraw' AND status = 'pending'",
+      [customerId]
+    );
+    if (Number(pendingRow?.total || 0) >= MAX_PENDING_WITHDRAWALS) {
+      await connection.rollback();
+      return res.status(429).json({
+        message: `Bạn đang có ${MAX_PENDING_WITHDRAWALS} lệnh rút chờ duyệt. Vui lòng đợi khách sạn xử lý xong.`
+      });
     }
 
     // Khóa các dòng ví của khách để tránh 2 lệnh rút song song vượt số dư
