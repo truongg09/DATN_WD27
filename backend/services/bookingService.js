@@ -6130,6 +6130,20 @@ const executeBookingChange = async (bookingId, payload = {}, actor = null) => {
     if (preview.financialBreakdown.refundableExcessAmount > 0 && payload.refundRequest) {
       const normRefund = normalizeRefundRequest(payload.refundRequest);
       if (normRefund) {
+        // Một đơn chỉ được có một phiếu hoàn đang chờ duyệt. Số tiền đã trả chỉ
+        // bị trừ khi admin duyệt, nên nếu cho tạo nhiều phiếu trên cùng khoản
+        // tiền thì duyệt hết là hoàn trùng — mất tiền thật của khách sạn.
+        const [pendingRefunds] = await connection.query(
+          "SELECT id FROM payment_refunds WHERE bookingId = ? AND status = 'pending' LIMIT 1",
+          [bookingId]
+        );
+        if (pendingRefunds.length > 0) {
+          throw new HttpError(
+            409,
+            'Đơn này đã có một yêu cầu hoàn tiền đang chờ duyệt. Vui lòng xử lý yêu cầu đó trước.'
+          );
+        }
+
         const isAutoApproved = Boolean(payload.isStaffOrAdmin || payload.autoApproveRefund);
         const [refundRes] = await connection.query(
           `INSERT INTO payment_refunds
