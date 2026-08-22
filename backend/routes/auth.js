@@ -5,10 +5,56 @@ const jwt = require('jsonwebtoken');
 const db = require('../config/db');
 const emailService = require('../services/emailService');
 const { JWT_SECRET, JWT_EXPIRES_IN } = require('../config/jwt');
+const { rateLimit, byUser, byEmailAndIp } = require('../middleware/rateLimit');
 
 const router = express.Router();
 
-router.post('/register', async (req, res) => {
+// ── Hạn mức chống lạm dụng cho khu vực xác thực ───────────────────────────
+// Đăng nhập: khóa theo email kèm IP để chặn cả dò một tài khoản từ nhiều máy
+// lẫn dò nhiều tài khoản từ một máy. Mật khẩu tối thiểu chỉ 6 ký tự nên nếu
+// thả tự do thì một danh sách mật khẩu phổ biến là quét hết được.
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  keyBy: byEmailAndIp,
+  onlyFailures: true,
+  message: 'Bạn đã đăng nhập sai quá nhiều lần. Vui lòng thử lại sau 15 phút.'
+});
+
+// Đăng ký: mỗi IP vài tài khoản một giờ là đủ dùng thật. Không chặn thì tài
+// khoản rác tạo bao nhiêu cũng được, khiến requireAuth ở các API khác vô nghĩa.
+const registerLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  message: 'Bạn đã tạo quá nhiều tài khoản từ thiết bị này. Vui lòng thử lại sau.'
+});
+
+// Quên mật khẩu: mỗi lần gọi đều hủy token cũ, nên gọi lặp là chặn luôn việc
+// khôi phục mật khẩu của chính chủ. Chặn theo cả email lẫn IP.
+const forgotPasswordLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  keyBy: byEmailAndIp,
+  message: 'Bạn đã yêu cầu đặt lại mật khẩu quá nhiều lần. Vui lòng thử lại sau một giờ.'
+});
+
+// Đổi mật khẩu: đã cần JWT nên rủi ro thấp, chặn nhẹ theo tài khoản.
+const changePasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  keyBy: byUser,
+  onlyFailures: true,
+  message: 'Bạn đã đổi mật khẩu quá nhiều lần. Vui lòng thử lại sau ít phút.'
+});
+
+// Đặt lại mật khẩu bằng token: token 256 bit nên gần như không dò được, chặn
+// ở đây chỉ để tránh bị dùng làm kênh spam.
+const resetPasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10
+});
+
+router.post('/register', registerLimiter, async (req, res) => {
   try {
     const { fullName, email, phone, password, dob, gender } = req.body;
     const trimmedFullName = String(fullName || '').trim();
@@ -100,13 +146,12 @@ router.post('/register', async (req, res) => {
   } catch (error) {
     console.error('Register error:', error);
     return res.status(500).json({
-      message: 'Không thể đăng ký tài khoản. Vui lòng kiểm tra kết nối database và bảng accounts',
-      error: error.message
+      message: 'Không thể đăng ký tài khoản. Vui lòng thử lại sau.'
     });
   }
 });
 
-router.post('/login', async (req, res) => {
+router.post('/login', loginLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -162,15 +207,14 @@ router.post('/login', async (req, res) => {
   } catch (error) {
     console.error('Login error:', error);
     return res.status(500).json({
-      message: 'Không thể đăng nhập. Vui lòng kiểm tra kết nối database',
-      error: error.message
+      message: 'Không thể đăng nhập. Vui lòng thử lại sau.'
     });
   }
 });
 
 const { requireAuth } = require('../middleware/auth');
 
-router.post('/change-password', requireAuth, async (req, res) => {
+router.post('/change-password', requireAuth, changePasswordLimiter, async (req, res) => {
   try {
     const { oldPassword, newPassword } = req.body;
     const userId = req.user.userId;
@@ -201,7 +245,7 @@ router.post('/change-password', requireAuth, async (req, res) => {
     res.json({ message: 'Đổi mật khẩu thành công!' });
   } catch (error) {
     console.error('Change password error:', error);
-    res.status(500).json({ message: 'Lỗi máy chủ nội bộ', error: error.message });
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
   }
 });
 
@@ -211,9 +255,11 @@ router.post('/change-password', requireAuth, async (req, res) => {
 // token dùng một lần, hết hạn sau ít phút.
 
 const RESET_TOKEN_TTL_MINUTES = 30;
+// Khoảng chờ tối thiểu giữa hai lần xin đặt lại mật khẩu cho cùng một tài khoản.
+const RESET_REQUEST_COOLDOWN_SECONDS = 60;
 const hashResetToken = (token) => crypto.createHash('sha256').update(token).digest('hex');
 
-router.post('/forgot-password', async (req, res) => {
+router.post('/forgot-password', forgotPasswordLimiter, async (req, res) => {
   // Luôn trả cùng một câu trả lời dù email có tồn tại hay không, để không ai
   // dùng màn hình này để dò xem địa chỉ nào đã đăng ký.
   const genericResponse = {
@@ -240,6 +286,20 @@ router.post('/forgot-password', async (req, res) => {
       [account.id]
     );
     const customer = customers[0] || null;
+
+    // Chỉ cho yêu cầu lại sau một khoảng chờ. Mỗi lần gọi đều hủy token cũ, nên
+    // nếu thả tự do thì kẻ xấu gọi lặp là chính chủ không bao giờ kịp bấm vào
+    // liên kết trong thư — tức là khóa luôn đường khôi phục mật khẩu của họ.
+    const [recent] = await db.query(
+      `SELECT createdAt FROM password_reset_tokens
+       WHERE accountId = ? AND createdAt > DATE_SUB(NOW(), INTERVAL ? SECOND)
+       ORDER BY id DESC LIMIT 1`,
+      [account.id, RESET_REQUEST_COOLDOWN_SECONDS]
+    );
+    if (recent.length > 0) {
+      // Vẫn trả lời y hệt trường hợp thành công để không lộ email nào có thật.
+      return res.json(genericResponse);
+    }
 
     // Vô hiệu hóa các token cũ chưa dùng để mỗi lần yêu cầu chỉ còn một liên kết
     // hợp lệ.
@@ -276,7 +336,7 @@ router.post('/forgot-password', async (req, res) => {
   }
 });
 
-router.post('/reset-password', async (req, res) => {
+router.post('/reset-password', resetPasswordLimiter, async (req, res) => {
   try {
     const { token, newPassword } = req.body || {};
     if (!token || !newPassword) {
