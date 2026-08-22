@@ -1714,11 +1714,48 @@ const createMultiTypeBooking = async (payload, actor, connection) => {
   return { ...booking, payment };
 };
 
+// Số đơn CHƯA thanh toán mà một tài khoản được phép giữ cùng lúc.
+//
+// Đơn vừa tạo đã giữ phòng 15 phút dù chưa trả đồng nào, và phòng đang giữ bị
+// loại khỏi danh sách còn trống. Không chặn thì một tài khoản tạo vài chục đơn
+// là cả website hiện "hết phòng", lặp lại mãi — mất doanh thu đúng dịp cao điểm
+// mà không cần kỹ thuật gì.
+const MAX_ACTIVE_UNPAID_BOOKINGS_PER_USER = 3;
+
+const assertUnpaidBookingQuota = async (userId, connection) => {
+  if (!userId) return;
+  const [[row]] = await connection.query(
+    `SELECT COUNT(*) AS total
+     FROM bookings b
+     LEFT JOIN payments p ON p.id = (
+       SELECT p2.id FROM payments p2 WHERE p2.bookingId = b.id ORDER BY p2.id DESC LIMIT 1
+     )
+     WHERE b.user_id = ?
+       AND COALESCE(b.bookingStatus, b.status) IN ('pending', 'confirmed')
+       AND COALESCE(p.paidAmount, 0) <= 0
+       AND b.hold_expires_at IS NOT NULL
+       AND b.hold_expires_at > NOW()`,
+    [userId]
+  );
+
+  if (Number(row?.total || 0) >= MAX_ACTIVE_UNPAID_BOOKINGS_PER_USER) {
+    throw new HttpError(
+      429,
+      `Bạn đang có ${MAX_ACTIVE_UNPAID_BOOKINGS_PER_USER} đơn chờ thanh toán. Vui lòng thanh toán hoặc hủy bớt trước khi đặt thêm.`
+    );
+  }
+};
+
 const createBooking = async (payload, actor) => {
   const connection = await db.getConnection();
 
   try {
     await connection.beginTransaction();
+
+    // Dọn các đơn hết hạn giữ chỗ trước khi đếm, để khách không bị chặn oan vì
+    // những đơn cũ đã quá hạn thanh toán.
+    await bookingModel.expireUnpaidBookingHolds(connection);
+    await assertUnpaidBookingQuota(payload.userId, connection);
 
     const roomQuantity = Math.max(1, payload.roomQuantity || 1);
     let assignedRooms = [];
