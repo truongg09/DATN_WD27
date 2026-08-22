@@ -33,8 +33,11 @@ const clientIp = (req) => req.ip || req.socket?.remoteAddress || 'unknown';
  * @param {function} [options.keyBy] Cách nhóm: mặc định theo IP
  * @param {string} [options.message] Thông báo trả về khi bị chặn
  * @param {string} [options.scope]   Gộp nhiều route vào chung một hạn mức
+ * @param {boolean} [options.onlyFailures] Chỉ tính các lần THẤT BẠI (>=400).
+ *   Dùng cho đăng nhập: người gõ nhầm vài lần rồi nhớ ra mật khẩu thì không bị
+ *   khóa oan, trong khi kẻ dò mật khẩu vẫn bị chặn vì lần nào cũng sai.
  */
-const rateLimit = ({ windowMs, max, keyBy, message, scope }) => (req, res, next) => {
+const rateLimit = ({ windowMs, max, keyBy, message, scope, onlyFailures }) => (req, res, next) => {
   const who = keyBy ? keyBy(req) : clientIp(req);
   const key = `${scope || req.baseUrl + req.path}|${who}`;
   const now = Date.now();
@@ -56,6 +59,19 @@ const rateLimit = ({ windowMs, max, keyBy, message, scope }) => (req, res, next)
   entry.hits.push(now);
   entry.lastSeen = now;
   buckets.set(key, entry);
+
+  if (onlyFailures) {
+    // Trả lời thành công thì rút lại lần đếm vừa ghi.
+    res.on('finish', () => {
+      if (res.statusCode < 400) {
+        const current = buckets.get(key);
+        if (!current) return;
+        const idx = current.hits.indexOf(now);
+        if (idx !== -1) current.hits.splice(idx, 1);
+      }
+    });
+  }
+
   return next();
 };
 
