@@ -45,6 +45,7 @@ import axios from 'axios';
 import dayjs from 'dayjs';
 import { useLocation, useNavigate } from 'react-router-dom';
 import api from '../../services/api';
+import { AdminCreateBookingModal } from './AdminCreateBookingModal';
 
 const { Option } = Select;
 
@@ -112,6 +113,11 @@ function RoomManagement() {
   const [bookingDetailVisible, setBookingDetailVisible] = useState(false);
   const [selectedBooking, setSelectedBooking] = useState<any | null>(null);
   const [bookingDetailLoading, setBookingDetailLoading] = useState(false);
+
+  // Admin Create Booking states
+  const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [selectedRoomForCreate, setSelectedRoomForCreate] = useState<number | null>(null);
+  const [selectedDateForCreate, setSelectedDateForCreate] = useState<dayjs.Dayjs | null>(null);
 
   const handleShowBookingDetail = async (booking: any) => {
     const targetId = booking.bookingId || booking.id;
@@ -892,6 +898,18 @@ function RoomManagement() {
             <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
               Thêm phòng mới
             </Button>
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={() => {
+                setSelectedRoomForCreate(null);
+                setSelectedDateForCreate(null);
+                setCreateModalOpen(true);
+              }}
+              style={{ backgroundColor: '#2563eb', borderColor: '#2563eb' }}
+            >
+              Tạo đặt phòng tại quầy
+            </Button>
           </Space>
         }
       >
@@ -1307,16 +1325,26 @@ function RoomManagement() {
 
                               // Available (Trống)
                               return (
-                                <td key={i} style={{
-                                  border: '1px solid #e8e0d5',
-                                  padding: '8px',
-                                  background: '#f8fafc',
-                                  textAlign: 'center',
-                                  color: '#8c8c8c',
-                                  fontSize: '13px',
-                                  cursor: 'default'
-                                }}>
-                                  <span style={{ opacity: 0.6, fontWeight: '500' }}>Trống</span>
+                                <td
+                                  key={i}
+                                  onClick={() => {
+                                    setSelectedRoomForCreate(room.id);
+                                    setSelectedDateForCreate(date);
+                                    setCreateModalOpen(true);
+                                  }}
+                                  style={{
+                                    border: '1px solid #e8e0d5',
+                                    padding: '8px',
+                                    background: '#f8fafc',
+                                    textAlign: 'center',
+                                    color: '#8c8c8c',
+                                    fontSize: '13px',
+                                    cursor: 'pointer'
+                                  }}
+                                >
+                                  <Tooltip title={`Nhấp để tạo đặt phòng tại quầy cho Phòng ${room.roomNumber} (${date.format('DD/MM')})`}>
+                                    <span style={{ opacity: 0.6, fontWeight: '500' }}>Trống</span>
+                                  </Tooltip>
                                 </td>
                               );
                             })}
@@ -2171,6 +2199,14 @@ function RoomManagement() {
           </Form.Item>
         </Form>
       </Modal>
+
+      <AdminCreateBookingModal
+        open={createModalOpen}
+        onClose={() => setCreateModalOpen(false)}
+        onSuccess={fetchRooms}
+        initialRoomId={selectedRoomForCreate}
+        initialDate={selectedDateForCreate}
+      />
     </div>
   );
 }
