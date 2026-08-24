@@ -1,15 +1,8 @@
 import React from 'react';
-import { Card, Typography } from 'antd';
-
-const { Title } = Typography;
+import ReviewManagement from '../Admin/ReviewManagement';
 
 const Reviews: React.FC = () => {
-  return (
-    <Card>
-      <Title level={2}>Đánh giá</Title>
-      <p>Trang quản lý đánh giá sẽ ở đây!</p>
-    </Card>
-  );
+  return <ReviewManagement />;
 };
 
 export default Reviews;

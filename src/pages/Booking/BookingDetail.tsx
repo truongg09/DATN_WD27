@@ -341,24 +341,17 @@ const BookingDetail: React.FC = () => {
     setSubmittingReview(true);
     try {
       if (isEditingReview && existingReview) {
-        const wasHidden = existingReview.status === 'hidden';
         await updateReview(existingReview.id, {
           rating: reviewRating,
           comment: reviewComment.trim(),
           images: reviewImages,
         });
-        message.success(
-          wasHidden ? 'Đã cập nhật đánh giá, đang chờ duyệt lại!' : 'Đã cập nhật đánh giá!',
-        );
+        message.success('Đã cập nhật đánh giá!');
         setExistingReview({
           ...existingReview,
           rating: reviewRating,
           comment: reviewComment.trim(),
           images: reviewImages,
-          // Nếu review trước đó bị ẩn/từ chối và nội dung vừa đổi, backend sẽ
-          // đưa về "pending" để duyệt lại; phản ánh ngay trên UI cho khớp.
-          status: wasHidden ? 'pending' : existingReview.status,
-          hideReason: wasHidden ? null : existingReview.hideReason,
         });
         setIsEditingReview(false);
       } else {
@@ -368,7 +361,7 @@ const BookingDetail: React.FC = () => {
           comment: reviewComment.trim(),
           images: reviewImages,
         });
-        message.success('Cảm ơn bạn đã đánh giá! Đánh giá của bạn đang chờ duyệt.');
+        message.success('Cảm ơn bạn đã gửi đánh giá!');
         const createBody = (res as unknown as { data?: unknown })?.data ?? res;
         const newId =
           (createBody as { data?: { id?: number } })?.data?.id ??
@@ -378,7 +371,7 @@ const BookingDetail: React.FC = () => {
           id: newId,
           rating: reviewRating,
           comment: reviewComment.trim(),
-          status: 'pending',
+          status: 'approved',
           images: reviewImages,
         });
       }

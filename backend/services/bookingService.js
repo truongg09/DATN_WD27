@@ -3880,6 +3880,37 @@ const reassignConflictingBooking = async (bookingId, payload, actor = null) => {
       );
     }
 
+    // 1. Lấy danh sách booking_details của đơn này để xác định đúng logical room
+    const [details] = await connection.query(
+      `SELECT id, roomId, roomTypeId, checkInDate, checkOutDate
+       FROM booking_details
+       WHERE bookingId = ?
+       ORDER BY id ASC`,
+      [bookingId]
+    );
+
+    let targetDetail = null;
+    if (payload.bookingDetailId) {
+      targetDetail = details.find((d) => Number(d.id) === Number(payload.bookingDetailId));
+      if (!targetDetail) {
+        throw new HttpError(404, `Không tìm thấy chi tiết đặt phòng #${payload.bookingDetailId}`);
+      }
+    } else if (details.length === 1) {
+      targetDetail = details[0];
+    } else if (details.length > 1) {
+      if (payload.sourceRoomId) {
+        targetDetail = details.find((d) => Number(d.roomId) === Number(payload.sourceRoomId));
+      }
+      if (!targetDetail) {
+        targetDetail = details[0];
+      }
+    }
+
+    const sourceRoomId = targetDetail?.roomId || booking.room_id;
+    const targetCheckIn = targetDetail?.checkInDate || booking.check_in;
+    const targetCheckOut = targetDetail?.checkOutDate || booking.check_out;
+
+    // 2. Validate Target Room
     const newRoom = await bookingModel.getRoomWithType(
       payload.roomId,
       connection,
@@ -3888,17 +3919,43 @@ const reassignConflictingBooking = async (bookingId, payload, actor = null) => {
     if (!newRoom) {
       throw new HttpError(404, "Không tìm thấy phòng muốn chuyển đến");
     }
-    if (newRoom.status === "maintenance") {
-      throw new HttpError(409, "Phòng muốn chuyển đến đang được bảo trì");
+
+    // Không được chuyển sang chính source room hiện tại
+    if (sourceRoomId && Number(newRoom.id) === Number(sourceRoomId)) {
+      throw new HttpError(400, "Phòng chuyển đến không được trùng với phòng hiện tại");
     }
 
-    const currentRoom = await bookingModel.getRoomWithType(
-      booking.room_id,
-      connection,
-    );
+    // Không được chuyển sang phòng khác đang thuộc cùng booking multi-room
+    if (details.length > 1) {
+      const otherAssignedRoomIds = details
+        .filter((d) => targetDetail && Number(d.id) !== Number(targetDetail.id))
+        .map((d) => Number(d.roomId))
+        .filter(Boolean);
+      if (otherAssignedRoomIds.includes(Number(newRoom.id))) {
+        throw new HttpError(409, `Phòng ${newRoom.roomNumber} đã được gán cho phòng khác trong cùng đơn đặt phòng này`);
+      }
+    }
+
+    // Chặn phòng đang bảo trì
+    if (newRoom.status === "maintenance") {
+      throw new HttpError(409, `Phòng ${newRoom.roomNumber} đang được bảo trì / sửa chữa`);
+    }
+
+    // Chặn phòng đang có khách lưu trú
+    if (newRoom.status === "occupied") {
+      throw new HttpError(409, `Phòng ${newRoom.roomNumber} hiện đang có khách lưu trú`);
+    }
+
+    // Chặn phòng không ở trạng thái available
+    if (newRoom.status !== "available") {
+      throw new HttpError(409, `Phòng ${newRoom.roomNumber} hiện không sẵn sàng đón khách (trạng thái: ${newRoom.status})`);
+    }
+
+    // Kiểm tra cùng hạng phòng
+    const expectedRoomTypeId = targetDetail?.roomTypeId || booking.room_type_id;
     if (
-      currentRoom &&
-      Number(newRoom.roomTypeId) !== Number(currentRoom.roomTypeId)
+      expectedRoomTypeId &&
+      Number(newRoom.roomTypeId) !== Number(expectedRoomTypeId)
     ) {
       throw new HttpError(
         400,
@@ -3906,10 +3963,11 @@ const reassignConflictingBooking = async (bookingId, payload, actor = null) => {
       );
     }
 
+    // 3. Kiểm tra xung đột lịch với các booking khác trong khoảng [targetCheckIn, targetCheckOut)
     const conflicts = await bookingModel.getConflictingBookings(
       newRoom.id,
-      booking.check_in,
-      booking.check_out,
+      targetCheckIn,
+      targetCheckOut,
       connection,
       true,
       { excludeBookingId: bookingId },
@@ -3917,28 +3975,35 @@ const reassignConflictingBooking = async (bookingId, payload, actor = null) => {
     if (conflicts.length > 0) {
       throw new HttpError(
         409,
-        "Phòng muốn chuyển đến không còn trống trong khoảng ngày của đặt phòng này",
+        `Phòng ${newRoom.roomNumber} đã có người đặt trong khoảng thời gian này`,
         {
           conflictingBookingIds: conflicts.map((item) => item.id),
         },
       );
     }
 
+    const currentRoom = sourceRoomId
+      ? await bookingModel.getRoomWithType(sourceRoomId, connection)
+      : null;
+
+    // 4. Update chính xác logical room (targetDetail.id)
     await bookingModel.reassignRoomForBooking(
       bookingId,
       newRoom.id,
       connection,
+      targetDetail ? targetDetail.id : null
     );
 
     await logHistory(
       bookingId,
       "room_reassigned",
-      `Đổi phòng từ ${currentRoom?.roomNumber || booking.room_id} sang ${newRoom.roomNumber} (đặt phòng chưa nhận phòng — xử lý do xung đột lịch với yêu cầu gia hạn của phòng cũ)`,
+      `Đổi phòng từ ${currentRoom?.roomNumber || sourceRoomId || 'Chưa gán'} sang ${newRoom.roomNumber}${targetDetail ? ` (Phòng #${targetDetail.id})` : ''}`,
       {
         entityType: "room",
-        entityId: booking.room_id,
+        entityId: sourceRoomId,
+        bookingDetailId: targetDetail?.id || null,
         oldValue: {
-          roomId: booking.room_id,
+          roomId: sourceRoomId,
           roomNumber: currentRoom?.roomNumber,
         },
         newValue: { roomId: newRoom.id, roomNumber: newRoom.roomNumber },
@@ -6054,18 +6119,42 @@ const adminModifyBooking = async (bookingId, payload, actor) => {
     const checkIn = preview.checkIn;
     const checkOut = preview.checkOut;
     
+    const assignedRoomIds = preview.rooms.map(r => r.roomId).filter(Boolean);
+    const uniqueRoomIds = new Set(assignedRoomIds.map(Number));
+    if (uniqueRoomIds.size < assignedRoomIds.length) {
+      throw new HttpError(400, "Một phòng không thể gán cho nhiều phòng khác nhau trong cùng một đơn đặt phòng");
+    }
+
     for (const r of preview.rooms) {
       if (r.roomId) {
+        const [roomRows] = await connection.query('SELECT status, roomTypeId, roomNumber FROM rooms WHERE id = ?', [r.roomId]);
+        if (!roomRows || roomRows.length === 0) {
+          throw new HttpError(404, `Không tìm thấy phòng #${r.roomId}`);
+        }
+        const roomRow = roomRows[0];
+        if (roomRow.status === 'maintenance') {
+          throw new HttpError(409, `Phòng ${roomRow.roomNumber} đang được bảo trì / sửa chữa`);
+        }
+        if (roomRow.status === 'occupied') {
+          throw new HttpError(409, `Phòng ${roomRow.roomNumber} hiện đang có khách lưu trú`);
+        }
+        if (roomRow.status !== 'available') {
+          throw new HttpError(409, `Phòng ${roomRow.roomNumber} hiện không sẵn sàng đón khách (trạng thái: ${roomRow.status})`);
+        }
+        if (r.roomTypeId && Number(roomRow.roomTypeId) !== Number(r.roomTypeId)) {
+          throw new HttpError(400, `Phòng ${roomRow.roomNumber} không thuộc hạng phòng đã chọn`);
+        }
+
         const [conflict] = await connection.query(
           `SELECT bd.id FROM booking_details bd
            JOIN bookings b ON b.id = bd.bookingId
            WHERE bd.roomId = ? AND b.id != ?
-           AND b.status NOT IN ('cancelled', 'completed', 'checked_out')
+           AND b.status NOT IN ('cancelled', 'completed', 'checked_out', 'no_show')
            AND bd.checkInDate < ? AND bd.checkOutDate > ?`,
           [r.roomId, bookingId, checkOut, checkIn]
         );
         if (conflict.length > 0) {
-          throw new HttpError(400, `Phòng ${r.roomNumber || r.roomId} đã có người đặt trong khoảng thời gian này.`);
+          throw new HttpError(409, `Phòng ${roomRow.roomNumber || r.roomId} đã có người đặt trong khoảng thời gian này.`);
         }
       }
     }

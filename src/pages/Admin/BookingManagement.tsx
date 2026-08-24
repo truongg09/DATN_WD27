@@ -10,7 +10,6 @@ import {
   DeleteOutlined,
   EditOutlined,
   EyeOutlined,
-  FieldTimeOutlined,
   InboxOutlined,
   LogoutOutlined,
   PlusOutlined,
@@ -942,63 +941,6 @@ function BookingManagement() {
         ? `Đã quá thời hạn giữ phòng mặc định 24 giờ (${deadline.format('HH:mm DD/MM/YYYY')}). Lễ tân có thể đánh dấu No-show để giải phóng phòng hoặc liên hệ khách.`
         : `Hạn giữ phòng mặc định: ${deadline.format('HH:mm DD/MM/YYYY')} (24 giờ tính từ giờ nhận phòng chuẩn)`,
     };
-  };
-
-  const handleExtendHold = (booking: Booking) => {
-    let selectedHours = 2;
-    let noteText = '';
-
-    Modal.confirm({
-      title: '⏳ Gia hạn Thời gian Giữ phòng cho Khách',
-      width: 520,
-      content: (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 12 }}>
-          <div style={{ padding: '10px 14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13 }}>
-            <div>Đơn đặt phòng: <strong>#{booking.booking_code || booking.id}</strong> (P.{booking.room_number})</div>
-            <div>Khách hàng: <strong>{booking.customer_name}</strong> · {booking.customer_phone}</div>
-          </div>
-          <div>
-            <label style={{ display: 'block', fontWeight: 600, marginBottom: 6, fontSize: 13 }}>
-              Chọn thời gian gia hạn thêm:
-            </label>
-            <Select
-              defaultValue={2}
-              style={{ width: '100%' }}
-              onChange={(val) => { selectedHours = val; }}
-              options={[
-                { value: 2, label: 'Gia hạn thêm 2 tiếng (Khách đang trên đường tới)' },
-                { value: 4, label: 'Gia hạn thêm 4 tiếng (Khách kẹt xe / trễ chuyến)' },
-                { value: 8, label: 'Gia hạn đến khuya / rạng sáng hôm sau' },
-                { value: 12, label: 'Gia hạn đến sáng hôm sau (08:00)' },
-              ]}
-            />
-          </div>
-          <div>
-            <label style={{ display: 'block', fontWeight: 600, marginBottom: 6, fontSize: 13 }}>
-              Ghi chú lý do (tùy chọn):
-            </label>
-            <Input
-              placeholder="VD: Khách gọi báo delay chuyến bay đến 23:00..."
-              onChange={(e) => { noteText = e.target.value; }}
-            />
-          </div>
-        </div>
-      ),
-      okText: 'Xác nhận gia hạn',
-      cancelText: 'Hủy',
-      onOk: async () => {
-        try {
-          await api.patch(`/bookings/${booking.id}/extend-hold`, {
-            additionalHours: selectedHours,
-            note: noteText.trim()
-          });
-          message.success(`Đã gia hạn giữ phòng thành công!`);
-          fetchBookings();
-        } catch (err: any) {
-          message.error(err.response?.data?.message || 'Không thể gia hạn giữ phòng');
-        }
-      }
-    });
   };
 
   const handleReactivateNoShow = (booking: Booking) => {
@@ -2381,17 +2323,8 @@ const handleCheckIn = (booking: Booking) => {
                           )}
                         </div>
 
-                        {/* Hàng 2: Gia hạn giữ phòng, Khôi phục, Đền bù, Gia hạn ở, Chuyển phòng, Khai báo, No-show, Hủy */}
+                        {/* Hàng 2: Khôi phục, Đền bù, Gia hạn ở, Chuyển phòng, Khai báo, No-show, Hủy */}
                         <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
-                          {['pending', 'confirmed'].includes(booking.status) && (
-                            <Tooltip title="Gia hạn thời gian giữ phòng khi khách báo đến muộn">
-                              <Button
-                                size="small"
-                                icon={<FieldTimeOutlined />}
-                                onClick={() => handleExtendHold(booking)}
-                              />
-                            </Tooltip>
-                          )}
 
                           {booking.status === 'no_show' && (
                             <Tooltip title="Khôi phục đặt phòng & Check-in cho khách đến trễ">
