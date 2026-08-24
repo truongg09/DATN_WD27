@@ -1501,11 +1501,14 @@ const findAdjacentBookingsForRoom = async (roomId, checkInDate, checkOutDate, ex
 const findActiveCheckedInBooking = async (roomId, excludeBookingId, connection) => {
   const [rows] = await run(connection).query(
     `
-      SELECT b.id
+      SELECT b.id, b.bookingCode, r.roomNumber
       FROM bookings b
       LEFT JOIN booking_details bd ON bd.bookingId = b.id
+      JOIN rooms r ON r.id = COALESCE(bd.roomId, b.room_id)
       WHERE COALESCE(bd.roomId, b.room_id) = ?
         AND b.status = 'checked_in'
+        AND r.status = 'occupied'
+        AND COALESCE(DATE(bd.checkOutDate), DATE(b.check_out)) >= CURDATE()
         AND b.id != ?
       LIMIT 1
     `,
