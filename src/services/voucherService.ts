@@ -15,12 +15,55 @@ export interface CustomerVoucher {
   roomTypeNames: string | null;
 }
 
+export interface EligibleCustomer {
+  userId: number;
+  fullName: string;
+  email: string;
+  phone: string;
+}
+
+export interface AssignedCustomer {
+  customerVoucherId: number;
+  userId: number;
+  fullName: string;
+  email: string;
+  phone: string;
+  isUsed: number;
+  source: string;
+  bookingId: number | null;
+}
+
+export interface AdminVoucher {
+  id: number;
+  code: string;
+  discountType: string;
+  discountValue: number;
+  maxDiscount: number | null;
+  minBookingAmount: number | null;
+  quantity: number;
+  startDate: string;
+  endDate: string;
+  status: string;
+  roomTypeIds?: string | null;
+  roomTypeNames?: string | null;
+  targetType?: "all" | "specific" | "no_show";
+  customerCount?: number;
+  customerIds?: number[];
+  assignedCustomers?: AssignedCustomer[];
+  unusedCount?: number;
+  usedCount?: number;
+}
+
 export const getMyVouchers = async () => {
   return api.get("/vouchers/me") as Promise<{ data: CustomerVoucher[] }>;
 };
 
 export const getVouchers = async () => {
-  return api.get("/vouchers");
+  return api.get("/vouchers") as Promise<{ data: AdminVoucher[] }>;
+};
+
+export const getEligibleCustomers = async () => {
+  return api.get("/vouchers/eligible-customers") as Promise<{ data: EligibleCustomer[] }>;
 };
 
 export const createVoucher = async (

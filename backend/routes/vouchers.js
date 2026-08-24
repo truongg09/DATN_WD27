@@ -35,9 +35,22 @@ const normalizeVoucherPayload = (body) => {
   if (discountType === 'percentage' && maxDiscount <= 0) {
     return { error: 'Voucher giảm theo phần trăm phải có mức giảm tối đa lớn hơn 0' };
   }
-  if (!Number.isFinite(minBookingAmount) || minBookingAmount < 0) return { error: 'Giá trị đơn tối thiểu không hợp lệ' };
-  if (!Number.isInteger(quantity) || quantity < 1) return { error: 'Số lượng voucher phải là số nguyên dương' };
-  if (body.endDate < body.startDate) return { error: 'Ngày kết thúc phải sau ngày bắt đầu' };
+  const targetType = body.targetType === 'specific' ? 'specific' : 'all';
+  const customerIds = targetType === 'specific' && Array.isArray(body.customerIds)
+    ? [...new Set(body.customerIds.map(Number).filter((id) => Number.isInteger(id) && id > 0))]
+    : [];
+
+  if (targetType === 'specific') {
+    if (customerIds.length === 0) {
+      return { error: 'Vui lòng chọn ít nhất một khách hàng cho voucher này' };
+    }
+  } else {
+    if (!Number.isInteger(quantity) || quantity < 1) {
+      return { error: 'Số lượng voucher phải là số nguyên dương' };
+    }
+  }
+
+  const effectiveQuantity = targetType === 'specific' ? customerIds.length : quantity;
 
   // Danh sách rỗng nghĩa là voucher dùng được cho mọi hạng phòng.
   const roomTypeIds = Array.isArray(body.roomTypeIds)
@@ -52,8 +65,10 @@ const normalizeVoucherPayload = (body) => {
       discountValue,
       maxDiscount: maxDiscount || null,
       minBookingAmount: minBookingAmount || null,
-      quantity,
+      quantity: effectiveQuantity,
       roomTypeIds,
+      targetType,
+      customerIds,
     },
   };
 };
@@ -68,8 +83,29 @@ const replaceVoucherRoomTypes = async (connection, voucherId, roomTypeIds) => {
   );
 };
 
+// Danh sách khách hàng (role='customer', status='active') để Admin chọn khi tạo/sửa voucher cụ thể
+router.get('/eligible-customers', requireAuth, requireStaff, async (_req, res) => {
+  try {
+    const [customers] = await db.query(
+      `SELECT 
+         a.id AS userId,
+         COALESCE(c.fullName, a.email) AS fullName,
+         a.email,
+         COALESCE(c.phone, a.phone, '') AS phone
+       FROM accounts a
+       LEFT JOIN customers c ON c.accountId = a.id
+       WHERE a.role = 'customer' AND a.status = 'active'
+       ORDER BY COALESCE(c.fullName, a.email) ASC`
+    );
+    res.json({ data: customers });
+  } catch (error) {
+    console.error('List eligible customers error:', error);
+    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
+  }
+});
+
 // Voucher dành riêng cho khách đang đăng nhập: các mã được tặng riêng cho họ
-// (VD voucher đền bù khi khách sạn hủy phòng) cộng với các mã công khai còn
+// (VD voucher đền bù khi khách sạn hủy phòng, voucher admin gán) cộng với các mã công khai còn
 // hiệu lực. Trước đây trang Hồ sơ gọi thẳng GET '/' nên khách nhìn thấy cả
 // voucher đền bù tặng riêng người khác.
 router.get('/me', requireAuth, async (req, res) => {
@@ -136,7 +172,68 @@ router.get('/', requireAuth, requireAdmin, async (_req, res) => {
        FROM vouchers
        ORDER BY id DESC`
     );
-    res.json({ data: vouchers });
+
+    if (vouchers.length === 0) {
+      return res.json({ data: [] });
+    }
+
+    const voucherIds = vouchers.map((v) => v.id);
+    const [assignments] = await db.query(
+      `SELECT 
+         cv.id AS customerVoucherId,
+         cv.voucherId,
+         cv.userId,
+         cv.source,
+         cv.isUsed,
+         cv.bookingId,
+         COALESCE(c.fullName, a.email) AS fullName,
+         a.email,
+         COALESCE(c.phone, a.phone, '') AS phone
+       FROM customer_vouchers cv
+       JOIN accounts a ON a.id = cv.userId
+       LEFT JOIN customers c ON c.accountId = a.id
+       WHERE cv.voucherId IN (?)
+       ORDER BY cv.id ASC`,
+      [voucherIds]
+    );
+
+    const assignmentMap = new Map();
+    for (const a of assignments) {
+      if (!assignmentMap.has(a.voucherId)) {
+        assignmentMap.set(a.voucherId, []);
+      }
+      assignmentMap.get(a.voucherId).push({
+        customerVoucherId: a.customerVoucherId,
+        userId: a.userId,
+        fullName: a.fullName,
+        email: a.email,
+        phone: a.phone,
+        isUsed: Number(a.isUsed),
+        source: a.source,
+        bookingId: a.bookingId,
+      });
+    }
+
+    const enrichedVouchers = vouchers.map((v) => {
+      const assigned = assignmentMap.get(v.id) || [];
+      let targetType = 'all';
+      if (assigned.length > 0) {
+        targetType = assigned.some((a) => a.source === 'no_show') ? 'no_show' : 'specific';
+      }
+      const unusedCount = assigned.filter((a) => a.isUsed === 0).length;
+      const usedCount = assigned.filter((a) => a.isUsed === 1).length;
+      return {
+        ...v,
+        targetType,
+        customerCount: assigned.length,
+        customerIds: assigned.map((a) => a.userId),
+        assignedCustomers: assigned,
+        unusedCount,
+        usedCount,
+      };
+    });
+
+    res.json({ data: enrichedVouchers });
   } catch (error) {
     console.error('List vouchers error:', error);
     res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
@@ -147,7 +244,19 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
   try {
     const normalized = normalizeVoucherPayload(req.body);
     if (normalized.error) return res.status(400).json({ message: normalized.error });
-    const { code, discountType, discountValue, maxDiscount, minBookingAmount, quantity, startDate, endDate, status = 'active' } = normalized.data;
+    const {
+      code,
+      discountType,
+      discountValue,
+      maxDiscount,
+      minBookingAmount,
+      quantity,
+      startDate,
+      endDate,
+      status = 'active',
+      targetType = 'all',
+      customerIds = [],
+    } = normalized.data;
 
     if (!code || !discountType || !discountValue || !startDate || !endDate) {
       return res.status(400).json({ message: 'Thiếu thông tin voucher' });
@@ -156,27 +265,62 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
     const connection = await db.getConnection();
     try {
       await connection.beginTransaction();
+
+      if (targetType === 'specific') {
+        const [validCustomers] = await connection.query(
+          "SELECT id FROM accounts WHERE role = 'customer' AND status = 'active' AND id IN (?)",
+          [customerIds]
+        );
+        if (validCustomers.length !== customerIds.length) {
+          await connection.rollback();
+          return res.status(400).json({ message: 'Một hoặc nhiều khách hàng được chọn không tồn tại hoặc không hoạt động' });
+        }
+      }
+
       const [result] = await connection.query(
         `INSERT INTO vouchers (code, discountType, discountValue, maxDiscount, minBookingAmount, quantity, startDate, endDate, status)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [code, discountType, discountValue, maxDiscount, minBookingAmount, quantity, startDate, endDate, status]
       );
-      await replaceVoucherRoomTypes(connection, result.insertId, normalized.data.roomTypeIds);
+      const voucherId = result.insertId;
 
-      // Nếu voucher tạo ra ở trạng thái active -> thông báo cho khách hàng
+      await replaceVoucherRoomTypes(connection, voucherId, normalized.data.roomTypeIds);
+
+      if (targetType === 'specific' && customerIds.length > 0) {
+        const cvRows = customerIds.map((uid) => [uid, voucherId, null, 'admin', 0]);
+        await connection.query(
+          'INSERT INTO customer_vouchers (userId, voucherId, bookingId, source, isUsed) VALUES ?',
+          [cvRows]
+        );
+      }
+
+      // Nếu voucher tạo ra ở trạng thái active -> thông báo
       if (status === 'active') {
         const { title, content } = buildVoucherNotification(normalized.data);
-        await notificationService.createNotificationForCustomers({
-          type: 'voucher',
-          title,
-          content,
-          referenceType: 'voucher',
-          referenceId: result.insertId
-        }, connection);
+        if (targetType === 'all') {
+          await notificationService.createNotificationForCustomers({
+            type: 'voucher',
+            title,
+            content,
+            referenceType: 'voucher',
+            referenceId: voucherId
+          }, connection);
+        } else if (targetType === 'specific') {
+          for (const uid of customerIds) {
+            await notificationService.createNotificationForUser({
+              accountId: uid,
+              type: 'voucher',
+              title,
+              content,
+              referenceType: 'voucher',
+              referenceId: voucherId
+            }, connection);
+          }
+        }
       }
 
       await connection.commit();
-      res.status(201).json({ data: { id: result.insertId }, message: 'Tạo voucher thành công' });
+      res.status(201).json({ data: { id: voucherId }, message: 'Tạo voucher thành công' });
     } catch (error) {
       await connection.rollback();
       throw error;
@@ -197,37 +341,179 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
     const voucherId = Number(req.params.id);
     const normalized = normalizeVoucherPayload(req.body);
     if (normalized.error) return res.status(400).json({ message: normalized.error });
-    const { code, discountType, discountValue, maxDiscount, minBookingAmount, quantity, startDate, endDate, status } = normalized.data;
+    const {
+      code,
+      discountType,
+      discountValue,
+      maxDiscount,
+      minBookingAmount,
+      quantity,
+      startDate,
+      endDate,
+      status = 'active',
+      targetType = 'all',
+      customerIds = [],
+    } = normalized.data;
 
     if (!voucherId || !code || !discountType || !discountValue || !startDate || !endDate) {
       return res.status(400).json({ message: 'Thiếu thông tin voucher' });
     }
 
-    // Lấy trạng thái cũ của voucher để kiểm tra xem đã từng active chưa
-    const [existingVouchers] = await db.query('SELECT status, code FROM vouchers WHERE id = ?', [voucherId]);
-    const oldStatus = existingVouchers[0]?.status;
-
     const connection = await db.getConnection();
     try {
       await connection.beginTransaction();
+
+      // Lấy voucher hiện tại và các assignments
+      const [existingVouchers] = await connection.query('SELECT * FROM vouchers WHERE id = ?', [voucherId]);
+      if (existingVouchers.length === 0) {
+        await connection.rollback();
+        return res.status(404).json({ message: 'Không tìm thấy voucher' });
+      }
+      const existingVoucher = existingVouchers[0];
+      const oldStatus = existingVoucher.status;
+
+      const [existingAssignments] = await connection.query(
+        'SELECT id, userId, isUsed, source, bookingId FROM customer_vouchers WHERE voucherId = ?',
+        [voucherId]
+      );
+
+      const [usedBookings] = await connection.query(
+        'SELECT id FROM bookings WHERE voucherId = ? LIMIT 1',
+        [voucherId]
+      );
+      const hasEverBeenUsed = usedBookings.length > 0 || existingAssignments.some((a) => Number(a.isUsed) === 1);
+
+      const isNoShowVoucher = existingAssignments.some((a) => a.source === 'no_show');
+      const oldTargetType = isNoShowVoucher ? 'no_show' : (existingAssignments.length > 0 ? 'specific' : 'all');
+
+      // Rule 7: Không cho phép thay đổi đối tượng áp dụng nếu voucher đã từng được sử dụng
+      if (oldTargetType !== targetType) {
+        if (hasEverBeenUsed) {
+          await connection.rollback();
+          return res.status(400).json({ message: 'Không thể thay đổi đối tượng áp dụng vì voucher đã được sử dụng' });
+        }
+      }
+
+      let effectiveQuantity = quantity;
+
+      if (isNoShowVoucher) {
+        // Không cho phép đổi target type hoặc customerIds của voucher no_show
+        if (targetType !== 'all' && (customerIds.length > 1 || (customerIds.length === 1 && customerIds[0] !== existingAssignments[0].userId))) {
+          await connection.rollback();
+          return res.status(400).json({ message: 'Không thể thay đổi đối tượng áp dụng của voucher bồi thường No-show' });
+        }
+        effectiveQuantity = existingVoucher.quantity;
+      } else {
+        // Voucher thông thường: xử lý assignments
+        const existingUserIds = new Set(existingAssignments.map((a) => Number(a.userId)));
+        const usedAssignments = existingAssignments.filter((a) => Number(a.isUsed) === 1);
+        const usedUserIds = new Set(usedAssignments.map((a) => Number(a.userId)));
+
+        if (targetType === 'all') {
+          if (hasEverBeenUsed || usedUserIds.size > 0) {
+            await connection.rollback();
+            return res.status(400).json({ message: 'Không thể thay đổi đối tượng áp dụng vì voucher đã được sử dụng' });
+          }
+          // Xóa tất cả assignment chưa dùng
+          await connection.query('DELETE FROM customer_vouchers WHERE voucherId = ?', [voucherId]);
+          effectiveQuantity = quantity;
+        } else if (targetType === 'specific') {
+          // Rule 6: Kiểm tra nếu khách hàng đã dùng bị xóa khỏi danh sách
+          for (const usedUid of usedUserIds) {
+            if (!customerIds.includes(usedUid)) {
+              await connection.rollback();
+              return res.status(400).json({ message: 'Không thể xóa khách hàng đã sử dụng voucher này' });
+            }
+          }
+
+          // Kiểm tra các customerId mới có hợp lệ không
+          if (customerIds.length > 0) {
+            const [validCustomers] = await connection.query(
+              "SELECT id FROM accounts WHERE role = 'customer' AND status = 'active' AND id IN (?)",
+              [customerIds]
+            );
+            if (validCustomers.length !== customerIds.length) {
+              await connection.rollback();
+              return res.status(400).json({ message: 'Một hoặc nhiều khách hàng được chọn không tồn tại hoặc không hoạt động' });
+            }
+          }
+
+          // Xóa khách hàng bị bỏ chọn (chỉ những ai chưa dùng isUsed = 0)
+          const toRemoveUserIds = [...existingUserIds].filter((uid) => !customerIds.includes(uid));
+          if (toRemoveUserIds.length > 0) {
+            await connection.query(
+              'DELETE FROM customer_vouchers WHERE voucherId = ? AND userId IN (?) AND isUsed = 0',
+              [voucherId, toRemoveUserIds]
+            );
+          }
+
+          // Thêm khách hàng mới được bổ sung
+          const toAddUserIds = customerIds.filter((uid) => !existingUserIds.has(uid));
+          if (toAddUserIds.length > 0) {
+            const newCvRows = toAddUserIds.map((uid) => [uid, voucherId, null, 'admin', 0]);
+            await connection.query(
+              'INSERT INTO customer_vouchers (userId, voucherId, bookingId, source, isUsed) VALUES ?',
+              [newCvRows]
+            );
+
+            // Rule 5: Nếu voucher đang active -> chỉ gửi notification cho những khách hàng mới được thêm vào
+            if (status === 'active') {
+              const { title, content } = buildVoucherNotification(normalized.data);
+              for (const uid of toAddUserIds) {
+                await notificationService.createNotificationForUser({
+                  accountId: uid,
+                  type: 'voucher',
+                  title,
+                  content,
+                  referenceType: 'voucher',
+                  referenceId: voucherId
+                }, connection);
+              }
+            }
+          }
+
+          // Rule 3, 4, 5: Quantity của specific voucher tự động đồng bộ = số assignment chưa dùng (isUsed = 0)
+          const [unusedRows] = await connection.query(
+            'SELECT COUNT(*) AS unusedCount FROM customer_vouchers WHERE voucherId = ? AND isUsed = 0',
+            [voucherId]
+          );
+          effectiveQuantity = Number(unusedRows[0].unusedCount);
+        }
+      }
+
       await connection.query(
         `UPDATE vouchers
          SET code = ?, discountType = ?, discountValue = ?, maxDiscount = ?, minBookingAmount = ?, quantity = ?, startDate = ?, endDate = ?, status = ?
          WHERE id = ?`,
-        [code, discountType, discountValue, maxDiscount, minBookingAmount, quantity, startDate, endDate, status || 'active', voucherId]
+        [code, discountType, discountValue, maxDiscount, minBookingAmount, effectiveQuantity, startDate, endDate, status || 'active', voucherId]
       );
       await replaceVoucherRoomTypes(connection, voucherId, normalized.data.roomTypeIds);
 
-      // Nếu voucher chuyển từ trạng thái không active sang active lần đầu -> thông báo cho khách hàng
-      if (oldStatus !== 'active' && (status === 'active' || (!status && oldStatus !== 'active'))) {
+      // Nếu voucher chuyển từ trạng thái không active sang active
+      if (oldStatus !== 'active' && status === 'active') {
         const { title, content } = buildVoucherNotification(normalized.data);
-        await notificationService.createNotificationForCustomers({
-          type: 'voucher',
-          title,
-          content,
-          referenceType: 'voucher',
-          referenceId: voucherId
-        }, connection);
+        if (targetType === 'all' && !isNoShowVoucher) {
+          await notificationService.createNotificationForCustomers({
+            type: 'voucher',
+            title,
+            content,
+            referenceType: 'voucher',
+            referenceId: voucherId
+          }, connection);
+        } else if (targetType === 'specific' || isNoShowVoucher) {
+          // Gửi cho các khách hàng được assign (notificationService tự deduplicate)
+          const targetUids = isNoShowVoucher ? existingAssignments.map((a) => a.userId) : customerIds;
+          for (const uid of targetUids) {
+            await notificationService.createNotificationForUser({
+              accountId: uid,
+              type: 'voucher',
+              title,
+              content,
+              referenceType: 'voucher',
+              referenceId: voucherId
+            }, connection);
+          }
+        }
       }
 
       await connection.commit();
