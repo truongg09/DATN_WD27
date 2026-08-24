@@ -11,7 +11,6 @@ import {
   Col,
   Card,
   Tag,
-  Divider,
   message,
   Space,
   Spin,
@@ -26,7 +25,6 @@ import {
   PhoneOutlined,
   MailOutlined,
   IdcardOutlined,
-  CalendarOutlined,
   HomeOutlined,
   TeamOutlined,
   DollarOutlined,
@@ -42,8 +40,7 @@ import {
   ArrowRightOutlined,
   SyncOutlined,
   CheckCircleFilled,
-  SafetyCertificateOutlined,
-  LockOutlined
+  SafetyCertificateOutlined
 } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import api from '../../services/api';
@@ -527,7 +524,6 @@ export const AdminCreateBookingModal: React.FC<AdminCreateBookingModalProps> = (
 
   const {
     nights,
-    stayDates,
     baseRoomPrice,
     totalHolidaySurcharge,
     totalWeekendSurcharge,
@@ -563,7 +559,7 @@ export const AdminCreateBookingModal: React.FC<AdminCreateBookingModalProps> = (
   }, []);
 
   // Polling check for gateway QR payment
-  const startPaymentPolling = (bookingId: number, paymentId: number) => {
+  const startPaymentPolling = (_bookingId: number, paymentId: number) => {
     if (pollTimerRef.current) clearInterval(pollTimerRef.current);
 
     pollTimerRef.current = setInterval(async () => {
