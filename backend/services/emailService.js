@@ -297,34 +297,73 @@ const voucherDetails = (voucher) => `
     </table>
   </div>`;
 
-// isCompensation: voucher hệ thống tự cấp khi đơn bị hủy/no-show. Cùng một mẫu
-// email nhưng đổi giọng văn sang xin lỗi, vì khách nhận nó trong hoàn cảnh
-// không vui chứ không phải được tặng quà.
-const sendVoucherGrantedEmail = ({ to, customerName, voucher, isCompensation = false }) => send({
+// Một mẫu email dùng cho ba hoàn cảnh khác nhau, chỉ đổi giọng văn:
+//  - mặc định: admin tặng voucher cho khách
+//  - isCompensation: hệ thống tự cấp voucher đền bù khi đơn bị hủy/no-show,
+//    khách nhận trong hoàn cảnh không vui nên phải mở lời xin lỗi
+//  - isUpdate: admin sửa thông tin voucher khách đang giữ, cần báo lại điều kiện mới
+const sendVoucherGrantedEmail = ({
   to,
-  subject: `[HotelHub] ${isCompensation ? 'Mã giảm giá đền bù' : 'Bạn nhận được mã giảm giá'} ${voucher.code}`,
-  html: emailLayout({
-    previewText: `${formatVoucherDiscount(voucher)} với mã ${voucher.code}, dùng đến hết ${formatDate(voucher.endDate)}.`,
-    eyebrow: isCompensation ? 'Lời xin lỗi từ HotelHub' : 'Ưu đãi dành riêng cho bạn',
-    title: isCompensation ? 'Mã giảm giá đền bù cho đơn của bạn' : 'Bạn vừa nhận được một mã giảm giá',
-    intro: isCompensation
-      ? `Xin chào <strong>${escapeHtml(customerName || 'Quý khách')}</strong>, HotelHub rất tiếc vì sự bất tiện với đơn đặt phòng vừa qua. Chúng tôi gửi bạn mã giảm giá dưới đây như một lời xin lỗi.`
-      : `Xin chào <strong>${escapeHtml(customerName || 'Quý khách')}</strong>, HotelHub gửi tặng riêng bạn mã giảm giá dưới đây. Mã đã có sẵn trong tài khoản, bạn chỉ cần chọn khi thanh toán.`,
-    ctaUrl: `${FRONTEND_URL}/profile?tab=vouchers`,
-    ctaLabel: 'Xem ưu đãi của tôi',
-    content: `
-      <div style="margin-bottom:18px;background:#f7f1eb;border:1px dashed #d8bfa2;border-radius:12px;padding:20px;text-align:center">
-        <div style="color:#81766d;font-size:13px">Mã giảm giá của bạn</div>
-        <div style="margin:8px 0 6px;color:#8d6240;font-size:30px;font-weight:700;letter-spacing:2px">${escapeHtml(voucher.code)}</div>
-        <div style="color:#655b53;font-size:14px">${escapeHtml(formatVoucherDiscount(voucher))}</div>
-      </div>
-      ${voucherDetails(voucher)}
-      <div style="margin-top:18px;color:#81766d;font-size:13px;line-height:1.7">
-        Mã này được cấp riêng cho tài khoản của bạn và chỉ dùng được một lần.
-        Hãy áp dụng trước ngày ${escapeHtml(formatDate(voucher.endDate))} để không bỏ lỡ ưu đãi.
-      </div>`
-  })
-});
+  customerName,
+  voucher,
+  isCompensation = false,
+  isUpdate = false,
+  previousCode = null
+}) => {
+  const subjectPrefix = isUpdate
+    ? 'Cập nhật ưu đãi'
+    : (isCompensation ? 'Mã giảm giá đền bù' : 'Bạn nhận được mã giảm giá');
+
+  const eyebrow = isUpdate
+    ? 'Ưu đãi vừa được cập nhật'
+    : (isCompensation ? 'Lời xin lỗi từ HotelHub' : 'Ưu đãi dành riêng cho bạn');
+
+  const title = isUpdate
+    ? 'Mã giảm giá của bạn vừa được cập nhật'
+    : (isCompensation ? 'Mã giảm giá đền bù cho đơn của bạn' : 'Bạn vừa nhận được một mã giảm giá');
+
+  const greeting = `Xin chào <strong>${escapeHtml(customerName || 'Quý khách')}</strong>`;
+  const intro = isUpdate
+    ? `${greeting}, HotelHub vừa cập nhật thông tin mã giảm giá bạn đang giữ. Dưới đây là điều kiện áp dụng mới nhất.`
+    : (isCompensation
+      ? `${greeting}, HotelHub rất tiếc vì sự bất tiện với đơn đặt phòng vừa qua. Chúng tôi gửi bạn mã giảm giá dưới đây như một lời xin lỗi.`
+      : `${greeting}, HotelHub gửi tặng riêng bạn mã giảm giá dưới đây. Mã đã có sẵn trong tài khoản, bạn chỉ cần chọn khi thanh toán.`);
+
+  // Đổi mã là thay đổi dễ gây nhầm nhất: khách có thể đã lưu mã cũ ở đâu đó,
+  // nên phải nói thẳng mã cũ không còn dùng được.
+  const codeChangedNote = isUpdate && previousCode && previousCode !== voucher.code
+    ? `<div style="margin-bottom:18px;background:#fdf3ef;border:1px solid #f0d3c6;border-radius:12px;padding:14px 18px;color:#8a4b33;font-size:13px;line-height:1.7">
+         Mã cũ <strong>${escapeHtml(previousCode)}</strong> đã được thay bằng mã mới bên dưới. Vui lòng dùng mã mới khi đặt phòng.
+       </div>`
+    : '';
+
+  return send({
+    to,
+    subject: `[HotelHub] ${subjectPrefix} ${voucher.code}`,
+    html: emailLayout({
+      previewText: `${formatVoucherDiscount(voucher)} với mã ${voucher.code}, dùng đến hết ${formatDate(voucher.endDate)}.`,
+      eyebrow,
+      title,
+      intro,
+      ctaUrl: `${FRONTEND_URL}/profile?tab=vouchers`,
+      ctaLabel: 'Xem ưu đãi của tôi',
+      content: `
+        ${codeChangedNote}
+        <div style="margin-bottom:18px;background:#f7f1eb;border:1px dashed #d8bfa2;border-radius:12px;padding:20px;text-align:center">
+          <div style="color:#81766d;font-size:13px">Mã giảm giá của bạn</div>
+          <div style="margin:8px 0 6px;color:#8d6240;font-size:30px;font-weight:700;letter-spacing:2px">${escapeHtml(voucher.code)}</div>
+          <div style="color:#655b53;font-size:14px">${escapeHtml(formatVoucherDiscount(voucher))}</div>
+        </div>
+        ${voucherDetails(voucher)}
+        <div style="margin-top:18px;color:#81766d;font-size:13px;line-height:1.7">
+          ${isUpdate
+            ? 'Thông tin phía trên là điều kiện áp dụng mới nhất, thay thế cho email trước đó.'
+            : 'Mã này được cấp riêng cho tài khoản của bạn và chỉ dùng được một lần.'}
+          Hãy áp dụng trước ngày ${escapeHtml(formatDate(voucher.endDate))} để không bỏ lỡ ưu đãi.
+        </div>`
+    })
+  });
+};
 
 const sendPasswordResetEmail = ({ to, name, resetUrl, expiresInMinutes }) => send({
   to,

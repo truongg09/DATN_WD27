@@ -7,10 +7,26 @@ const emailService = require('../services/emailService');
 
 const router = express.Router();
 
+// MySQL trả cột DATE về dạng Date object còn payload từ client là chuỗi
+// 'YYYY-MM-DD', so thẳng sẽ luôn lệch. Quy cả hai về 'YYYY-MM-DD' theo giờ địa
+// phương (dùng toISOString sẽ lùi một ngày với múi giờ +07).
+const dayOnly = (value) => {
+  if (!value) return '';
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value).slice(0, 10);
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${date.getFullYear()}-${month}-${day}`;
+};
+
 // Voucher gán riêng thì ngoài thông báo trong web còn gửi email cho từng khách.
 // Email chỉ là thông báo nên gọi SAU commit và không chờ kết quả: SMTP hỏng
 // không được phép làm hỏng thao tác tạo/sửa voucher mà admin vừa thực hiện.
-const sendVoucherEmails = async (userIds, voucher, { isCompensation = false } = {}) => {
+const sendVoucherEmails = async (
+  userIds,
+  voucher,
+  { isCompensation = false, isUpdate = false, previousCode = null } = {}
+) => {
   const targets = [...new Set(userIds || [])];
   if (targets.length === 0 || !emailService.isEmailConfigured()) return;
 
@@ -36,7 +52,9 @@ const sendVoucherEmails = async (userIds, voucher, { isCompensation = false } = 
         to: recipient.email,
         customerName: recipient.fullName,
         voucher: payload,
-        isCompensation
+        isCompensation,
+        isUpdate,
+        previousCode
       });
     }
   } catch (error) {
@@ -405,7 +423,10 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
     }
 
     // Gom người nhận email trong transaction, gửi sau khi commit thành công.
+    // emailTargetUserIds: người vừa được tặng mã (hoặc mã vừa được bật active).
+    // updateEmailUserIds: người đang giữ mã và cần biết điều kiện vừa đổi.
     let emailTargetUserIds = [];
+    let updateEmailUserIds = [];
 
     const connection = await db.getConnection();
     try {
@@ -532,6 +553,24 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
         }
       }
 
+      // So sánh trước khi ghi đè: chỉ những trường khách nhìn thấy mới đáng để
+      // làm phiền họ bằng một email. Đổi số lượng hay thêm/bớt khách khác không
+      // tính, vì với người đang giữ mã thì điều kiện dùng mã vẫn y nguyên.
+      const oldRoomTypeIds = (await connection.query(
+        'SELECT roomTypeId FROM voucher_room_types WHERE voucherId = ?',
+        [voucherId]
+      ))[0].map((row) => Number(row.roomTypeId)).sort((a, b) => a - b);
+      const newRoomTypeIds = [...normalized.data.roomTypeIds].sort((a, b) => a - b);
+
+      const voucherTermsChanged = existingVoucher.code !== code
+        || existingVoucher.discountType !== discountType
+        || Number(existingVoucher.discountValue) !== Number(discountValue)
+        || Number(existingVoucher.maxDiscount || 0) !== Number(maxDiscount || 0)
+        || Number(existingVoucher.minBookingAmount || 0) !== Number(minBookingAmount || 0)
+        || dayOnly(existingVoucher.startDate) !== dayOnly(startDate)
+        || dayOnly(existingVoucher.endDate) !== dayOnly(endDate)
+        || oldRoomTypeIds.join(',') !== newRoomTypeIds.join(',');
+
       await connection.query(
         `UPDATE vouchers
          SET code = ?, discountType = ?, discountValue = ?, maxDiscount = ?, minBookingAmount = ?, quantity = ?, startDate = ?, endDate = ?, status = ?
@@ -539,6 +578,21 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
         [code, discountType, discountValue, maxDiscount, minBookingAmount, effectiveQuantity, startDate, endDate, status || 'active', voucherId]
       );
       await replaceVoucherRoomTypes(connection, voucherId, normalized.data.roomTypeIds);
+
+      // Voucher còn active mới báo: mã vừa bị tạm dừng/hết hạn thì gửi mail khoe
+      // điều kiện mới chỉ làm khách hiểu nhầm là vẫn dùng được.
+      if (voucherTermsChanged && status === 'active') {
+        const [currentHolders] = await connection.query(
+          'SELECT userId FROM customer_vouchers WHERE voucherId = ? AND isUsed = 0',
+          [voucherId]
+        );
+        // Ai vừa nhận mail "được tặng voucher" ở trên thì thôi, mail đó đã kèm
+        // sẵn thông tin mới nhất rồi.
+        const alreadyNotified = new Set(emailTargetUserIds);
+        updateEmailUserIds = currentHolders
+          .map((row) => Number(row.userId))
+          .filter((uid) => !alreadyNotified.has(uid));
+      }
 
       // Nếu voucher chuyển từ trạng thái không active sang active
       if (oldStatus !== 'active' && status === 'active') {
@@ -577,6 +631,14 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
           emailTargetUserIds,
           { ...normalized.data, id: voucherId },
           { isCompensation: isNoShowVoucher }
+        );
+      }
+
+      if (updateEmailUserIds.length > 0) {
+        void sendVoucherEmails(
+          updateEmailUserIds,
+          { ...normalized.data, id: voucherId },
+          { isCompensation: isNoShowVoucher, isUpdate: true, previousCode: existingVoucher.code }
         );
       }
 
