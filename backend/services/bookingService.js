@@ -178,92 +178,57 @@ const isLuxuryRoomType = (roomType, fallbackPrice) => {
 // Danh sách các ngày lễ dương lịch cố định hàng năm (MM-DD)
 const FIXED_HOLIDAYS_VI = {
   '01-01': 'Tết Dương Lịch',
-  '02-14': 'Lễ Tình nhân (Valentine)',
-  '03-08': 'Quốc tế Phụ nữ (8/3)',
-  '03-26': 'Ngày thành lập Đoàn TNCS Hồ Chí Minh (26/3)',
   '04-30': 'Giải phóng miền Nam (30/4)',
   '05-01': 'Quốc tế Lao động (1/5)',
-  '06-01': 'Quốc tế Thiếu nhi (1/6)',
-  '07-27': 'Ngày Thương binh Liệt sĩ (27/7)',
-  '08-19': 'Cách mạng Tháng Tám (19/8)',
-  '09-01': 'Nghỉ lễ Quốc khánh',
   '09-02': 'Quốc khánh (2/9)',
-  '09-03': 'Nghỉ lễ Quốc khánh',
-  '10-20': 'Ngày Phụ nữ Việt Nam (20/10)',
-  '11-20': 'Ngày Nhà giáo Việt Nam (20/11)',
-  '12-22': 'Ngày thành lập Quân đội Nhân dân Việt Nam (22/12)',
-  '12-24': 'Lễ Giáng sinh (Đêm Noel)',
-  '12-25': 'Lễ Giáng sinh (Noel)',
-  '12-31': 'Đêm Giao thừa Dương lịch'
+  '12-25': 'Lễ Giáng sinh (Noel)'
 };
 
 // Các khoảng ngày lễ âm lịch / biến đổi theo từng năm (YYYY-MM-DD)
 const VARIABLE_HOLIDAYS_VI = [
   // Năm 2025
-  { start: '2025-01-25', end: '2025-02-02', name: 'Tết Nguyên Đán 2025' },
-  { start: '2025-04-06', end: '2025-04-07', name: 'Giỗ tổ Hùng Vương (10/3 ÂL)' },
-  { start: '2025-04-30', end: '2025-05-04', name: 'Kỳ nghỉ 30/4 - 1/5' },
-  { start: '2025-08-30', end: '2025-09-03', name: 'Kỳ nghỉ Quốc khánh 2/9' },
+  { start: '2025-01-29', end: '2025-02-02', name: 'Tết Nguyên Đán 2025' },
+  { start: '2025-04-07', end: '2025-04-07', name: 'Giỗ tổ Hùng Vương (10/3 ÂL)' },
 
   // Năm 2026
-  { start: '2026-02-14', end: '2026-02-22', name: 'Tết Nguyên Đán 2026' },
-  { start: '2026-04-25', end: '2026-04-26', name: 'Giỗ tổ Hùng Vương (10/3 ÂL)' },
-  { start: '2026-04-30', end: '2026-05-03', name: 'Kỳ nghỉ 30/4 - 1/5' },
-  { start: '2026-08-29', end: '2026-09-02', name: 'Kỳ nghỉ Quốc khánh 2/9' },
+  { start: '2026-02-17', end: '2026-02-21', name: 'Tết Nguyên Đán 2026' },
+  { start: '2026-04-26', end: '2026-04-26', name: 'Giỗ tổ Hùng Vương (10/3 ÂL)' },
 
   // Năm 2027
-  { start: '2027-02-05', end: '2027-02-13', name: 'Tết Nguyên Đán 2027' },
-  { start: '2027-04-15', end: '2027-04-16', name: 'Giỗ tổ Hùng Vương (10/3 ÂL)' },
-  { start: '2027-04-30', end: '2027-05-03', name: 'Kỳ nghỉ 30/4 - 1/5' },
-  { start: '2027-09-01', end: '2027-09-05', name: 'Kỳ nghỉ Quốc khánh 2/9' },
+  { start: '2027-02-06', end: '2027-02-10', name: 'Tết Nguyên Đán 2027' },
+  { start: '2027-04-16', end: '2027-04-16', name: 'Giỗ tổ Hùng Vương (10/3 ÂL)' },
 
   // Năm 2028
-  { start: '2028-01-25', end: '2028-02-02', name: 'Tết Nguyên Đán 2028' },
-  { start: '2028-04-04', end: '2028-04-05', name: 'Giỗ tổ Hùng Vương (10/3 ÂL)' },
-  { start: '2028-04-29', end: '2028-05-03', name: 'Kỳ nghỉ 30/4 - 1/5' },
-  { start: '2028-09-01', end: '2028-09-04', name: 'Kỳ nghỉ Quốc khánh 2/9' },
+  { start: '2028-01-26', end: '2028-01-30', name: 'Tết Nguyên Đán 2028' },
+  { start: '2028-04-05', end: '2028-04-05', name: 'Giỗ tổ Hùng Vương (10/3 ÂL)' },
 
   // Năm 2029
-  { start: '2029-02-12', end: '2029-02-20', name: 'Tết Nguyên Đán 2029' },
-  { start: '2029-04-22', end: '2029-04-23', name: 'Giỗ tổ Hùng Vương (10/3 ÂL)' },
-  { start: '2029-04-28', end: '2029-05-02', name: 'Kỳ nghỉ 30/4 - 1/5' },
-  { start: '2029-08-31', end: '2029-09-03', name: 'Kỳ nghỉ Quốc khánh 2/9' },
+  { start: '2029-02-13', end: '2029-02-17', name: 'Tết Nguyên Đán 2029' },
+  { start: '2029-04-23', end: '2029-04-23', name: 'Giỗ tổ Hùng Vương (10/3 ÂL)' },
 
   // Năm 2030
-  { start: '2030-02-01', end: '2030-02-09', name: 'Tết Nguyên Đán 2030' },
-  { start: '2030-04-11', end: '2030-04-12', name: 'Giỗ tổ Hùng Vương (10/3 ÂL)' },
-  { start: '2030-04-30', end: '2030-05-03', name: 'Kỳ nghỉ 30/4 - 1/5' },
-  { start: '2030-08-31', end: '2030-09-03', name: 'Kỳ nghỉ Quốc khánh 2/9' },
+  { start: '2030-02-03', end: '2030-02-07', name: 'Tết Nguyên Đán 2030' },
+  { start: '2030-04-12', end: '2030-04-12', name: 'Giỗ tổ Hùng Vương (10/3 ÂL)' },
 
   // Năm 2031
-  { start: '2031-01-22', end: '2031-01-30', name: 'Tết Nguyên Đán 2031' },
-  { start: '2031-04-01', end: '2031-04-02', name: 'Giỗ tổ Hùng Vương (10/3 ÂL)' },
-  { start: '2031-04-30', end: '2031-05-04', name: 'Kỳ nghỉ 30/4 - 1/5' },
-  { start: '2031-08-30', end: '2031-09-02', name: 'Kỳ nghỉ Quốc khánh 2/9' },
+  { start: '2031-01-23', end: '2031-01-27', name: 'Tết Nguyên Đán 2031' },
+  { start: '2031-04-02', end: '2031-04-02', name: 'Giỗ tổ Hùng Vương (10/3 ÂL)' },
 
   // Năm 2032
-  { start: '2032-02-10', end: '2032-02-18', name: 'Tết Nguyên Đán 2032' },
-  { start: '2032-04-19', end: '2032-04-20', name: 'Giỗ tổ Hùng Vương (10/3 ÂL)' },
-  { start: '2032-04-30', end: '2032-05-02', name: 'Kỳ nghỉ 30/4 - 1/5' },
-  { start: '2032-09-01', end: '2032-09-05', name: 'Kỳ nghỉ Quốc khánh 2/9' },
+  { start: '2032-02-11', end: '2032-02-15', name: 'Tết Nguyên Đán 2032' },
+  { start: '2032-04-20', end: '2032-04-20', name: 'Giỗ tổ Hùng Vương (10/3 ÂL)' },
 
   // Năm 2033
-  { start: '2033-01-30', end: '2033-02-07', name: 'Tết Nguyên Đán 2033' },
-  { start: '2033-04-08', end: '2033-04-09', name: 'Giỗ tổ Hùng Vương (10/3 ÂL)' },
-  { start: '2033-04-30', end: '2033-05-03', name: 'Kỳ nghỉ 30/4 - 1/5' },
-  { start: '2033-09-01', end: '2033-09-04', name: 'Kỳ nghỉ Quốc khánh 2/9' },
+  { start: '2033-01-31', end: '2033-02-04', name: 'Tết Nguyên Đán 2033' },
+  { start: '2033-04-09', end: '2033-04-09', name: 'Giỗ tổ Hùng Vương (10/3 ÂL)' },
 
   // Năm 2034
-  { start: '2034-02-18', end: '2034-02-26', name: 'Tết Nguyên Đán 2034' },
-  { start: '2034-04-27', end: '2034-04-28', name: 'Giỗ tổ Hùng Vương (10/3 ÂL)' },
-  { start: '2034-04-29', end: '2034-05-03', name: 'Kỳ nghỉ 30/4 - 1/5' },
-  { start: '2034-09-01', end: '2034-09-03', name: 'Kỳ nghỉ Quốc khánh 2/9' },
+  { start: '2034-02-19', end: '2034-02-23', name: 'Tết Nguyên Đán 2034' },
+  { start: '2034-04-28', end: '2034-04-28', name: 'Giỗ tổ Hùng Vương (10/3 ÂL)' },
 
   // Năm 2035
-  { start: '2035-02-07', end: '2035-02-15', name: 'Tết Nguyên Đán 2035' },
-  { start: '2035-04-16', end: '2035-04-17', name: 'Giỗ tổ Hùng Vương (10/3 ÂL)' },
-  { start: '2035-04-30', end: '2035-05-02', name: 'Kỳ nghỉ 30/4 - 1/5' },
-  { start: '2035-09-01', end: '2035-09-04', name: 'Kỳ nghỉ Quốc khánh 2/9' }
+  { start: '2035-02-08', end: '2035-02-12', name: 'Tết Nguyên Đán 2035' },
+  { start: '2035-04-17', end: '2035-04-17', name: 'Giỗ tổ Hùng Vương (10/3 ÂL)' }
 ];
 
 // Năm cuối cùng có dữ liệu lễ âm lịch. Qua mốc này mà chưa bổ sung thì Tết

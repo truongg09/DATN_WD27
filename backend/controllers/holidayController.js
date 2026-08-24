@@ -8,28 +8,12 @@ const autoSyncUpcomingHolidays = async (daysAhead = 90) => {
     const futureLimit = moment().add(daysAhead, 'days').endOf('day');
 
     const defaultHolidays = [
-      { name: 'Tết Dương Lịch', mmddStart: '01-01', mmddEnd: '01-02', percent: 10.0, desc: '🎆 Tết Dương Lịch – ngày nghỉ lễ chính thức' },
+      { name: 'Tết Dương Lịch', mmddStart: '01-01', mmddEnd: '01-01', percent: 10.0, desc: '🎆 Tết Dương Lịch – ngày nghỉ lễ chính thức' },
       { name: 'Giỗ tổ Hùng Vương (10/3 Âm lịch)', mmddStart: '04-07', mmddEnd: '04-07', percent: 10.0, desc: 'Giỗ tổ Hùng Vương' },
-      { name: 'Giải phóng miền Nam (30/4) & Quốc tế Lao động (1/5)', mmddStart: '04-30', mmddEnd: '05-01', percent: 10.0, desc: '🌸 Nghỉ lễ 30/4 và 1/5' },
-      { name: 'Quốc khánh Việt Nam (2/9)', mmddStart: '09-01', mmddEnd: '09-03', percent: 10.0, desc: '🇻🇳 Quốc khánh Việt Nam – ngày nghỉ lễ chính thức' },
-      { name: 'Ngày thành lập Mặt trận Tổ quốc Việt Nam', mmddStart: '09-10', mmddEnd: '09-10', percent: 5.0, desc: 'Ngày thành lập Mặt trận Tổ quốc Việt Nam' },
-      { name: 'Ngày Quốc tế Dân chủ', mmddStart: '09-15', mmddEnd: '09-15', percent: 5.0, desc: 'Ngày Quốc tế Dân chủ' },
-      { name: 'Ngày Quốc tế Bảo vệ tầng ôzôn', mmddStart: '09-16', mmddEnd: '09-16', percent: 5.0, desc: 'Ngày Quốc tế Bảo vệ tầng ôzôn' },
-      { name: 'Ngày Quốc tế Hòa bình', mmddStart: '09-21', mmddEnd: '09-21', percent: 5.0, desc: 'Ngày Quốc tế Hòa bình' },
-      { name: 'Tết Trung Thu (15/8 âm lịch)', mmddStart: '09-25', mmddEnd: '09-25', percent: 10.0, desc: '🌕 Tết Trung Thu – 15/8 âm lịch' },
-      { name: 'Ngày Quốc tế Người cao tuổi', mmddStart: '10-01', mmddEnd: '10-01', percent: 5.0, desc: 'Ngày Quốc tế Người cao tuổi' },
-      { name: 'Ngày Quốc tế Bất bạo động', mmddStart: '10-02', mmddEnd: '10-02', percent: 5.0, desc: 'Ngày Quốc tế Bất bạo động' },
-      { name: 'Ngày Động vật Thế giới', mmddStart: '10-04', mmddEnd: '10-04', percent: 5.0, desc: 'Ngày Động vật Thế giới' },
-      { name: 'Ngày Nhà giáo Thế giới', mmddStart: '10-05', mmddEnd: '10-05', percent: 5.0, desc: 'Ngày Nhà giáo Thế giới' },
-      { name: 'Ngày Bưu chính Thế giới', mmddStart: '10-09', mmddEnd: '10-09', percent: 5.0, desc: 'Ngày Bưu chính Thế giới' },
-      { name: 'Ngày Giải phóng Thủ đô', mmddStart: '10-10', mmddEnd: '10-10', percent: 10.0, desc: '🇻🇳 Ngày Giải phóng Thủ đô' },
-      { name: 'Ngày Doanh nhân Việt Nam', mmddStart: '10-13', mmddEnd: '10-13', percent: 5.0, desc: '💼 Ngày Doanh nhân Việt Nam' },
-      { name: 'Ngày Phụ nữ Việt Nam (20/10)', mmddStart: '10-20', mmddEnd: '10-20', percent: 10.0, desc: '💐 Ngày Phụ nữ Việt Nam' },
-      { name: 'Lễ hội Halloween', mmddStart: '10-31', mmddEnd: '10-31', percent: 10.0, desc: '🎃 Halloween' },
-      { name: 'Ngày Pháp luật Việt Nam', mmddStart: '11-09', mmddEnd: '11-09', percent: 5.0, desc: '⚖️ Ngày Pháp luật Việt Nam' },
-      { name: 'Ngày truyền thống MTTQ Việt Nam', mmddStart: '11-18', mmddEnd: '11-18', percent: 5.0, desc: '🇻🇳 Ngày truyền thống MTTQ Việt Nam' },
-      { name: 'Ngày Nhà giáo Việt Nam (20/11)', mmddStart: '11-20', mmddEnd: '11-20', percent: 10.0, desc: '👨‍🏫 Ngày Nhà giáo Việt Nam' },
-      { name: 'Lễ Giáng Sinh (24-25/12)', mmddStart: '12-24', mmddEnd: '12-25', percent: 10.0, desc: '🎄 Lễ Giáng Sinh' },
+      { name: 'Giải phóng miền Nam (30/4)', mmddStart: '04-30', mmddEnd: '04-30', percent: 10.0, desc: '🌸 Ngày Giải phóng miền Nam (30/4)' },
+      { name: 'Quốc tế Lao động (1/5)', mmddStart: '05-01', mmddEnd: '05-01', percent: 10.0, desc: '💼 Ngày Quốc tế Lao động (1/5)' },
+      { name: 'Quốc khánh Việt Nam (2/9)', mmddStart: '09-02', mmddEnd: '09-02', percent: 10.0, desc: '🇻🇳 Quốc khánh Việt Nam – ngày nghỉ lễ chính thức' },
+      { name: 'Lễ Giáng Sinh (25/12)', mmddStart: '12-25', mmddEnd: '12-25', percent: 10.0, desc: '🎄 Lễ Giáng Sinh (Noel)' },
     ];
 
     const currentYear = today.year();
