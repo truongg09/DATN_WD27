@@ -1,4 +1,7 @@
 .booking-page {
+  /* Giá trị dự phòng cho vị trí ghim bill, dùng trước khi Booking.tsx đo xong
+     chiều cao thật của header và của bill. */
+  --booking-sticky-top: 96px;
   min-height: 100vh;
   background: #fafafa;
   padding-top: 130px;
@@ -400,22 +403,27 @@
 .booking-sidebar {
   align-self: start;
   min-width: 0;
+  position: sticky;
+  /* --booking-sticky-top do Booking.tsx tính lại theo chiều cao bill:
+     bill thấp hơn màn hình thì giá trị dương (ghim ngay dưới header), bill cao
+     hơn màn hình thì giá trị ÂM để bill trôi lên vừa đủ lộ nút "Xác nhận đặt
+     phòng" rồi dừng hẳn. */
+  top: var(--booking-sticky-top, 96px);
+  z-index: 10;
 }
 
 .booking-summary {
   display: flex;
   flex-direction: column;
-  position: sticky;
-  top: 96px;
   background: #fff;
   border-radius: 16px;
   overflow: hidden;
   border: 1px solid #e5d8ca;
   box-shadow: 0 14px 32px rgba(74, 51, 32, 0.1);
-  max-height: calc(100vh - 120px);
 }
 
 .booking-summary h3 {
+  flex-shrink: 0;
   font-size: 16px;
   color: #3a291d;
   margin: 0;
@@ -427,7 +435,6 @@
 .booking-summary-content {
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
   flex: 1;
 }
 
@@ -435,8 +442,11 @@
   padding: 14px 18px 4px;
 }
 
+/* Vùng cuộn DUY NHẤT của bill: danh sách ảnh phòng đã chọn, và chỉ khi khách
+   chọn từ 2 hạng phòng trở lên. Chiều cao co theo màn hình để tổng tiền, chính
+   sách và nút xác nhận luôn còn chỗ hiển thị. */
 .selected-rooms-scroll-list.has-multiple-rooms {
-  max-height: 220px;
+  max-height: clamp(180px, 26vh, 300px);
   overflow-y: auto;
   padding-right: 12px;
   border-bottom: 1px dashed #eadfd3;
@@ -454,6 +464,10 @@
 .selected-rooms-scroll-list.has-multiple-rooms::-webkit-scrollbar-thumb {
   background: #d8c2ad;
   border-radius: 4px;
+}
+
+.selected-rooms-scroll-list.has-multiple-rooms::-webkit-scrollbar-thumb:hover {
+  background: #ab8965;
 }
 
 .booking-summary-fixed-details {
@@ -703,6 +717,7 @@
 }
 
 .btn-confirm-booking {
+  flex-shrink: 0;
   width: 100%;
   padding: 14px 20px 16px;
   background: linear-gradient(135deg, #ab8965 0%, #9a7a5a 100%);
