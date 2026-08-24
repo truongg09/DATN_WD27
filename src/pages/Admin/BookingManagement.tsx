@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { Alert, Button, Checkbox, DatePicker, Form, Input, InputNumber, message, Modal, Pagination, Radio, Select, Space, Tag, Tooltip } from 'antd';
 import {
@@ -711,6 +711,8 @@ function BookingManagement() {
   const [cleaningRoomLoading, setCleaningRoomLoading] = useState<Record<number, boolean>>({});
   const [waiveEarlySurcharge, setWaiveEarlySurcharge] = useState(false);
   const [checkInPaymentAction, setCheckInPaymentAction] = useState<'cash' | 'later'>('cash');
+  const operationSubmittingRef = useRef(false);
+  const [operationSubmitting, setOperationSubmitting] = useState(false);
 
   // Trả về mảng booking vừa tải để nơi gọi (VD: sau khi chuyển phòng) có thể
   // lấy ngay bản ghi mới nhất mà không cần đọc lại state bất đồng bộ.
@@ -1080,7 +1082,7 @@ function BookingManagement() {
   };
 
   const submitOperation = async () => {
-    if (!selectedBooking || !operation) return;
+    if (!selectedBooking || !operation || operationSubmittingRef.current) return;
 
     // Chặn ngay từ phía UI: phòng đang bảo trì thì không cho bấm Check-in,
     // tránh gọi API rồi mới nhận lỗi 409 cụt lủn. Lễ tân cần chuyển phòng
@@ -1090,9 +1092,10 @@ function BookingManagement() {
       return;
     }
 
-    const values = await form.validateFields();
-
+    operationSubmittingRef.current = true;
+    setOperationSubmitting(true);
     try {
+      const values = await form.validateFields();
 
       if (operation === 'declareGuests' || operation === 'guests') {
         if (Array.isArray(values.guests)) {
@@ -1131,7 +1134,7 @@ function BookingManagement() {
             await api.post(`/payments/${paymentId}/pay`, {
               paymentMethod: 'cash',
               amount: remainingAmount
-            });
+            }, { skipMutationConfirm: true });
             message.success(`Đã ghi nhận thu ${formatPrice(remainingAmount)} tiền mặt!`);
           } catch (payErr: any) {
             console.warn('Lỗi ghi nhận tiền mặt khi check-in:', payErr);
@@ -1143,7 +1146,7 @@ function BookingManagement() {
           applyEarlySurcharge: shouldApplySurcharge,
           earlySurchargeAmount: shouldApplySurcharge ? earlyInfo.surchargeAmount : 0,
           earlyTimeLabel: earlyInfo.timeWindowLabel,
-        });
+        }, { skipMutationConfirm: true });
         const lateCheckIn = response.data?.lateCheckIn;
         message.success(
           lateCheckIn
@@ -1287,7 +1290,12 @@ function BookingManagement() {
       closeOperation();
       fetchBookings();
     } catch (error: any) {
-      message.error(error.response?.data?.message || 'Không thể xử lý thao tác này');
+      if (!error?.errorFields) {
+        message.error(error.response?.data?.message || 'Không thể xử lý thao tác này');
+      }
+    } finally {
+      operationSubmittingRef.current = false;
+      setOperationSubmitting(false);
     }
   };
 
@@ -2448,8 +2456,13 @@ const handleCheckIn = (booking: Booking) => {
       <Modal
         title={operation ? operationTitle[operation] : ''}
         open={Boolean(operation)}
-        onCancel={closeOperation}
+        onCancel={operationSubmitting ? undefined : closeOperation}
         onOk={submitOperation}
+        confirmLoading={operationSubmitting}
+        cancelButtonProps={{ disabled: operationSubmitting }}
+        closable={!operationSubmitting}
+        maskClosable={!operationSubmitting}
+        keyboard={!operationSubmitting}
         okText={
           operation === 'guests'
             ? 'Xác nhận nhận phòng'

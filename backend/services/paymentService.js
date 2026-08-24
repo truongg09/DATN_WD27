@@ -4,6 +4,7 @@ const bookingModel = require('../models/bookingModel');
 const invoiceModel = require('../models/invoiceModel');
 const invoiceService = require('./invoiceService');
 const voucherService = require('./voucherService');
+const walletService = require('./walletService');
 const emailService = require('./emailService');
 const HttpError = require('../utils/httpError');
 const { formatPayment } = require('../utils/formatters');
@@ -46,7 +47,8 @@ const paymentMethodLabel = (method) => ({
   bank_transfer: 'chuyển khoản',
   vnpay: 'VNPay',
   zalopay: 'ZaloPay',
-  credit_card: 'thẻ tín dụng'
+  credit_card: 'thẻ tín dụng',
+  wallet: 'ví số dư HotelHub'
 }[method] || method || 'khác');
 
 const money = (amount) => `${Number(amount || 0).toLocaleString('vi-VN')}₫`;
@@ -88,6 +90,7 @@ const generateTransactionCode = (method) => {
     method === 'zalopay' ? 'ZALOPAY'
       : method === 'vnpay' ? 'VNPAY'
         : method === 'bank_transfer' ? 'BANK'
+          : method === 'wallet' ? 'WALLET'
           : 'CASH';
   const timestamp = Date.now().toString(36).toUpperCase();
   const random = Math.random().toString(36).slice(2, 8).toUpperCase();
@@ -581,6 +584,292 @@ const processPayment = async (paymentId, payload, actor = null) => {
   }
 };
 
+// Thanh toán bằng ví là một luồng riêng, không đi qua /pay (endpoint
+// dành cho nhân viên ghi nhận tiền mặt/chuyển khoản). Việc trừ ví và
+// tăng paidAmount phải cùng một transaction: không bao giờ để xảy ra
+// trường hợp tiền đã mất khỏi ví nhưng booking chưa được thanh toán.
+const payWithWallet = async (paymentId, payload, actor = null) => {
+  const actorRole = String(actor?.role || '').toLowerCase();
+  const actorAccountId = Number(actor?.userId);
+  if (actorRole !== 'customer' || !Number.isInteger(actorAccountId) || actorAccountId <= 0) {
+    throw new HttpError(403, 'Chỉ chủ đặt phòng được thanh toán bằng ví của mình');
+  }
+
+  const connection = await db.getConnection();
+  let committed = false;
+  let booking;
+  let customerId;
+  let isFullyPaid = false;
+  let walletTransactionId;
+
+  try {
+    await connection.beginTransaction();
+    await bookingModel.expireUnpaidBookingHolds(connection);
+
+    const payment = await paymentModel.getPaymentById(paymentId, connection, true);
+    if (!payment) throw new HttpError(404, 'Không tìm thấy thanh toán');
+
+    booking = await bookingModel.getBookingById(payment.bookingId, connection, true);
+    if (!booking) throw new HttpError(404, 'Không tìm thấy đặt phòng');
+    if (Number(booking.user_id) !== actorAccountId) {
+      throw new HttpError(403, 'Bạn không có quyền dùng ví cho đặt phòng này');
+    }
+
+    customerId = await walletService.getBookingCustomerIdForAccount(
+      booking.id,
+      actorAccountId,
+      connection
+    );
+
+    // Kiểm tra key sau khi đã khóa payment. Hai request trùng nhau cho cùng
+    // payment sẽ xếp hàng; request thứ hai trả kết quả cũ, không trừ lần hai.
+    const existingDebit = await walletService.getBookingPaymentByIdempotencyKey(
+      customerId,
+      payload.idempotencyKey,
+      connection
+    );
+    if (existingDebit) {
+      const matchesRequest = Number(existingDebit.customerId) === Number(customerId)
+        && Number(existingDebit.paymentId) === Number(payment.id)
+        && Number(existingDebit.bookingId) === Number(booking.id)
+        && Number(existingDebit.amount) === Number(payload.amount)
+        && existingDebit.status === 'approved';
+      if (!matchesRequest) {
+        throw new HttpError(409, 'Mã xác nhận giao dịch đã được sử dụng');
+      }
+
+      await walletService.lockWalletAndGetBalance(customerId, connection);
+      const snapshot = await walletService.getTransactionBalanceSnapshot(
+        customerId,
+        existingDebit.id,
+        connection
+      );
+      await connection.commit();
+      committed = true;
+      return {
+        payment: formatPayment(payment),
+        wallet: {
+          transactionId: Number(existingDebit.id),
+          debitedAmount: Number(existingDebit.amount),
+          balanceBefore: Number(snapshot?.balanceBefore || 0),
+          balanceAfter: Number(snapshot?.balanceAfter || 0)
+        },
+        invoice: null,
+        idempotent: true
+      };
+    }
+
+    if (payment.paymentStatus === 'paid') {
+      throw new HttpError(409, 'Khoản thanh toán này đã được thanh toán đủ');
+    }
+    if (payment.paymentStatus === 'refunded') {
+      throw new HttpError(409, 'Không thể thanh toán giao dịch đã hoàn tiền');
+    }
+    if (booking.status === 'cancelled') {
+      throw new HttpError(409, 'Đặt phòng đã bị hủy hoặc hết thời gian giữ chỗ');
+    }
+
+    await assertAllBookingRoomsAvailable(booking, connection);
+    await bookingModel.getRoomWithType(booking.room_id, connection, true);
+
+    const conflicts = await bookingModel.getSecuredConflictingBookings(
+      booking.room_id,
+      booking.check_in,
+      booking.check_out,
+      connection,
+      true,
+      { excludeBookingId: booking.id }
+    );
+    if (conflicts.length > 0) {
+      await bookingModel.updateBookingStatus(booking.id, 'cancelled', connection);
+      await connection.commit();
+      committed = true;
+      throw new HttpError(409, ROOM_TAKEN_MESSAGE);
+    }
+
+    const payAmount = validatePaymentAmount(payment, payload.amount);
+    const lockedBalance = await walletService.lockWalletAndGetBalance(customerId, connection);
+    if (payAmount > lockedBalance.available) {
+      throw new HttpError(
+        409,
+        `Số dư ví không đủ. Cần ${money(payAmount)}, hiện có ${money(lockedBalance.available)}`,
+        {
+          requiredAmount: payAmount,
+          availableBalance: lockedBalance.available,
+          shortfall: payAmount - lockedBalance.available
+        }
+      );
+    }
+    const walletBalanceBefore = lockedBalance.available;
+    const walletBalanceAfter = walletBalanceBefore - payAmount;
+
+    // Không thể hủy tiền thật chỉ bằng cách đổi trạng thái local.
+    // Nếu cổng/QR ngân hàng đang chờ, chặn ví để tránh khách bị
+    // trừ cả tiền ngoài lẫn số dư HotelHub.
+    const pendingTransfer = await paymentModel.getConfirmationRequest(
+      payment.id,
+      connection,
+      true
+    );
+    if (pendingTransfer?.status === 'pending') {
+      throw new HttpError(
+        409,
+        'Khoản chuyển khoản đang chờ khách sạn đối soát. Chưa thể thanh toán thêm bằng ví.'
+      );
+    }
+
+    const activeGatewayOrder = await paymentModel.getActiveGatewayOrderByPayment(
+      payment.id,
+      connection,
+      true
+    );
+    if (activeGatewayOrder) {
+      const gatewayExpiresAt = new Date(activeGatewayOrder.expiresAt);
+      if (Number.isFinite(gatewayExpiresAt.getTime()) && gatewayExpiresAt <= new Date()) {
+        await paymentModel.updateGatewayOrderStatus(
+          activeGatewayOrder.orderId,
+          'expired',
+          connection
+        );
+      } else {
+        throw new HttpError(
+          409,
+          `Giao dịch ${String(activeGatewayOrder.provider || '').toUpperCase()} đang chờ xử lý. Vui lòng chờ giao dịch kết thúc hoặc hết hạn trước khi dùng ví.`
+        );
+      }
+    }
+
+    walletTransactionId = await walletService.createBookingPayment(
+      {
+        customerId,
+        paymentId: payment.id,
+        bookingId: booking.id,
+        amount: payAmount,
+        idempotencyKey: payload.idempotencyKey,
+        note: `Thanh toán đặt phòng #${booking.id}`
+      },
+      connection
+    );
+
+    const newPaidAmount = Number(payment.paidAmount) + payAmount;
+    const newRemainingAmount = Math.max(Number(payment.totalAmount) - newPaidAmount, 0);
+    isFullyPaid = newRemainingAmount <= 0;
+    const isInitialDeposit = Number(payment.paidAmount) === 0 && !isFullyPaid;
+    const transactionCode = `WALLET-${payment.id}-${walletTransactionId}`;
+
+    await paymentModel.updatePayment(
+      payment.id,
+      {
+        paymentMethod: 'wallet',
+        depositAmount: isInitialDeposit ? payAmount : Number(payment.depositAmount || 0),
+        paidAmount: newPaidAmount,
+        remainingAmount: newRemainingAmount,
+        paymentStatus: isFullyPaid ? 'paid' : 'deposit_paid',
+        transactionCode,
+        paymentDate: new Date()
+      },
+      connection
+    );
+
+    if (['pending', 'confirmed'].includes(booking.status)) {
+      await bookingModel.updateBookingStatus(booking.id, 'confirmed', connection);
+    } else if (booking.status === 'no_show') {
+      const stayDeadline = getCheckOutDeadline(
+        booking.check_out,
+        booking.requested_check_out_time
+      );
+      if (new Date() <= stayDeadline) {
+        await bookingModel.updateBookingStatus(booking.id, 'confirmed', connection);
+        await logBookingHistory(
+          booking.id,
+          'status_change',
+          'Khách đã thanh toán bằng ví nên đơn được khôi phục từ trạng thái không đến.',
+          {
+            oldValue: { status: 'no_show' },
+            newValue: { status: 'confirmed' }
+          },
+          actor,
+          connection
+        );
+      }
+    }
+
+    await bookingModel.cancelCompetingUnpaidBookings(
+      booking.room_id,
+      booking.check_in,
+      booking.check_out,
+      booking.id,
+      connection
+    );
+
+    await logBookingHistory(
+      booking.id,
+      'payment',
+      `Thanh toán bằng ví HotelHub ${money(payAmount)}${
+        isFullyPaid
+          ? ' — đã thanh toán đủ'
+          : ` — đã trả ${money(newPaidAmount)}, còn lại ${money(newRemainingAmount)}`
+      }`,
+      {
+        entityId: payment.id,
+        entityLabel: `Thanh toán #${payment.id}`,
+        newValue: {
+          paymentMethod: 'wallet',
+          paidAmount: newPaidAmount,
+          remainingAmount: newRemainingAmount,
+          paymentStatus: isFullyPaid ? 'paid' : 'deposit_paid',
+          transactionCode
+        },
+        amount: payAmount
+      },
+      actor,
+      connection
+    );
+
+    await connection.commit();
+    committed = true;
+
+    let invoice = null;
+    if (isFullyPaid && booking.status === 'checked_out') {
+      try {
+        invoice = await invoiceService.issueInvoiceForPayment(payment.id);
+      } catch (error) {
+        console.error(`Issue invoice for wallet payment #${payment.id} failed:`, error);
+      }
+    }
+
+    const [updatedPayment, updatedBooking, bookingServices] = await Promise.all([
+      paymentModel.getPaymentById(payment.id),
+      bookingModel.getBookingById(booking.id),
+      bookingModel.getBookingServicesByBookingId(booking.id)
+    ]);
+    void emailService.sendPaymentConfirmation(
+      { ...updatedBooking, services: bookingServices },
+      formatPayment(updatedPayment)
+    );
+
+    return {
+      payment: formatPayment(updatedPayment),
+      wallet: {
+        transactionId: walletTransactionId,
+        debitedAmount: payAmount,
+        balanceBefore: walletBalanceBefore,
+        balanceAfter: walletBalanceAfter
+      },
+      invoice,
+      idempotent: false
+    };
+  } catch (error) {
+    if (!committed) await connection.rollback();
+    if (error?.code === 'ER_DUP_ENTRY' && String(error.message || '').includes('uq_wallet_idempotency')) {
+      throw new HttpError(409, 'Giao dịch ví trùng lặp, vui lòng tải lại trạng thái thanh toán');
+    }
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
 const confirmPayment = async (paymentId, payload, actor = null) => {
   const connection = await db.getConnection();
   let committed = false;
@@ -771,6 +1060,34 @@ const refundPayment = async (paymentId, actor = null) => {
     if (payment.paymentStatus !== 'paid') {
       throw new HttpError(409, 'Chỉ giao dịch đã thanh toán mới có thể hoàn tiền');
     }
+    const refundAmount = Number(payment.paidAmount || 0);
+    if (!Number.isFinite(refundAmount) || refundAmount <= 0) {
+      throw new HttpError(409, 'Giao dịch không có số tiền đã thu để hoàn');
+    }
+
+    const [bookingRows] = await connection.query(
+      'SELECT customerId FROM bookings WHERE id = ? FOR UPDATE',
+      [payment.bookingId]
+    );
+    const customerId = Number(bookingRows[0]?.customerId);
+    if (!Number.isInteger(customerId) || customerId <= 0) {
+      throw new HttpError(
+        409,
+        'Đơn này không có tài khoản khách hàng để nhận tiền hoàn vào ví'
+      );
+    }
+
+    await walletService.lockWalletAndGetBalance(customerId, connection);
+    const refundWalletTransactionId = await walletService.createRefundCredit(
+      {
+        customerId,
+        paymentId: payment.id,
+        bookingId: payment.bookingId,
+        amount: refundAmount,
+        note: `Hoàn tiền giao dịch #${payment.id} vào ví HotelHub`
+      },
+      connection
+    );
 
     await paymentModel.updatePayment(
       paymentId,
@@ -787,11 +1104,14 @@ const refundPayment = async (paymentId, actor = null) => {
     await logBookingHistory(
       payment.bookingId,
       'refund',
-      `Hoàn tiền giao dịch #${payment.id}: ${money(payment.paidAmount)}`,
+      `Hoàn tiền giao dịch #${payment.id}: ${money(refundAmount)} vào ví khách hàng`,
       {
         oldValue: { paymentStatus: payment.paymentStatus, paidAmount: Number(payment.paidAmount) },
-        newValue: { paymentStatus: 'refunded' },
-        amount: Number(payment.paidAmount)
+        newValue: {
+          paymentStatus: 'refunded',
+          walletTransactionId: refundWalletTransactionId
+        },
+        amount: refundAmount
       },
       actor,
       connection
@@ -933,8 +1253,9 @@ const previewVoucher = async (paymentId, code, actor) => {
     booking,
     subtotal,
     payableCeiling: Math.max(subtotal - paidAmount, 0),
-    userId,
-    userRole
+    // Khi lễ tân thao tác, voucher vẫn phải thuộc về khách của đơn này,
+    // không phải tài khoản nhân viên đang đăng nhập.
+    userId: booking.user_id || null
   });
 
   return {
@@ -956,6 +1277,127 @@ const previewVoucher = async (paymentId, code, actor) => {
     totalAfterDiscount: subtotal - evaluation.discountAmount,
     remainingAfterDiscount: Math.max(subtotal - evaluation.discountAmount - paidAmount, 0)
   };
+};
+
+// Danh sách toàn bộ voucher hiện có của khách: gồm mã công khai và mã
+// được tặng riêng. Voucher không phù hợp với đơn vẫn được trả về kèm lý do
+// để giao diện hiển thị nhưng khóa lựa chọn, thay vì làm người dùng tưởng bị mất mã.
+const listCustomerVouchers = async (paymentId, actor) => {
+  const actorUserId = typeof actor === 'object' ? actor?.userId : actor;
+  const actorRole = typeof actor === 'object' ? actor?.role : 'customer';
+  const isStaff = ['admin', 'employee', 'staff', 'manager', 'receptionist'].includes(actorRole);
+
+  const payment = await paymentModel.getPaymentById(paymentId);
+  if (!payment) throw new HttpError(404, 'Không tìm thấy thanh toán');
+
+  const booking = await bookingModel.getBookingById(payment.bookingId);
+  if (!booking) throw new HttpError(404, 'Không tìm thấy đặt phòng');
+  if (!isStaff && Number(booking.user_id) !== Number(actorUserId)) {
+    throw new HttpError(403, 'Bạn không có quyền xem voucher của đặt phòng này');
+  }
+
+  if (booking.voucher_id || booking.voucherId) return [];
+  if (!['unpaid', 'deposit_paid'].includes(payment.paymentStatus)) return [];
+
+  const hasPaidDeposit = Number(payment.paidAmount || 0) > 0;
+  const isAtCheckout = ['checked_in', 'checked_out'].includes(booking.status);
+  if (!hasPaidDeposit && !isAtCheckout) return [];
+
+  const guestSurcharge = Number(booking.occupancy_surcharge || 0);
+  const roomAmount = Math.max(Number(booking.total_price || 0) - guestSurcharge, 0);
+  const serviceAmount = await bookingModel.sumBookingServices(payment.bookingId);
+  const damageSurcharge = await bookingModel.sumDamageCharges(payment.bookingId);
+  const lateCheckoutSurcharge = await bookingModel.sumLateCheckoutCharges(payment.bookingId);
+  const subtotal = roomAmount + serviceAmount + guestSurcharge + damageSurcharge + lateCheckoutSurcharge;
+  const paidAmount = Number(payment.paidAmount || 0);
+  const customerId = booking.user_id || null;
+
+  const [candidates] = await db.query(
+    `SELECT
+       v.id,
+       v.code,
+       v.discountType,
+       v.discountValue,
+       v.maxDiscount,
+       v.minBookingAmount,
+       v.endDate,
+       CASE WHEN EXISTS (
+         SELECT 1 FROM customer_vouchers own
+         WHERE own.voucherId = v.id AND own.userId = ?
+       ) THEN 1 ELSE 0 END AS isPersonal
+     FROM vouchers v
+     WHERE (
+       (
+         v.status = 'active'
+         AND v.quantity > 0
+         AND (v.startDate IS NULL OR DATE(v.startDate) <= CURDATE())
+         AND (v.endDate IS NULL OR DATE(v.endDate) >= CURDATE())
+         AND NOT EXISTS (SELECT 1 FROM customer_vouchers any_owner WHERE any_owner.voucherId = v.id)
+       )
+         OR EXISTS (
+           SELECT 1 FROM customer_vouchers customer_owner
+           WHERE customer_owner.voucherId = v.id
+             AND customer_owner.userId = ?
+         )
+     )
+     ORDER BY isPersonal DESC, v.endDate ASC, v.code ASC`,
+    [customerId, customerId]
+  );
+
+  const customerVouchers = [];
+  for (const candidate of candidates) {
+    try {
+      const evaluation = await voucherService.evaluateVoucherForBooking({
+        code: candidate.code,
+        booking,
+        subtotal,
+        payableCeiling: Math.max(subtotal - paidAmount, 0),
+        userId: customerId
+      });
+
+      customerVouchers.push({
+        id: evaluation.voucher.id,
+        code: evaluation.voucher.code,
+        discountType: evaluation.voucher.discountType,
+        discountValue: Number(evaluation.voucher.discountValue),
+        maxDiscount: Number(evaluation.voucher.maxDiscount || 0),
+        minBookingAmount: Number(evaluation.voucher.minBookingAmount || 0),
+        validUntil: evaluation.voucher.endDate,
+        roomTypes: evaluation.allowedRoomTypes.map((item) => item.typeName),
+        isPersonal: Boolean(candidate.isPersonal),
+        isApplicable: true,
+        unavailableReason: null,
+        discountAmount: evaluation.discountAmount,
+        remainingAfterDiscount: Math.max(subtotal - evaluation.discountAmount - paidAmount, 0)
+      });
+    } catch (error) {
+      if (error instanceof HttpError && error.statusCode < 500) {
+        customerVouchers.push({
+          id: Number(candidate.id),
+          code: candidate.code,
+          discountType: candidate.discountType,
+          discountValue: Number(candidate.discountValue),
+          maxDiscount: Number(candidate.maxDiscount || 0),
+          minBookingAmount: Number(candidate.minBookingAmount || 0),
+          validUntil: candidate.endDate,
+          roomTypes: [],
+          isPersonal: Boolean(candidate.isPersonal),
+          isApplicable: false,
+          unavailableReason: error.message,
+          discountAmount: 0,
+          remainingAfterDiscount: Math.max(subtotal - paidAmount, 0)
+        });
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  return customerVouchers.sort((first, second) => {
+    if (first.isApplicable !== second.isApplicable) return first.isApplicable ? -1 : 1;
+    if (first.isPersonal !== second.isPersonal) return first.isPersonal ? -1 : 1;
+    return String(first.code).localeCompare(String(second.code), 'vi');
+  });
 };
 
 const applyVoucher = async (paymentId, code, actor) => {
@@ -1028,8 +1470,8 @@ const applyVoucher = async (paymentId, code, actor) => {
         booking,
         subtotal,
         payableCeiling: Math.max(subtotal - paidAmount, 0),
-        userId,
-        userRole
+        // Áp voucher theo chủ đơn. Nhân viên chỉ là người thực hiện nghiệp vụ.
+        userId: booking.user_id || null
       },
       connection
     );
@@ -1109,9 +1551,11 @@ module.exports = {
   listPayments,
   getPaymentById,
   getPaymentByBookingId,
+  listCustomerVouchers,
   applyVoucher,
   previewVoucher,
   processPayment,
+  payWithWallet,
   confirmPayment,
   refundPayment
 };

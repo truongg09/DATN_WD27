@@ -192,6 +192,7 @@ const historyFieldText: Record<string, string> = {
   paymentMethod: 'Phương thức thanh toán',
   refundMethod: 'Phương thức hoàn tiền',
   transactionCode: 'Mã giao dịch',
+  walletTransactionId: 'Mã giao dịch ví',
   quantity: 'Số lượng',
   serviceId: 'Mã dịch vụ',
   serviceName: 'Tên dịch vụ',

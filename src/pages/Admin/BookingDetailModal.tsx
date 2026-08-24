@@ -295,6 +295,7 @@ const paymentMethodText: Record<string, string> = {
   vnpay: 'VNPay',
   zalopay: 'ZaloPay',
   credit_card: 'Thẻ tín dụng',
+  wallet: 'Ví số dư HotelHub',
 };
 
 const refundStatusText: Record<string, string> = {

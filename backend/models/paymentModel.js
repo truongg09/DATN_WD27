@@ -153,6 +153,15 @@ const confirmConfirmationRequest = async (paymentId, confirmedBy, connection) =>
   );
 };
 
+const rejectPendingConfirmationRequest = async (paymentId, note, connection) => {
+  await run(connection).query(
+    `UPDATE payment_confirmation_requests
+        SET status = 'rejected', note = ?, confirmedBy = NULL, confirmedAt = NOW()
+      WHERE paymentId = ? AND status = 'pending'`,
+    [note || null, paymentId]
+  );
+};
+
 const createGatewayOrder = async (payload, connection) => {
   await run(connection).query(
     "UPDATE payment_gateway_orders SET status = 'cancelled' WHERE paymentId = ? AND status = 'created'",
@@ -174,12 +183,33 @@ const getGatewayOrder = async (orderId, connection, lock = false) => {
   return rows[0] || null;
 };
 
+const getActiveGatewayOrderByPayment = async (paymentId, connection, lock = false) => {
+  const [rows] = await run(connection).query(
+    `SELECT * FROM payment_gateway_orders
+      WHERE paymentId = ? AND status = 'created'
+      ORDER BY id DESC
+      LIMIT 1
+      ${lock ? 'FOR UPDATE' : ''}`,
+    [paymentId]
+  );
+  return rows[0] || null;
+};
+
 const updateGatewayOrderStatus = async (orderId, status, connection) => {
   await run(connection).query(
     `UPDATE payment_gateway_orders
         SET status = ?, paidAt = IF(? = 'paid', COALESCE(paidAt, NOW()), paidAt)
       WHERE orderId = ?`,
     [status, status, orderId]
+  );
+};
+
+const cancelActiveGatewayOrders = async (paymentId, connection) => {
+  await run(connection).query(
+    `UPDATE payment_gateway_orders
+        SET status = 'cancelled'
+      WHERE paymentId = ? AND status = 'created'`,
+    [paymentId]
   );
 };
 
@@ -193,7 +223,10 @@ module.exports = {
   upsertConfirmationRequest,
   getConfirmationRequest,
   confirmConfirmationRequest,
+  rejectPendingConfirmationRequest,
   createGatewayOrder,
   getGatewayOrder,
-  updateGatewayOrderStatus
+  getActiveGatewayOrderByPayment,
+  updateGatewayOrderStatus,
+  cancelActiveGatewayOrders
 };

@@ -120,7 +120,12 @@ function Profile() {
   const [bookings, setBookings] = useState<BookingHistoryItem[]>([]);
   const [vouchers, setVouchers] = useState<VoucherItem[]>([]);
   const [refunds, setRefunds] = useState<RefundRow[]>([]);
-  const [walletBalance, setWalletBalance] = useState<WalletBalance>({ credited: 0, pendingWithdraw: 0, available: 0 });
+  const [walletBalance, setWalletBalance] = useState<WalletBalance>({
+    credited: 0,
+    pendingWithdraw: 0,
+    paidFromWallet: 0,
+    available: 0,
+  });
   const [walletTransactions, setWalletTransactions] = useState<WalletTransaction[]>([]);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState<number>(0);
@@ -763,6 +768,13 @@ function Profile() {
                               <div style={{ fontSize: 12, color: "#999" }}>Đặt phòng #{record.bookingId}</div>
                             )}
                           </div>
+                        ) : record.type === "booking_payment" ? (
+                          <div>
+                            <Tag color="blue">- Thanh toán đặt phòng</Tag>
+                            {record.bookingId && (
+                              <div style={{ fontSize: 12, color: "#999" }}>Đặt phòng #{record.bookingId}</div>
+                            )}
+                          </div>
                         ) : (
                           <div>
                             <Tag color="orange">- Rút tiền</Tag>
@@ -778,7 +790,7 @@ function Profile() {
                       title: "Số tiền",
                       key: "amount",
                       render: (_: unknown, record: WalletTransaction) => (
-                        <strong style={{ color: record.type === "refund_credit" ? "#15803d" : "#b45309" }}>
+                        <strong style={{ color: record.type === "refund_credit" ? "#15803d" : record.type === "booking_payment" ? "#1d4ed8" : "#b45309" }}>
                           {record.type === "refund_credit" ? "+" : "-"}
                           {new Intl.NumberFormat("vi-VN").format(Number(record.amount))}₫
                         </strong>

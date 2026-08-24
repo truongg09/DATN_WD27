@@ -5,10 +5,10 @@ import {
   Checkbox,
   Descriptions,
   Divider,
-  Input,
   Modal,
   QRCode,
   Result,
+  Select,
   Space,
   Spin,
   Table,
@@ -80,6 +80,22 @@ interface PaymentSummary {
   };
 }
 
+interface ApplicableVoucher {
+  id: number;
+  code: string;
+  discountType: "percentage" | "fixed";
+  discountValue: number;
+  maxDiscount: number;
+  minBookingAmount: number;
+  validUntil: string | null;
+  roomTypes: string[];
+  isPersonal: boolean;
+  isApplicable: boolean;
+  unavailableReason: string | null;
+  discountAmount: number;
+  remainingAfterDiscount: number;
+}
+
 interface EarlyCheckoutInfo {
   refundId: number;
   unusedNights: number;
@@ -116,7 +132,11 @@ const CheckoutPaymentModal: React.FC<Props> = ({
   const [working, setWorking] = useState(false);
   const [summary, setSummary] = useState<PaymentSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [voucherInput, setVoucherInput] = useState("");
+  const [selectedVoucherCode, setSelectedVoucherCode] = useState("");
+  const [availableVouchers, setAvailableVouchers] = useState<ApplicableVoucher[]>([]);
+  const [loadingVouchers, setLoadingVouchers] = useState(false);
+  const [voucherLoadError, setVoucherLoadError] = useState<string | null>(null);
+  const [voucherListVersion, setVoucherListVersion] = useState(0);
   const [applyingVoucher, setApplyingVoucher] = useState(false);
   const [waiveLateFee, setWaiveLateFee] = useState(false);
 
@@ -151,7 +171,7 @@ const CheckoutPaymentModal: React.FC<Props> = ({
     if (!open || !bookingId) {
       setSummary(null);
       setError(null);
-      setVoucherInput("");
+      setSelectedVoucherCode("");
       return;
     }
 
@@ -161,20 +181,66 @@ const CheckoutPaymentModal: React.FC<Props> = ({
     return () => window.clearInterval(timer);
   }, [open, bookingId, loadSummary]);
 
+  useEffect(() => {
+    const paymentId = summary?.paymentId;
+    if (!open || !paymentId || summary?.voucherCode || Number(summary?.remainingAmount || 0) <= 0) {
+      setAvailableVouchers([]);
+      setSelectedVoucherCode("");
+      setVoucherLoadError(null);
+      return;
+    }
+
+    let active = true;
+    setLoadingVouchers(true);
+    setVoucherLoadError(null);
+
+    api
+      .get(`/payments/${paymentId}/customer-vouchers`)
+      .then((response) => {
+        if (!active) return;
+        const list = (response as unknown as { data?: ApplicableVoucher[] }).data;
+        setAvailableVouchers(Array.isArray(list) ? list : []);
+      })
+      .catch((err: unknown) => {
+        if (!active) return;
+        const msg = (err as { response?: { data?: { message?: string } } })
+          .response?.data?.message;
+        setAvailableVouchers([]);
+        setVoucherLoadError(msg || "Không thể tải danh sách voucher");
+      })
+      .finally(() => {
+        if (active) setLoadingVouchers(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [
+    open,
+    summary?.paymentId,
+    summary?.voucherCode,
+    summary?.totalAmount,
+    summary?.paidAmount,
+    summary?.remainingAmount,
+    voucherListVersion,
+  ]);
+
   const handleApplyVoucher = async () => {
-    if (!summary?.paymentId || !voucherInput.trim()) return;
+    if (!summary?.paymentId || !selectedVoucherCode) return;
     setApplyingVoucher(true);
     try {
       await api.post(`/payments/${summary.paymentId}/apply-voucher`, {
-        code: voucherInput.trim(),
+        code: selectedVoucherCode,
       });
       message.success("Áp dụng mã giảm giá thành công!");
-      setVoucherInput("");
+      setSelectedVoucherCode("");
       await loadSummary();
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })
         .response?.data?.message;
       message.error(msg || "Không thể áp dụng voucher");
+      setSelectedVoucherCode("");
+      setVoucherListVersion((current) => current + 1);
     } finally {
       setApplyingVoucher(false);
     }
@@ -528,6 +594,7 @@ const CheckoutPaymentModal: React.FC<Props> = ({
                 display: "flex",
                 gap: 10,
                 alignItems: "center",
+                flexWrap: "wrap",
                 background: "#fafafa",
                 padding: "10px 14px",
                 borderRadius: 8,
@@ -535,22 +602,52 @@ const CheckoutPaymentModal: React.FC<Props> = ({
               }}
             >
               <TagOutlined style={{ color: "#722ed1" }} />
-              <span style={{ fontWeight: 500 }}>Áp dụng mã Voucher:</span>
-              <Input
-                placeholder="Nhập mã giảm giá"
-                value={voucherInput}
-                onChange={(e) => setVoucherInput(e.target.value)}
-                style={{ width: 220 }}
+              <span style={{ fontWeight: 500 }}>Chọn Voucher:</span>
+              <Select
+                placeholder={loadingVouchers ? "Đang tải voucher..." : "Chọn voucher của khách"}
+                value={summary.voucherCode || selectedVoucherCode || undefined}
+                onChange={(value) => setSelectedVoucherCode(value || "")}
+                style={{ minWidth: 300, flex: "1 1 360px" }}
                 disabled={Boolean(summary.voucherCode)}
-                onPressEnter={handleApplyVoucher}
+                loading={loadingVouchers}
+                showSearch
+                allowClear
+                optionFilterProp="label"
+                status={voucherLoadError ? "error" : undefined}
+                title={voucherLoadError || undefined}
+                notFoundContent={
+                  loadingVouchers
+                    ? "Đang tải..."
+                    : voucherLoadError || "Khách hàng chưa có voucher nào"
+                }
+                options={availableVouchers.map((voucher) => {
+                  const benefit = voucher.discountType === "percentage"
+                    ? `Giảm ${new Intl.NumberFormat("vi-VN").format(voucher.discountValue)}%`
+                    : `Giảm ${money(voucher.discountValue)}`;
+                  const maximum = voucher.discountType === "percentage" && voucher.maxDiscount > 0
+                    ? `, tối đa ${money(voucher.maxDiscount)}`
+                    : "";
+                  const personal = voucher.isPersonal ? "Mã riêng • " : "";
+                  const expiry = voucher.validUntil && dayjs(voucher.validUntil).isValid()
+                    ? ` • HSD ${dayjs(voucher.validUntil).format("DD/MM/YYYY")}`
+                    : "";
+                  const applicability = voucher.isApplicable
+                    ? `Áp dụng giảm ${money(voucher.discountAmount)}`
+                    : `Không áp dụng: ${voucher.unavailableReason || "Chưa đủ điều kiện"}`;
+                  return {
+                    value: voucher.code,
+                    label: `${voucher.code} — ${personal}${benefit}${maximum}${expiry} — ${applicability}`,
+                    disabled: !voucher.isApplicable,
+                  };
+                })}
               />
               <Button
                 type="primary"
                 onClick={handleApplyVoucher}
                 loading={applyingVoucher}
-                disabled={Boolean(summary.voucherCode) || !voucherInput.trim()}
+                disabled={Boolean(summary.voucherCode) || !selectedVoucherCode}
               >
-                Áp dụng
+                {summary.voucherCode ? "Đã áp dụng" : "Áp dụng"}
               </Button>
               {summary.voucherCode && (
                 <Tag

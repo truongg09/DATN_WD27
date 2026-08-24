@@ -1,4 +1,4 @@
-export type PaymentMethod = "cash" | "zalopay" | "vnpay" | "bank_transfer";
+export type PaymentMethod = "cash" | "zalopay" | "vnpay" | "bank_transfer" | "wallet";
 
 export type PaymentStatus = "unpaid" | "deposit_paid" | "paid" | "refunded";
 
