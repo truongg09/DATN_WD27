@@ -57,6 +57,40 @@ const createNotificationForCustomers = async ({
 };
 
 /**
+ * Tạo thông báo cho một người dùng (customer) cụ thể.
+ * Tự động chặn trùng lặp nếu cùng (accountId, type, referenceType, referenceId).
+ */
+const createNotificationForUser = async ({
+  accountId,
+  type = 'voucher',
+  title,
+  content,
+  referenceType = 'voucher',
+  referenceId = null
+}, connection) => {
+  const conn = run(connection);
+  if (!accountId) return null;
+
+  // Kiểm tra trùng lặp thông báo
+  if (referenceType && referenceId) {
+    const [existing] = await conn.query(
+      'SELECT id FROM notifications WHERE accountId = ? AND type = ? AND referenceType = ? AND referenceId = ? LIMIT 1',
+      [accountId, type, referenceType, referenceId]
+    );
+    if (existing.length > 0) {
+      return existing[0].id;
+    }
+  }
+
+  const [result] = await conn.query(
+    `INSERT INTO notifications (accountId, type, title, content, referenceType, referenceId, isRead, createdAt)
+     VALUES (?, ?, ?, ?, ?, ?, 0, NOW())`,
+    [accountId, type, title, content, referenceType, referenceId]
+  );
+  return result.insertId;
+};
+
+/**
  * Lấy danh sách thông báo của tài khoản đang đăng nhập
  */
 const getUserNotifications = async (accountId, { limit = 20, offset = 0 } = {}) => {
@@ -120,6 +154,7 @@ const markAllNotificationsAsRead = async (accountId) => {
 
 module.exports = {
   createNotificationForCustomers,
+  createNotificationForUser,
   getUserNotifications,
   markNotificationAsRead,
   markAllNotificationsAsRead

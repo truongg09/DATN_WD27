@@ -130,6 +130,29 @@ const updateArrivalTime = async (req, res) => {
   }
 };
 
+const recordCustomerContact = async (req, res) => {
+  try {
+    const bookingId = normalizeIdParam(req.params.id);
+    const { action, note } = req.body || {};
+    if (!action) {
+      throw new HttpError(400, 'Vui lòng cung cấp hành động liên hệ (action)');
+    }
+
+    const result = await bookingService.recordCustomerContact(
+      bookingId,
+      { action, note },
+      req.user || null
+    );
+
+    res.json({
+      message: result.message || 'Cập nhật trạng thái liên hệ thành công',
+      data: result
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
 const processOverdue = async (req, res) => {
   try {
     const results = await bookingService.processOverdueCheckIns();
@@ -859,6 +882,7 @@ module.exports = {
   extendHold,
   reactivateNoShow,
   updateArrivalTime,
+  recordCustomerContact,
   processOverdue,
   listServiceRequests,
   confirmServiceRequest,

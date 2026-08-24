@@ -143,42 +143,83 @@ const evaluateVoucherForBooking = async (
   };
 };
 
+const notificationService = require('./notificationService');
+
 const formatDate = (date) => dayString(date);
 
 const createNoShowCompensationVoucher = async (userId, bookingId, connection) => {
-  const existing = await voucherModel.hasNoShowVoucher(bookingId, connection);
-  if (existing) {
-    return voucherModel.getVoucherByBookingId(bookingId, 'no_show', connection);
-  }
-
-  const validFrom = formatDate(new Date());
-  const validUntilDate = new Date();
-  validUntilDate.setDate(validUntilDate.getDate() + NO_SHOW_VOUCHER_VALID_DAYS);
-  const validUntil = formatDate(validUntilDate);
   const code = voucherModel.generateNoShowCode(bookingId);
 
-  const voucherId = await voucherModel.createVoucher(
-    {
-      code,
-      discountPercentage: NO_SHOW_DISCOUNT_PERCENT,
-      validFrom,
-      validUntil,
-      usageLimit: 1
-    },
-    connection
-  );
+  // 1. Kiểm tra xem booking đã có voucher no_show trong customer_vouchers chưa
+  let voucherData = await voucherModel.getVoucherByBookingId(bookingId, 'no_show', connection);
 
-  await voucherModel.assignVoucherToUser(
-    {
-      userId,
-      voucherId,
-      bookingId,
-      source: 'no_show'
-    },
-    connection
-  );
+  if (!voucherData) {
+    // 2. Kiểm tra xem mã voucher này đã tồn tại trong bảng vouchers chưa (tránh trùng UNIQUE code)
+    const existingVoucherRow = await voucherModel.getVoucherByCode(code, connection);
+    let voucherId;
 
-  return voucherModel.getVoucherByBookingId(bookingId, 'no_show', connection);
+    if (existingVoucherRow) {
+      voucherId = existingVoucherRow.id;
+    } else {
+      const validFrom = formatDate(new Date());
+      const validUntilDate = new Date();
+      validUntilDate.setDate(validUntilDate.getDate() + NO_SHOW_VOUCHER_VALID_DAYS);
+      const validUntil = formatDate(validUntilDate);
+
+      voucherId = await voucherModel.createVoucher(
+        {
+          code,
+          discountPercentage: NO_SHOW_DISCOUNT_PERCENT,
+          validFrom,
+          validUntil,
+          usageLimit: 1
+        },
+        connection
+      );
+    }
+
+    // 3. Gán voucher riêng cho khách hàng nếu có userId
+    if (userId && voucherId) {
+      const [existingAssignment] = await run(connection).query(
+        'SELECT id FROM customer_vouchers WHERE voucherId = ? AND userId = ? AND bookingId = ?',
+        [voucherId, userId, bookingId]
+      );
+      if (existingAssignment.length === 0) {
+        await voucherModel.assignVoucherToUser(
+          {
+            userId,
+            voucherId,
+            bookingId,
+            source: 'no_show'
+          },
+          connection
+        );
+      }
+    }
+
+    voucherData = await voucherModel.getVoucherByBookingId(bookingId, 'no_show', connection);
+  }
+
+  // 4. Gửi thông báo RIÊNG cho đúng khách hàng của booking (tự động chặn duplicate nếu đã gửi)
+  if (userId && voucherData) {
+    const vId = voucherData.voucherId || voucherData.id;
+    const notifTitle = 'Bạn nhận được voucher ưu đãi';
+    const notifContent = `Bạn được tặng voucher ${code} giảm ${NO_SHOW_DISCOUNT_PERCENT}% cho lần lưu trú tiếp theo.`;
+
+    await notificationService.createNotificationForUser(
+      {
+        accountId: userId,
+        type: 'voucher',
+        title: notifTitle,
+        content: notifContent,
+        referenceType: 'voucher',
+        referenceId: vId
+      },
+      connection
+    );
+  }
+
+  return voucherData;
 };
 
 module.exports = {

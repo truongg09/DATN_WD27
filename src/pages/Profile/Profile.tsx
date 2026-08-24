@@ -90,6 +90,8 @@ interface VoucherItem {
   maxDiscount: number;
   endDate: string;
   status: string;
+  isPersonal?: boolean | number;
+  grantedSource?: string;
 }
 
 function Profile() {
@@ -652,7 +654,12 @@ function Profile() {
                         <Card style={{ borderLeft: "5px solid #ab8965", borderRadius: "8px", boxShadow: "0 2px 10px rgba(0,0,0,0.04)" }}>
                           <Row justify="space-between" align="middle">
                             <Col>
-                              <Tag color="gold" style={{ fontSize: "14px", padding: "4px 8px", fontWeight: "bold" }}>{voucher.code}</Tag>
+                              <Space wrap>
+                                <Tag color="gold" style={{ fontSize: "14px", padding: "4px 8px", fontWeight: "bold" }}>{voucher.code}</Tag>
+                                {Boolean(voucher.isPersonal) && (
+                                  <Tag color="purple" style={{ fontSize: "12px" }}>Ưu đãi dành riêng cho bạn</Tag>
+                                )}
+                              </Space>
                               <div style={{ marginTop: "12px", fontWeight: 600, fontSize: "16px" }}>
                                 {voucher.discountType === "percentage" 
                                   ? `Giảm ${Number(voucher.discountValue).toLocaleString("vi-VN", { maximumFractionDigits: 2 })}% giá phòng` 

@@ -56,6 +56,12 @@ interface Booking {
   created_at: string | null;
   requested_check_in_time?: string | null;
   requested_check_in_day_offset?: number | null;
+  late_arrival_confirmed?: boolean | number | null;
+  late_arrival_note?: string | null;
+  late_arrival_confirmed_at?: string | null;
+  late_arrival_confirmed_by?: number | null;
+  late_arrival_confirmed_by_name?: string | null;
+  contact_result?: string | null;
   actual_check_in_time?: string | null;
   details?: any[];
   detail_id?: number | null;
@@ -616,14 +622,24 @@ const getBookingDisplayTag = (booking: Booking) => {
     booking.check_in
   ) {
     const checkInStr = dayjs(booking.check_in).format('YYYY-MM-DD');
-    const reqTime = booking.requested_check_in_time || '14:00:00';
-    const offset = Number(booking.requested_check_in_day_offset || 0);
-    const requestedDateTime = dayjs(`${checkInStr} ${reqTime}`).add(offset, 'day');
-    const lateDeadline = requestedDateTime.add(6, 'hour');
+    const standardTime = (booking.requested_check_in_time || '14:00:00').slice(0, 8);
+    const standardDateTime = dayjs(`${checkInStr}T${standardTime}`);
     const now = dayjs();
 
-    if (now.isAfter(requestedDateTime) && (now.isBefore(lateDeadline) || now.isSame(lateDeadline))) {
-      return { label: 'Check-in muộn', color: 'orange' };
+    if (now.isAfter(standardDateTime) || now.isSame(standardDateTime)) {
+      if (booking.late_arrival_confirmed) {
+        return { label: 'Đã liên hệ - giữ phòng', color: 'cyan' };
+      }
+      if (booking.contact_result === 'unreachable') {
+        return { label: 'Không liên hệ được', color: 'orange' };
+      }
+      if (booking.contact_result === 'callback_later') {
+        return { label: 'Cần liên hệ lại', color: 'purple' };
+      }
+      if (booking.contact_result === 'not_coming') {
+        return { label: 'Khách báo không đến', color: 'volcano' };
+      }
+      return { label: 'Khách chưa đến', color: 'volcano' };
     }
   }
   return {
@@ -875,13 +891,12 @@ function BookingManagement() {
   const getHoldPolicyInfo = (booking: Booking) => {
     if (!['confirmed', 'pending'].includes(booking.status)) return null;
 
-    const isFullyPaid = booking.payment_status === 'paid';
-    if (isFullyPaid) {
+    if (booking.late_arrival_confirmed) {
       return {
-        type: 'fully_paid',
-        color: 'green',
-        label: '🛡️ Giữ phòng 100%',
-        tooltip: `Cam kết giữ phòng suốt toàn bộ kỳ nghỉ (đến 12:00 ngày ${formatDate(booking.check_out)})`,
+        type: 'late_confirmed',
+        color: 'cyan',
+        label: '🛡️ Giữ phòng (Khách báo đến muộn)',
+        tooltip: `Khách đã xác nhận sẽ đến muộn. Phòng được giữ đến hết kỳ lưu trú (đến 12:00 ngày ${formatDate(booking.check_out)}).`,
       };
     }
 
@@ -889,25 +904,24 @@ function BookingManagement() {
     if (!checkInDate) return null;
 
     const standardTime = (policies?.checkInTime || '14:00:00').slice(0, 8);
-    const requestedTime = booking.requested_check_in_time ? booking.requested_check_in_time.slice(0, 8) : standardTime;
-    const baseDate = dayjs(`${dayjs(checkInDate).format('YYYY-MM-DD')}T${requestedTime}`).add(booking.requested_check_in_day_offset || 0, 'day');
-    const deadline = baseDate.add(6, 'hour');
+    const baseDate = dayjs(`${dayjs(checkInDate).format('YYYY-MM-DD')}T${standardTime}`);
+    const deadline = baseDate.add(24, 'hour');
     const now = dayjs();
 
     const isPast = now.isAfter(deadline);
     const diffHours = deadline.diff(now, 'minute') / 60;
-    const isUrgent = !isPast && diffHours <= 2 && diffHours >= 0;
+    const isUrgent = !isPast && diffHours <= 4 && diffHours >= 0;
 
     return {
-      type: 'deposit',
+      type: 'default_24h',
       deadline,
       isPast,
       isUrgent,
       color: isPast ? 'red' : isUrgent ? 'orange' : 'gold',
-      label: isPast ? '⛔ Quá hạn giữ phòng' : isUrgent ? `⚠️ Sắp hết hạn (${Math.round(diffHours * 10) / 10}h)` : `⏳ Giữ đến ${deadline.format('HH:mm DD/MM')}`,
+      label: isPast ? '⛔ Quá hạn giữ 24h' : isUrgent ? `⚠️ Sắp hết hạn (${Math.round(diffHours * 10) / 10}h)` : `⏳ Giữ đến ${deadline.format('HH:mm DD/MM')}`,
       tooltip: isPast
-        ? `Đã quá thời hạn giữ phòng (${deadline.format('HH:mm DD/MM/YYYY')}). Lễ tân có thể đánh dấu No-show để giải phóng phòng hoặc gia hạn giữ phòng.`
-        : `Hạn chót giữ phòng: ${deadline.format('HH:mm DD/MM/YYYY')} (Giờ hẹn + 6 tiếng ân hạn)`,
+        ? `Đã quá thời hạn giữ phòng mặc định 24 giờ (${deadline.format('HH:mm DD/MM/YYYY')}). Lễ tân có thể đánh dấu No-show để giải phóng phòng hoặc liên hệ khách.`
+        : `Hạn giữ phòng mặc định: ${deadline.format('HH:mm DD/MM/YYYY')} (24 giờ tính từ giờ nhận phòng chuẩn)`,
     };
   };
 

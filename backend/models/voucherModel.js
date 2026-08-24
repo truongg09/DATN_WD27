@@ -3,8 +3,7 @@ const db = require('../config/db');
 const run = (connection) => connection || db;
 
 const generateNoShowCode = (bookingId) => {
-  const suffix = Math.random().toString(36).slice(2, 8).toUpperCase();
-  return `NOSHOW${bookingId}${suffix}`;
+  return `UUDAI${bookingId}`;
 };
 
 const createVoucher = async (
@@ -41,6 +40,7 @@ const getVoucherByBookingId = async (bookingId, source = 'no_show', connection) 
       SELECT
         cv.id,
         cv.userId,
+        cv.voucherId,
         cv.bookingId,
         cv.source,
         cv.isUsed,
@@ -60,6 +60,14 @@ const getVoucherByBookingId = async (bookingId, source = 'no_show', connection) 
   return rows[0] || null;
 };
 
+const getVoucherByCode = async (code, connection) => {
+  const [rows] = await run(connection).query(
+    'SELECT * FROM vouchers WHERE UPPER(code) = ?',
+    [String(code || '').trim().toUpperCase()]
+  );
+  return rows[0] || null;
+};
+
 const hasNoShowVoucher = async (bookingId, connection) => {
   const voucher = await getVoucherByBookingId(bookingId, 'no_show', connection);
   return Boolean(voucher);
@@ -70,5 +78,7 @@ module.exports = {
   createVoucher,
   assignVoucherToUser,
   getVoucherByBookingId,
+  getVoucherByCode,
   hasNoShowVoucher
 };
+

@@ -48,6 +48,18 @@ const BOOKING_SELECT = `
     COALESCE(MIN(bd.requestedCheckInTime), b.requestedCheckInTime) AS requested_check_in_time,
     COALESCE(MAX(bd.requestedCheckOutTime), b.requestedCheckOutTime) AS requested_check_out_time,
     COALESCE(MIN(bd.requestedCheckInDayOffset), b.requestedCheckInDayOffset, 0) AS requested_check_in_day_offset,
+    b.lateArrivalConfirmed AS late_arrival_confirmed,
+    b.lateArrivalNote AS late_arrival_note,
+    b.lateArrivalConfirmedAt AS late_arrival_confirmed_at,
+    b.lateArrivalConfirmedBy AS late_arrival_confirmed_by,
+    b.contactResult AS contact_result,
+    (
+      SELECT COALESCE(NULLIF(c_staff.fullName, ''), a_staff.email)
+      FROM accounts a_staff
+      LEFT JOIN customers c_staff ON c_staff.accountId = a_staff.id
+      WHERE a_staff.id = b.lateArrivalConfirmedBy
+      LIMIT 1
+    ) AS late_arrival_confirmed_by_name,
     b.actualCheckInTime AS actual_check_in_time,
     b.actualCheckOutTime AS actual_check_out_time,
     COALESCE(b.guest_name, MAX(c.fullName)) AS customer_name,
@@ -1320,14 +1332,17 @@ const getOverdueCheckInCandidates = async (connection) => {
       SELECT
         b.id,
         b.user_id,
-        COALESCE(bd.roomId, b.room_id) AS room_id,
+        MIN(COALESCE(bd.roomId, b.room_id)) AS room_id,
         b.status,
         b.bookingStatus,
-        DATE(COALESCE(bd.checkInDate, b.check_in)) AS check_in,
-        DATE(COALESCE(bd.checkOutDate, b.check_out)) AS check_out,
-        COALESCE(bd.requestedCheckInTime, b.requestedCheckInTime) AS requested_check_in_time,
-        COALESCE(bd.requestedCheckOutTime, b.requestedCheckOutTime) AS requested_check_out_time,
-        COALESCE(bd.requestedCheckInDayOffset, b.requestedCheckInDayOffset, 0) AS requested_check_in_day_offset,
+        b.lateArrivalConfirmed AS late_arrival_confirmed,
+        b.lateArrivalNote AS late_arrival_note,
+        b.lateArrivalConfirmedAt AS late_arrival_confirmed_at,
+        b.lateArrivalConfirmedBy AS late_arrival_confirmed_by,
+        b.contactResult AS contact_result,
+        DATE(COALESCE(MIN(bd.checkInDate), b.check_in)) AS check_in,
+        DATE(COALESCE(MAX(bd.checkOutDate), b.check_out)) AS check_out,
+        COALESCE(MAX(bd.requestedCheckOutTime), b.requestedCheckOutTime) AS requested_check_out_time,
         b.actualCheckInTime AS actual_check_in_time,
         b.created_at,
         b.hold_expires_at,
@@ -1347,9 +1362,40 @@ const getOverdueCheckInCandidates = async (connection) => {
       )
       WHERE b.actualCheckInTime IS NULL
         AND COALESCE(b.bookingStatus, b.status) IN ('pending', 'confirmed')
+      GROUP BY b.id, p.id
     `
   );
   return rows;
+};
+
+const updateLateArrivalContact = async (
+  bookingId,
+  {
+    lateArrivalConfirmed = false,
+    lateArrivalNote = null,
+    lateArrivalConfirmedAt = null,
+    lateArrivalConfirmedBy = null,
+    contactResult = null
+  },
+  connection
+) => {
+  await run(connection).query(
+    `UPDATE bookings
+     SET lateArrivalConfirmed = ?,
+         lateArrivalNote = ?,
+         lateArrivalConfirmedAt = ?,
+         lateArrivalConfirmedBy = ?,
+         contactResult = ?
+     WHERE id = ?`,
+    [
+      lateArrivalConfirmed ? 1 : 0,
+      lateArrivalNote || null,
+      lateArrivalConfirmedAt || null,
+      lateArrivalConfirmedBy || null,
+      contactResult || null,
+      bookingId
+    ]
+  );
 };
 
 // Chỉ một tiến trình được phép chuyển đơn sang no-show. Điều kiện trong câu
@@ -1740,6 +1786,7 @@ module.exports = {
   getOverdueCheckInCandidates,
   markBookingNoShowIfEligible,
   updateRequestedCheckInTime,
+  updateLateArrivalContact,
   getCheckoutLateFeeTiers,
   getCancellationPolicy,
   findNextBookingForRoom,
