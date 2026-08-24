@@ -1120,6 +1120,39 @@ const ensureOperationalSchema = async () => {
     console.error('Lỗi khi sửa các đơn bị đánh No-show oan:', err.message);
   }
 
+  // Dọn dẹp các đơn checked_in cũ đã quá ngày trả phòng (hoặc phòng đã được trả/trống)
+  try {
+    const [staleCheckedIn] = await db.query(`
+      SELECT b.id
+      FROM bookings b
+      WHERE b.status = 'checked_in'
+        AND (
+          COALESCE(
+            (SELECT MAX(DATE(bd.checkOutDate)) FROM booking_details bd WHERE bd.bookingId = b.id),
+            DATE(b.check_out)
+          ) < CURDATE()
+          OR NOT EXISTS (
+            SELECT 1 FROM rooms r
+            LEFT JOIN booking_details bd2 ON bd2.roomId = r.id
+            WHERE COALESCE(bd2.roomId, b.room_id) = r.id AND r.status = 'occupied'
+          )
+        )
+    `);
+
+    for (const row of staleCheckedIn) {
+      await db.query(
+        "UPDATE bookings SET status = 'checked_out', bookingStatus = 'checked_out' WHERE id = ?",
+        [row.id]
+      );
+    }
+
+    if (staleCheckedIn.length > 0) {
+      console.log(`Đã tự động cập nhật trạng thái trả phòng cho ${staleCheckedIn.length} đơn cũ quá hạn.`);
+    }
+  } catch (err) {
+    console.error('Lỗi khi tự động dọn dẹp các đơn checked_in cũ quá hạn:', err.message);
+  }
+
   // Trước đây không nơi nào ghi bookingCode nên toàn bộ đơn cũ đang để trống.
   // Điền lại theo id để hóa đơn và các màn hình tra cứu có mã hiển thị.
   try {
