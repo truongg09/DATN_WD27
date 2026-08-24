@@ -145,14 +145,55 @@ const evaluateVoucherForBooking = async (
 };
 
 const notificationService = require('./notificationService');
+const emailService = require('./emailService');
 
 const formatDate = (date) => dayString(date);
+
+// Voucher đền bù cấp tự động nên khách không chủ động vào web xem; gửi kèm email
+// để họ biết mình được đền bù. Đọc email qua chính connection của transaction để
+// không mở thêm kết nối, còn việc gửi thì fire-and-forget vì SMTP hỏng không được
+// phép làm hỏng thao tác đánh dấu no-show.
+const sendNoShowVoucherEmail = async (userId, voucherData, connection) => {
+  if (!userId || !voucherData || !emailService.isEmailConfigured()) return;
+
+  try {
+    const [rows] = await run(connection).query(
+      `SELECT a.email, COALESCE(c.fullName, a.email) AS fullName
+         FROM accounts a
+         LEFT JOIN customers c ON c.accountId = a.id
+        WHERE a.id = ? AND a.email IS NOT NULL AND a.email <> ''`,
+      [userId]
+    );
+    if (rows.length === 0) return;
+
+    void emailService.sendVoucherGrantedEmail({
+      to: rows[0].email,
+      customerName: rows[0].fullName,
+      isCompensation: true,
+      voucher: {
+        code: voucherData.code,
+        discountType: 'percentage',
+        discountValue: voucherData.discountPercentage ?? NO_SHOW_DISCOUNT_PERCENT,
+        maxDiscount: null,
+        minBookingAmount: null,
+        startDate: voucherData.validFrom,
+        endDate: voucherData.validUntil,
+        roomTypeNames: null
+      }
+    });
+  } catch (error) {
+    console.error(`Send no-show voucher email for user #${userId} failed:`, error.message);
+  }
+};
 
 const createNoShowCompensationVoucher = async (userId, bookingId, connection) => {
   const code = voucherModel.generateNoShowCode(bookingId);
 
   // 1. Kiểm tra xem booking đã có voucher no_show trong customer_vouchers chưa
   let voucherData = await voucherModel.getVoucherByBookingId(bookingId, 'no_show', connection);
+  // Hàm này được gọi lại mỗi lần quét no-show, nên phải nhớ lần này có thực sự
+  // cấp voucher mới không: notification tự chặn trùng, còn email thì không.
+  const isNewlyGranted = !voucherData;
 
   if (!voucherData) {
     // 2. Kiểm tra xem mã voucher này đã tồn tại trong bảng vouchers chưa (tránh trùng UNIQUE code)
@@ -218,6 +259,10 @@ const createNoShowCompensationVoucher = async (userId, bookingId, connection) =>
       },
       connection
     );
+
+    if (isNewlyGranted) {
+      await sendNoShowVoucherEmail(userId, voucherData, connection);
+    }
   }
 
   return voucherData;
