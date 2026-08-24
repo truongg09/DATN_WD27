@@ -3,8 +3,46 @@ const db = require('../config/db');
 
 const { requireAuth, requireStaff, requireAdmin } = require('../middleware/auth');
 const notificationService = require('../services/notificationService');
+const emailService = require('../services/emailService');
 
 const router = express.Router();
+
+// Voucher gán riêng thì ngoài thông báo trong web còn gửi email cho từng khách.
+// Email chỉ là thông báo nên gọi SAU commit và không chờ kết quả: SMTP hỏng
+// không được phép làm hỏng thao tác tạo/sửa voucher mà admin vừa thực hiện.
+const sendVoucherEmails = async (userIds, voucher, { isCompensation = false } = {}) => {
+  const targets = [...new Set(userIds || [])];
+  if (targets.length === 0 || !emailService.isEmailConfigured()) return;
+
+  try {
+    const [recipients] = await db.query(
+      `SELECT a.id, a.email, COALESCE(c.fullName, a.email) AS fullName
+         FROM accounts a
+         LEFT JOIN customers c ON c.accountId = a.id
+        WHERE a.id IN (?) AND a.email IS NOT NULL AND a.email <> ''`,
+      [targets]
+    );
+    const [roomTypeRows] = await db.query(
+      `SELECT GROUP_CONCAT(rt.typeName SEPARATOR ', ') AS roomTypeNames
+         FROM voucher_room_types vrt
+         JOIN room_types rt ON rt.id = vrt.roomTypeId
+        WHERE vrt.voucherId = ?`,
+      [voucher.id]
+    );
+
+    const payload = { ...voucher, roomTypeNames: roomTypeRows[0]?.roomTypeNames || null };
+    for (const recipient of recipients) {
+      void emailService.sendVoucherGrantedEmail({
+        to: recipient.email,
+        customerName: recipient.fullName,
+        voucher: payload,
+        isCompensation
+      });
+    }
+  } catch (error) {
+    console.error(`Send voucher email for voucher #${voucher.id} failed:`, error.message);
+  }
+};
 
 const buildVoucherNotification = (voucher) => {
   const discountText = voucher.discountType === 'percentage'
@@ -320,6 +358,13 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
       }
 
       await connection.commit();
+
+      // Chỉ voucher gán riêng mới gửi mail: voucher công khai đã có thông báo
+      // trong web cho mọi khách, gửi thêm mail hàng loạt dễ bị coi là spam.
+      if (status === 'active' && targetType === 'specific') {
+        void sendVoucherEmails(customerIds, { ...normalized.data, id: voucherId });
+      }
+
       res.status(201).json({ data: { id: voucherId }, message: 'Tạo voucher thành công' });
     } catch (error) {
       await connection.rollback();
@@ -358,6 +403,9 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
     if (!voucherId || !code || !discountType || !discountValue || !startDate || !endDate) {
       return res.status(400).json({ message: 'Thiếu thông tin voucher' });
     }
+
+    // Gom người nhận email trong transaction, gửi sau khi commit thành công.
+    let emailTargetUserIds = [];
 
     const connection = await db.getConnection();
     try {
@@ -469,6 +517,9 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
                   referenceId: voucherId
                 }, connection);
               }
+              // Email cũng chỉ gửi cho người mới được thêm, để khách đã được gán
+              // từ trước không bị nhận lại mail mỗi lần admin sửa voucher.
+              emailTargetUserIds.push(...toAddUserIds);
             }
           }
 
@@ -513,10 +564,22 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
               referenceId: voucherId
             }, connection);
           }
+          // Voucher vừa được bật lên active: mã giờ mới thực sự dùng được nên
+          // báo cho toàn bộ khách đang giữ nó, kể cả người được gán từ trước.
+          emailTargetUserIds.push(...targetUids);
         }
       }
 
       await connection.commit();
+
+      if (emailTargetUserIds.length > 0) {
+        void sendVoucherEmails(
+          emailTargetUserIds,
+          { ...normalized.data, id: voucherId },
+          { isCompensation: isNoShowVoucher }
+        );
+      }
+
       res.json({ message: 'Cập nhật voucher thành công' });
     } catch (error) {
       await connection.rollback();
