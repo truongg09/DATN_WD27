@@ -1030,15 +1030,12 @@ const BookingHistory: React.FC = () => {
     setSubmittingReview(true);
     try {
       if (editingReviewId) {
-        const wasHidden = reviewsByBooking[reviewBooking.id]?.status === 'hidden';
         await updateReview(editingReviewId, {
           rating: reviewRating,
           comment: reviewComment.trim(),
           images: reviewImages,
         });
-        message.success(
-          wasHidden ? 'Đã cập nhật đánh giá, đang chờ duyệt lại!' : 'Đã cập nhật đánh giá!',
-        );
+        message.success('Đã cập nhật đánh giá!');
         setReviewsByBooking((prev) => ({
           ...prev,
           [reviewBooking.id]: {
@@ -1047,10 +1044,6 @@ const BookingHistory: React.FC = () => {
             rating: reviewRating,
             comment: reviewComment.trim(),
             images: reviewImages,
-            // Nếu review trước đó bị ẩn/từ chối và nội dung vừa đổi, backend sẽ
-            // đưa về "pending" để duyệt lại; phản ánh ngay trên UI cho khớp.
-            status: wasHidden ? 'pending' : prev[reviewBooking.id]?.status,
-            hideReason: wasHidden ? null : prev[reviewBooking.id]?.hideReason,
           },
         }));
       } else {
@@ -1060,7 +1053,7 @@ const BookingHistory: React.FC = () => {
           comment: reviewComment.trim(),
           images: reviewImages,
         });
-        message.success('Cảm ơn bạn đã đánh giá! Đánh giá của bạn đang chờ duyệt.');
+        message.success('Cảm ơn bạn đã gửi đánh giá!');
         const createBody = (res as unknown as { data?: unknown })?.data ?? res;
         const newId =
           (createBody as { data?: { id?: number } })?.data?.id ??
@@ -1072,7 +1065,7 @@ const BookingHistory: React.FC = () => {
             id: newId,
             rating: reviewRating,
             comment: reviewComment.trim(),
-            status: 'pending',
+            status: 'approved',
             images: reviewImages,
           },
         }));

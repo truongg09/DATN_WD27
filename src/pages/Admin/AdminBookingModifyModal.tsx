@@ -387,10 +387,26 @@ export const AdminBookingModifyModal: React.FC<AdminBookingModifyModalProps> = (
 
               // Filter available specific room numbers matching selected roomTypeId and not used elsewhere
               const availableRoomsForType = availableRoomsList.filter((r) => {
-                const isCorrectType = !room.roomTypeId || Number(r.roomTypeId) === Number(room.roomTypeId) || Number(r.id) === Number(room.roomId);
+                const isCorrectType = Number(r.roomTypeId) === Number(room.roomTypeId);
                 const isNotUsedInOtherRow = !selectedInOtherRows.includes(Number(r.id));
                 return isCorrectType && isNotUsedInOtherRow;
               });
+
+              const currentRoomObj = availableRoomsList.find((r) => Number(r.id) === Number(room.roomId));
+              const roomOptions = availableRoomsForType.map((r) => ({
+                value: r.id,
+                label: Number(r.id) === Number(room.roomId)
+                  ? `Phòng ${r.roomNumber} (Tầng ${r.floor}) — Đang chọn`
+                  : `Phòng ${r.roomNumber} (Tầng ${r.floor})`,
+              }));
+              if (room.roomId && !roomOptions.some((opt) => opt.value === room.roomId)) {
+                roomOptions.unshift({
+                  value: room.roomId,
+                  label: currentRoomObj
+                    ? `Phòng ${currentRoomObj.roomNumber} (Hiện tại)`
+                    : `Phòng #${room.roomId} (Hiện tại)`,
+                });
+              }
 
               return (
                 <div
@@ -441,10 +457,7 @@ export const AdminBookingModifyModal: React.FC<AdminBookingModifyModalProps> = (
                         allowClear
                         disabled={bookingStatus === "checked_in"}
                         value={room.roomId || undefined}
-                        options={availableRoomsForType.map((r) => ({
-                          value: r.id,
-                          label: `Phòng ${r.roomNumber} (Tầng ${r.floor})`,
-                        }))}
+                        options={roomOptions}
                         onChange={(val) => handleUpdateRoomField(room.key, "roomId", val || null)}
                       />
                     </div>

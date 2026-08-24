@@ -500,7 +500,10 @@ const normalizeTransferRoomPayload = (body) => {
 const normalizeIdParam = (id, fieldName = 'id') => toPositiveInt(id, fieldName);
 
 const normalizeReassignRoomPayload = (body) => ({
-  roomId: toPositiveInt(body.roomId ?? body.room_id ?? body.newRoomId, 'roomId')
+  roomId: toPositiveInt(body.roomId ?? body.room_id ?? body.newRoomId, 'roomId'),
+  bookingDetailId: (body.bookingDetailId || body.booking_detail_id || body.detailId)
+    ? toPositiveInt(body.bookingDetailId || body.booking_detail_id || body.detailId, 'bookingDetailId')
+    : null
 });
 module.exports = {
   normalizeBookingPayload,

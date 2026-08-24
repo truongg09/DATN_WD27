@@ -1452,9 +1452,31 @@ const notifyStaffAndAdmins = async (title, content, connection) => {
   }
 };
 
-const reassignRoomForBooking = async (bookingId, newRoomId, connection) => {
-  await run(connection).query('UPDATE bookings SET room_id = ? WHERE id = ?', [newRoomId, bookingId]);
-  await run(connection).query('UPDATE booking_details SET roomId = ? WHERE bookingId = ?', [newRoomId, bookingId]);
+const reassignRoomForBooking = async (bookingId, newRoomId, connection, bookingDetailId = null) => {
+  if (bookingDetailId) {
+    await run(connection).query(
+      'UPDATE booking_details SET roomId = ? WHERE id = ? AND bookingId = ?',
+      [newRoomId, bookingDetailId, bookingId]
+    );
+  } else {
+    const [details] = await run(connection).query(
+      'SELECT id FROM booking_details WHERE bookingId = ? ORDER BY id ASC LIMIT 1',
+      [bookingId]
+    );
+    if (details.length > 0) {
+      await run(connection).query(
+        'UPDATE booking_details SET roomId = ? WHERE id = ? AND bookingId = ?',
+        [newRoomId, details[0].id, bookingId]
+      );
+    }
+  }
+
+  const [firstDetail] = await run(connection).query(
+    'SELECT roomId FROM booking_details WHERE bookingId = ? ORDER BY id ASC LIMIT 1',
+    [bookingId]
+  );
+  const primaryRoomId = firstDetail?.roomId || newRoomId;
+  await run(connection).query('UPDATE bookings SET room_id = ? WHERE id = ?', [primaryRoomId, bookingId]);
 };
 
 const getCheckoutLateFeeTiers = async (connection) => {
@@ -1715,13 +1737,13 @@ const listAvailableRoomsIgnoringBooking = async (checkIn, checkOut, ignoreBookin
     `SELECT r.*, rt.typeName AS room_type_name, rt.capacity AS room_capacity, rt.defaultPrice AS default_price
      FROM rooms r
      JOIN room_types rt ON r.roomTypeId = rt.id
-     WHERE r.status != 'maintenance'
+     WHERE r.status = 'available'
      AND r.id NOT IN (
        SELECT bd.roomId
        FROM booking_details bd
        JOIN bookings b ON b.id = bd.bookingId
        WHERE b.id != ?
-       AND b.status NOT IN ('cancelled', 'completed', 'checked_out')
+       AND b.status NOT IN ('cancelled', 'completed', 'checked_out', 'no_show')
        AND bd.roomId IS NOT NULL
        AND bd.checkInDate < ?
        AND bd.checkOutDate > ?
