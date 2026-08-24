@@ -2272,16 +2272,27 @@ const Booking: React.FC = () => {
                     <div className="booking-policies">
                       <h4>Chính sách</h4>
                       <ul>
-                        <li>
-                          <FontAwesomeIcon icon={faCheck} /> Hủy trước{" "}
-                          {policies?.midTierMaxDays ?? 7} ngày hoàn{" "}
-                          {100 - (policies?.farTierPercent ?? 0)}%; hủy trong khoảng{" "}
-                          {policies?.nearTierMaxDays ?? 3}–
-                          {policies?.midTierMaxDays ?? 7} ngày hoàn{" "}
-                          {100 - (policies?.midTierPercent ?? 50)}%; hủy dưới{" "}
-                          {policies?.nearTierMaxDays ?? 3} ngày hoàn{" "}
-                          {100 - (policies?.nearTierPercent ?? 100)}%
-                        </li>
+                        {/* Các trường *TierPercent trong cấu hình là PHÍ PHẠT chứ
+                            không phải phần trăm được hoàn, nên phải lấy 100 trừ đi.
+                            Bản cũ in thẳng nearTierPercent (=100) ra thành "hoàn
+                            100% khi hủy dưới 3 ngày" — ngược hẳn thực tế, vì hủy
+                            sát ngày nhận phòng thì khách không được hoàn đồng nào. */}
+                        {(() => {
+                          const farVal = policies?.farTierPercent ?? 0;
+                          const nearVal = policies?.nearTierPercent ?? 100;
+                          const isDirectRefundPct = farVal > nearVal;
+                          const farRefund = isDirectRefundPct ? farVal : 100 - farVal;
+                          const midRefund = 100 - (policies?.midTierPercent ?? 50);
+                          const nearRefund = isDirectRefundPct ? nearVal : 100 - nearVal;
+                          return (
+                            <li>
+                              <FontAwesomeIcon icon={faCheck} /> Hủy trước{" "}
+                              {policies?.midTierMaxDays ?? 7} ngày hoàn {farRefund}%; hủy trong khoảng{" "}
+                              {policies?.nearTierMaxDays ?? 3}–{policies?.midTierMaxDays ?? 7} ngày hoàn {midRefund}%; hủy dưới{" "}
+                              {policies?.nearTierMaxDays ?? 3} ngày hoàn {nearRefund}%
+                            </li>
+                          );
+                        })()}
                         <li>
                           <FontAwesomeIcon icon={faCheck} /> Nhận phòng từ{" "}
                           {shortTime(policies?.checkInTime) || "14:00"}
