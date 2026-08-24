@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
   Alert, Breadcrumb, Button, Card, Col, Descriptions, Empty, Form, Input, InputNumber, Modal,
@@ -82,6 +82,23 @@ interface ServiceCharge {
   totalPrice: string | number;
   status: string;
   createdAt?: string | null;
+}
+
+interface InventoryItem {
+  id: number;
+  roomId: number;
+  roomNumber?: string;
+  itemName: string;
+  quantity: number;
+  status: string;
+  compensationPrice?: string | number;
+}
+
+interface BookingRoomOption {
+  id: number;
+  bookingDetailId: number;
+  roomNumber: string;
+  roomTypeName: string;
 }
 
 // Trạng thái một dòng dịch vụ / khoản phí. Phải khớp đúng danh sách backend
@@ -199,8 +216,28 @@ export interface BookingDetailData {
   transfers?: Record<string, unknown>[];
   payments?: PaymentSnapshot[];
   payment?: PaymentSnapshot | null;
-  booking_rooms?: Record<string, unknown>[];
-  history?: Record<string, unknown>[];
+  booking_rooms?: Array<Record<string, unknown>>;
+  details?: Array<Record<string, unknown>>;
+  nightly_prices?: Array<{
+    stayDate: string;
+    price: number;
+    priceType: string;
+    dayName: string;
+    isHoliday: boolean;
+    isWeekend: boolean;
+    surcharge: number;
+  }>;
+  price_breakdown?: {
+    basePricePerNight: number;
+    baseRoomAmount: number;
+    holidaySurcharge: number;
+    weekendSurcharge: number;
+    sundaySurcharge: number;
+    occupancySurcharge: number;
+    serviceAmount: number;
+    damageAmount: number;
+    totalPrice: number;
+  };
 }
 
 /**
@@ -213,7 +250,6 @@ function BookingDetailPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const bookingId = Number(id);
-  // Giữ đúng khu vực (/admin hay /staff) khi quay lại danh sách.
   const areaPrefix = location.pathname.startsWith('/staff') ? '/staff' : '/admin';
 
   const [loading, setLoading] = useState(true);
@@ -249,8 +285,9 @@ function BookingDetailPage() {
     void loadBooking();
   }, [loadBooking]);
 
-  // ─── Dịch vụ ────────────────────────────────────────────────────
+  // ─── Dịch vụ & Vật tư ───────────────────────────────────────────
   const [services, setServices] = useState<{ id: number; serviceName: string; price: number }[]>([]);
+  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
   const [serviceModalOpen, setServiceModalOpen] = useState(false);
   const [editingCharge, setEditingCharge] = useState<ServiceCharge | null>(null);
   const [serviceForm] = Form.useForm();
@@ -265,6 +302,14 @@ function BookingDetailPage() {
         setServices(list);
       })
       .catch(() => setServices([]));
+
+    api
+      .get('/room-items')
+      .then((res: any) => {
+        const list = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
+        setInventoryItems(list);
+      })
+      .catch(() => setInventoryItems([]));
   }, []);
 
   const showApiError = (err: unknown, fallback: string) => {
@@ -286,20 +331,29 @@ function BookingDetailPage() {
     setServiceModalOpen(true);
   };
 
-  const bookingRooms = (booking?.booking_rooms || []).map((r) => {
-    const rec = r as Record<string, unknown>;
-    return {
-      id: Number(rec.roomId || rec.room_id || rec.id || 0),
-      bookingDetailId: Number(rec.bookingDetailId || rec.booking_detail_id || 0),
-      // API booking_rooms hiện trả số phòng ở thuộc tính `number`.
-      // Vẫn hỗ trợ các tên cũ để không hiển thị nhầm roomId thành số phòng.
-      roomNumber: String(rec.number || rec.room_number || rec.roomNumber || ''),
-      roomTypeName: String(rec.room_type_name || rec.roomTypeName || ''),
-    };
-  }).filter((r) => r.id > 0);
+  const bookingRooms: BookingRoomOption[] = useMemo(() => {
+    const rawList = (booking?.details && booking.details.length > 0)
+      ? booking.details
+      : (booking?.booking_rooms && booking.booking_rooms.length > 0)
+      ? booking.booking_rooms
+      : [];
 
-  const roomInfoMap = new Map<number, { roomNumber: string; roomTypeName: string }>();
-  bookingRooms.forEach((r) => roomInfoMap.set(r.id, { roomNumber: r.roomNumber, roomTypeName: r.roomTypeName }));
+    return rawList.map((r: any) => {
+      const rec = r as Record<string, unknown>;
+      return {
+        id: Number(rec.roomId || rec.room_id || rec.id || 0),
+        bookingDetailId: Number(rec.bookingDetailId || rec.booking_detail_id || rec.id || 0),
+        roomNumber: String(rec.roomNumber || rec.number || rec.room_number || ''),
+        roomTypeName: String(rec.typeName || rec.room_type_name || rec.roomTypeName || ''),
+      };
+    }).filter((r) => r.id > 0);
+  }, [booking]);
+
+  const roomInfoMap = useMemo(() => {
+    const map = new Map<number, { roomNumber: string; roomTypeName: string }>();
+    bookingRooms.forEach((r) => map.set(r.id, { roomNumber: r.roomNumber, roomTypeName: r.roomTypeName }));
+    return map;
+  }, [bookingRooms]);
 
   const formatRoomLabel = (
     roomId: number | null | undefined,
@@ -548,21 +602,52 @@ function BookingDetailPage() {
   const [damageModalOpen, setDamageModalOpen] = useState(false);
   const [editingDamage, setEditingDamage] = useState<DamageCharge | null>(null);
   const [damageForm] = Form.useForm();
+  const selectedDamageChargeType = Form.useWatch('chargeType', damageForm);
+  const selectedDamageBookingDetailId = Form.useWatch('damageBookingDetailId', damageForm);
+  const selectedDamageRoomItemId = Form.useWatch('roomItemId', damageForm);
+
+  const selectedDamageDetail = useMemo(() => {
+    return bookingRooms.find(
+      (room) => Number(room.bookingDetailId || room.id) === Number(selectedDamageBookingDetailId),
+    );
+  }, [bookingRooms, selectedDamageBookingDetailId]);
+
+  const damageRoomInventory = useMemo(() => {
+    return selectedDamageDetail
+      ? inventoryItems.filter(
+          (item) => Number(item.roomId) === Number(selectedDamageDetail.id)
+            && Number(item.quantity) > 0
+            && item.status === 'normal',
+        )
+      : [];
+  }, [selectedDamageDetail, inventoryItems]);
+
+  const selectedDamageInventoryItem = useMemo(() => {
+    return damageRoomInventory.find(
+      (item) => item.id === Number(selectedDamageRoomItemId),
+    );
+  }, [damageRoomInventory, selectedDamageRoomItemId]);
 
   const openDamageModal = (charge?: DamageCharge) => {
     setEditingDamage(charge || null);
     damageForm.resetFields();
     if (charge) {
+      const matchingRoom = bookingRooms.find((r) => Number(r.id) === Number(charge.roomId));
       damageForm.setFieldsValue({
-        chargeType: charge.chargeType,
+        chargeType: charge.chargeType || 'damage',
         itemName: charge.itemName,
         quantity: charge.quantity,
         unitPrice: Number(charge.unitPrice),
         note: charge.note,
-        roomId: charge.roomId ?? null,
+        damageBookingDetailId: matchingRoom ? Number(matchingRoom.bookingDetailId || matchingRoom.id) : undefined,
       });
     } else {
-      damageForm.setFieldsValue({ chargeType: 'damage', quantity: 1 });
+      const defaultRoom = bookingRooms.length === 1 ? Number(bookingRooms[0].bookingDetailId || bookingRooms[0].id) : undefined;
+      damageForm.setFieldsValue({
+        chargeType: 'damage',
+        damageBookingDetailId: defaultRoom,
+        quantity: 1,
+      });
     }
     setDamageModalOpen(true);
   };
@@ -571,17 +656,49 @@ function BookingDetailPage() {
     const values = await damageForm.validateFields();
     setWorking(true);
     try {
+      const chargeType = values.chargeType || 'damage';
+      const selectedDetail = bookingRooms.find(
+        (r) => Number(r.bookingDetailId || r.id) === Number(values.damageBookingDetailId),
+      );
+
+      let itemName = values.itemName;
+      let roomId = selectedDetail?.id ?? null;
+      let bookingDetailId = selectedDetail?.bookingDetailId ?? null;
+
+      if (chargeType === 'damage') {
+        const selectedItem = inventoryItems.find(
+          (item) => item.id === Number(values.roomItemId),
+        );
+        if (!editingDamage) {
+          if (!selectedDetail || !selectedItem || Number(selectedItem.roomId) !== Number(selectedDetail.id)) {
+            message.error('Vui lòng chọn đúng vật dụng thuộc phòng');
+            setWorking(false);
+            return;
+          }
+          itemName = selectedItem.itemName;
+        } else {
+          itemName = selectedItem ? selectedItem.itemName : values.itemName;
+        }
+      }
+
       const payload = {
-        ...values,
-        roomId: values.roomId ?? null,
+        chargeType,
+        itemName,
+        quantity: values.quantity,
+        unitPrice: values.unitPrice,
+        note: values.note,
+        roomId: roomId ? Number(roomId) : null,
+        bookingDetailId: bookingDetailId ? Number(bookingDetailId) : null,
+        roomItemId: values.roomItemId ? Number(values.roomItemId) : undefined,
         ...(editingDamage ? {} : { status: 'used' }),
       };
+
       if (editingDamage) {
         await updateBookingDamageCharge(bookingId, editingDamage.id, payload);
         message.success('Đã cập nhật khoản phí');
       } else {
         await addBookingDamageCharge(bookingId, payload);
-        message.success('Đã thêm khoản phí vào đơn');
+        message.success(chargeType === 'damage' ? 'Đã thêm phí hư hỏng vật dụng' : 'Đã thêm khoản phí vào đơn');
       }
       setDamageModalOpen(false);
       await loadBooking(true);
@@ -1233,7 +1350,11 @@ function BookingDetailPage() {
       </Card>
 
       <Modal
-        title={editingDamage ? 'Sửa khoản phí' : 'Thêm khoản phí phát sinh'}
+        title={
+          editingDamage
+            ? (selectedDamageChargeType === 'damage' ? 'Sửa phí hư hỏng / mất đồ' : 'Sửa khoản phí phát sinh')
+            : (selectedDamageChargeType === 'damage' ? 'Thêm phí hư hỏng/mất vật dụng' : 'Thêm khoản phí phát sinh')
+        }
         open={damageModalOpen}
         onCancel={() => setDamageModalOpen(false)}
         onOk={submitDamage}
@@ -1243,48 +1364,160 @@ function BookingDetailPage() {
         destroyOnHidden
       >
         <Form form={damageForm} layout="vertical">
-          <Form.Item name="chargeType" label="Loại khoản phí" rules={[{ required: true }]}>
+          <Form.Item name="chargeType" label="Loại khoản phí" initialValue="damage" rules={[{ required: true }]}>
             <Select
               options={Object.entries(chargeTypeMeta).map(([value, label]) => ({ value, label }))}
+              onChange={() => {
+                damageForm.setFieldsValue({
+                  roomItemId: undefined,
+                  quantity: 1,
+                  unitPrice: undefined,
+                  itemName: undefined,
+                });
+              }}
             />
           </Form.Item>
-          <Form.Item
-            name="itemName"
-            label="Tên khoản phí / vật dụng"
-            rules={[{ required: true, message: 'Nhập tên khoản phí' }]}
-          >
-            <Input placeholder="Ví dụ: Khăn tắm, điều khiển TV, phụ phí dọn phòng..." />
-          </Form.Item>
-          <Form.Item name="roomId" label="Phòng phát sinh" rules={[{ required: bookingRooms.length > 0, message: 'Chọn phòng' }]}>
-            <Select
-              allowClear
-              showSearch
-              optionFilterProp="label"
-              placeholder={bookingRooms.length > 0 ? 'Chọn phòng' : 'Chưa có phòng vật lý (chưa xếp phòng)'}
-              disabled={bookingRooms.length === 0}
-              options={bookingRooms.map((r) => {
-                const parts = [r.roomTypeName, r.roomNumber].filter(Boolean);
-                return {
-                  value: r.id,
-                  label: parts.length > 0 ? `Phòng ${parts.join(' - ')}` : 'Chưa có số phòng',
-                };
-              })}
-            />
-          </Form.Item>
-          <Row gutter={12}>
-            <Col span={12}>
-              <Form.Item name="quantity" label="Số lượng" rules={[{ required: true, message: 'Nhập số lượng' }]}>
-                <InputNumber min={1} style={{ width: '100%' }} />
+
+          {(!selectedDamageChargeType || selectedDamageChargeType === 'damage') ? (
+            <>
+              <Form.Item
+                name="damageBookingDetailId"
+                label="Phòng phát sinh hư hỏng"
+                rules={[{ required: true, message: 'Chọn phòng' }]}
+              >
+                <Select
+                  showSearch
+                  optionFilterProp="label"
+                  placeholder="Chọn phòng"
+                  onChange={() => {
+                    damageForm.setFieldsValue({
+                      roomItemId: undefined,
+                      quantity: 1,
+                      unitPrice: undefined,
+                    });
+                  }}
+                  options={bookingRooms.map((room) => ({
+                    value: Number(room.bookingDetailId || room.id),
+                    label: `Phòng ${room.roomNumber}${room.roomTypeName ? ` - ${room.roomTypeName}` : ''}`,
+                  }))}
+                />
               </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="unitPrice" label="Đơn giá" rules={[{ required: true, message: 'Nhập đơn giá' }]}>
-                <InputNumber min={0} step={10000} style={{ width: '100%' }} />
+
+              {!editingDamage ? (
+                <Form.Item
+                  name="roomItemId"
+                  label="Vật dụng hư hỏng/mất"
+                  rules={[{ required: true, message: 'Chọn vật dụng' }]}
+                >
+                  <Select
+                    showSearch
+                    optionFilterProp="label"
+                    placeholder={selectedDamageDetail ? 'Chọn vật dụng trong phòng' : 'Chọn phòng trước'}
+                    disabled={!selectedDamageDetail}
+                    notFoundContent={selectedDamageDetail ? 'Phòng này chưa khai báo vật dụng' : null}
+                    onChange={(itemId) => {
+                      const item = damageRoomInventory.find((entry) => entry.id === Number(itemId));
+                      damageForm.setFieldsValue({
+                        quantity: 1,
+                        unitPrice: Number(item?.compensationPrice || 0),
+                      });
+                    }}
+                    options={damageRoomInventory.map((item) => ({
+                      value: item.id,
+                      label: `${item.itemName} - ${money(item.compensationPrice || 0)}`,
+                    }))}
+                  />
+                </Form.Item>
+              ) : (
+                <Form.Item
+                  name="itemName"
+                  label="Vật dụng hư hỏng/mất"
+                  rules={[{ required: true, message: 'Nhập tên vật dụng' }]}
+                >
+                  <Input />
+                </Form.Item>
+              )}
+
+              <Row gutter={12}>
+                <Col span={12}>
+                  <Form.Item
+                    name="quantity"
+                    label="Số lượng"
+                    initialValue={1}
+                    rules={[{ required: true, message: 'Nhập số lượng' }]}
+                  >
+                    <InputNumber
+                      min={1}
+                      max={selectedDamageInventoryItem?.quantity}
+                      disabled={!selectedDamageInventoryItem && !editingDamage}
+                      style={{ width: '100%' }}
+                    />
+                  </Form.Item>
+                </Col>
+                <Col span={12}>
+                  <Form.Item
+                    name="unitPrice"
+                    label="Đơn giá bồi thường"
+                    rules={[{ required: true, message: 'Nhập đơn giá' }]}
+                  >
+                    <InputNumber min={0} step={10000} style={{ width: '100%' }} />
+                  </Form.Item>
+                </Col>
+              </Row>
+            </>
+          ) : (
+            <>
+              <Form.Item
+                name="itemName"
+                label="Tên khoản phí"
+                rules={[{ required: true, message: 'Nhập tên khoản phí' }]}
+              >
+                <Input placeholder="Ví dụ: Phụ phí dọn phòng trễ, giặt là đặc biệt..." />
               </Form.Item>
-            </Col>
-          </Row>
+
+              <Form.Item
+                name="damageBookingDetailId"
+                label="Phòng phát sinh"
+                rules={[{ required: bookingRooms.length > 0, message: 'Chọn phòng' }]}
+              >
+                <Select
+                  allowClear
+                  showSearch
+                  optionFilterProp="label"
+                  placeholder={bookingRooms.length > 0 ? 'Chọn phòng' : 'Chưa có phòng vật lý'}
+                  options={bookingRooms.map((room) => ({
+                    value: Number(room.bookingDetailId || room.id),
+                    label: `Phòng ${room.roomNumber}${room.roomTypeName ? ` - ${room.roomTypeName}` : ''}`,
+                  }))}
+                />
+              </Form.Item>
+
+              <Row gutter={12}>
+                <Col span={12}>
+                  <Form.Item
+                    name="quantity"
+                    label="Số lượng"
+                    initialValue={1}
+                    rules={[{ required: true, message: 'Nhập số lượng' }]}
+                  >
+                    <InputNumber min={1} style={{ width: '100%' }} />
+                  </Form.Item>
+                </Col>
+                <Col span={12}>
+                  <Form.Item
+                    name="unitPrice"
+                    label="Đơn giá"
+                    rules={[{ required: true, message: 'Nhập đơn giá' }]}
+                  >
+                    <InputNumber min={0} step={10000} style={{ width: '100%' }} />
+                  </Form.Item>
+                </Col>
+              </Row>
+            </>
+          )}
+
           <Form.Item name="note" label="Ghi chú">
-            <Input.TextArea rows={3} placeholder="Mô tả tình trạng, lý do thu phí..." />
+            <Input.TextArea rows={3} placeholder="Mô tả tình trạng, lý do..." />
           </Form.Item>
         </Form>
       </Modal>

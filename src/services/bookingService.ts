@@ -119,6 +119,8 @@ export const getBookingDamageCharges = async (bookingId: number) => {
 
 export interface DamageChargePayload {
   roomId?: number | null;
+  bookingDetailId?: number | null;
+  roomItemId?: number | null;
   chargeType?: string;
   itemName: string;
   quantity: number;

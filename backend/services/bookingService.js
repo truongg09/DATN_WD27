@@ -3170,6 +3170,36 @@ const addDamageCharge = async (bookingId, payload, actor = null) => {
       }
     }
 
+    if (payload.chargeType === 'damage' && targetRoomId) {
+      let itemRow = null;
+      if (payload.roomItemId) {
+        const [rows] = await connection.query(
+          `SELECT id, roomId, itemName, quantity, compensationPrice, status
+           FROM room_items WHERE id = ? AND roomId = ?`,
+          [Number(payload.roomItemId), targetRoomId]
+        );
+        itemRow = rows[0];
+        if (!itemRow) {
+          throw new HttpError(400, "Vật dụng không thuộc phòng đã chọn");
+        }
+      } else if (payload.itemName) {
+        const [rows] = await connection.query(
+          `SELECT id, roomId, itemName, quantity, compensationPrice, status
+           FROM room_items WHERE roomId = ? AND LOWER(TRIM(itemName)) = LOWER(?) LIMIT 1`,
+          [targetRoomId, payload.itemName.trim()]
+        );
+        itemRow = rows[0];
+      }
+      if (itemRow) {
+        if (itemRow.compensationPrice != null && Number(itemRow.compensationPrice) > 0) {
+          payload.unitPrice = Number(itemRow.compensationPrice);
+        }
+        if (itemRow.quantity != null && Number(payload.quantity) > Number(itemRow.quantity)) {
+          throw new HttpError(400, `Số lượng hư hỏng/mất vượt quá số lượng vật dụng trong phòng (${itemRow.quantity})`);
+        }
+      }
+    }
+
     payload.bookingDetailId = targetBookingDetailId;
     const damage = await bookingModel.addDamageCharge(
       bookingId,
