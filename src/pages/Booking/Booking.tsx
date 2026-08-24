@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { useForm, Controller } from "react-hook-form";
 import { Button,
@@ -75,6 +75,8 @@ interface RoomTypeOption {
   maxOccupancy?: number;
   extraAdultFee?: number;
   extraChildFee?: number;
+  images?: string[];
+  image?: string;
 }
 
 interface ExtraRoomSelection {
@@ -175,6 +177,45 @@ const Booking: React.FC = () => {
   >({});
   const [childrenAges, setChildrenAges] = useState<(number | null)[]>([]);
   const [policies, setPolicies] = useState<PoliciesInfo | null>(null);
+  const sidebarRef = useRef<HTMLDivElement>(null);
+
+  // Ghim bill tóm tắt: bill thấp hơn màn hình thì dính ngay dưới header. Bill cao
+  // hơn màn hình thì top phải ÂM — sticky khi đó cho bill trôi lên cùng trang đúng
+  // bằng phần dư, tới khi nút "Xác nhận đặt phòng" lộ ra thì dừng hẳn, thay vì bị
+  // đẩy khuất ngoài viewport như khi dùng top dương cố định.
+  useEffect(() => {
+    const el = sidebarRef.current;
+    if (!el) return;
+
+    const BOTTOM_GAP = 20;
+
+    const update = () => {
+      const headerHeight =
+        document.querySelector<HTMLElement>(".header")?.offsetHeight ?? 96;
+      const stickyTop = headerHeight + 16;
+      const available = window.innerHeight - stickyTop - BOTTOM_GAP;
+
+      el.style.setProperty(
+        "--booking-sticky-top",
+        el.offsetHeight <= available
+          ? `${stickyTop}px`
+          : `${window.innerHeight - el.offsetHeight - BOTTOM_GAP}px`
+      );
+    };
+
+    update();
+
+    // Bill đổi chiều cao khi khách thêm/bớt hạng phòng hoặc khi hiện cảnh báo
+    // hết phòng, nên phải tính lại chứ không đo một lần lúc mount.
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    window.addEventListener("resize", update);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", update);
+    };
+  }, []);
 
   const {
     control,
@@ -2023,7 +2064,7 @@ const Booking: React.FC = () => {
             </div>
           </div>
 
-          <div className="booking-sidebar">
+          <div className="booking-sidebar" ref={sidebarRef}>
             <div className="booking-summary">
               <h3>Tóm tắt đặt phòng</h3>
 
@@ -2101,7 +2142,7 @@ const Booking: React.FC = () => {
                           key={line.id}
                         >
                           <img
-                            src={getRoomTypeCardImage(type.typeName)}
+                            src={getRoomTypeCardImage(type.typeName, type.images)}
                             alt={type.typeName}
                             onError={(event) =>
                               handleRoomImageError(event, type.typeName)
