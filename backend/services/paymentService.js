@@ -1501,7 +1501,7 @@ const applyVoucher = async (paymentId, code, actor) => {
       totalAmount,
       booking.id
     ]);
-    await connection.query('UPDATE vouchers SET quantity = quantity - 1 WHERE id = ?', [
+    await connection.query('UPDATE vouchers SET quantity = GREATEST(0, quantity - 1) WHERE id = ?', [
       voucher.id
     ]);
     if (customerVoucher) {

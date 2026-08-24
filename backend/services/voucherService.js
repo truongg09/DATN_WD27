@@ -91,21 +91,25 @@ const evaluateVoucherForBooking = async (
   if (voucher.endDate && dayString(voucher.endDate) < today) {
     throw new HttpError(409, `Voucher đã hết hạn từ ngày ${dayString(voucher.endDate)}`);
   }
-  if (Number(voucher.quantity) <= 0) {
-    throw new HttpError(409, 'Voucher đã hết lượt sử dụng');
-  }
-
-  // Voucher tặng riêng cho một khách (VD đền bù no-show) thì người khác không dùng được.
+  // Voucher tặng riêng cho khách (VD đền bù no-show, voucher targeted): customer_vouchers.isUsed là source of truth
   const [assignmentRows] = await run(connection).query(
     'SELECT id, userId, isUsed FROM customer_vouchers WHERE voucherId = ?',
     [voucher.id]
   );
   const customerVoucher = assignmentRows.find((row) => Number(row.userId) === Number(userId));
-  if (assignmentRows.length > 0 && !customerVoucher) {
-    throw new HttpError(403, 'Voucher này dành riêng cho khách hàng khác');
-  }
-  if (customerVoucher?.isUsed) {
-    throw new HttpError(409, 'Bạn đã sử dụng voucher này rồi');
+
+  if (assignmentRows.length > 0) {
+    if (!customerVoucher && !isStaff) {
+      throw new HttpError(403, 'Voucher này không áp dụng cho tài khoản của bạn');
+    }
+    if (customerVoucher?.isUsed) {
+      throw new HttpError(409, 'Bạn đã sử dụng voucher này rồi');
+    }
+  } else {
+    // Public voucher (dành cho mọi khách): kiểm tra quantity tổng
+    if (Number(voucher.quantity) <= 0) {
+      throw new HttpError(409, 'Voucher đã hết lượt sử dụng');
+    }
   }
 
   // Điều kiện hạng phòng
