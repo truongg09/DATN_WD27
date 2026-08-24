@@ -33,6 +33,8 @@ const bookingStatusLabel = (status) =>
     checked_out: "đã trả phòng",
     cancelled: "đã hủy",
     no_show: "khách không đến",
+    unused: "chưa sử dụng",
+    used: "đang sử dụng",
   })[status] || status;
 
 const dateToUtc = (date) => new Date(`${date}T00:00:00.000Z`);
@@ -2171,11 +2173,13 @@ const getBookingById = async (bookingId) => {
       ];
 
   const [bdRooms] = await db.query(
-    `SELECT DISTINCT bd.roomId AS id, r.roomNumber AS number
+    `SELECT bd.roomId AS id, bd.id AS bookingDetailId, r.roomNumber AS number,
+            COALESCE(bd.roomTypeId, r.roomTypeId) AS roomTypeId, rt.typeName AS roomTypeName
      FROM booking_details bd
      INNER JOIN rooms r ON r.id = bd.roomId
+     LEFT JOIN room_types rt ON rt.id = COALESCE(bd.roomTypeId, r.roomTypeId)
      WHERE bd.bookingId = ?
-     ORDER BY r.roomNumber ASC`,
+     ORDER BY bd.id ASC`,
     [bookingId],
   );
   let bookingRooms = bdRooms;
@@ -2461,7 +2465,7 @@ const requestOutstandingPayment = async (bookingId, actor = null) => {
     bookingId,
     "payment_requested",
     `Yêu cầu khách thanh toán ${displayMoney(summary.remainingAmount)} chi phí còn thiếu (đã xuất mã QR và gửi thông báo cho khách)`,
-    { amount: summary.remainingAmount },
+    { entityType: "payment", amount: summary.remainingAmount },
     actor,
   );
 
@@ -2746,10 +2750,40 @@ const addServiceCharge = async (bookingId, payload, actor = null) => {
       );
     }
 
-    if (payload.roomId) {
+    let targetRoomId = payload.roomId ? Number(payload.roomId) : null;
+    let targetBookingDetailId = payload.bookingDetailId
+      ? Number(payload.bookingDetailId)
+      : null;
+
+    if (targetBookingDetailId) {
+      const [detailRows] = await connection.query(
+        `SELECT id, roomId FROM booking_details
+         WHERE id = ? AND bookingId = ? FOR UPDATE`,
+        [targetBookingDetailId, bookingId]
+      );
+      const detail = detailRows[0];
+      if (!detail) {
+        throw new HttpError(400, "Phòng đã chọn không thuộc đặt phòng này");
+      }
+      if (targetRoomId && Number(detail.roomId) !== targetRoomId) {
+        throw new HttpError(400, "Thông tin phòng đã chọn không khớp");
+      }
+      targetRoomId = detail.roomId ? Number(detail.roomId) : null;
+    } else if (targetRoomId) {
+      const [detailRows] = await connection.query(
+        `SELECT id FROM booking_details
+         WHERE bookingId = ? AND roomId = ? ORDER BY id LIMIT 1 FOR UPDATE`,
+        [bookingId, targetRoomId]
+      );
+      targetBookingDetailId = detailRows[0]?.id
+        ? Number(detailRows[0].id)
+        : null;
+    }
+
+    if (targetRoomId) {
       const isValidRoom = await bookingModel.validateRoomInBooking(
         bookingId,
-        payload.roomId,
+        targetRoomId,
         connection,
       );
       if (!isValidRoom) {
@@ -2771,7 +2805,8 @@ const addServiceCharge = async (bookingId, payload, actor = null) => {
       payload.quantity,
       connection,
       {
-        roomId: payload.roomId,
+        roomId: targetRoomId,
+        bookingDetailId: targetBookingDetailId,
         customerId: payload.customerId,
         guestName: payload.guestName,
         status: payload.status
@@ -2787,13 +2822,14 @@ const addServiceCharge = async (bookingId, payload, actor = null) => {
     await logHistory(
       bookingId,
       "service_added",
-      `Thêm dịch vụ phát sinh: ${service.serviceName} x${payload.quantity} = ${displayMoney(addedAmount)}${created.status !== "used" ? ` (trạng thái: ${created.status})` : ""}`,
+      `Thêm dịch vụ phát sinh: ${service.serviceName} x${payload.quantity} = ${displayMoney(addedAmount)}${created.status !== "used" ? ` (trạng thái: ${bookingStatusLabel(created.status)})` : ""}`,
       {
         entityType: "service",
         entityId: created?.id ?? null,
         newValue: {
           id: created.id,
-          roomId: payload.roomId || null,
+          roomId: targetRoomId,
+          bookingDetailId: targetBookingDetailId,
           serviceId: service.id,
           serviceName: service.serviceName,
           quantity: payload.quantity,
@@ -2972,7 +3008,7 @@ const updateServiceChargeStatus = async (
     await logHistory(
       bookingId,
       "service_status_updated",
-      `Đổi trạng thái dịch vụ ${oldCharge.serviceName || "(dịch vụ)"}: ${oldCharge.status} → ${status}`,
+      `Đổi trạng thái dịch vụ ${oldCharge.serviceName || "(dịch vụ)"}: ${bookingStatusLabel(oldCharge.status)} → ${bookingStatusLabel(status)}`,
       {
         entityType: "service",
         entityId: serviceChargeId,
@@ -3092,7 +3128,37 @@ const addDamageCharge = async (bookingId, payload, actor = null) => {
       );
     }
 
-    const targetRoomId = payload.roomId || booking.room_id;
+    let targetRoomId = payload.roomId ? Number(payload.roomId) : null;
+    let targetBookingDetailId = payload.bookingDetailId
+      ? Number(payload.bookingDetailId)
+      : null;
+    if (targetBookingDetailId) {
+      const [detailRows] = await connection.query(
+        `SELECT id, roomId FROM booking_details
+         WHERE id = ? AND bookingId = ? FOR UPDATE`,
+        [targetBookingDetailId, bookingId]
+      );
+      const detail = detailRows[0];
+      if (!detail) {
+        throw new HttpError(400, "Phòng phát sinh không thuộc đặt phòng này");
+      }
+      if (targetRoomId && Number(detail.roomId) !== targetRoomId) {
+        throw new HttpError(400, "Vật dụng không thuộc phòng đã chọn");
+      }
+      targetRoomId = detail.roomId ? Number(detail.roomId) : null;
+    } else {
+      targetRoomId = targetRoomId || booking.room_id;
+      if (targetRoomId) {
+        const [detailRows] = await connection.query(
+          `SELECT id FROM booking_details
+           WHERE bookingId = ? AND roomId = ? ORDER BY id LIMIT 1 FOR UPDATE`,
+          [bookingId, targetRoomId]
+        );
+        targetBookingDetailId = detailRows[0]?.id
+          ? Number(detailRows[0].id)
+          : null;
+      }
+    }
     if (targetRoomId) {
       const isValidRoom = await bookingModel.validateRoomInBooking(
         bookingId,
@@ -3104,6 +3170,7 @@ const addDamageCharge = async (bookingId, payload, actor = null) => {
       }
     }
 
+    payload.bookingDetailId = targetBookingDetailId;
     const damage = await bookingModel.addDamageCharge(
       bookingId,
       targetRoomId,
@@ -3124,6 +3191,8 @@ const addDamageCharge = async (bookingId, payload, actor = null) => {
         entityId: damage?.id ?? null,
         newValue: {
           itemName: payload.itemName,
+          roomId: targetRoomId,
+          bookingDetailId: targetBookingDetailId,
           quantity: payload.quantity,
           unitPrice: payload.unitPrice,
           chargeType: payload.chargeType || 'damage',
@@ -3172,6 +3241,10 @@ const updateDamageCharge = async (
         403,
         "Khoản phí này không thuộc đặt phòng đã chỉ định",
       );
+    }
+
+    if (current.status === 'cancelled') {
+      throw new HttpError(409, "Khoản phí đã hủy, không thể chỉnh sửa");
     }
 
     if (payload.roomId) {
@@ -3257,7 +3330,7 @@ const updateDamageChargeStatus = async (
     await logHistory(
       bookingId,
       "damage_status_updated",
-      `Đổi trạng thái khoản phí ${current.itemName}: ${current.status} → ${status}`,
+      `Đổi trạng thái khoản phí ${current.itemName}: ${bookingStatusLabel(current.status)} → ${bookingStatusLabel(status)}`,
       {
         entityType: "damage",
         entityId: chargeId,
@@ -4158,9 +4231,9 @@ const transferRoom = async (bookingId, payload, actor = null) => {
 // vụ: sớm chỉ cần phòng sẵn sàng; muộn khách tự chịu thiệt thời gian lưu trú,
 // khách sạn không phát sinh chi phí nên không cần tier phí như late-checkout).
 const CHECK_IN_TIMING_LABEL = {
-  early: "check-in sớm",
-  on_time: "check-in đúng giờ",
-  late: "check-in muộn (miễn phí)",
+  early: "nhận phòng sớm",
+  on_time: "nhận phòng đúng giờ",
+  late: "nhận phòng muộn (miễn phí)",
 };
 
 const checkIn = async (bookingId, payload = {}, actor = null) => {
@@ -4307,7 +4380,7 @@ const checkIn = async (bookingId, payload = {}, actor = null) => {
     const paymentNote = hasUnpaidDebt
       ? ` (Đã thanh toán: ${displayMoney(paidAmount)}, còn lại: ${displayMoney(remainingAmount + (earlySurchargeRecord?.amount || 0))})`
       : earlySurchargeRecord
-        ? ` (Đã thanh toán: ${displayMoney(paidAmount)}, phụ thu check-in sớm: +${displayMoney(earlySurchargeRecord.amount)})`
+        ? ` (Đã thanh toán: ${displayMoney(paidAmount)}, phụ thu nhận phòng sớm: +${displayMoney(earlySurchargeRecord.amount)})`
         : ` (Đã thanh toán đủ: ${displayMoney(paidAmount)})`;
 
     await logHistory(
@@ -4460,8 +4533,8 @@ const markNoShow = async (
       bookingId,
       "no_show",
       voucher
-        ? `Đánh dấu khách không đến (no-show). Không hoàn tiền theo chính sách, tặng voucher ${voucher.code} giảm ${Number(voucher.discountPercentage)}% cho lần lưu trú tiếp theo.`
-        : `Đánh dấu khách không đến (no-show). Không hoàn tiền theo chính sách`,
+        ? `Đánh dấu khách không đến. Không hoàn tiền theo chính sách, tặng mã ưu đãi ${voucher.code} giảm ${Number(voucher.discountPercentage)}% cho lần lưu trú tiếp theo.`
+        : `Đánh dấu khách không đến. Không hoàn tiền theo chính sách`,
       {
         oldValue: { status: booking.status },
         newValue: { status: "no_show", voucherCode: voucher?.code || null },
@@ -4869,7 +4942,7 @@ const updateBookingRequestedCheckInTime = async (
     await logHistory(
       bookingId,
       'update_arrival_time',
-      `Cập nhật giờ check-in dự kiến mới: ${timeStr.slice(0, 5)}${offsetText}${descNote}`,
+      `Cập nhật giờ nhận phòng dự kiến mới: ${timeStr.slice(0, 5)}${offsetText}${descNote}`,
       {
         oldValue: {
           requestedCheckInTime: booking.requested_check_in_time,
@@ -4958,7 +5031,8 @@ const extendRoomHoldDeadline = async (
   }
 };
 
-const reactivateNoShowBooking = async (
+/* Phiên bản cũ chỉ xử lý bookings.room_id nên không an toàn cho booking nhiều phòng.
+const reactivateNoShowBookingLegacy = async (
   bookingId,
   { targetRoomId = null, note = '' } = {},
   actor = null
@@ -5040,6 +5114,160 @@ const reactivateNoShowBooking = async (
       success: true,
       message: `Đã khôi phục và check-in thành công cho khách vào phòng ${allocatedRoom.roomNumber}`,
       booking: updated
+    };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
+*/
+const reactivateNoShowBooking = async (
+  bookingId,
+  { targetRoomId = null, note = '' } = {},
+  actor = null
+) => {
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+    const booking = await bookingModel.getBookingById(bookingId, connection, true);
+    if (!booking) throw new HttpError(404, 'Không tìm thấy đặt phòng');
+    if (booking.status !== 'no_show') {
+      throw new HttpError(409, 'Chỉ có thể khôi phục đơn đang ở trạng thái No-show');
+    }
+    const checkoutDeadline = new Date(booking.check_out);
+    if (!Number.isNaN(checkoutDeadline.getTime()) && new Date() >= checkoutDeadline) {
+      throw new HttpError(
+        409,
+        'Đơn đã quá thời gian trả phòng nên không thể check-in muộn. Vui lòng tạo booking mới.'
+      );
+    }
+
+    const [details] = await connection.query(
+      `SELECT bd.id, bd.roomId, COALESCE(bd.roomTypeId, r.roomTypeId) AS roomTypeId,
+              r.roomNumber AS originalRoomNumber, rt.typeName AS roomTypeName
+       FROM booking_details bd
+       LEFT JOIN rooms r ON r.id = bd.roomId
+       LEFT JOIN room_types rt ON rt.id = COALESCE(bd.roomTypeId, r.roomTypeId)
+       WHERE bd.bookingId = ?
+       ORDER BY bd.id
+       FOR UPDATE`,
+      [bookingId]
+    );
+    const roomDetails = details.length > 0 ? details : [{
+      id: null,
+      roomId: booking.room_id,
+      roomTypeId: booking.room_type_id,
+      originalRoomNumber: booking.room_number,
+      roomTypeName: booking.room_type_name
+    }];
+    const usedRoomIds = new Set();
+    const allocations = [];
+
+    for (let index = 0; index < roomDetails.length; index += 1) {
+      const detail = roomDetails[index];
+      const preferredRoomId = index === 0 && targetRoomId
+        ? Number(targetRoomId)
+        : Number(detail.roomId || 0);
+      let allocatedRoom = null;
+
+      if (preferredRoomId && !usedRoomIds.has(preferredRoomId)) {
+        const [preferredRows] = await connection.query(
+          `SELECT id, roomNumber, status, roomTypeId FROM rooms
+           WHERE id = ? AND COALESCE(isDeleted, 0) = 0
+             AND NOT EXISTS (
+               SELECT 1 FROM booking_details obd
+               JOIN bookings ob ON ob.id = obd.bookingId
+               WHERE obd.roomId = rooms.id AND ob.id <> ?
+                 AND ob.status NOT IN ('cancelled', 'checked_out', 'no_show')
+                 AND NOW() >= ob.check_in AND NOW() < ob.check_out
+             )
+           FOR UPDATE`,
+          [preferredRoomId, bookingId]
+        );
+        const preferred = preferredRows[0];
+        if (preferred && preferred.status === 'available'
+          && Number(preferred.roomTypeId) === Number(detail.roomTypeId)) {
+          allocatedRoom = preferred;
+        }
+      }
+
+      if (!allocatedRoom) {
+        const excludedIds = [...usedRoomIds];
+        const exclusionSql = excludedIds.length
+          ? `AND id NOT IN (${excludedIds.map(() => '?').join(', ')})`
+          : '';
+        const [availableRows] = await connection.query(
+          `SELECT id, roomNumber, status, roomTypeId FROM rooms
+           WHERE roomTypeId = ? AND status = 'available'
+             AND COALESCE(isDeleted, 0) = 0
+             AND NOT EXISTS (
+               SELECT 1 FROM booking_details obd
+               JOIN bookings ob ON ob.id = obd.bookingId
+               WHERE obd.roomId = rooms.id AND ob.id <> ?
+                 AND ob.status NOT IN ('cancelled', 'checked_out', 'no_show')
+                 AND NOW() >= ob.check_in AND NOW() < ob.check_out
+             )
+             ${exclusionSql}
+           ORDER BY id LIMIT 1 FOR UPDATE`,
+          [detail.roomTypeId, bookingId, ...excludedIds]
+        );
+        allocatedRoom = availableRows[0] || null;
+      }
+
+      if (!allocatedRoom) {
+        throw new HttpError(
+          409,
+          `Không còn phòng trống cho hạng ${detail.roomTypeName || detail.roomTypeId}`
+          + ` (phòng gốc: ${detail.originalRoomNumber || 'chưa gán'}).`
+        );
+      }
+      usedRoomIds.add(Number(allocatedRoom.id));
+      allocations.push({ detail, room: allocatedRoom });
+    }
+
+    for (const { detail, room } of allocations) {
+      if (detail.id && Number(detail.roomId) !== Number(room.id)) {
+        await connection.query(
+          'UPDATE booking_details SET roomId = ?, roomTypeId = ? WHERE id = ? AND bookingId = ?',
+          [room.id, room.roomTypeId, detail.id, bookingId]
+        );
+      }
+      await bookingModel.updateRoomStatus(room.id, 'occupied', connection);
+    }
+
+    const primaryRoom = allocations[0].room;
+    const roomNumbers = allocations.map(({ room }) => room.roomNumber);
+    const now = new Date();
+    await connection.query('UPDATE bookings SET room_id = ? WHERE id = ?', [primaryRoom.id, bookingId]);
+    await bookingModel.updateBookingStatus(bookingId, 'checked_in', connection);
+    await bookingModel.updateActualCheckInTime(bookingId, now, connection);
+
+    const reasonNote = note ? ` Ghi chú: ${note}.` : '';
+    await logHistory(
+      bookingId,
+      'reactivated_from_no_show',
+      `Khôi phục đơn khách không đến và nhận phòng ngay (Phòng: ${roomNumbers.join(', ')}).${reasonNote}`,
+      {
+        oldValue: { status: 'no_show', room_id: booking.room_id },
+        newValue: {
+          status: 'checked_in',
+          room_id: primaryRoom.id,
+          room_ids: allocations.map(({ room }) => room.id),
+          actual_check_in_time: now
+        }
+      },
+      actor,
+      connection
+    );
+
+    await connection.commit();
+    return {
+      success: true,
+      message: `Đã khôi phục và check-in thành công phòng ${roomNumbers.join(', ')}`,
+      booking: await bookingModel.getBookingById(bookingId)
     };
   } catch (error) {
     await connection.rollback();
@@ -5157,7 +5385,7 @@ const checkOut = async (
               bookingId,
               "late_checkout_fee",
               `Phí trả phòng muộn: trễ ${result.lateMinutes} phút (${result.percent}% giá đêm) = ${displayMoney(result.feeAmount)}`,
-              { amount: result.feeAmount },
+              { entityType: "stay", amount: result.feeAmount },
               actor,
               connection,
             );
@@ -5166,7 +5394,11 @@ const checkOut = async (
               bookingId,
               "late_checkout_fee_waived",
               `Miễn phí phụ thu trả phòng muộn (${result.percent}% giá đêm = ${displayMoney(result.feeAmount)}) cho khách hàng`,
-              { waivedAmount: result.feeAmount },
+              {
+                entityType: "stay",
+                amount: result.feeAmount,
+                newValue: { waivedAmount: result.feeAmount },
+              },
               actor,
               connection,
             );
@@ -5489,7 +5721,12 @@ const resetBookingHold = async (bookingId, actor) => {
       `Gia hạn thời gian giữ phòng lần ${newResetCount}/${MAX_HOLD_RESETS} (+${HOLD_RESET_MINUTES} phút, còn ${remainingResets} lần gia hạn)`,
       {
         entityType: "booking",
-        entityId: null, hold_reset_count: newResetCount, hold_expires_at: newExpiresAt },
+        entityId: null,
+        newValue: {
+          holdResetCount: newResetCount,
+          holdExpiresAt: newExpiresAt,
+        },
+      },
       actor,
       connection
     );
@@ -5866,7 +6103,7 @@ const adminModifyBooking = async (bookingId, payload, actor) => {
     await logHistory(
       bookingId,
       "updated",
-      `Admin chỉnh sửa đặt phòng (${roomNumbersStr}): tổng bill từ ${displayMoney(preview.oldTotalAmount)} sang ${displayMoney(preview.newTotalAmount)} (Chênh lệch: ${preview.priceDifference >= 0 ? "+" : ""}${displayMoney(preview.priceDifference)})`,
+      `Quản trị viên chỉnh sửa đặt phòng (${roomNumbersStr}): tổng hóa đơn từ ${displayMoney(preview.oldTotalAmount)} sang ${displayMoney(preview.newTotalAmount)} (Chênh lệch: ${preview.priceDifference >= 0 ? "+" : ""}${displayMoney(preview.priceDifference)})`,
       {
         newValue: {
           checkIn,

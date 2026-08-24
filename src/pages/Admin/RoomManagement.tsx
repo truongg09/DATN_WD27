@@ -1624,7 +1624,9 @@ function RoomManagement() {
             const guests = b.guests || [];
 
             const serviceTotal = services.reduce((sum: number, s: any) => sum + Number(s.totalPrice || s.total_price || (s.price * s.quantity) || 0), 0);
-            const damageTotal = damages.reduce((sum: number, d: any) => sum + Number(d.totalPrice || d.total_price || d.fee || d.amount || 0), 0);
+            const damageTotal = damages
+              .filter((d: any) => (d.status || 'used') === 'used')
+              .reduce((sum: number, d: any) => sum + Number(d.totalPrice || d.total_price || d.fee || d.amount || 0), 0);
             const roomPrice = Number(b.total_price || b.roomPrice || 0);
             const grandTotal = Number(b.payable_total ?? (roomPrice + serviceTotal + damageTotal));
             const paidAmount = Number(b.paid_amount || b.deposit_amount || 0);

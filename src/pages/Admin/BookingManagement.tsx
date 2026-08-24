@@ -83,6 +83,16 @@ interface RoomItem {
   status: string;
 }
 
+interface InventoryItem {
+  id: number;
+  roomId: number;
+  roomNumber?: string;
+  itemName: string;
+  quantity: number;
+  status: string;
+  compensationPrice?: string | number;
+}
+
 type Operation = 'guests' | 'declareGuests' | 'service' | 'damage' | 'extend' | 'transfer' | null;
 
 const TransferPricePreview: React.FC<{
@@ -677,6 +687,7 @@ function BookingManagement() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [services, setServices] = useState<ServiceItem[]>([]);
   const [rooms, setRooms] = useState<RoomItem[]>([]);
+  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [checkoutBookingId, setCheckoutBookingId] = useState<number | null>(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -693,6 +704,8 @@ function BookingManagement() {
   const [reassigning, setReassigning] = useState(false);
   const [policies, setPolicies] = useState<PoliciesInfo | null>(null);
   const [form] = Form.useForm();
+  const selectedDamageDetailId = Form.useWatch('damageBookingDetailId', form);
+  const selectedDamageRoomItemId = Form.useWatch('roomItemId', form);
   const [conflictData, setConflictData] = useState<any>(null);
   const [reassignLoading, setReassignLoading] = useState<Record<number, boolean>>({});
   const [extendingAfterConflict, setExtendingAfterConflict] = useState(false);
@@ -733,12 +746,18 @@ function BookingManagement() {
 
   const fetchSupportData = async () => {
     try {
-      const [serviceRes, roomRes] = await Promise.all([api.get('/services'), api.get('/rooms')]);
+      const [serviceRes, roomRes, itemRes] = await Promise.all([
+        api.get('/services'),
+        api.get('/rooms'),
+        api.get('/room-items'),
+      ]);
       setServices(Array.isArray(serviceRes.data) ? serviceRes.data : []);
       setRooms(Array.isArray(roomRes.data) ? roomRes.data : []);
+      setInventoryItems(Array.isArray(itemRes.data) ? itemRes.data : []);
     } catch {
       setServices([]);
       setRooms([]);
+      setInventoryItems([]);
     }
   };
 
@@ -1051,6 +1070,42 @@ function BookingManagement() {
     if (type === 'extend') {
       form.setFieldsValue({ checkOut: booking.check_out ? dayjs(booking.check_out).add(1, 'day') : undefined });
     }
+    if (type === 'service') {
+      form.setFieldsValue({ quantity: 1 });
+      api.get(`/bookings/${booking.id}`).then((res: any) => {
+        const fullBooking = res.data?.data || res.data || res;
+        if (!fullBooking) return;
+        setSelectedBooking(fullBooking);
+        const roomDetails = Array.isArray(fullBooking.details)
+          ? fullBooking.details.filter((detail: any) => Number(detail.roomId || 0) > 0)
+          : [];
+        if (roomDetails.length === 1) {
+          form.setFieldsValue({
+            bookingDetailId: Number(roomDetails[0].bookingDetailId || roomDetails[0].id),
+          });
+        }
+      }).catch(() => {
+        message.error('Không tải được danh sách phòng của booking');
+      });
+    }
+    if (type === 'damage') {
+      form.setFieldsValue({ quantity: 1, unitPrice: 0 });
+      api.get(`/bookings/${booking.id}`).then((res: any) => {
+        const fullBooking = res.data?.data || res.data || res;
+        if (!fullBooking) return;
+        setSelectedBooking(fullBooking);
+        const roomDetails = Array.isArray(fullBooking.details)
+          ? fullBooking.details.filter((detail: any) => Number(detail.roomId || 0) > 0)
+          : [];
+        if (roomDetails.length === 1) {
+          form.setFieldsValue({
+            damageBookingDetailId: Number(roomDetails[0].bookingDetailId || roomDetails[0].id),
+          });
+        }
+      }).catch(() => {
+        message.error('Không tải được danh sách phòng và vật dụng');
+      });
+    }
     if (type === 'transfer') {
       const initDetails = (b: any) => {
         const rawDetails = Array.isArray(b.details) && b.details.length > 0 ? b.details : [];
@@ -1156,9 +1211,20 @@ function BookingManagement() {
       }
 
       if (operation === 'service') {
+        const roomDetails = Array.isArray(selectedBooking.details) ? selectedBooking.details : [];
+        const selectedDetail = roomDetails.find(
+          (detail: any) => Number(detail.bookingDetailId || detail.id) === Number(values.bookingDetailId),
+        );
+        if (!selectedDetail) {
+          message.error('Vui lòng chọn phòng cần thêm dịch vụ');
+          return;
+        }
         const response = await api.post(`/bookings/${selectedBooking.id}/services`, {
           serviceId: values.serviceId,
           quantity: values.quantity,
+          bookingDetailId: Number(selectedDetail.bookingDetailId || selectedDetail.id),
+          roomId: Number(selectedDetail.roomId),
+          status: 'used',
         });
         const result = (response as unknown as {
           data?: {
@@ -1187,11 +1253,27 @@ function BookingManagement() {
       }
 
       if (operation === 'damage') {
+        const roomDetails = Array.isArray(selectedBooking.details) ? selectedBooking.details : [];
+        const selectedDetail = roomDetails.find(
+          (detail: any) => Number(detail.bookingDetailId || detail.id) === Number(values.damageBookingDetailId),
+        );
+        const selectedItem = inventoryItems.find(
+          (item) => item.id === Number(values.roomItemId),
+        );
+        if (!selectedDetail || !selectedItem
+          || Number(selectedItem.roomId) !== Number(selectedDetail.roomId)) {
+          message.error('Vui lòng chọn đúng vật dụng thuộc phòng');
+          return;
+        }
         await api.post(`/bookings/${selectedBooking.id}/damages`, {
-          itemName: values.itemName,
+          itemName: selectedItem.itemName,
           quantity: values.quantity,
           unitPrice: values.unitPrice,
           note: values.note,
+          roomId: Number(selectedDetail.roomId),
+          bookingDetailId: Number(selectedDetail.bookingDetailId || selectedDetail.id),
+          chargeType: 'damage',
+          status: 'used',
         });
         message.success('Đã thêm phí hư hỏng vật dụng');
       }
@@ -1829,14 +1911,39 @@ const handleCheckIn = (booking: Booking) => {
     }
 
     if (operation === 'service') {
+      const roomDetails = Array.isArray(selectedBooking?.details)
+        ? selectedBooking.details.filter((detail: any) => Number(detail.roomId || 0) > 0)
+        : [];
       return (
         <>
           <Form.Item name="serviceId" label="Dịch vụ" rules={[{ required: true, message: 'Chọn dịch vụ' }]}>
             <Select
+              showSearch
+              optionFilterProp="label"
+              placeholder="Chọn dịch vụ"
               options={services.map((service) => ({
                 value: service.id,
                 label: `${service.serviceName} - ${formatPrice(service.price)}`,
               }))}
+            />
+          </Form.Item>
+          <Form.Item
+            name="bookingDetailId"
+            label="Áp dụng cho phòng"
+            rules={[{ required: true, message: 'Chọn phòng' }]}
+          >
+            <Select
+              showSearch
+              optionFilterProp="label"
+              placeholder="Chọn phòng"
+              options={roomDetails.map((detail: any) => {
+                const roomNumber = detail.roomNumber || detail.room_number || detail.number;
+                const roomTypeName = detail.typeName || detail.roomTypeName || detail.room_type_name;
+                return {
+                  value: Number(detail.bookingDetailId || detail.id),
+                  label: `Phòng ${roomNumber}${roomTypeName ? ` - ${roomTypeName}` : ''}`,
+                };
+              })}
             />
           </Form.Item>
           <Form.Item name="quantity" label="Số lượng" initialValue={1} rules={[{ required: true }]}>
@@ -1847,13 +1954,75 @@ const handleCheckIn = (booking: Booking) => {
     }
 
     if (operation === 'damage') {
+      const roomDetails = Array.isArray(selectedBooking?.details)
+        ? selectedBooking.details.filter((detail: any) => Number(detail.roomId || 0) > 0)
+        : [];
+      const selectedDetail = roomDetails.find(
+        (detail: any) => Number(detail.bookingDetailId || detail.id) === Number(selectedDamageDetailId),
+      );
+      const roomInventory = selectedDetail
+        ? inventoryItems.filter(
+            (item) => Number(item.roomId) === Number(selectedDetail.roomId)
+              && Number(item.quantity) > 0
+              && item.status === 'normal',
+          )
+        : [];
+      const selectedInventoryItem = roomInventory.find(
+        (item) => item.id === Number(selectedDamageRoomItemId),
+      );
       return (
         <>
-          <Form.Item name="itemName" label="Vật dụng hư hỏng/mất" rules={[{ required: true, message: 'Nhập tên vật dụng' }]}>
-            <Input placeholder="Ví dụ: khăn tắm, điều khiển TV..." />
+          <Form.Item
+            name="damageBookingDetailId"
+            label="Phòng phát sinh hư hỏng"
+            rules={[{ required: true, message: 'Chọn phòng' }]}
+          >
+            <Select
+              showSearch
+              optionFilterProp="label"
+              placeholder="Chọn phòng"
+              onChange={() => form.setFieldsValue({ roomItemId: undefined, quantity: 1 })}
+              options={roomDetails.map((detail: any) => {
+                const roomNumber = detail.roomNumber || detail.room_number || detail.number;
+                const roomTypeName = detail.typeName || detail.roomTypeName || detail.room_type_name;
+                return {
+                  value: Number(detail.bookingDetailId || detail.id),
+                  label: `Phòng ${roomNumber}${roomTypeName ? ` - ${roomTypeName}` : ''}`,
+                };
+              })}
+            />
+          </Form.Item>
+          <Form.Item
+            name="roomItemId"
+            label="Vật dụng hư hỏng/mất"
+            rules={[{ required: true, message: 'Chọn vật dụng' }]}
+          >
+            <Select
+              showSearch
+              optionFilterProp="label"
+              placeholder={selectedDetail ? 'Chọn vật dụng trong phòng' : 'Chọn phòng trước'}
+              disabled={!selectedDetail}
+              notFoundContent={selectedDetail ? 'Phòng này chưa khai báo vật dụng' : null}
+              onChange={(itemId) => {
+                const item = roomInventory.find((entry) => entry.id === Number(itemId));
+                form.setFieldsValue({
+                  quantity: 1,
+                  unitPrice: Number(item?.compensationPrice || 0),
+                });
+              }}
+              options={roomInventory.map((item) => ({
+                value: item.id,
+                label: `${item.itemName} - ${formatPrice(item.compensationPrice || 0)}`,
+              }))}
+            />
           </Form.Item>
           <Form.Item name="quantity" label="Số lượng" initialValue={1} rules={[{ required: true }]}>
-            <InputNumber min={1} style={{ width: '100%' }} />
+            <InputNumber
+              min={1}
+              max={selectedInventoryItem?.quantity}
+              disabled={!selectedInventoryItem}
+              style={{ width: '100%' }}
+            />
           </Form.Item>
           <Form.Item name="unitPrice" label="Đơn giá bồi thường" rules={[{ required: true, message: 'Nhập đơn giá' }]}>
             <InputNumber min={0} step={10000} style={{ width: '100%' }} />
@@ -1967,7 +2136,7 @@ const handleCheckIn = (booking: Booking) => {
   const operationTitle: Record<Exclude<Operation, null>, string> = {
     guests: 'Xác nhận nhận phòng (Check-in)',
     declareGuests: 'Khai báo / Cập nhật CCCD khách lưu trú',
-    service: 'Thêm dịch vụ phát sinh',
+    service: 'Thêm dịch vụ cho khách',
     damage: 'Thêm phí hư hỏng/mất vật dụng',
     extend: 'Gia hạn thời gian ở',
     transfer: 'Chuyển phòng giữa chừng',

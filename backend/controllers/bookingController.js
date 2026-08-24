@@ -30,6 +30,14 @@ const ensureBookingAccess = (user, booking, action = 'xem') => {
   }
 };
 
+// Chi tiết dòng thời gian có thể chứa email/ID nội bộ của nhân viên,
+// nên khách hàng không nhận history trong payload chi tiết.
+const withoutEmbeddedHistory = (booking) => {
+  const safeBooking = { ...booking };
+  delete safeBooking.history;
+  return safeBooking;
+};
+
 const sendError = (res, error) => {
   console.error('Booking API error:', error);
   const statusCode = error.statusCode || 500;
@@ -181,7 +189,7 @@ const getBookingById = async (req, res) => {
     const booking = await bookingService.getBookingById(bookingId);
     ensureBookingAccess(req.user, booking);
 
-    res.json({ data: booking });
+    res.json({ data: isStaff(req.user) ? booking : withoutEmbeddedHistory(booking) });
   } catch (error) {
     sendError(res, error);
   }

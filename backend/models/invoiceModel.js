@@ -176,7 +176,7 @@ const listInvoiceDamages = async (bookingId, connection) => {
         bdc.createdAt
       FROM booking_damage_charges bdc
       LEFT JOIN rooms r ON r.id = bdc.roomId
-      WHERE bdc.bookingId = ? AND COALESCE(bdc.status, 'used') != 'cancelled'
+      WHERE bdc.bookingId = ? AND COALESCE(bdc.status, 'used') = 'used'
       ORDER BY bdc.id ASC
     `,
     [bookingId]
