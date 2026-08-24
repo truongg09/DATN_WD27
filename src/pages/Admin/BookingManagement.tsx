@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { Alert, Button, Checkbox, DatePicker, Form, Input, InputNumber, message, Modal, Pagination, Select, Space, Tag, Tooltip } from 'antd';
+import { Alert, Button, Checkbox, DatePicker, Form, Input, InputNumber, message, Modal, Pagination, Radio, Select, Space, Tag, Tooltip } from 'antd';
 import {
   CheckCircleOutlined,
   CheckOutlined,
@@ -27,6 +27,7 @@ import dayjs from 'dayjs';
 import api from '../../services/api';
 import CheckoutPaymentModal from './CheckoutPaymentModal';
 import AdminBookingModifyModal from './AdminBookingModifyModal';
+import { AdminCreateBookingModal } from './AdminCreateBookingModal';
 import { getPolicies, type PoliciesInfo } from '../../services/settingsService';
 import { previewBookingChange } from '../../services/bookingService';
 
@@ -662,6 +663,7 @@ function BookingManagement() {
   const [rooms, setRooms] = useState<RoomItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [checkoutBookingId, setCheckoutBookingId] = useState<number | null>(null);
+  const [createModalOpen, setCreateModalOpen] = useState(false);
 
   // Bộ lọc tìm kiếm & lọc trạng thái / khoảng ngày
   const [searchText, setSearchText] = useState('');
@@ -680,6 +682,7 @@ function BookingManagement() {
   const [extendingAfterConflict, setExtendingAfterConflict] = useState(false);
   const [cleaningRoomLoading, setCleaningRoomLoading] = useState<Record<number, boolean>>({});
   const [waiveEarlySurcharge, setWaiveEarlySurcharge] = useState(false);
+  const [checkInPaymentAction, setCheckInPaymentAction] = useState<'cash' | 'later'>('cash');
 
   // Trả về mảng booking vừa tải để nơi gọi (VD: sau khi chuyển phòng) có thể
   // lấy ngay bản ghi mới nhất mà không cần đọc lại state bất đồng bộ.
@@ -1001,6 +1004,8 @@ function BookingManagement() {
   const openOperation = (type: Operation, booking: Booking) => {
     setOperation(type);
     setSelectedBooking(booking);
+    setCheckInPaymentAction('cash');
+    setWaiveEarlySurcharge(false);
     form.resetFields();
     if (type === 'guests' || type === 'declareGuests') {
       const defaultGuests = [
@@ -1102,6 +1107,25 @@ function BookingManagement() {
       if (operation === 'guests') {
         const earlyInfo = computeEarlyCheckInInfo(selectedBooking);
         const shouldApplySurcharge = earlyInfo.isEarly && !waiveEarlySurcharge && earlyInfo.surchargeAmount > 0;
+
+        const mainPayment = (selectedBooking as any)?.payment || (selectedBooking as any)?.payments?.[0];
+        const totalAmount = Number(mainPayment?.totalAmount || selectedBooking?.payable_total || selectedBooking?.total_price || 0);
+        const paidAmount = Number(mainPayment?.paidAmount || 0);
+        const remainingAmount = Number(mainPayment?.remainingAmount ?? Math.max(0, totalAmount - paidAmount));
+        const paymentId = mainPayment?.id;
+
+        // Nếu lễ tân chọn thu tiền mặt ngay lúc Check-in
+        if (checkInPaymentAction === 'cash' && remainingAmount > 0 && paymentId) {
+          try {
+            await api.post(`/payments/${paymentId}/pay`, {
+              paymentMethod: 'cash',
+              amount: remainingAmount
+            });
+            message.success(`Đã ghi nhận thu ${formatPrice(remainingAmount)} tiền mặt!`);
+          } catch (payErr: any) {
+            console.warn('Lỗi ghi nhận tiền mặt khi check-in:', payErr);
+          }
+        }
 
         const response = await api.patch(`/bookings/${selectedBooking.id}/check-in`, {
           guests: values.guests,
@@ -1283,7 +1307,7 @@ function BookingManagement() {
       content: (
         <div>
           <p style={{ marginTop: 0 }}>
-            Chính sách hoàn cọc: dưới 3 ngày hoàn 100%, từ 3-7 ngày hoàn 50%, trên 7 ngày không hoàn.
+            Chính sách hoàn cọc: hủy trước 7 ngày hoàn 100%, từ 3-7 ngày hoàn 50%, dưới 3 ngày hoàn 0%.
           </p>
           <Input.TextArea
             rows={3}
@@ -1564,8 +1588,12 @@ const handleCheckIn = (booking: Booking) => {
 
   const renderOperationForm = () => {
     if (operation === 'guests') {
-      const isPaid = selectedBooking?.payment_status === 'paid';
-      const hasDeposit = selectedBooking?.payment_status === 'deposit_paid';
+      const mainPayment = (selectedBooking as any)?.payment || (selectedBooking as any)?.payments?.[0];
+      const totalAmount = Number(mainPayment?.totalAmount || selectedBooking?.payable_total || selectedBooking?.total_price || 0);
+      const paidAmount = Number(mainPayment?.paidAmount || 0);
+      const remainingAmount = Number(mainPayment?.remainingAmount ?? Math.max(0, totalAmount - paidAmount));
+      const isPaid = (selectedBooking?.payment_status === 'paid') || (mainPayment?.paymentStatus === 'paid') || (remainingAmount <= 0 && paidAmount > 0);
+      const hasDeposit = (selectedBooking?.payment_status === 'deposit_paid') || (mainPayment?.paymentStatus === 'deposit_paid');
       const earlyInfo = computeEarlyCheckInInfo(selectedBooking);
 
       return (
@@ -1590,12 +1618,45 @@ const handleCheckIn = (booking: Booking) => {
               <div><strong>Phòng:</strong> Phòng {selectedBooking?.room_number} ({selectedBooking?.room_type_name})</div>
               <div><strong>Lưu trú:</strong> {formatDate(selectedBooking?.check_in)} → {formatDate(selectedBooking?.check_out)}</div>
             </div>
-            {!isPaid && (
-              <div style={{ marginTop: 10, padding: '8px 12px', background: '#fffbe6', border: '1px solid #ffe58f', borderRadius: 6, fontSize: 12, color: '#d46b08' }}>
-                ℹ️ <strong>Lưu ý:</strong> Không bắt buộc thanh toán 100% khi nhận phòng. Khoản tiền còn lại có thể thu trước hoặc khi khách trả phòng (Check-out).
-              </div>
-            )}
           </div>
+
+          {/* Khối thu tiền phòng khi Check-in nếu còn số dư chưa thanh toán */}
+          {!isPaid && remainingAmount > 0 && (
+            <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '12px 16px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <span style={{ fontWeight: 700, color: '#166534', fontSize: 13 }}>
+                  💵 Thu tiền phòng khi nhận phòng (Check-in)
+                </span>
+                <Tag color="error" style={{ fontSize: 13, fontWeight: 700, padding: '2px 8px' }}>
+                  Còn thiếu: {formatPrice(remainingAmount)}
+                </Tag>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 12px', fontSize: 13, marginBottom: 12, background: '#fff', padding: '8px 12px', borderRadius: 6, border: '1px solid #dcfce7' }}>
+                <div>Tổng tiền phòng: <strong>{formatPrice(totalAmount)}</strong></div>
+                <div>Đã thanh toán: <strong style={{ color: '#16a34a' }}>{formatPrice(paidAmount)}</strong></div>
+              </div>
+              <Radio.Group
+                value={checkInPaymentAction}
+                onChange={(e) => setCheckInPaymentAction(e.target.value)}
+                style={{ width: '100%' }}
+              >
+                <Space direction="vertical" style={{ width: '100%' }}>
+                  <Radio value="cash">
+                    <span style={{ fontWeight: 600, color: '#15803d' }}>
+                      Thu tiền mặt ngay:
+                    </span>{' '}
+                    Lễ tân nhận <strong style={{ color: '#15803d' }}>{formatPrice(remainingAmount)}</strong> tiền mặt từ khách và xác nhận đã thu đủ.
+                  </Radio>
+                  <Radio value="later">
+                    <span style={{ fontWeight: 600, color: '#475569' }}>
+                      Chưa thu tiền:
+                    </span>{' '}
+                    Cho khách nhận phòng trước, ghi nhận nợ và thanh toán khi trả phòng (Check-out).
+                  </Radio>
+                </Space>
+              </Radio.Group>
+            </div>
+          )}
 
           {/* Khối xử lý Check-in sớm & Phụ thu */}
           {earlyInfo.isEarly && (
@@ -1903,9 +1964,19 @@ const handleCheckIn = (booking: Booking) => {
       <div style={{ background: '#fff', borderRadius: 16, padding: 24, boxShadow: '0 8px 24px rgba(0,0,0,0.08)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <h2 style={{ margin: 0 }}>Quản lý đặt phòng</h2>
-          <Button icon={<ReloadOutlined />} onClick={fetchBookings} loading={loading}>
-            Làm mới
-          </Button>
+          <Space>
+            <Button icon={<ReloadOutlined />} onClick={fetchBookings} loading={loading}>
+              Làm mới
+            </Button>
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={() => setCreateModalOpen(true)}
+              style={{ backgroundColor: '#2563eb', borderColor: '#2563eb' }}
+            >
+              Tạo đặt phòng tại quầy
+            </Button>
+          </Space>
         </div>
 
         {/* Thanh Bộ lọc Đặt phòng */}
@@ -2244,6 +2315,12 @@ const handleCheckIn = (booking: Booking) => {
           modal nữa. Khối BookingDetailModal cũ đã bị gỡ vì viewModalVisible chỉ
           từng được gán false nên modal không bao giờ mở được. Bản thân file
           BookingDetailModal vẫn giữ vì trang lịch sử đặt phòng còn dùng. */}
+
+      <AdminCreateBookingModal
+        open={createModalOpen}
+        onClose={() => setCreateModalOpen(false)}
+        onSuccess={fetchBookings}
+      />
 
       <CheckoutPaymentModal
         bookingId={checkoutBookingId}
