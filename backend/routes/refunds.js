@@ -16,6 +16,7 @@ const logRefundHistory = async (connection, bookingId, action, description, amou
       {
         action,
         description,
+        entityType: 'payment',
         amount,
         actorId: user?.userId || null,
         actorName: actorName || user?.email || null,

@@ -505,7 +505,7 @@ const processPayment = async (paymentId, payload, actor = null) => {
         await logBookingHistory(
           booking.id,
           'status_change',
-          'Khách đã thanh toán nên đơn được mở lại từ trạng thái No-show về Đã xác nhận.',
+          'Khách đã thanh toán nên đơn được mở lại từ trạng thái khách không đến về đã xác nhận.',
           {
             oldValue: { status: 'no_show' },
             newValue: { status: 'confirmed' }
@@ -1071,7 +1071,7 @@ const applyVoucher = async (paymentId, code, actor) => {
     await logBookingHistory(
       booking.id,
       'voucher_applied',
-      `Áp dụng voucher ${voucher.code}: giảm ${money(discountAmount)}, tổng còn ${money(totalAmount)}`,
+      `Áp dụng mã ưu đãi ${voucher.code}: giảm ${money(discountAmount)}, tổng còn ${money(totalAmount)}`,
       {
         newValue: { voucherCode: voucher.code, discountAmount, totalAmount },
         amount: discountAmount

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Alert, Button, Card, Col, Descriptions, Divider, Dropdown, Empty, Form, Input, InputNumber,
-  message, Modal, Popconfirm, Row, Select, Space, Spin, Table, Tabs, Tag, Timeline, Tooltip,
+  Alert, Button, Card, Col, Descriptions, Divider, Empty, Form, Input, InputNumber,
+  message, Modal, Popconfirm, Row, Select, Space, Spin, Table, Tabs, Tag, Timeline, Tooltip, Typography,
 } from 'antd';
 import {
   CheckCircleOutlined,
@@ -9,7 +9,6 @@ import {
   CloseCircleOutlined,
   DeleteOutlined,
   DollarOutlined,
-  DownOutlined,
   EditOutlined,
   HomeOutlined,
   IdcardOutlined,
@@ -30,17 +29,26 @@ import {
   updateBookingServiceCharge,
   deleteBookingServiceCharge,
   updateBookingDamageCharge,
-  updateBookingDamageChargeStatus,
   deleteBookingDamageCharge,
   recordCustomerContact,
 } from '../../services/bookingService';
 import type { CustomerContactAction } from '../../services/bookingService';
 import { getServices } from '../../services/serviceService';
 import type { Service } from '../../types/service';
+import {
+  getBookingHistoryActionLabel,
+  getBookingHistoryActorName,
+  getBookingHistoryEntityLabel,
+  getBookingHistoryRoleLabel,
+  localizeBookingHistoryDescription,
+} from '../../utils/bookingHistoryDisplay';
 
 export interface BookingHistoryEntry {
   id: number;
   action: string;
+  entityType?: string | null;
+  entityId?: number | null;
+  entityLabel?: string | null;
   description: string | null;
   amount: string | number | null;
   performedBy: number | null;
@@ -306,128 +314,6 @@ const actionMeta: Record<string, { label: string; color: string; icon: React.Rea
   room_cleaned: { label: 'Xác nhận phòng đã dọn', color: 'green', icon: <HomeOutlined /> },
 };
 
-const roleText: Record<string, string> = {
-  admin: 'Quản trị viên',
-  employee: 'Nhân viên',
-  staff: 'Nhân viên',
-  customer: 'Khách hàng',
-  system: 'Hệ thống',
-};
-
-const historyFieldText: Record<string, string> = {
-  status: 'Trạng thái',
-  bookingStatus: 'Trạng thái đặt phòng',
-  roomId: 'Mã phòng',
-  roomNumber: 'Số phòng',
-  roomTypeId: 'Mã hạng phòng',
-  checkIn: 'Ngày nhận phòng',
-  checkOut: 'Ngày trả phòng',
-  checkInDate: 'Ngày nhận phòng',
-  checkOutDate: 'Ngày trả phòng',
-  fromDate: 'Từ ngày',
-  toDate: 'Đến ngày',
-  totalPrice: 'Tổng tiền',
-  totalAmount: 'Tổng tiền bill',
-  newTotalAmount: 'Tổng bill mới',
-  oldTotalAmount: 'Tổng bill cũ',
-  priceDifference: 'Chênh lệch giá',
-  newRemainingAmount: 'Còn lại thu/trả',
-  depositAmount: 'Tiền cọc',
-  paidAmount: 'Đã thanh toán',
-  remainingAmount: 'Còn phải thanh toán',
-  amount: 'Số tiền',
-  paymentStatus: 'Trạng thái thanh toán',
-  paymentMethod: 'Phương thức thanh toán',
-  transactionCode: 'Mã giao dịch',
-  quantity: 'Số lượng',
-  serviceId: 'Mã dịch vụ',
-  voucherCode: 'Mã ưu đãi',
-  reason: 'Lý do',
-  notes: 'Ghi chú',
-  rooms: 'Danh sách phòng',
-  newStagePrices: 'Chi tiết giá từng đêm mới',
-  stagePrices: 'Chi tiết giá từng đêm',
-  nightlyPrices: 'Chi tiết giá từng đêm',
-  adults: 'Người lớn',
-  children: 'Trẻ em',
-  childrenAges: 'Độ tuổi trẻ em',
-  roomPrice: 'Đơn giá phòng',
-  roomStayAmount: 'Tiền ở phòng',
-  childSurchargeAmount: 'Phụ thu trẻ em',
-  itemTotal: 'Thành tiền phòng',
-  surcharge: 'Phụ thu',
-};
-
-const historyValueText: Record<string, string> = {
-  pending: 'Chờ xác nhận', confirmed: 'Đã xác nhận', checked_in: 'Đang lưu trú', checked_out: 'Đã trả phòng',
-  cancelled: 'Đã hủy', no_show: 'Khách không đến', unpaid: 'Chưa thanh toán', deposit_paid: 'Đã đặt cọc',
-  paid: 'Đã thanh toán đủ', refunded: 'Đã hoàn tiền', cash: 'Tiền mặt', bank_transfer: 'Chuyển khoản ngân hàng',
-  available: 'Phòng trống', occupied: 'Đang có khách', maintenance: 'Đang dọn hoặc bảo trì', true: 'Có', false: 'Không',
-};
-
-const formatHistoryVal = (key: string, value: unknown): React.ReactNode => {
-  if (value == null || value === '') return 'Không có';
-
-  if ((key === 'rooms' || key === 'roomList') && Array.isArray(value)) {
-    return (
-      <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 4 }}>
-        {value.map((r: any, i: number) => (
-          <div key={i} style={{ background: '#fff', padding: '6px 10px', borderRadius: 6, border: '1px solid #e0e0e0', fontSize: 13 }}>
-            <strong>• {r.typeName || 'Phòng'} {r.roomNumber ? `(Phòng ${r.roomNumber})` : ''}</strong>: {r.adults ?? 0} người lớn, {r.children ?? 0} trẻ em
-            {r.itemTotal || r.roomStayAmount ? <span style={{ color: '#0f172a', fontWeight: 600, marginLeft: 6 }}>— {money(Number(r.itemTotal || r.roomStayAmount))}</span> : null}
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  if ((key === 'newStagePrices' || key === 'nightlyPrices' || key === 'stagePrices') && Array.isArray(value)) {
-    return (
-      <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 4 }}>
-        {value.map((np: any, i: number) => (
-          <div key={i} style={{ background: '#fff', padding: '4px 8px', borderRadius: 6, border: '1px solid #e0e0e0', fontSize: 12 }}>
-            <strong>{dayjs(np.date || np.stayDate).format('DD/MM/YYYY')}</strong> ({np.dayName || ''}): <span style={{ fontWeight: 600, color: '#d97706' }}>{money(Number(np.price || 0))}</span> {np.note ? <span style={{ color: '#666' }}>({np.note})</span> : ''}
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  if (Array.isArray(value)) {
-    if (value.length === 0) return 'Không có';
-    if (typeof value[0] !== 'object') return value.join(', ');
-    return JSON.stringify(value);
-  }
-
-  if (typeof value === 'object') {
-    return JSON.stringify(value);
-  }
-
-  const raw = String(value);
-  if (historyValueText[raw.toLowerCase()]) return historyValueText[raw.toLowerCase()];
-  if (/amount|price|fee|total|difference/i.test(key) && Number.isFinite(Number(value))) return money(Number(value));
-  if (/date|checkin|checkout|createdat|updatedat/i.test(key) && dayjs(raw).isValid()) return dateTime(raw);
-  return raw;
-};
-
-const renderHistoryValue = (title: string, value: unknown, background: string) => {
-  if (value == null) return null;
-  const entries = typeof value === 'object' && !Array.isArray(value)
-    ? Object.entries(value as Record<string, unknown>) : [['', value] as [string, unknown]];
-  return <div style={{ flex: 1, minWidth: 220, background, padding: '10px 12px', borderRadius: 8, border: '1px solid #e8e8e8' }}>
-    <strong style={{ fontSize: 13, color: '#444' }}>{title}</strong>
-    {entries.map(([key, val]) => (
-      <div key={key || title} style={{ fontSize: 14, lineHeight: 1.7, color: '#262626' }}>
-        {key && <span style={{ fontWeight: 600, color: '#555' }}>{historyFieldText[key] || key}: </span>}{formatHistoryVal(key, val)}
-      </div>
-    ))}
-  </div>;
-};
-
-const vietnameseDescription = (value?: string | null) => (value || 'Không có mô tả')
-  .replace(/\bBooking\b/gi, 'Đơn đặt phòng').replace(/\bNo-show\b/gi, 'khách không đến')
-  .replace(/check-in/gi, 'nhận phòng').replace(/check-out|checkout/gi, 'trả phòng');
-
 const emptyBox = (text: string) => ({
   emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={text} />,
 });
@@ -567,14 +453,14 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
     other: 'blue',
   };
   const chargeStatusLabel: Record<string, string> = {
-    used: 'Đã xác nhận',
-    unused: 'Chưa xác nhận',
+    used: 'Đang sử dụng',
+    unused: 'Đang sử dụng',
     cancelled: 'Đã hủy',
   };
   const chargeStatusColor: Record<string, string> = {
     used: 'green',
-    unused: 'orange',
-    cancelled: 'default',
+    unused: 'green',
+    cancelled: 'red',
   };
 
   // Group services theo roomNumber.
@@ -673,7 +559,7 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
         itemName: values.itemName,
         quantity: values.quantity,
         unitPrice: values.unitPrice,
-        status: values.status || 'used',
+        status: 'used',
         note: values.note || null,
       });
       message.success('Đã thêm khoản phát sinh');
@@ -720,18 +606,6 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
       if (errMsg) message.error(errMsg);
     } finally {
       setSavingDamage(false);
-    }
-  };
-
-  const handleDamageStatusChange = async (row: DamageRow, newStatus: string) => {
-    if (!bookingId) return;
-    try {
-      await updateBookingDamageChargeStatus(bookingId, row.id, newStatus);
-      message.success(`Đã chuyển trạng thái → ${chargeStatusLabel[newStatus] || newStatus}`);
-      fetchDetail();
-    } catch (err: unknown) {
-      const errMsg = (err as { response?: { data?: { message?: string } } }).response?.data?.message;
-      if (errMsg) message.error(errMsg);
     }
   };
 
@@ -1356,8 +1230,8 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
     {
       title: 'Trạng thái', dataIndex: 'status', width: 130,
       render: (v?: string | null) => {
-        const s = v || 'used';
-        return <Tag color={chargeStatusColor[s] || 'default'}>{chargeStatusLabel[s] || s}</Tag>;
+        const fixedStatus = v === 'cancelled' ? 'cancelled' : 'used';
+        return <Tag color={chargeStatusColor[fixedStatus]}>{chargeStatusLabel[fixedStatus]}</Tag>;
       },
     },
     { title: 'Ghi chú', dataIndex: 'note', render: (v?: string | null) => v || '—' },
@@ -1366,35 +1240,13 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
       title: 'Thao tác', width: 180, align: 'center' as const,
       render: (_: unknown, row: DamageRow) => {
         const s = (row.status || 'used').toLowerCase();
-        if (s === 'cancelled') return <Tag>Đã hủy</Tag>;
-
-        const statusItems: { key: string; label: string }[] = [];
-        if (s === 'unused') {
-          statusItems.push({ key: 'used', label: 'Xác nhận' });
-          statusItems.push({ key: 'cancelled', label: 'Hủy' });
-        }
-        if (s === 'used') {
-          statusItems.push({ key: 'unused', label: 'Chuyển về chưa xác nhận' });
-          statusItems.push({ key: 'cancelled', label: 'Hủy' });
-        }
+        if (s === 'cancelled') return null;
 
         return (
           <Space size={4}>
             <Tooltip title="Sửa">
               <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEditDamage(row)} />
             </Tooltip>
-            {statusItems.length > 0 && (
-              <Dropdown
-                menu={{
-                  items: statusItems,
-                  onClick: ({ key }) => handleDamageStatusChange(row, key),
-                }}
-              >
-                <Button type="link" size="small">
-                  Trạng thái <DownOutlined />
-                </Button>
-              </Dropdown>
-            )}
             <Popconfirm
               title="Hủy khoản này?"
               description="Khoản phát sinh sẽ chuyển sang trạng thái Đã hủy và không tính tiền."
@@ -1495,12 +1347,6 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
         </Form.Item>
         <Form.Item name="note" label="Ghi chú">
           <Input placeholder="Tùy chọn" style={{ width: 140 }} />
-        </Form.Item>
-        <Form.Item name="status" label="Trạng thái" initialValue="used">
-          <Select style={{ width: 130 }} options={[
-            { value: 'used', label: 'Đã xác nhận' },
-            { value: 'unused', label: 'Chưa xác nhận' },
-          ]} />
         </Form.Item>
         <Form.Item>
           <Button type="primary" loading={addingDamage} onClick={handleAddDamage}>
@@ -1731,49 +1577,57 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
       <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Chưa ghi nhận thao tác nào cho đặt phòng này" />
     ) : (
       <Timeline
-        mode="left"
         items={history.map((entry) => {
-          const meta = actionMeta[entry.action] || { label: entry.action, color: 'gray', icon: <ClockCircleOutlined /> };
+          const meta = actionMeta[entry.action] || { label: 'Thao tác hệ thống', color: 'gray', icon: <ClockCircleOutlined /> };
+          const actionLabel = getBookingHistoryActionLabel(entry.action);
+          const description = localizeBookingHistoryDescription(entry.description, entry.action);
+          const normalizeText = (value: string) => value.replace(/[.\s]/g, '').toLocaleLowerCase('vi');
+          const showDescription = description !== 'Không có mô tả'
+            && normalizeText(description) !== normalizeText(actionLabel);
           return {
             color: meta.color,
             dot: meta.icon,
             children: (
-              <div>
-                <div style={{ marginBottom: 6 }}>
-                  <Tag color={meta.color} style={{ fontSize: 14, fontWeight: 600, padding: '3px 9px' }}>{meta.label}</Tag>
-                  <Tooltip title="Thời điểm thực hiện">
-                    <span style={{ color: '#595959', fontSize: 13, fontWeight: 500 }}>{dateTime(entry.createdAt)}</span>
-                  </Tooltip>
-                  {entry.amount != null && Number(entry.amount) !== 0 && (
-                    <strong style={{ marginLeft: 8 }}>{money(entry.amount)}</strong>
-                  )}
-                </div>
-                <div style={{ fontSize: 15, lineHeight: 1.65, color: '#262626' }}>{vietnameseDescription(entry.description)}</div>
-                {(entry.oldValue != null || entry.newValue != null) && (
-                  <div style={{ display: 'flex', gap: 8, marginTop: 7, flexWrap: 'wrap' }}>
-                    {renderHistoryValue('Trước thay đổi', entry.oldValue, '#fff1f0')}
-                    {renderHistoryValue('Sau thay đổi', entry.newValue, '#f6ffed')}
-                  </div>
-                )}
-                <div style={{ marginTop: 10, padding: '11px 13px', borderRadius: 9, background: '#f7f5f2', border: '1px solid #ddd4c9' }}>
-                  <Space size={8} align="start">
-                    <UserOutlined style={{ color: '#8c6d4a', marginTop: 3 }} />
-                    <div>
-                      <div style={{ fontSize: 13, color: '#666', fontWeight: 600, marginBottom: 3 }}>Người thực hiện</div>
-                      <Space size={6} wrap>
-                        <strong style={{ fontSize: 15, color: '#262626' }}>{entry.performedByName || 'Hệ thống tự động'}</strong>
-                        <Tag color={entry.performedByRole === 'admin' ? 'red' : entry.performedByRole === 'customer' ? 'blue' : 'gold'}>
-                          {roleText[entry.performedByRole || 'system'] || entry.performedByRole || 'Hệ thống'}
-                        </Tag>
-                      </Space>
-                      {(entry.performedByEmail || entry.performedBy) && (
-                        <div style={{ fontSize: 13, color: '#666', marginTop: 4 }}>
-                          {entry.performedByEmail || 'Không có email'}
-                          {entry.performedBy ? ` · ID tài khoản: ${entry.performedBy}` : ''}
-                        </div>
-                      )}
-                    </div>
+              <div style={{ padding: '1px 0 14px', borderBottom: '1px solid #f0f0f0' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                  <Space wrap size={7}>
+                    <strong style={{ fontSize: 15, color: '#1f2937' }}>{actionLabel}</strong>
+                    <Tag color={meta.color === 'gray' ? 'default' : meta.color} style={{ marginInlineEnd: 0 }}>
+                      {entry.entityLabel || getBookingHistoryEntityLabel(entry.entityType)}
+                    </Tag>
                   </Space>
+                  <Tooltip title="Thời điểm thực hiện">
+                    <span style={{ color: '#8c8c8c', fontSize: 13, whiteSpace: 'nowrap' }}>{dateTime(entry.createdAt)}</span>
+                  </Tooltip>
+                </div>
+
+                {showDescription && (
+                  <Typography.Paragraph
+                    ellipsis={{ rows: 2, expandable: true, symbol: 'Xem thêm' }}
+                    style={{ margin: '6px 0 8px', color: '#595959', lineHeight: 1.55 }}
+                  >
+                    {description}
+                  </Typography.Paragraph>
+                )}
+
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginTop: showDescription ? 0 : 8 }}>
+                  <Space size={6} wrap>
+                    <UserOutlined style={{ color: '#8c6d4a' }} />
+                    <strong style={{ color: '#434343', fontSize: 14 }}>
+                      {getBookingHistoryActorName(entry.performedByName, entry.performedByRole)}
+                    </strong>
+                    <Tag
+                      color={entry.performedByRole === 'admin' ? 'red' : entry.performedByRole === 'customer' ? 'blue' : 'gold'}
+                      style={{ marginInlineEnd: 0 }}
+                    >
+                      {getBookingHistoryRoleLabel(entry.performedByRole)}
+                    </Tag>
+                  </Space>
+                  {entry.amount != null && Number(entry.amount) !== 0 && (
+                    <Tag color="green" style={{ marginInlineEnd: 0, fontWeight: 600 }}>
+                      {money(entry.amount)}
+                    </Tag>
+                  )}
                 </div>
               </div>
             ),
@@ -1840,7 +1694,9 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
             { key: 'guests', label: `Khách lưu trú (${guests.length})`, children: guestsTab },
             { key: 'transfers', label: `Chuyển phòng (${transfers.length})`, children: transfersTab },
             { key: 'payments', label: 'Thanh toán & hoàn tiền', children: paymentsTab },
-            { key: 'history', label: `Lịch sử thao tác (${history.length})`, children: historyTab },
+            ...(history.length > 0
+              ? [{ key: 'history', label: `Lịch sử thao tác (${history.length})`, children: historyTab }]
+              : []),
           ]}
         />
       )}

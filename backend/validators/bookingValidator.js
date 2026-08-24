@@ -296,6 +296,7 @@ const ALLOWED_CHARGE_TYPES = ['damage', 'extra_fee', 'other'];
 
 const normalizeServiceChargePayload = (body) => {
   const roomId = body.roomId ?? body.room_id;
+  const bookingDetailId = body.bookingDetailId ?? body.booking_detail_id;
   const status = body.status ? String(body.status).trim().toLowerCase() : 'used';
   if (body.status && !ALLOWED_SERVICE_STATUSES.includes(status)) {
     throw new HttpError(400, `Trạng thái không hợp lệ (${ALLOWED_SERVICE_STATUSES.join(', ')})`);
@@ -303,6 +304,9 @@ const normalizeServiceChargePayload = (body) => {
 
   return {
     roomId: roomId != null ? toPositiveInt(roomId, 'roomId') : null,
+    bookingDetailId: bookingDetailId != null
+      ? toPositiveInt(bookingDetailId, 'bookingDetailId')
+      : null,
     serviceId: toPositiveInt(body.serviceId ?? body.service_id, 'serviceId'),
     quantity: toPositiveInt(body.quantity ?? 1, 'quantity'),
     status
@@ -357,20 +361,20 @@ const normalizeDamageChargePayload = (body) => {
     throw new HttpError(400, `Loại khoản phí không hợp lệ (${ALLOWED_CHARGE_TYPES.join(', ')})`);
   }
 
-  const status = body.status ? String(body.status).trim().toLowerCase() : 'used';
-  if (body.status && !ALLOWED_SERVICE_STATUSES.includes(status)) {
-    throw new HttpError(400, `Trạng thái không hợp lệ (${ALLOWED_SERVICE_STATUSES.join(', ')})`);
-  }
-
   const roomId = body.roomId ?? body.room_id;
+  const bookingDetailId = body.bookingDetailId ?? body.booking_detail_id;
 
   return {
     roomId: roomId != null ? toPositiveInt(roomId, 'roomId') : null,
+    bookingDetailId: bookingDetailId != null
+      ? toPositiveInt(bookingDetailId, 'bookingDetailId')
+      : null,
     chargeType,
     itemName,
     quantity: toPositiveInt(body.quantity ?? 1, 'quantity'),
     unitPrice,
-    status,
+    // Khoản phí mới luôn đang sử dụng. Chỉ thao tác hủy mới được đổi trạng thái.
+    status: 'used',
     note: body.note ? String(body.note).trim() : null
   };
 };
@@ -404,13 +408,6 @@ const normalizeUpdateDamageChargePayload = (body) => {
       throw new HttpError(400, 'Đơn giá phải là số không âm');
     }
     payload.unitPrice = unitPrice;
-  }
-  if (body.status !== undefined && body.status !== null) {
-    const status = String(body.status).trim().toLowerCase();
-    if (!ALLOWED_SERVICE_STATUSES.includes(status)) {
-      throw new HttpError(400, `Trạng thái không hợp lệ (${ALLOWED_SERVICE_STATUSES.join(', ')})`);
-    }
-    payload.status = status;
   }
   if (body.note !== undefined) {
     payload.note = body.note ? String(body.note).trim() : null;

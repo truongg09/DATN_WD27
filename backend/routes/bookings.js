@@ -34,7 +34,7 @@ router.get('/me', requireAuth, bookingController.listMyBookings);
 // theo userId trong token); nhân viên mới xem được toàn bộ danh sách.
 router.get('/', requireAuth, bookingController.listBookings);
 router.get('/:id', requireAuth, bookingController.getBookingById);
-router.get('/:id/history', requireAuth, bookingController.getBookingHistory);
+router.get('/:id/history', requireAuth, requireStaff, bookingController.getBookingHistory);
 // Lịch sử thao tác của một phòng, gộp từ mọi đơn từng dùng phòng đó
 router.get('/room-history/:roomId', requireAuth, requireStaff, bookingController.getRoomHistory);
 router.get('/:id/payment-summary', requireAuth, bookingController.getPaymentSummary);
@@ -52,7 +52,6 @@ router.delete('/:id/services/:serviceChargeId', requireAuth, bookingController.d
 
 router.get('/:id/damages', requireAuth, bookingController.getDamageCharges);
 router.post('/:id/damages', requireAuth, requireStaff, bookingController.addDamageCharge);
-router.patch('/:id/damages/:chargeId/status', requireAuth, requireStaff, bookingController.updateDamageChargeStatus);
 router.patch('/:id/damages/:chargeId', requireAuth, requireStaff, bookingController.updateDamageCharge);
 router.delete('/:id/damages/:chargeId', requireAuth, requireStaff, bookingController.deleteDamageCharge);
 router.patch('/:id/extend', requireAuth, bookingController.extendStay);

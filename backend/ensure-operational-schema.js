@@ -427,7 +427,7 @@ const ensureOperationalSchema = async () => {
   await db.query(`
     UPDATE booking_damage_charges
     SET status = 'used'
-    WHERE status IS NULL OR status = ''
+    WHERE status IS NULL OR status = '' OR status = 'unused'
   `);
 
   // Service requests made by the customer at booking time.
@@ -584,27 +584,6 @@ const ensureOperationalSchema = async () => {
       updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )
   `);
-
-  // Liên kết mỗi mốc lịch sử với đối tượng bị tác động (phòng, dịch vụ, phí
-  // phát sinh, thanh toán...). Nhờ vậy trang chi tiết lọc được lịch sử theo
-  // từng mảng thay vì chỉ xem một dòng thời gian chung.
-  const [historyTables] = await db.query('SHOW TABLES LIKE "booking_history"');
-  if (historyTables.length > 0) {
-    const [historyColumns] = await db.query('DESCRIBE booking_history');
-    const hasHistoryColumn = (name) => historyColumns.some((column) => column.Field === name);
-
-    if (!hasHistoryColumn('entityType')) {
-      await db.query(
-        "ALTER TABLE booking_history ADD COLUMN entityType VARCHAR(30) NOT NULL DEFAULT 'booking' AFTER action"
-      );
-    }
-    if (!hasHistoryColumn('entityId')) {
-      await db.query('ALTER TABLE booking_history ADD COLUMN entityId INT NULL AFTER entityType');
-    }
-    if (!hasHistoryColumn('entityLabel')) {
-      await db.query('ALTER TABLE booking_history ADD COLUMN entityLabel VARCHAR(255) NULL AFTER entityId');
-    }
-  }
 
   // Giới hạn voucher theo hạng phòng. Không có dòng nào cho một voucher nghĩa
   // là voucher đó dùng được cho mọi hạng phòng, nên các voucher cũ giữ nguyên
@@ -784,6 +763,9 @@ const ensureOperationalSchema = async () => {
       id INT AUTO_INCREMENT PRIMARY KEY,
       bookingId INT NOT NULL,
       action VARCHAR(50) NOT NULL,
+      entityType VARCHAR(30) NOT NULL DEFAULT 'booking',
+      entityId INT NULL,
+      entityLabel VARCHAR(255) NULL,
       description TEXT NULL,
       oldValue TEXT NULL,
       newValue TEXT NULL,
@@ -795,6 +777,64 @@ const ensureOperationalSchema = async () => {
       INDEX idx_booking_history_booking (bookingId),
       FOREIGN KEY (bookingId) REFERENCES bookings(id) ON DELETE CASCADE
     )
+  `);
+
+  // Liên kết mỗi mốc lịch sử với đối tượng bị tác động. Khối này
+  // phải chạy sau CREATE TABLE để cả database cũ lẫn database tạo mới đều có
+  // đủ cột ngay trong lần khởi động đầu tiên.
+  const [historyColumns] = await db.query('DESCRIBE booking_history');
+  const hasHistoryColumn = (name) => historyColumns.some((column) => column.Field === name);
+  if (!hasHistoryColumn('entityType')) {
+    await db.query(
+      "ALTER TABLE booking_history ADD COLUMN entityType VARCHAR(30) NOT NULL DEFAULT 'booking' AFTER action"
+    );
+  }
+  if (!hasHistoryColumn('entityId')) {
+    await db.query('ALTER TABLE booking_history ADD COLUMN entityId INT NULL AFTER entityType');
+  }
+  if (!hasHistoryColumn('entityLabel')) {
+    await db.query('ALTER TABLE booking_history ADD COLUMN entityLabel VARCHAR(255) NULL AFTER entityId');
+  }
+
+  // Các dòng legacy được thêm trước khi có entityType đều mang giá trị
+  // mặc định "booking". Phân loại lại theo action, nhưng không ghi đè những
+  // dòng đã được gán nhóm cụ thể bởi code mới.
+  await db.query(`
+    UPDATE booking_history
+    SET entityType = 'booking'
+    WHERE entityType IS NULL OR TRIM(entityType) = ''
+  `);
+  await db.query(`
+    UPDATE booking_history
+    SET entityType = CASE
+      WHEN action IN (
+        'payment', 'payment_requested', 'transfer_confirmation', 'voucher_applied',
+        'refund', 'refund_approved', 'refund_rejected'
+      ) THEN 'payment'
+      WHEN action IN (
+        'service_added', 'service_updated', 'service_status_updated', 'service_removed'
+      ) THEN 'service'
+      WHEN action IN (
+        'damage_added', 'damage_updated', 'damage_status_updated', 'damage_removed'
+      ) THEN 'damage'
+      WHEN action IN (
+        'checked_in', 'checked_out', 'extended', 'shortened', 'stay_updated',
+        'extended_and_transferred', 'late_checkout_fee', 'late_checkout_fee_waived',
+        'late_checkout_over_limit'
+      ) THEN 'stay'
+      WHEN action IN ('room_reassigned', 'room_transferred') THEN 'room'
+      ELSE entityType
+    END
+    WHERE entityType = 'booking'
+      AND action IN (
+        'payment', 'payment_requested', 'transfer_confirmation', 'voucher_applied',
+        'refund', 'refund_approved', 'refund_rejected',
+        'service_added', 'service_updated', 'service_status_updated', 'service_removed',
+        'damage_added', 'damage_updated', 'damage_status_updated', 'damage_removed',
+        'checked_in', 'checked_out', 'extended', 'shortened', 'stay_updated',
+        'extended_and_transferred', 'late_checkout_fee', 'late_checkout_fee_waived',
+        'late_checkout_over_limit', 'room_reassigned', 'room_transferred'
+      )
   `);
 
   // Dịch vụ phát sinh cần biết phòng nào dùng, đơn giá lúc gọi, trạng thái sử dụng, thời gian dùng.
@@ -1131,7 +1171,7 @@ const ensureOperationalSchema = async () => {
          VALUES (?, 'status_change', ?, ?, ?, 'system', 'system')`,
         [
           row.id,
-          'Đơn đã thanh toán đủ và chưa tới ngày trả phòng nhưng bị đánh No-show do lỗi quét đơn quá hạn. Hệ thống trả lại trạng thái Đã xác nhận.',
+          'Đơn đã thanh toán đủ và chưa tới ngày trả phòng nhưng bị đánh là khách không đến do lỗi quét đơn quá hạn. Hệ thống trả lại trạng thái đã xác nhận.',
           JSON.stringify({ status: 'no_show' }),
           JSON.stringify({ status: 'confirmed' })
         ]
@@ -1234,6 +1274,134 @@ const ensureOperationalSchema = async () => {
     }
   } catch (err) {
     console.warn('Lỗi nâng cấp giá đền bù cho amenities:', err.message);
+  }
+
+  // Giá bồi thường của từng vật dụng thực tế trong phòng.
+  try {
+    const [roomItemTables] = await db.query("SHOW TABLES LIKE 'room_items'");
+    if (roomItemTables.length > 0) {
+      const [roomItemColumns] = await db.query('DESCRIBE room_items');
+      if (!roomItemColumns.some((column) => column.Field === 'compensationPrice')) {
+        await db.query(
+          'ALTER TABLE room_items ADD COLUMN compensationPrice DECIMAL(15,2) NOT NULL DEFAULT 0 AFTER quantity'
+        );
+      }
+
+      const defaultItemPrices = [
+        ['TV', 3000000],
+        ['Tivi', 3000000],
+        ['Remote', 200000],
+        ['Điều khiển từ xa', 200000],
+        ['Hair Dryer', 300000],
+        ['Máy sấy tóc', 300000],
+        ['Mini Bar', 2500000],
+        ['Tủ lạnh minibar', 2500000],
+        ['Kettle', 250000],
+        ['Ấm siêu tốc', 250000],
+        ['Wardrobe', 2000000],
+        ['Tủ quần áo', 2000000],
+        ['Air Conditioner', 1500000],
+        ['Điều hòa', 1500000],
+        ['Mirror', 500000],
+        ['Gương', 500000],
+        ['Desk Lamp', 250000],
+        ['Đèn bàn', 250000],
+        ['Chăn', 500000],
+        ['Ga giường', 300000],
+        ['Gối', 200000],
+        ['Đệm', 5000000]
+      ];
+      for (const [itemName, price] of defaultItemPrices) {
+        await db.query(
+          `UPDATE room_items SET compensationPrice = ?
+           WHERE LOWER(TRIM(itemName)) = LOWER(?)
+             AND (compensationPrice IS NULL OR compensationPrice = 0)`,
+          [price, itemName]
+        );
+      }
+
+      const vietnameseItemNames = [
+        ['TV', 'Tivi'],
+        ['Remote', 'Điều khiển từ xa'],
+        ['Hair Dryer', 'Máy sấy tóc'],
+        ['Mini Bar', 'Tủ lạnh minibar'],
+        ['Kettle', 'Ấm siêu tốc'],
+        ['Wardrobe', 'Tủ quần áo'],
+        ['Air Conditioner', 'Điều hòa'],
+        ['Mirror', 'Gương'],
+        ['Desk Lamp', 'Đèn bàn']
+      ];
+      for (const [englishName, vietnameseName] of vietnameseItemNames) {
+        await db.query(
+          'UPDATE room_items SET itemName = ? WHERE LOWER(TRIM(itemName)) = LOWER(?)',
+          [vietnameseName, englishName]
+        );
+      }
+
+      // Every active room receives the complete standard equipment list.
+      const standardRoomItems = [
+        ['Tivi', 3000000],
+        ['Điều khiển từ xa', 200000],
+        ['Máy sấy tóc', 300000],
+        ['Tủ lạnh minibar', 2500000],
+        ['Ấm siêu tốc', 250000],
+        ['Tủ quần áo', 2000000],
+        ['Điều hòa', 1500000],
+        ['Gương', 500000],
+        ['Đèn bàn', 250000],
+        ['Chăn', 500000],
+        ['Ga giường', 300000],
+        ['Gối', 200000],
+        ['Đệm', 5000000]
+      ];
+      for (const [itemName, compensationPrice] of standardRoomItems) {
+        await db.query(
+          `INSERT INTO room_items (roomId, itemName, quantity, compensationPrice, status)
+           SELECT r.id, ?, 1, ?, 'normal'
+           FROM rooms r
+           WHERE COALESCE(r.isDeleted, 0) = 0
+             AND NOT EXISTS (
+               SELECT 1 FROM room_items ri
+               WHERE ri.roomId = r.id
+                 AND LOWER(TRIM(ri.itemName)) = LOWER(?)
+             )`,
+          [itemName, compensationPrice, itemName]
+        );
+      }
+
+      // Tách danh mục chăn ga gối đệm cũ thành từng vật dụng.
+      // Bản ghi đã có báo hỏng được giữ lại để không làm mất lịch sử.
+      const legacyBeddingName = 'Chăn ga gối đệm';
+      const [damageReportTables] = await db.query("SHOW TABLES LIKE 'damage_reports'");
+      if (damageReportTables.length > 0) {
+        await db.query(
+          `UPDATE room_items ri
+           SET ri.itemName = 'Chăn ga gối đệm (dữ liệu cũ)',
+               ri.quantity = 0,
+               ri.status = 'maintenance'
+           WHERE LOWER(TRIM(ri.itemName)) = LOWER(?)
+             AND EXISTS (
+               SELECT 1 FROM damage_reports dr WHERE dr.roomItemId = ri.id
+             )`,
+          [legacyBeddingName]
+        );
+        await db.query(
+          `DELETE ri FROM room_items ri
+           WHERE LOWER(TRIM(ri.itemName)) = LOWER(?)
+             AND NOT EXISTS (
+               SELECT 1 FROM damage_reports dr WHERE dr.roomItemId = ri.id
+             )`,
+          [legacyBeddingName]
+        );
+      } else {
+        await db.query(
+          'DELETE FROM room_items WHERE LOWER(TRIM(itemName)) = LOWER(?)',
+          [legacyBeddingName]
+        );
+      }
+    }
+  } catch (err) {
+    console.warn('Lỗi nâng cấp giá bồi thường cho room_items:', err.message);
   }
 
   // ── Bảng thông báo khách hàng (Notifications) ──

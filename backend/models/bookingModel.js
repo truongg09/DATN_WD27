@@ -716,11 +716,12 @@ const addDamageCharge = async (bookingId, roomId, payload, connection) => {
   const [result] = await run(connection).query(
     `
       INSERT INTO booking_damage_charges
-        (bookingId, roomId, chargeType, itemName, quantity, unitPrice, totalPrice, status, note)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (bookingId, bookingDetailId, roomId, chargeType, itemName, quantity, unitPrice, totalPrice, status, note)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       bookingId,
+      payload.bookingDetailId || null,
       roomId,
       chargeType,
       payload.itemName,

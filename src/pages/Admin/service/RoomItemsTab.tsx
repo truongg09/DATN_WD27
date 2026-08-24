@@ -33,6 +33,7 @@ interface RoomItem {
   roomId: number;
   itemName: string;
   quantity: number;
+  compensationPrice: string | number;
   status: string;
   roomNumber: string | null;
 }
@@ -47,6 +48,7 @@ interface RoomItemFormValues {
   roomId: number;
   itemName: string;
   quantity: number;
+  compensationPrice: number;
   status: string;
 }
 
@@ -92,7 +94,7 @@ function RoomItemsTab() {
   const handleAdd = () => {
     setEditingItem(null);
     form.resetFields();
-    form.setFieldsValue({ quantity: 1, status: 'normal' });
+    form.setFieldsValue({ quantity: 1, compensationPrice: 0, status: 'normal' });
     setModalVisible(true);
   };
 
@@ -102,6 +104,7 @@ function RoomItemsTab() {
       roomId: item.roomId,
       itemName: item.itemName,
       quantity: item.quantity,
+      compensationPrice: Number(item.compensationPrice || 0),
       status: item.status || 'normal',
     });
     setModalVisible(true);
@@ -175,6 +178,15 @@ function RoomItemsTab() {
       key: 'quantity',
       width: 100,
       sorter: (a: RoomItem, b: RoomItem) => (a.quantity || 0) - (b.quantity || 0),
+    },
+    {
+      title: 'Đơn giá bồi thường',
+      dataIndex: 'compensationPrice',
+      key: 'compensationPrice',
+      width: 190,
+      align: 'right' as const,
+      sorter: (a: RoomItem, b: RoomItem) => Number(a.compensationPrice || 0) - Number(b.compensationPrice || 0),
+      render: (value: string | number) => `${Number(value || 0).toLocaleString('vi-VN')}đ`,
     },
     {
       title: 'Tình trạng',
@@ -287,6 +299,22 @@ function RoomItemsTab() {
             <InputNumber min={0} style={{ width: '100%' }} placeholder="Nhập số lượng" />
           </Form.Item>
 
+          <Form.Item
+            name="compensationPrice"
+            label="Đơn giá bồi thường"
+            rules={[{ required: true, message: 'Vui lòng nhập đơn giá!' }]}
+          >
+            <InputNumber
+              min={0}
+              step={10000}
+              style={{ width: '100%' }}
+              placeholder="Nhập đơn giá"
+              formatter={(value) => `${value || 0}`.replace(/\B(?=(\d{3})+(?!\d))/g, '.')}
+              parser={(value) => Number(String(value || '').replace(/\./g, '')) as 0}
+              addonAfter="VNĐ"
+            />
+          </Form.Item>
+
           <Form.Item name="status" label="Tình trạng" rules={[{ required: true, message: 'Vui lòng chọn tình trạng!' }]}>
             <Select options={ROOM_ITEM_STATUS_OPTIONS} placeholder="Chọn tình trạng" />
           </Form.Item>
@@ -317,6 +345,9 @@ function RoomItemsTab() {
             <Descriptions.Item label="Phòng">{selectedItem.roomNumber || '—'}</Descriptions.Item>
             <Descriptions.Item label="Tên vật dụng">{selectedItem.itemName}</Descriptions.Item>
             <Descriptions.Item label="Số lượng">{selectedItem.quantity}</Descriptions.Item>
+            <Descriptions.Item label="Đơn giá bồi thường">
+              {Number(selectedItem.compensationPrice || 0).toLocaleString('vi-VN')}đ
+            </Descriptions.Item>
             <Descriptions.Item label="Tình trạng">
               <Tag color={ROOM_ITEM_STATUS[selectedItem.status]?.color || 'default'}>
                 {ROOM_ITEM_STATUS[selectedItem.status]?.label || selectedItem.status}

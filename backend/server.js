@@ -80,30 +80,34 @@ app.get('/api/db-test', async (req, res) => {
   }
 });
 
-setInterval(() => {
-  bookingService.expireUnpaidBookingHolds().catch((error) => {
-    console.error('Expire booking holds error:', error);
-  });
-}, 30 * 1000);
-
-setInterval(() => {
-  bookingService.processOverdueCheckIns().catch((error) => {
-    console.error('Process overdue check-ins error:', error);
-  });
-}, 30 * 60 * 1000);
-
 const ensureOperationalSchema = require('./ensure-operational-schema');
 
-ensureOperationalSchema().then(() => {
+const startServer = async () => {
+  await ensureOperationalSchema();
   console.log('Database operational schema sync finished.');
+
+  app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
+  });
+
   bookingService.processOverdueCheckIns().catch((error) => {
     console.error('Initial overdue check-ins processing error:', error);
   });
-}).catch((error) => {
-  console.error('Operational schema sync error:', error);
-});
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+  setInterval(() => {
+    bookingService.expireUnpaidBookingHolds().catch((error) => {
+      console.error('Expire booking holds error:', error);
+    });
+  }, 30 * 1000);
+
+  setInterval(() => {
+    bookingService.processOverdueCheckIns().catch((error) => {
+      console.error('Process overdue check-ins error:', error);
+    });
+  }, 30 * 60 * 1000);
+};
+
+startServer().catch((error) => {
+  console.error('Operational schema sync error; server was not started:', error);
+  process.exitCode = 1;
 });
