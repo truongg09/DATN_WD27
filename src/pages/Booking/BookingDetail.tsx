@@ -673,6 +673,8 @@ const BookingDetail: React.FC = () => {
                   ? 'Chuyển khoản QR'
                   : payment.paymentMethod === 'cash'
                     ? 'Tiền mặt'
+                    : payment.paymentMethod === 'wallet'
+                      ? 'Ví số dư HotelHub'
                     : payment.paymentMethod?.toUpperCase() || 'Chưa chọn'}
               </Descriptions.Item>
               <Descriptions.Item label="Tiền phòng tiêu chuẩn">

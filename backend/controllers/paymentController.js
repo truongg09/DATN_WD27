@@ -4,6 +4,7 @@ const {
   normalizeCreatePaymentPayload,
   normalizeProcessPaymentPayload,
   normalizeConfirmPaymentPayload,
+  normalizeWalletPaymentPayload,
   normalizePaymentFilters,
   normalizeIdParam
 } = require('../validators/paymentValidator');
@@ -79,7 +80,7 @@ const refundPayment = async (req, res) => {
     const paymentId = normalizeIdParam(req.params.id);
     const payment = await paymentService.refundPayment(paymentId, req.user || null);
     res.json({
-      message: 'Hoàn tiền thành công',
+      message: 'Hoàn tiền thành công, số tiền đã được cộng vào ví khách hàng',
       data: payment
     });
   } catch (error) {
@@ -283,6 +284,39 @@ const previewVoucher = async (req, res) => {
   }
 };
 
+const payWithWallet = async (req, res) => {
+  try {
+    const paymentId = normalizeIdParam(req.params.id);
+    const payload = normalizeWalletPaymentPayload(req.body);
+    const result = await paymentService.payWithWallet(
+      paymentId,
+      payload,
+      req.user || null
+    );
+    res.json({
+      message: result.idempotent
+        ? 'Giao dịch ví đã được ghi nhận trước đó'
+        : 'Thanh toán bằng ví thành công',
+      data: result
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
+const listCustomerVouchers = async (req, res) => {
+  try {
+    const paymentId = normalizeIdParam(req.params.id);
+    const data = await paymentService.listCustomerVouchers(
+      paymentId,
+      { userId: req.user.userId, role: req.user.role }
+    );
+    res.json({ data });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
 const applyVoucher = async (req, res) => {
   try {
     const paymentId = normalizeIdParam(req.params.id);
@@ -303,6 +337,7 @@ module.exports = {
   getPaymentById,
   getPaymentByBookingId,
   processPayment,
+  payWithWallet,
   confirmPayment,
   refundPayment,
   createGatewayOrder,
@@ -310,6 +345,7 @@ module.exports = {
   vnpayIpn,
   zalopayReturn,
   zalopayCallback,
+  listCustomerVouchers,
   applyVoucher,
   previewVoucher,
   submitTransferConfirmation,

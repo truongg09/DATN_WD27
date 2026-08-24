@@ -77,6 +77,28 @@ export const processPayment = async (
   >;
 };
 
+export interface WalletPaymentResult {
+  payment: Payment;
+  invoice?: import("../types/invoice").Invoice | null;
+  wallet: {
+    transactionId: number;
+    debitedAmount: number;
+    balanceBefore: number;
+    balanceAfter: number;
+  };
+  idempotent?: boolean;
+}
+
+export const payWithWallet = async (
+  id: number,
+  data: { amount: number; idempotencyKey: string }
+) => {
+  return api.post(`/payments/${id}/pay-wallet`, data, {
+    // Trang khách tự hiển thị hộp xác nhận với đầy đủ số dư trước/sau.
+    skipMutationConfirm: true,
+  }) as Promise<ApiResponse<WalletPaymentResult>>;
+};
+
 export const createGatewayOrder = async (
   id: number,
   data: { paymentMethod: Extract<PaymentMethod, "zalopay" | "vnpay">; amount: number }

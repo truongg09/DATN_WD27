@@ -20,6 +20,14 @@ const voucherAttemptLimiter = rateLimit({
   message: 'Bạn thử mã giảm giá quá nhiều lần. Vui lòng đợi một phút rồi thử lại.'
 });
 
+const walletPaymentLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 6,
+  keyBy: byUser,
+  scope: 'wallet-payment',
+  message: 'Bạn thao tác thanh toán ví quá nhiều lần. Vui lòng đợi một phút rồi thử lại.'
+});
+
 router.post('/', requireAuth, requireStaff, paymentController.createPayment);
 router.get('/', requireAuth, requireStaff, paymentController.listPayments);
 router.get('/gateway/vnpay/return', paymentController.vnpayReturn);
@@ -27,8 +35,10 @@ router.get('/gateway/vnpay/ipn', paymentController.vnpayIpn);
 router.get('/gateway/zalopay/return', paymentController.zalopayReturn);
 router.post('/gateway/zalopay/callback', paymentController.zalopayCallback);
 router.get('/booking/:bookingId', requireAuth, requireBookingPaymentAccess, paymentController.getPaymentByBookingId);
+router.get('/:id/customer-vouchers', requireAuth, requirePaymentAccess, paymentController.listCustomerVouchers);
 router.post('/:id/preview-voucher', requireAuth, requirePaymentAccess, voucherAttemptLimiter, paymentController.previewVoucher);
 router.post('/:id/apply-voucher', requireAuth, requirePaymentAccess, voucherAttemptLimiter, paymentController.applyVoucher);
+router.post('/:id/pay-wallet', requireAuth, requirePaymentAccess, walletPaymentLimiter, paymentController.payWithWallet);
 router.post('/:id/gateway-order', requireAuth, requirePaymentAccess, paymentController.createGatewayOrder);
 router.post('/:id/transfer-confirmation', requireAuth, requirePaymentAccess, paymentController.submitTransferConfirmation);
 router.post('/:id/confirm-transfer', requireAuth, requireStaff, paymentController.confirmTransferPayment);

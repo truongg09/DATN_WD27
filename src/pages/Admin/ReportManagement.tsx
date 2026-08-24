@@ -56,6 +56,14 @@ interface PaymentMethodBreakdown {
   amount: number;
 }
 
+const paymentMethodLabel: Record<string, string> = {
+  cash: 'Tiền mặt',
+  bank_transfer: 'Chuyển khoản QR',
+  zalopay: 'ZaloPay',
+  vnpay: 'VNPay',
+  wallet: 'Ví số dư HotelHub',
+};
+
 interface ReportSummary {
   totalRevenue: number;
   totalRoomRevenue?: number;
@@ -308,7 +316,12 @@ function ReportManagement() {
   ];
 
   const paymentMethodColumns = [
-    { title: 'Phương thức', dataIndex: 'method', key: 'method' },
+    {
+      title: 'Phương thức',
+      dataIndex: 'method',
+      key: 'method',
+      render: (method: string) => paymentMethodLabel[method] || method,
+    },
     { title: 'Số giao dịch', dataIndex: 'transactionCount', key: 'transactionCount' },
     {
       title: 'Số tiền',

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { Button, Spin, message, Tag, Alert, Modal, QRCode, Radio, Tooltip, Select } from 'antd';
 import {
@@ -8,12 +8,14 @@ import {
   LockOutlined,
   ReloadOutlined,
   SafetyCertificateOutlined,
+  WalletOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { getBookingDetail, resetBookingHold } from '../../services/bookingService';
-import { applyVoucher, createGatewayOrder, getPaymentByBookingId, processPayment, submitTransferConfirmation } from '../../services/paymentService';
+import { applyVoucher, createGatewayOrder, getPaymentByBookingId, payWithWallet, processPayment, submitTransferConfirmation } from '../../services/paymentService';
 import { getPaymentSettings, type PaymentSettings } from '../../services/settingsService';
 import { getMyVouchers, type CustomerVoucher } from '../../services/voucherService';
+import { getMyWallet, type WalletBalance } from '../../services/walletService';
 import { buildVietQrPayload, findBankByBin, toTransferText } from '../../utils/vietqr';
 import type { Payment, PaymentMethod } from '../../types/payment';
 import zalopayLogo from '../../assets/payment/zalopay.svg';
@@ -94,6 +96,14 @@ const METHOD_OPTIONS: MethodOption[] = [
     badgeClass: 'badge-logo badge-vnpay-logo',
     badgeText: 'VNPay',
   },
+  {
+    value: 'wallet',
+    title: 'Ví số dư HotelHub',
+    description: 'Dùng số tiền hoàn đang có trong ví của bạn',
+    icon: <WalletOutlined />,
+    badgeClass: 'badge-wallet',
+    badgeText: 'Ví',
+  },
 ];
 
 const methodTitle = (method: PaymentMethod) =>
@@ -122,6 +132,28 @@ const PaymentPage: React.FC = () => {
   const [loadingVouchers, setLoadingVouchers] = useState(false);
   const [applyingVoucher, setApplyingVoucher] = useState(false);
   const [appliedVoucherCode, setAppliedVoucherCode] = useState('');
+  const [walletBalance, setWalletBalance] = useState<WalletBalance | null>(null);
+  const [loadingWallet, setLoadingWallet] = useState(true);
+  const [walletLoadError, setWalletLoadError] = useState('');
+  const walletActionRef = useRef(false);
+  const walletIdempotencyRef = useRef<{ signature: string; key: string } | null>(null);
+
+  const refreshWallet = useCallback(async (notifyOnError = false) => {
+    setLoadingWallet(true);
+    setWalletLoadError('');
+    try {
+      const response = await getMyWallet();
+      setWalletBalance(response.data.balance);
+      return response.data.balance;
+    } catch {
+      const errorMessage = 'Không tải được số dư ví';
+      setWalletLoadError(errorMessage);
+      if (notifyOnError) message.error(`${errorMessage}. Vui lòng thử lại.`);
+      return null;
+    } finally {
+      setLoadingWallet(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (!isValidBookingId) {
@@ -175,6 +207,16 @@ const PaymentPage: React.FC = () => {
   }, [bookingId, isValidBookingId, navigate]);
 
   useEffect(() => {
+    // Tách việc tải ví khỏi luồng tải booking: lỗi ví không được
+    // làm hỏng trang thanh toán, và callback bất đồng bộ tránh setState
+    // trực tiếp trong thân effect.
+    const timer = window.setTimeout(() => {
+      void refreshWallet();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [bookingId, refreshWallet]);
+
+  useEffect(() => {
     if (!booking || payment?.paymentStatus !== 'unpaid') {
       const resetTimer = window.setTimeout(() => setHoldRemainingMs(0), 0);
       return () => window.clearTimeout(resetTimer);
@@ -219,6 +261,15 @@ const PaymentPage: React.FC = () => {
       ? requiredDepositAmount
       : payment.remainingAmount
     : 0;
+  const walletAvailable = Number(walletBalance?.available || 0);
+  const walletShortfall = Math.max(paymentAmount - walletAvailable, 0);
+  const walletCanPay = Boolean(
+    !loadingWallet
+    && !walletLoadError
+    && walletBalance
+    && paymentAmount > 0
+    && walletAvailable >= paymentAmount
+  );
   const isHoldExpired = (payment?.paymentStatus === 'unpaid' && !hasDeposit && holdRemainingMs <= 0) || isCancelled;
   const holdPercent = Math.max(Math.min((holdRemainingMs / HOLD_DURATION_MS) * 100, 100), 0);
 
@@ -408,10 +459,104 @@ const PaymentPage: React.FC = () => {
     }
   };
 
+  const handleWalletPayment = () => {
+    if (!payment || walletActionRef.current) return;
+
+    if (loadingWallet) {
+      message.info('Đang kiểm tra số dư ví, vui lòng chờ một chút');
+      return;
+    }
+    if (!walletBalance || walletLoadError) {
+      void refreshWallet(true);
+      return;
+    }
+    if (!walletCanPay) {
+      message.warning(
+        `Số dư ví còn thiếu ${formatPrice(walletShortfall)} để thanh toán khoản đã chọn.`
+      );
+      return;
+    }
+
+    const amountToPay = Math.round(paymentAmount);
+    const balanceBefore = walletAvailable;
+    const balanceAfter = Math.max(balanceBefore - amountToPay, 0);
+    // Mã ngẫu nhiên không thể đoán, nhưng được giữ nguyên khi người dùng
+    // thử lại đúng cùng một khoản sau lỗi mạng. Backend nhờ đó chỉ trừ ví một lần.
+    const paymentSignature = `${payment.id}-${Math.round(payment.paidAmount)}-${amountToPay}`;
+    if (walletIdempotencyRef.current?.signature !== paymentSignature) {
+      walletIdempotencyRef.current = {
+        signature: paymentSignature,
+        key: globalThis.crypto.randomUUID(),
+      };
+    }
+    const idempotencyKey = walletIdempotencyRef.current.key;
+
+    walletActionRef.current = true;
+    Modal.confirm({
+      title: 'Xác nhận thanh toán bằng ví HotelHub',
+      icon: <WalletOutlined style={{ color: '#16865a' }} />,
+      centered: true,
+      okText: `Thanh toán ${formatPrice(amountToPay)}`,
+      cancelText: 'Kiểm tra lại',
+      content: (
+        <div className="wallet-confirmation">
+          <p>Tiền sẽ được trừ trực tiếp từ số dư ví của bạn và ghi nhận ngay vào hóa đơn.</p>
+          <div className="wallet-confirmation-row">
+            <span>Số dư hiện tại</span>
+            <strong>{formatPrice(balanceBefore)}</strong>
+          </div>
+          <div className="wallet-confirmation-row charge">
+            <span>Thanh toán</span>
+            <strong>-{formatPrice(amountToPay)}</strong>
+          </div>
+          <div className="wallet-confirmation-row balance">
+            <span>Số dư sau thanh toán</span>
+            <strong>{formatPrice(balanceAfter)}</strong>
+          </div>
+        </div>
+      ),
+      onCancel: () => {
+        walletActionRef.current = false;
+      },
+      onOk: async () => {
+        setSubmitting(true);
+        try {
+          const result = await payWithWallet(payment.id, {
+            amount: amountToPay,
+            idempotencyKey,
+          });
+          setPayment(result.data.payment);
+          setWalletBalance((current) => current ? {
+            ...current,
+            paidFromWallet: Number(current.paidFromWallet || 0)
+              + (result.data.idempotent ? 0 : Number(result.data.wallet.debitedAmount || 0)),
+            available: Number(result.data.wallet.balanceAfter || 0),
+          } : current);
+          message.success(
+            `Thanh toán bằng ví thành công ${formatPrice(result.data.wallet.debitedAmount)}`
+          );
+          navigate(`/booking/${bookingId}?payment=success`);
+        } catch (error: unknown) {
+          const err = error as { response?: { data?: { message?: string } } };
+          await refreshWallet();
+          message.error(err.response?.data?.message || 'Không thể thanh toán bằng ví');
+        } finally {
+          setSubmitting(false);
+          walletActionRef.current = false;
+        }
+      },
+    });
+  };
+
   const handlePay = async () => {
     if (!payment) return;
     if (isCancelled || isHoldExpired) {
       message.error('Thời gian giữ phòng đã hết hạn hoặc đơn đã bị hủy. Vui lòng đặt lại phòng mới.');
+      return;
+    }
+
+    if (paymentMethod === 'wallet') {
+      handleWalletPayment();
       return;
     }
 
@@ -832,32 +977,52 @@ const PaymentPage: React.FC = () => {
                   )}
 
                   <div className="method-list">
-                    {visibleMethods.map((option) => (
-                      <button
-                        key={option.value}
-                        type="button"
-                        className={`method-item ${paymentMethod === option.value ? 'selected' : ''}`}
-                        onClick={() => setPaymentMethod(option.value)}
-                      >
-                        <span className={`method-badge ${option.badgeClass}`}>{option.icon}</span>
-                        <span className="method-text">
-                          <span className="method-title">
-                            {option.title}
-                            {option.recommended && <em>Khuyên dùng</em>}
+                    {visibleMethods.map((option) => {
+                      const isWalletMethod = option.value === 'wallet';
+                      const walletKnownInsufficient = isWalletMethod
+                        && Boolean(walletBalance)
+                        && walletShortfall > 0;
+                      const methodDisabled = isWalletMethod
+                        && (loadingWallet || walletKnownInsufficient);
+                      const description = !isWalletMethod
+                        ? option.description
+                        : loadingWallet
+                          ? 'Đang kiểm tra số dư ví...'
+                          : walletLoadError
+                            ? 'Chưa tải được số dư · chọn để thử tải lại'
+                            : walletKnownInsufficient
+                              ? `Số dư ${formatPrice(walletAvailable)} · còn thiếu ${formatPrice(walletShortfall)}`
+                              : `Số dư khả dụng ${formatPrice(walletAvailable)} · đủ để thanh toán`;
+
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          disabled={methodDisabled}
+                          className={`method-item ${paymentMethod === option.value ? 'selected' : ''} ${methodDisabled ? 'disabled' : ''} ${walletKnownInsufficient ? 'insufficient' : ''}`}
+                          onClick={() => setPaymentMethod(option.value)}
+                        >
+                          <span className={`method-badge ${option.badgeClass}`}>{option.icon}</span>
+                          <span className="method-text">
+                            <span className="method-title">
+                              {option.title}
+                              {option.recommended && <em>Khuyên dùng</em>}
+                              {isWalletMethod && walletCanPay && <em>Sẵn sàng</em>}
+                            </span>
+                            <span className="method-desc">{description}</span>
                           </span>
-                          <span className="method-desc">{option.description}</span>
-                        </span>
-                        <span className="method-check">
-                          <CheckCircleFilled />
-                        </span>
-                      </button>
-                    ))}
+                          <span className="method-check">
+                            <CheckCircleFilled />
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
 
                   {isDepositMode && (
                     <p className="deposit-online-note">
                       Đặt cọc 30% để giữ phòng. Tiền cọc được thanh toán từ xa qua chuyển khoản,
-                      ZaloPay hoặc VNPay; tiền mặt chỉ áp dụng khi thanh toán phần còn lại.
+                      ZaloPay, VNPay hoặc ví số dư HotelHub; tiền mặt chỉ áp dụng khi thanh toán phần còn lại.
                     </p>
                   )}
 
@@ -867,13 +1032,18 @@ const PaymentPage: React.FC = () => {
                     size="large"
                     block
                     loading={submitting}
-                    disabled={isHoldExpired}
+                    disabled={
+                      isHoldExpired
+                      || (paymentMethod === 'wallet' && (loadingWallet || (Boolean(walletBalance) && !walletCanPay)))
+                    }
                     onClick={handlePay}
                   >
                     {paymentMethod === 'vnpay'
                       ? `Xác nhận thanh toán bằng VNPay - ${formatPrice(paymentAmount)}`
                       : paymentMethod === 'zalopay'
                         ? `Xác nhận thanh toán bằng ZaloPay - ${formatPrice(paymentAmount)}`
+                        : paymentMethod === 'wallet'
+                          ? `Thanh toán bằng ví · ${formatPrice(paymentAmount)}`
                         : <>Hiện mã QR thanh toán · {formatPrice(paymentAmount)}</>}
                   </Button>
 

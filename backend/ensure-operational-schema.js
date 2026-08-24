@@ -553,17 +553,20 @@ const ensureOperationalSchema = async () => {
     )
   `);
 
-  // Ví của khách: tiền hoàn được cộng vào ví (refund_credit), khách rút ra (withdrawal).
-  // Số dư khả dụng = tổng credit approved - tổng withdrawal (pending + approved).
+  // Ví của khách: tiền hoàn được cộng vào ví (refund_credit), khách rút ra
+  // (withdrawal) hoặc dùng để thanh toán booking (booking_payment).
+  // Số dư khả dụng = credit approved - withdrawal pending/approved - booking_payment approved.
   await db.query(`
     CREATE TABLE IF NOT EXISTS wallet_transactions (
       id INT AUTO_INCREMENT PRIMARY KEY,
       customerId INT NOT NULL,
       refundId INT NULL,
       bookingId INT NULL,
-      type ENUM('refund_credit', 'withdrawal') NOT NULL,
+      paymentId INT NULL,
+      type ENUM('refund_credit', 'withdrawal', 'booking_payment') NOT NULL,
       amount DECIMAL(15,2) NOT NULL,
       status ENUM('pending', 'approved', 'rejected') NOT NULL DEFAULT 'approved',
+      idempotencyKey VARCHAR(100) NULL,
       refundMethod ENUM('cash', 'bank_transfer') NULL,
       bankBin VARCHAR(10) NULL,
       bankName VARCHAR(100) NULL,
@@ -572,9 +575,69 @@ const ensureOperationalSchema = async () => {
       note TEXT NULL,
       createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
       processedAt DATETIME NULL,
+      UNIQUE KEY uq_wallet_idempotency (customerId, idempotencyKey),
+      INDEX idx_wallet_customer_created (customerId, createdAt, id),
+      INDEX idx_wallet_payment (paymentId, type),
       FOREIGN KEY (customerId) REFERENCES customers(id) ON DELETE CASCADE
     )
   `);
+
+  // CREATE TABLE IF NOT EXISTS không nâng cấp database đã có. Bổ sung từng
+  // cột/index để các bản dữ liệu cũ cũng thanh toán ví an toàn.
+  const [walletColumns] = await db.query('DESCRIBE wallet_transactions');
+  const walletTypeColumn = walletColumns.find((column) => column.Field === 'type');
+  if (!String(walletTypeColumn?.Type || '').includes("'booking_payment'")) {
+    await db.query(
+      "ALTER TABLE wallet_transactions MODIFY COLUMN type ENUM('refund_credit', 'withdrawal', 'booking_payment') NOT NULL"
+    );
+  }
+  if (!walletColumns.some((column) => column.Field === 'paymentId')) {
+    await db.query(
+      'ALTER TABLE wallet_transactions ADD COLUMN paymentId INT NULL AFTER bookingId'
+    );
+  }
+  if (!walletColumns.some((column) => column.Field === 'idempotencyKey')) {
+    await db.query(
+      'ALTER TABLE wallet_transactions ADD COLUMN idempotencyKey VARCHAR(100) NULL AFTER status'
+    );
+  }
+
+  const [walletIndexes] = await db.query('SHOW INDEX FROM wallet_transactions');
+  const hasWalletIndex = (name) => walletIndexes.some((index) => index.Key_name === name);
+  const walletIdempotencyColumns = walletIndexes
+    .filter((index) => index.Key_name === 'uq_wallet_idempotency')
+    .sort((first, second) => Number(first.Seq_in_index) - Number(second.Seq_in_index))
+    .map((index) => index.Column_name);
+  if (
+    walletIdempotencyColumns.length > 0
+    && (
+      walletIdempotencyColumns.length !== 2
+      || walletIdempotencyColumns[0] !== 'customerId'
+      || walletIdempotencyColumns[1] !== 'idempotencyKey'
+    )
+  ) {
+    await db.query('ALTER TABLE wallet_transactions DROP INDEX uq_wallet_idempotency');
+  }
+  if (
+    walletIdempotencyColumns.length === 0
+    || walletIdempotencyColumns.length !== 2
+    || walletIdempotencyColumns[0] !== 'customerId'
+    || walletIdempotencyColumns[1] !== 'idempotencyKey'
+  ) {
+    await db.query(
+      'ALTER TABLE wallet_transactions ADD UNIQUE KEY uq_wallet_idempotency (customerId, idempotencyKey)'
+    );
+  }
+  if (!hasWalletIndex('idx_wallet_customer_created')) {
+    await db.query(
+      'ALTER TABLE wallet_transactions ADD INDEX idx_wallet_customer_created (customerId, createdAt, id)'
+    );
+  }
+  if (!hasWalletIndex('idx_wallet_payment')) {
+    await db.query(
+      'ALTER TABLE wallet_transactions ADD INDEX idx_wallet_payment (paymentId, type)'
+    );
+  }
 
   // Key-value store for admin-configurable settings (e.g. payment receiving account).
   await db.query(`

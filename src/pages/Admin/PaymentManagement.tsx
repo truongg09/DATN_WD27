@@ -70,6 +70,7 @@ const methodLabels: Record<string, string> = {
   zalopay: 'ZaloPay',
   vnpay: 'VNPay',
   bank_transfer: 'Chuyển khoản QR',
+  wallet: 'Ví số dư HotelHub',
 };
 
 const refundStatusMap: Record<string, { label: string; color: string }> = {
@@ -193,7 +194,7 @@ function PaymentManagement() {
   const handleRefund = async (id: number) => {
     try {
       await refundPayment(id);
-      message.success('Hoàn tiền thành công');
+      message.success('Hoàn tiền thành công và đã cộng vào ví khách hàng');
       fetchPayments();
     } catch (error: unknown) {
       const err = error as { response?: { data?: { message?: string } } };
@@ -433,6 +434,7 @@ function PaymentManagement() {
           {record.paymentStatus === 'paid' && (
             <Popconfirm
               title="Bạn có chắc chắn muốn hoàn tiền?"
+              description="Toàn bộ số tiền đã thu sẽ được cộng vào ví HotelHub của khách."
               onConfirm={() => handleRefund(record.id)}
               okText="Hoàn tiền"
               cancelText="Hủy"

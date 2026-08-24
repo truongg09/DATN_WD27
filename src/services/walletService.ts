@@ -3,6 +3,7 @@ import api from "./api";
 export interface WalletBalance {
   credited: number;
   pendingWithdraw: number;
+  paidFromWallet: number;
   available: number;
 }
 
@@ -11,7 +12,9 @@ export interface WalletTransaction {
   customerId: number;
   refundId?: number | null;
   bookingId?: number | null;
-  type: "refund_credit" | "withdrawal";
+  paymentId?: number | null;
+  idempotencyKey?: string | null;
+  type: "refund_credit" | "withdrawal" | "booking_payment";
   amount: number | string;
   status: "pending" | "approved" | "rejected";
   refundMethod?: "cash" | "bank_transfer" | null;

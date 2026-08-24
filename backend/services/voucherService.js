@@ -10,8 +10,6 @@ const { dayString } = require('../utils/bookingPolicy');
 const run = (connection) => connection || db;
 const money = (amount) => `${Number(amount || 0).toLocaleString('vi-VN')}₫`;
 
-const STAFF_ROLES = ['admin', 'employee', 'staff', 'manager', 'receptionist'];
-
 // Các hạng phòng thuộc một đơn, dùng để đối chiếu điều kiện áp dụng của voucher.
 const listBookingRoomTypeIds = async (bookingId, connection) => {
   const [rows] = await run(connection).query(
@@ -65,7 +63,7 @@ const calculateDiscount = (voucher, subtotal, payableCeiling) => {
 // Kiểm tra toàn bộ điều kiện của voucher với một đơn cụ thể.
 // Dùng chung cho cả API xem trước lẫn lúc áp thật để hai nơi không lệch luật.
 const evaluateVoucherForBooking = async (
-  { code, booking, subtotal, payableCeiling, userId, userRole },
+  { code, booking, subtotal, payableCeiling, userId },
   connection
 ) => {
   const normalizedCode = String(code || '').trim().toUpperCase();
@@ -73,7 +71,6 @@ const evaluateVoucherForBooking = async (
     throw new HttpError(400, 'Vui lòng nhập mã voucher');
   }
 
-  const isStaff = STAFF_ROLES.includes(userRole);
   const [voucherRows] = await run(connection).query(
     'SELECT * FROM vouchers WHERE UPPER(code) = ?',
     [normalizedCode]
@@ -104,7 +101,7 @@ const evaluateVoucherForBooking = async (
     [voucher.id]
   );
   const customerVoucher = assignmentRows.find((row) => Number(row.userId) === Number(userId));
-  if (assignmentRows.length > 0 && !customerVoucher && !isStaff) {
+  if (assignmentRows.length > 0 && !customerVoucher) {
     throw new HttpError(403, 'Voucher này dành riêng cho khách hàng khác');
   }
   if (customerVoucher?.isUsed) {

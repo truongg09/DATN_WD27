@@ -1,6 +1,12 @@
 const express = require('express');
 const db = require('../config/db');
 const { requireAuth, isStaff } = require('../middleware/auth');
+const {
+  getCustomerIdByAccount,
+  getBalance,
+  lockWalletAndGetBalance,
+  withRunningBalance
+} = require('../services/walletService');
 
 const router = express.Router();
 
@@ -15,80 +21,17 @@ const requireStaff = (req, res, next) => {
   return next();
 };
 
-const getCustomerIdByAccount = async (accountId, connection = db) => {
-  const [rows] = await connection.query(
-    'SELECT id FROM customers WHERE accountId = ? LIMIT 1',
-    [accountId]
-  );
-  return rows[0]?.id || null;
-};
-
-// Số dư khả dụng = credit approved - withdrawal (pending + approved).
-// Lệnh rút pending vẫn trừ để không rút quá tay.
-const getBalance = async (customerId, connection = db) => {
-  const [[row]] = await connection.query(
-    `
-      SELECT
-        COALESCE(SUM(CASE WHEN type = 'refund_credit' AND status = 'approved' THEN amount ELSE 0 END), 0) AS credited,
-        COALESCE(SUM(CASE WHEN type = 'withdrawal' AND status IN ('pending', 'approved') THEN amount ELSE 0 END), 0) AS withdrawn,
-        COALESCE(SUM(CASE WHEN type = 'withdrawal' AND status = 'pending' THEN amount ELSE 0 END), 0) AS pendingWithdraw
-      FROM wallet_transactions
-      WHERE customerId = ?
-    `,
-    [customerId]
-  );
-
-  const credited = Number(row.credited) || 0;
-  const withdrawn = Number(row.withdrawn) || 0;
-  return {
-    credited,
-    pendingWithdraw: Number(row.pendingWithdraw) || 0,
-    available: Math.max(credited - withdrawn, 0)
-  };
-};
-
-// Mức độ ảnh hưởng của một giao dịch lên số dư khả dụng.
-// Phải khớp đúng công thức trong getBalance: chỉ tiền hoàn đã duyệt mới cộng
-// vào ví, còn lệnh rút thì trừ ngay từ lúc chờ duyệt (để khách không rút quá
-// tay), lệnh bị từ chối thì không ảnh hưởng gì.
-const balanceDelta = (transaction) => {
-  const amount = Number(transaction.amount) || 0;
-  if (transaction.type === 'refund_credit') {
-    return transaction.status === 'approved' ? amount : 0;
-  }
-  if (transaction.type === 'withdrawal') {
-    return ['pending', 'approved'].includes(transaction.status) ? -amount : 0;
-  }
-  return 0;
-};
-
-// Dựng lại số dư trước và sau từng giao dịch bằng cách cộng dồn theo thứ tự
-// thời gian, để khách nhìn được ví đã tăng giảm ra sao qua mỗi lần rút.
-const withRunningBalance = (transactionsNewestFirst) => {
-  const oldestFirst = [...transactionsNewestFirst].reverse();
-  let running = 0;
-
-  const enriched = oldestFirst.map((transaction) => {
-    const delta = balanceDelta(transaction);
-    const balanceBefore = running;
-    running += delta;
-    return {
-      ...transaction,
-      balanceBefore,
-      balanceAfter: running,
-      balanceDelta: delta
-    };
-  });
-
-  return enriched.reverse();
-};
-
 // Ví của khách đang đăng nhập: số dư + lịch sử giao dịch
 router.get('/me', requireAuth, async (req, res) => {
   try {
     const customerId = await getCustomerIdByAccount(req.user.userId);
     if (!customerId) {
-      return res.json({ data: { balance: { credited: 0, pendingWithdraw: 0, available: 0 }, transactions: [] } });
+      return res.json({
+        data: {
+          balance: { credited: 0, pendingWithdraw: 0, paidFromWallet: 0, available: 0 },
+          transactions: []
+        }
+      });
     }
 
     const balance = await getBalance(customerId);
@@ -102,7 +45,10 @@ router.get('/me', requireAuth, async (req, res) => {
     res.json({ data: { balance, transactions: withRunningBalance(transactions) } });
   } catch (error) {
     console.error('Get wallet error:', error);
-    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
+    const statusCode = error.statusCode || 500;
+    res.status(statusCode).json({
+      message: statusCode === 500 ? 'Lỗi máy chủ nội bộ' : error.message
+    });
   }
 });
 
@@ -133,25 +79,16 @@ router.post('/withdraw', requireAuth, async (req, res) => {
       });
     }
 
-    // Mỗi khách chỉ được có vài lệnh rút chờ duyệt cùng lúc.
-    const [[pendingRow]] = await connection.query(
-      "SELECT COUNT(*) AS total FROM wallet_transactions WHERE customerId = ? AND type = 'withdraw' AND status = 'pending'",
-      [customerId]
-    );
-    if (Number(pendingRow?.total || 0) >= MAX_PENDING_WITHDRAWALS) {
+    // Khóa theo khách hàng để lệnh rút và thanh toán bằng ví không
+    // thể cùng lúc tiêu vượt số dư. Hàm này cũng đếm đúng
+    // type='withdrawal' (bản cũ nhầm thành 'withdraw').
+    const balance = await lockWalletAndGetBalance(customerId, connection);
+    if (balance.pendingWithdrawalCount >= MAX_PENDING_WITHDRAWALS) {
       await connection.rollback();
       return res.status(429).json({
         message: `Bạn đang có ${MAX_PENDING_WITHDRAWALS} lệnh rút chờ duyệt. Vui lòng đợi khách sạn xử lý xong.`
       });
     }
-
-    // Khóa các dòng ví của khách để tránh 2 lệnh rút song song vượt số dư
-    await connection.query(
-      'SELECT id FROM wallet_transactions WHERE customerId = ? FOR UPDATE',
-      [customerId]
-    );
-
-    const balance = await getBalance(customerId, connection);
     if (amount > balance.available) {
       await connection.rollback();
       return res.status(400).json({
@@ -205,7 +142,10 @@ router.post('/withdraw', requireAuth, async (req, res) => {
   } catch (error) {
     await connection.rollback();
     console.error('Withdraw error:', error);
-    res.status(500).json({ message: 'Lỗi máy chủ nội bộ' });
+    const statusCode = error.statusCode || 500;
+    res.status(statusCode).json({
+      message: statusCode === 500 ? 'Lỗi máy chủ nội bộ' : error.message
+    });
   } finally {
     connection.release();
   }
