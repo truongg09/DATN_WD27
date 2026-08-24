@@ -5,7 +5,7 @@
  * - Trần tổng thời gian giữ phòng tối đa: 20 phút kể từ lúc tạo đơn
  * - Cooldown tối thiểu giữa các lần bấm: 60 giây
  */
-const LATE_CHECKIN_GRACE_HOUR = 6;
+const DEFAULT_ROOM_HOLD_HOURS = 24;
 const HOLD_MINUTES = 15;
 const HOLD_RESET_MINUTES = 5;
 const MAX_HOLD_RESETS = 1;
@@ -20,7 +20,6 @@ const dayString = (value) => {
   return String(value).slice(0, 10);
 };
 
-// Chuyển lên trước isLateCheckIn vì giờ được dùng làm nền tính giờ chuẩn check-in.
 const combineDateTime = (dateInput, timeStr, dayOffset = 0) => {
   const day = dayString(dateInput);
   const baseDate = new Date(`${day}T${timeStr}+07:00`);
@@ -31,35 +30,72 @@ const combineDateTime = (dateInput, timeStr, dayOffset = 0) => {
 };
 
 const DEFAULT_STANDARD_CHECKIN_TIME = '14:00:00';
+const DEFAULT_STANDARD_CHECKOUT_TIME = '12:00:00';
 
-const getLateCheckInDeadline = (checkInDate, requestedCheckInTime = DEFAULT_STANDARD_CHECKIN_TIME, graceHours = LATE_CHECKIN_GRACE_HOUR, dayOffset = 0) => {
-  const timeStr = requestedCheckInTime || DEFAULT_STANDARD_CHECKIN_TIME;
-  const baseDateTime = combineDateTime(checkInDate, timeStr, dayOffset);
-  return new Date(baseDateTime.getTime() + Number(graceHours) * 3600000);
+/**
+ * Mốc giữ phòng mặc định mới:
+ * lateNoShowDeadline = checkInDate + standardCheckInTime + 24 giờ.
+ * Ví dụ: Check-in 24/08/2026 14:00 -> Deadline: 25/08/2026 14:00.
+ */
+const getLateNoShowDeadline = (
+  checkInDate,
+  standardCheckInTime = DEFAULT_STANDARD_CHECKIN_TIME,
+  holdHours = DEFAULT_ROOM_HOLD_HOURS
+) => {
+  const timeStr = standardCheckInTime || DEFAULT_STANDARD_CHECKIN_TIME;
+  const baseDateTime = combineDateTime(checkInDate, timeStr, 0);
+  return new Date(baseDateTime.getTime() + Number(holdHours) * 3600000);
 };
 
-const getCheckOutDeadline = (checkOutDate, requestedCheckOutTime = '12:00:00') => {
-  const timeStr = requestedCheckOutTime || '12:00:00';
+const getLateCheckInDeadline = (
+  checkInDate,
+  standardCheckInTime = DEFAULT_STANDARD_CHECKIN_TIME,
+  holdHours = DEFAULT_ROOM_HOLD_HOURS
+) => {
+  return getLateNoShowDeadline(checkInDate, standardCheckInTime, holdHours);
+};
+
+const getCheckOutDeadline = (checkOutDate, requestedCheckOutTime = DEFAULT_STANDARD_CHECKOUT_TIME) => {
+  const timeStr = requestedCheckOutTime || DEFAULT_STANDARD_CHECKOUT_TIME;
   return combineDateTime(checkOutDate, timeStr, 0);
 };
 
 const getCheckInDayStart = (checkInDate) =>
   new Date(`${dayString(checkInDate)}T00:00:00`);
 
-const isWithinLateCheckInWindow = (checkInDate, requestedCheckInTime = DEFAULT_STANDARD_CHECKIN_TIME, now = new Date(), dayOffset = 0) => {
-  const deadline = getLateCheckInDeadline(checkInDate, requestedCheckInTime, LATE_CHECKIN_GRACE_HOUR, dayOffset);
-  return now <= deadline;
+const isWithinLateCheckInWindow = (
+  checkInDate,
+  standardCheckInTime = DEFAULT_STANDARD_CHECKIN_TIME,
+  now = new Date(),
+  lateArrivalConfirmed = false,
+  checkOutDate = null,
+  standardCheckOutTime = DEFAULT_STANDARD_CHECKOUT_TIME
+) => {
+  if (lateArrivalConfirmed && checkOutDate) {
+    const finalDeadline = getCheckOutDeadline(checkOutDate, standardCheckOutTime);
+    return now <= finalDeadline;
+  }
+  const defaultDeadline = getLateNoShowDeadline(checkInDate, standardCheckInTime, DEFAULT_ROOM_HOLD_HOURS);
+  return now <= defaultDeadline;
 };
 
-const isLateCheckIn = (checkInDate, requestedCheckInTime = DEFAULT_STANDARD_CHECKIN_TIME, now = new Date(), dayOffset = 0) => {
-  const checkInStartHour = (requestedCheckInTime && requestedCheckInTime < DEFAULT_STANDARD_CHECKIN_TIME) ? requestedCheckInTime : DEFAULT_STANDARD_CHECKIN_TIME;
-  const requestedCheckIn = combineDateTime(checkInDate, checkInStartHour, dayOffset);
-  const deadline = getLateCheckInDeadline(checkInDate, requestedCheckInTime, LATE_CHECKIN_GRACE_HOUR, dayOffset);
-  return now > requestedCheckIn && now <= deadline;
+const isPastNoShowDeadline = (
+  checkInDate,
+  standardCheckInTime = DEFAULT_STANDARD_CHECKIN_TIME,
+  now = new Date(),
+  lateArrivalConfirmed = false,
+  checkOutDate = null,
+  standardCheckOutTime = DEFAULT_STANDARD_CHECKOUT_TIME
+) => {
+  return !isWithinLateCheckInWindow(
+    checkInDate,
+    standardCheckInTime,
+    now,
+    lateArrivalConfirmed,
+    checkOutDate,
+    standardCheckOutTime
+  );
 };
-
-const isPastNoShowDeadline = (checkInDate, requestedCheckInTime = DEFAULT_STANDARD_CHECKIN_TIME, now = new Date(), dayOffset = 0) =>
-  now > getLateCheckInDeadline(checkInDate, requestedCheckInTime, LATE_CHECKIN_GRACE_HOUR, dayOffset);
 
 /**
  * Tính phí trễ giờ trả phòng (Late Check-out) theo 3 bậc thang chính sách:
@@ -159,17 +195,17 @@ const computeEarlyCheckInSurcharge = (now = new Date(), standardCheckInTime = '1
 };
 
 module.exports = {
-  LATE_CHECKIN_GRACE_HOUR,
+  DEFAULT_ROOM_HOLD_HOURS,
   HOLD_MINUTES,
   HOLD_RESET_MINUTES,
   MAX_HOLD_RESETS,
   MIN_RESET_COOLDOWN_SECONDS,
   MAX_TOTAL_HOLD_MINUTES,
   dayString,
+  getLateNoShowDeadline,
   getLateCheckInDeadline,
   getCheckOutDeadline,
   isWithinLateCheckInWindow,
-  isLateCheckIn,
   isPastNoShowDeadline,
   combineDateTime,
   computeLateCheckoutFee,

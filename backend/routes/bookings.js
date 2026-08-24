@@ -67,6 +67,8 @@ router.patch('/:id/reassign-room', requireAuth, requireStaff, bookingController.
 router.patch('/:id/check-in', requireAuth, requireStaff, bookingController.checkIn);
 router.patch('/:id/check-out', requireAuth, requireStaff, bookingController.checkOut);
 router.patch('/:id/arrival-time', requireAuth, bookingController.updateArrivalTime);
+router.post('/:id/contact-status', requireAuth, requireStaff, bookingController.recordCustomerContact);
+router.patch('/:id/contact-status', requireAuth, requireStaff, bookingController.recordCustomerContact);
 // Quét toàn bộ đơn quá hạn nhận phòng, đánh dấu no-show và phát voucher đền bù
 // nên phải là thao tác của nhân viên, không phải của khách.
 router.post('/process-overdue', requireAuth, requireStaff, bookingController.processOverdue);

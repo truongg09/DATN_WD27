@@ -246,3 +246,18 @@ export interface ResetHoldResponse {
 export const resetBookingHold = async (bookingId: number) => {
   return api.post(`/bookings/${bookingId}/reset-hold`) as Promise<{ message: string; data: ResetHoldResponse }>;
 };
+
+export type CustomerContactAction = 'will_arrive_late' | 'unreachable' | 'not_coming' | 'callback_later';
+
+export interface CustomerContactPayload {
+  action: CustomerContactAction;
+  note?: string;
+}
+
+export const recordCustomerContact = async (
+  id: number,
+  data: CustomerContactPayload
+) => {
+  return api.post(`/bookings/${id}/contact-status`, data);
+};
+

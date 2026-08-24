@@ -9,14 +9,14 @@ const HttpError = require("../utils/httpError");
 const {
   dayString,
   isWithinLateCheckInWindow,
-  isLateCheckIn,
   isPastNoShowDeadline,
+  getLateNoShowDeadline,
   getLateCheckInDeadline,
   getCheckOutDeadline,
   combineDateTime,
   computeLateCheckoutFee,
   getMaxLateCheckoutTime,
-  LATE_CHECKIN_GRACE_HOUR,
+  DEFAULT_ROOM_HOLD_HOURS,
   HOLD_MINUTES,
   HOLD_RESET_MINUTES,
   MAX_HOLD_RESETS,
@@ -4194,20 +4194,25 @@ const checkIn = async (bookingId, payload = {}, actor = null) => {
     const hasUnpaidDebt = remainingAmount > 0;
 
     const now = new Date();
-    if (!isWithinLateCheckInWindow(booking.check_in, booking.requested_check_in_time, now, booking.requested_check_in_day_offset)) {
-      const checkInDay = new Date(`${dayString(booking.check_in)}T00:00:00`);
-      if (now < checkInDay) {
-        throw new HttpError(409, "Chưa đến ngày nhận phòng");
-      }
+    const standardCheckInTime = tiers?.standardCheckInTime || '14:00:00';
+    const standardCheckOutTime = tiers?.standardCheckOutTime || '12:00:00';
+    const isLateConfirmed = Boolean(booking.late_arrival_confirmed || booking.lateArrivalConfirmed);
+
+    const checkInDay = new Date(`${dayString(booking.check_in)}T00:00:00`);
+    if (now < checkInDay) {
+      throw new HttpError(409, "Chưa đến ngày nhận phòng");
+    }
+
+    if (!isWithinLateCheckInWindow(booking.check_in, standardCheckInTime, now, isLateConfirmed, booking.check_out, standardCheckOutTime)) {
       throw new HttpError(
         409,
-        `Đã quá thời gian check-in muộn (trước ${LATE_CHECKIN_GRACE_HOUR}:00 ngày hôm sau). Vui lòng liên hệ lễ tân.`,
+        `Đã quá thời hạn nhận phòng (hạn giữ phòng mặc định 24 giờ tính từ giờ nhận phòng chuẩn hoặc đến hết kỳ lưu trú). Vui lòng liên hệ lễ tân.`,
       );
     }
 
     const standardCheckIn = combineDateTime(
       booking.check_in,
-      tiers.standardCheckInTime,
+      standardCheckInTime,
     );
     const checkInTiming =
       now < standardCheckIn
@@ -4406,15 +4411,17 @@ const markNoShow = async (
     }
 
     const paymentRow = await paymentService.getPaymentByBookingId(bookingId);
-    if (!paymentRow || Number(paymentRow.paidAmount || 0) <= 0) {
-      throw new HttpError(
-        409,
-        "Chỉ có thể đánh dấu khách không đến đối với đặt phòng đã thanh toán",
-      );
-    }
+    const paidAmount = Number(paymentRow?.paidAmount || 0);
 
-    if (!allowBeforeDeadline && !isPastNoShowDeadline(booking.check_in, booking.requested_check_in_time, new Date(), booking.requested_check_in_day_offset)) {
-      const deadline = getLateCheckInDeadline(booking.check_in, booking.requested_check_in_time, LATE_CHECKIN_GRACE_HOUR, booking.requested_check_in_day_offset);
+    const tiers = await bookingModel.getCheckoutLateFeeTiers(connection);
+    const standardCheckInTime = tiers?.standardCheckInTime || '14:00:00';
+    const standardCheckOutTime = tiers?.standardCheckOutTime || '12:00:00';
+    const isLateConfirmed = Boolean(booking.late_arrival_confirmed || booking.lateArrivalConfirmed);
+
+    if (!allowBeforeDeadline && !isPastNoShowDeadline(booking.check_in, standardCheckInTime, new Date(), isLateConfirmed, booking.check_out, standardCheckOutTime)) {
+      const deadline = isLateConfirmed && booking.check_out
+        ? getCheckOutDeadline(booking.check_out, standardCheckOutTime)
+        : getLateNoShowDeadline(booking.check_in, standardCheckInTime, DEFAULT_ROOM_HOLD_HOURS);
       throw new HttpError(
         409,
         `Chưa đến thời điểm xử lý no-show. Hệ thống sẽ tự động xử lý sau ${deadline.toLocaleString("vi-VN")}`,
@@ -4422,25 +4429,42 @@ const markNoShow = async (
     }
 
     await bookingModel.updateBookingStatus(bookingId, "no_show", connection);
-    await bookingModel.updateRoomStatus(
-      booking.room_id,
-      "available",
-      connection,
-    );
 
-    const voucher = await voucherService.createNoShowCompensationVoucher(
-      booking.user_id,
-      bookingId,
-      connection,
+    // Release TOÀN BỘ phòng cho đơn multi-room
+    const [details] = await connection.query(
+      `SELECT DISTINCT roomId FROM booking_details WHERE bookingId = ? AND roomId IS NOT NULL`,
+      [bookingId]
     );
+    const roomIds = details.length > 0
+      ? details.map((d) => d.roomId).filter(Boolean)
+      : (booking.room_id ? [booking.room_id] : []);
+
+    for (const rId of roomIds) {
+      await bookingModel.updateRoomStatus(
+        rId,
+        "available",
+        connection,
+      );
+    }
+
+    let voucher = null;
+    if (paidAmount > 0 && booking.user_id) {
+      voucher = await voucherService.createNoShowCompensationVoucher(
+        booking.user_id,
+        bookingId,
+        connection,
+      );
+    }
 
     await logHistory(
       bookingId,
       "no_show",
-      `Đánh dấu khách không đến (no-show). Không hoàn tiền theo chính sách, tặng voucher ${voucher.code} giảm ${Number(voucher.discountPercentage)}% cho lần đặt sau`,
+      voucher
+        ? `Đánh dấu khách không đến (no-show). Không hoàn tiền theo chính sách, tặng voucher ${voucher.code} giảm ${Number(voucher.discountPercentage)}% cho lần lưu trú tiếp theo.`
+        : `Đánh dấu khách không đến (no-show). Không hoàn tiền theo chính sách`,
       {
         oldValue: { status: booking.status },
-        newValue: { status: "no_show", voucherCode: voucher.code },
+        newValue: { status: "no_show", voucherCode: voucher?.code || null },
       },
       actor,
       connection,
@@ -4455,13 +4479,15 @@ const markNoShow = async (
         bookingId,
         ownsConnection ? undefined : connection,
       ),
-      voucher: {
-        code: voucher.code,
-        discountPercentage: Number(voucher.discountPercentage),
-        validFrom: voucher.validFrom,
-        validUntil: voucher.validUntil,
-        message: `Đã tặng voucher giảm ${voucherService.NO_SHOW_DISCOUNT_PERCENT}% cho lần đặt phòng tiếp theo`,
-      },
+      voucher: voucher
+        ? {
+            code: voucher.code,
+            discountPercentage: Number(voucher.discountPercentage),
+            validFrom: voucher.validFrom,
+            validUntil: voucher.validUntil,
+            message: `Đã tặng voucher ${voucher.code} giảm ${voucher.discountPercentage}% cho lần lưu trú tiếp theo`,
+          }
+        : null,
       refundPolicy: {
         refunded: false,
         message: "Không hoàn tiền theo chính sách no-show",
@@ -4487,93 +4513,311 @@ const processOverdueCheckIns = async () => {
   try {
     await connection.beginTransaction();
     const candidates = await bookingModel.getOverdueCheckInCandidates(connection);
+    const tiers = await bookingModel.getCheckoutLateFeeTiers(connection);
+    const standardCheckInTime = tiers?.standardCheckInTime || '14:00:00';
+    const standardCheckOutTime = tiers?.standardCheckOutTime || '12:00:00';
 
     for (const candidate of candidates) {
       if (candidate.actual_check_in_time) {
         continue;
       }
 
-      const checkInDate = candidate.check_in;
-      const requestedCheckInTime = candidate.requested_check_in_time || '14:00:00';
-      const requestedCheckInDayOffset = Number(candidate.requested_check_in_day_offset || 0);
-      const checkOutDate = candidate.check_out;
-      const requestedCheckOutTime = candidate.requested_check_out_time || '12:00:00';
-
-      const standardLateDeadline = getLateCheckInDeadline(checkInDate, requestedCheckInTime, 6, requestedCheckInDayOffset);
-      const checkOutDeadline = getCheckOutDeadline(checkOutDate, requestedCheckOutTime);
-
-      // Khách đặt phòng ngay trong ngày nhận phòng, sau giờ chốt check-in muộn
-      // (VD đặt lúc 20:11 trong khi hạn là 20:00) thì đơn vừa tạo đã quá hạn.
-      // Không kèm điều kiện này, lần quét kế tiếp đánh no-show chỉ sau vài giây,
-      // khách còn chưa kịp thanh toán. Người đặt muộn là người đang trên đường
-      // tới, nên tính hạn từ lúc đặt cộng đúng khoảng ân hạn.
-      const createdAt = candidate.created_at ? new Date(candidate.created_at) : null;
-      const lateCheckInDeadline =
-        createdAt && createdAt > standardLateDeadline
-          ? new Date(createdAt.getTime() + LATE_CHECKIN_GRACE_HOUR * 3600000)
-          : standardLateDeadline;
-
-      // Đơn còn trong thời gian giữ chỗ chờ thanh toán thuộc luồng hết hạn giữ
-      // phòng (sẽ tự hủy), không phải khách không đến.
+      // Đơn còn trong thời gian giữ chỗ chờ thanh toán thuộc luồng hết hạn giữ phòng (sẽ tự hủy), không phải khách không đến.
       const holdExpiresAt = candidate.hold_expires_at ? new Date(candidate.hold_expires_at) : null;
       if (holdExpiresAt && holdExpiresAt > now && Number(candidate.paid_amount || 0) <= 0) {
         results.push({ bookingId: candidate.id, status: 'held', reason: 'Còn trong thời gian giữ chỗ chờ thanh toán' });
         continue;
       }
 
-      const totalAmount = Number(candidate.payment_total_amount || candidate.total_amount || 0);
-      const paidAmount = Number(candidate.paid_amount || 0);
-      const remainingAmount = Number(candidate.remaining_amount || 0);
-      const paymentStatus = candidate.payment_status;
+      const checkInDate = candidate.check_in;
+      const checkOutDate = candidate.check_out;
+      const lateArrivalConfirmed = Boolean(candidate.late_arrival_confirmed || candidate.lateArrivalConfirmed);
 
-      const isFullyPaid =
-        paymentStatus === 'paid' ||
-        (remainingAmount <= 0 && paidAmount > 0) ||
-        (totalAmount > 0 && paidAmount / totalAmount >= 0.999);
+      const default24hDeadline = getLateNoShowDeadline(checkInDate, standardCheckInTime, DEFAULT_ROOM_HOLD_HOURS);
+      const checkOutDeadline = getCheckOutDeadline(checkOutDate, candidate.requested_check_out_time || standardCheckOutTime);
 
-      if (isFullyPaid) {
+      if (lateArrivalConfirmed) {
+        // CASE B: Khách đã xác nhận sẽ đến muộn -> Bỏ qua deadline +24h, giữ phòng tối đa đến hết kỳ lưu trú (checkOutDeadline).
         if (now > checkOutDeadline) {
           const changed = await bookingModel.markBookingNoShowIfEligible(candidate.id, connection);
           if (!changed) continue;
-          if (candidate.room_id) {
-            await bookingModel.updateRoomStatus(candidate.room_id, 'available', connection);
+
+          // Multi-room release: lấy TOÀN BỘ roomId từ booking_details
+          const [details] = await connection.query(
+            `SELECT DISTINCT roomId FROM booking_details WHERE bookingId = ? AND roomId IS NOT NULL`,
+            [candidate.id]
+          );
+          const roomIds = details.length > 0
+            ? details.map((d) => d.roomId).filter(Boolean)
+            : (candidate.room_id ? [candidate.room_id] : []);
+
+          for (const rId of roomIds) {
+            await bookingModel.updateRoomStatus(rId, 'available', connection);
           }
+
+          const candidatePaidAmount = Number(candidate.paid_amount || 0);
+          let voucher = null;
+          if (candidatePaidAmount > 0 && candidate.user_id) {
+            voucher = await voucherService.createNoShowCompensationVoucher(
+              candidate.user_id,
+              candidate.id,
+              connection
+            );
+          }
+
           await logHistory(
             candidate.id,
             'no_show',
-            'Khách đã thanh toán đủ nhưng không đến trong thời gian lưu trú. Đơn đặt phòng được chuyển sang trạng thái khách không đến.',
-            { oldValue: { status: candidate.status }, newValue: { status: 'no_show' } },
+            voucher
+              ? `Khách đã xác nhận đến muộn nhưng không đến trong toàn bộ kỳ lưu trú. Đơn đặt phòng được chuyển sang trạng thái khách không đến (No-show), tặng voucher ${voucher.code} giảm ${Number(voucher.discountPercentage)}% cho lần lưu trú tiếp theo.`
+              : 'Khách đã xác nhận đến muộn nhưng không đến trong toàn bộ kỳ lưu trú. Đơn đặt phòng được chuyển sang trạng thái khách không đến (No-show).',
+            { oldValue: { status: candidate.status }, newValue: { status: 'no_show', reason: 'confirmed_late_past_checkout', voucherCode: voucher?.code || null } },
             { role: 'system' },
             connection
           );
-          results.push({ bookingId: candidate.id, status: 'no_show', reason: '100% paid - past checkout deadline' });
+          results.push({ bookingId: candidate.id, status: 'no_show', reason: 'Confirmed late arrival - past checkout deadline' });
         } else {
-          results.push({ bookingId: candidate.id, status: 'held', reason: '100% paid - holding room' });
+          results.push({ bookingId: candidate.id, status: 'held', reason: 'Confirmed late arrival - holding room until checkout' });
         }
       } else {
-        if (now > lateCheckInDeadline) {
+        // CASE A: Khách chưa xác nhận đến muộn -> Giữ phòng mặc định 24 giờ tính từ giờ check-in chuẩn.
+        // Áp dụng GIỐNG NHAU cho cả khách đặt cọc và khách thanh toán full 100%.
+        if (now > default24hDeadline) {
           const changed = await bookingModel.markBookingNoShowIfEligible(candidate.id, connection);
           if (!changed) continue;
-          if (candidate.room_id) {
-            await bookingModel.updateRoomStatus(candidate.room_id, 'available', connection);
+
+          // Multi-room release: lấy TOÀN BỘ roomId từ booking_details
+          const [details] = await connection.query(
+            `SELECT DISTINCT roomId FROM booking_details WHERE bookingId = ? AND roomId IS NOT NULL`,
+            [candidate.id]
+          );
+          const roomIds = details.length > 0
+            ? details.map((d) => d.roomId).filter(Boolean)
+            : (candidate.room_id ? [candidate.room_id] : []);
+
+          for (const rId of roomIds) {
+            await bookingModel.updateRoomStatus(rId, 'available', connection);
           }
+
+          const candidatePaidAmount = Number(candidate.paid_amount || 0);
+          let voucher = null;
+          if (candidatePaidAmount > 0 && candidate.user_id) {
+            voucher = await voucherService.createNoShowCompensationVoucher(
+              candidate.user_id,
+              candidate.id,
+              connection
+            );
+          }
+
           await logHistory(
             candidate.id,
             'no_show',
-            'Khách không đến trong thời hạn nhận phòng cho phép. Đơn đặt phòng được chuyển sang trạng thái khách không đến. Tiền cọc không hoàn lại theo chính sách.',
-            { oldValue: { status: candidate.status }, newValue: { status: 'no_show' } },
+            voucher
+              ? `Quá thời hạn giữ phòng mặc định 24 giờ tính từ giờ nhận phòng chuẩn và không có xác nhận đến muộn. Đơn đặt phòng được chuyển sang trạng thái khách không đến (No-show), tặng voucher ${voucher.code} giảm ${Number(voucher.discountPercentage)}% cho lần lưu trú tiếp theo.`
+              : 'Quá thời hạn giữ phòng mặc định 24 giờ tính từ giờ nhận phòng chuẩn và không có xác nhận đến muộn. Đơn đặt phòng được chuyển sang trạng thái khách không đến (No-show).',
+            { oldValue: { status: candidate.status }, newValue: { status: 'no_show', reason: 'unconfirmed_past_24h_hold', voucherCode: voucher?.code || null } },
             { role: 'system' },
             connection
           );
-          results.push({ bookingId: candidate.id, status: 'no_show', reason: '30% deposit - past check-in deadline' });
+          results.push({ bookingId: candidate.id, status: 'no_show', reason: 'Unconfirmed - past 24h hold deadline' });
         } else {
-          results.push({ bookingId: candidate.id, status: 'held', reason: 'Within late check-in window' });
+          results.push({ bookingId: candidate.id, status: 'held', reason: 'Within default 24h hold window' });
         }
       }
     }
 
     await connection.commit();
     return results;
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
+const recordCustomerContact = async (
+  bookingId,
+  { action, note = '' } = {},
+  actor = null
+) => {
+  const connection = await db.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    const booking = await bookingModel.getBookingById(bookingId, connection, true);
+    if (!booking) {
+      throw new HttpError(404, 'Không tìm thấy đặt phòng');
+    }
+
+    if (booking.actual_check_in_time) {
+      throw new HttpError(400, 'Đặt phòng đã nhận phòng (Check-in), không thể cập nhật trạng thái liên hệ');
+    }
+
+    const currentStatus = (booking.status || '').toLowerCase();
+    if (['cancelled', 'no_show', 'checked_out'].includes(currentStatus)) {
+      throw new HttpError(400, `Không thể cập nhật trạng thái liên hệ cho đơn ở trạng thái ${bookingStatusLabel(booking.status)}`);
+    }
+
+    const now = new Date();
+    const actorId = actor?.userId || null;
+    const trimmedNote = (note || '').trim();
+
+    if (action === 'will_arrive_late') {
+      if (!trimmedNote) {
+        throw new HttpError(400, 'Vui lòng nhập lý do / ghi chú khi xác nhận khách sẽ đến muộn');
+      }
+
+      await bookingModel.updateLateArrivalContact(
+        bookingId,
+        {
+          lateArrivalConfirmed: true,
+          lateArrivalNote: trimmedNote,
+          lateArrivalConfirmedAt: now,
+          lateArrivalConfirmedBy: actorId,
+          contactResult: 'will_arrive_late'
+        },
+        connection
+      );
+
+      await logHistory(
+        bookingId,
+        'late_arrival_confirmed',
+        `Xác nhận khách sẽ đến muộn. Lý do: ${trimmedNote}. Tiếp tục giữ phòng cho khách đến hết kỳ lưu trú.`,
+        {
+          contactResult: 'will_arrive_late',
+          lateArrivalConfirmed: true,
+          note: trimmedNote
+        },
+        actor,
+        connection
+      );
+
+      await connection.commit();
+      const updated = await bookingModel.getBookingById(bookingId);
+      return {
+        success: true,
+        message: 'Đã xác nhận khách sẽ đến muộn. Phòng sẽ được giữ đến hết kỳ lưu trú.',
+        booking: updated
+      };
+    }
+
+    if (action === 'unreachable') {
+      await bookingModel.updateLateArrivalContact(
+        bookingId,
+        {
+          lateArrivalConfirmed: false,
+          lateArrivalNote: trimmedNote || null,
+          lateArrivalConfirmedAt: now,
+          lateArrivalConfirmedBy: actorId,
+          contactResult: 'unreachable'
+        },
+        connection
+      );
+
+      await logHistory(
+        bookingId,
+        'contact_unreachable',
+        `Đã liên hệ khách nhưng không liên lạc được${trimmedNote ? `. Ghi chú: ${trimmedNote}` : ''}. Tiếp tục giữ phòng theo hạn 24 giờ mặc định.`,
+        {
+          contactResult: 'unreachable',
+          lateArrivalConfirmed: false,
+          note: trimmedNote
+        },
+        actor,
+        connection
+      );
+
+      await connection.commit();
+      const updated = await bookingModel.getBookingById(bookingId);
+      return {
+        success: true,
+        message: 'Đã ghi nhận không liên hệ được. Phòng được giữ theo hạn 24 giờ mặc định.',
+        booking: updated
+      };
+    }
+
+    if (action === 'callback_later') {
+      await bookingModel.updateLateArrivalContact(
+        bookingId,
+        {
+          lateArrivalConfirmed: false,
+          lateArrivalNote: trimmedNote || null,
+          lateArrivalConfirmedAt: now,
+          lateArrivalConfirmedBy: actorId,
+          contactResult: 'callback_later'
+        },
+        connection
+      );
+
+      await logHistory(
+        bookingId,
+        'contact_callback_later',
+        `Đã liên hệ khách — cần liên hệ lại sau${trimmedNote ? `. Ghi chú: ${trimmedNote}` : ''}. Phòng được giữ theo hạn 24 giờ mặc định.`,
+        {
+          contactResult: 'callback_later',
+          lateArrivalConfirmed: false,
+          note: trimmedNote
+        },
+        actor,
+        connection
+      );
+
+      await connection.commit();
+      const updated = await bookingModel.getBookingById(bookingId);
+      return {
+        success: true,
+        message: 'Đã ghi nhận cần liên hệ lại sau. Phòng được giữ theo hạn 24 giờ mặc định.',
+        booking: updated
+      };
+    }
+
+    if (action === 'not_coming') {
+      await bookingModel.updateLateArrivalContact(
+        bookingId,
+        {
+          lateArrivalConfirmed: false,
+          lateArrivalNote: trimmedNote || null,
+          lateArrivalConfirmedAt: now,
+          lateArrivalConfirmedBy: actorId,
+          contactResult: 'not_coming'
+        },
+        connection
+      );
+
+      // Chuyển sang no-show ngay và giải phóng toàn bộ phòng
+      const noShowResult = await markNoShow(bookingId, {
+        allowBeforeDeadline: true,
+        connection,
+        actor,
+        note: trimmedNote
+      });
+
+      await logHistory(
+        bookingId,
+        'customer_confirmed_not_coming',
+        `Khách xác nhận không đến qua liên hệ trực tiếp${trimmedNote ? `. Lý do: ${trimmedNote}` : ''}. Đã chuyển sang No-show và giải phóng phòng.`,
+        {
+          contactResult: 'not_coming',
+          note: trimmedNote
+        },
+        actor,
+        connection
+      );
+
+      await connection.commit();
+      const updated = await bookingModel.getBookingById(bookingId);
+      return {
+        success: true,
+        message: 'Đã ghi nhận khách xác nhận không đến. Đặt phòng đã chuyển sang No-show và giải phóng phòng.',
+        booking: updated,
+        voucher: noShowResult.voucher,
+        refundPolicy: noShowResult.refundPolicy
+      };
+    }
+
+    throw new HttpError(400, `Hành động liên hệ không hợp lệ: ${action}`);
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -6245,6 +6489,7 @@ module.exports = {
   extendRoomHoldDeadline,
   reactivateNoShowBooking,
   processOverdueCheckIns,
+  recordCustomerContact,
   updateBookingRequestedCheckInTime,
   reassignConflictingBooking,
   resetBookingHold,

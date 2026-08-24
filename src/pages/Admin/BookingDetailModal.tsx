@@ -1,16 +1,19 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Alert, Button, Descriptions, Divider, Dropdown, Empty, Form, Input, InputNumber,
-  message, Modal, Popconfirm, Select, Space, Spin, Table, Tabs, Tag, Timeline, Tooltip,
+  Alert, Button, Card, Col, Descriptions, Divider, Dropdown, Empty, Form, Input, InputNumber,
+  message, Modal, Popconfirm, Row, Select, Space, Spin, Table, Tabs, Tag, Timeline, Tooltip,
 } from 'antd';
 import {
+  CheckCircleOutlined,
   ClockCircleOutlined,
+  CloseCircleOutlined,
   DeleteOutlined,
   DollarOutlined,
   DownOutlined,
   EditOutlined,
   HomeOutlined,
   IdcardOutlined,
+  PhoneOutlined,
   PlusCircleOutlined,
   QrcodeOutlined,
   RollbackOutlined,
@@ -29,7 +32,9 @@ import {
   updateBookingDamageCharge,
   updateBookingDamageChargeStatus,
   deleteBookingDamageCharge,
+  recordCustomerContact,
 } from '../../services/bookingService';
+import type { CustomerContactAction } from '../../services/bookingService';
 import { getServices } from '../../services/serviceService';
 import type { Service } from '../../types/service';
 
@@ -155,6 +160,12 @@ interface BookingDetail {
   cancellation_reason?: string | null;
   requested_check_in_time?: string | null;
   requested_check_in_day_offset?: number | null;
+  late_arrival_confirmed?: boolean | number | null;
+  late_arrival_note?: string | null;
+  late_arrival_confirmed_at?: string | null;
+  late_arrival_confirmed_by?: number | null;
+  late_arrival_confirmed_by_name?: string | null;
+  contact_result?: string | null;
   created_at?: string | null;
   actual_check_in_time?: string | null;
   actual_check_out_time?: string | null;
@@ -736,6 +747,162 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
     }
   };
 
+  const handleContactAction = (action: CustomerContactAction) => {
+    if (!bookingId || !detail) return;
+
+    if (action === 'will_arrive_late') {
+      let noteValue = '';
+      Modal.confirm({
+        title: '✅ Xác nhận khách sẽ đến muộn',
+        width: 520,
+        content: (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ marginBottom: 8, fontSize: 13, color: '#475569' }}>
+              Nhập lý do khách thông báo đến muộn / giờ dự kiến đến mới:
+            </div>
+            <Input.TextArea
+              rows={3}
+              placeholder="VD: Chuyến bay bị delay, khách thông báo sẽ nhận phòng lúc 22:30..."
+              onChange={(e) => {
+                noteValue = e.target.value;
+              }}
+            />
+            <div style={{ marginTop: 8, fontSize: 12, color: '#16a34a' }}>
+              🛡️ Hệ thống sẽ tiếp tục giữ phòng cho khách đến hết kỳ lưu trú (12:00 ngày {day(detail.check_out)}).
+            </div>
+          </div>
+        ),
+        okText: 'Xác nhận giữ phòng',
+        cancelText: 'Hủy',
+        okButtonProps: { style: { backgroundColor: '#16a34a', borderColor: '#16a34a' } },
+        onOk: async () => {
+          if (!noteValue.trim()) {
+            message.error('Vui lòng nhập lý do / ghi chú khi xác nhận khách sẽ đến muộn');
+            return Promise.reject();
+          }
+          try {
+            await recordCustomerContact(bookingId, { action: 'will_arrive_late', note: noteValue.trim() });
+            message.success('Đã xác nhận khách sẽ đến muộn. Tiếp tục giữ phòng đến hết kỳ lưu trú.');
+            fetchDetail();
+          } catch (err: unknown) {
+            const errMsg = (err as { response?: { data?: { message?: string } } }).response?.data?.message;
+            message.error(errMsg || 'Không thể cập nhật trạng thái liên hệ');
+          }
+        },
+      });
+      return;
+    }
+
+    if (action === 'unreachable') {
+      let noteValue = '';
+      Modal.confirm({
+        title: '📞 Đã liên hệ — Không liên lạc được',
+        width: 500,
+        content: (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ marginBottom: 8, fontSize: 13, color: '#475569' }}>
+              Ghi chú thêm về cuộc gọi (tùy chọn):
+            </div>
+            <Input.TextArea
+              rows={2}
+              placeholder="VD: Đã gọi 2 lần không nghe máy, gửi tin nhắn SMS..."
+              onChange={(e) => {
+                noteValue = e.target.value;
+              }}
+            />
+            <div style={{ marginTop: 8, fontSize: 12, color: '#d97706' }}>
+              ⏳ Phòng sẽ tiếp tục được giữ theo hạn 24 giờ mặc định tính từ giờ nhận phòng chuẩn.
+            </div>
+          </div>
+        ),
+        okText: 'Lưu trạng thái',
+        cancelText: 'Hủy',
+        onOk: async () => {
+          try {
+            await recordCustomerContact(bookingId, { action: 'unreachable', note: noteValue.trim() });
+            message.success('Đã ghi nhận không liên hệ được.');
+            fetchDetail();
+          } catch (err: unknown) {
+            const errMsg = (err as { response?: { data?: { message?: string } } }).response?.data?.message;
+            message.error(errMsg || 'Không thể cập nhật trạng thái liên hệ');
+          }
+        },
+      });
+      return;
+    }
+
+    if (action === 'callback_later') {
+      let noteValue = '';
+      Modal.confirm({
+        title: '🕒 Đã liên hệ — Cần liên hệ lại sau',
+        width: 500,
+        content: (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ marginBottom: 8, fontSize: 13, color: '#475569' }}>
+              Ghi chú liên hệ lại:
+            </div>
+            <Input.TextArea
+              rows={2}
+              placeholder="VD: Khách bận họp, hẹn gọi lại lúc 17:00..."
+              onChange={(e) => {
+                noteValue = e.target.value;
+              }}
+            />
+          </div>
+        ),
+        okText: 'Lưu trạng thái',
+        cancelText: 'Hủy',
+        onOk: async () => {
+          try {
+            await recordCustomerContact(bookingId, { action: 'callback_later', note: noteValue.trim() });
+            message.success('Đã ghi nhận cần liên hệ lại sau.');
+            fetchDetail();
+          } catch (err: unknown) {
+            const errMsg = (err as { response?: { data?: { message?: string } } }).response?.data?.message;
+            message.error(errMsg || 'Không thể cập nhật trạng thái liên hệ');
+          }
+        },
+      });
+      return;
+    }
+
+    if (action === 'not_coming') {
+      let noteValue = '';
+      Modal.confirm({
+        title: '❌ Khách xác nhận không đến (Chuyển No-show)',
+        width: 520,
+        content: (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ marginBottom: 8, fontSize: 13, color: '#b91c1c', fontWeight: 500 }}>
+              Khách thông báo sẽ hủy chuyến đi / không đến nhận phòng. Đơn đặt phòng sẽ chuyển sang trạng thái "Khách không đến" (No-show) và toàn bộ phòng sẽ được giải phóng ngay lập tức.
+            </div>
+            <Input.TextArea
+              rows={2}
+              placeholder="Lý do khách không đến..."
+              onChange={(e) => {
+                noteValue = e.target.value;
+              }}
+            />
+          </div>
+        ),
+        okText: 'Xác nhận No-show & Trả phòng',
+        okButtonProps: { danger: true },
+        cancelText: 'Đóng',
+        onOk: async () => {
+          try {
+            await recordCustomerContact(bookingId, { action: 'not_coming', note: noteValue.trim() });
+            message.success('Đã chuyển đơn sang No-show và giải phóng phòng thành công.');
+            fetchDetail();
+          } catch (err: unknown) {
+            const errMsg = (err as { response?: { data?: { message?: string } } }).response?.data?.message;
+            message.error(errMsg || 'Không thể thực hiện chuyển No-show');
+          }
+        },
+      });
+      return;
+    }
+  };
+
   const getBookingDisplayTag = (b: any) => {
     if (!b) return { label: '—', color: 'default' };
     const normStatus = String(b.status || 'pending').toLowerCase();
@@ -745,14 +912,24 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
       b.check_in
     ) {
       const checkInStr = dayjs(b.check_in).format('YYYY-MM-DD');
-      const reqTime = b.requested_check_in_time || '14:00:00';
-      const offset = Number(b.requested_check_in_day_offset || 0);
-      const requestedDateTime = dayjs(`${checkInStr} ${reqTime}`).add(offset, 'day');
-      const lateDeadline = requestedDateTime.add(6, 'hour');
+      const standardTime = (b.requested_check_in_time || '14:00:00').slice(0, 8);
+      const standardDateTime = dayjs(`${checkInStr}T${standardTime}`);
       const now = dayjs();
 
-      if (now.isAfter(requestedDateTime) && (now.isBefore(lateDeadline) || now.isSame(lateDeadline))) {
-        return { label: 'Check-in muộn', color: 'orange' };
+      if (now.isAfter(standardDateTime) || now.isSame(standardDateTime)) {
+        if (b.late_arrival_confirmed) {
+          return { label: 'Đã liên hệ - giữ phòng', color: 'cyan' };
+        }
+        if (b.contact_result === 'unreachable') {
+          return { label: 'Không liên hệ được', color: 'orange' };
+        }
+        if (b.contact_result === 'callback_later') {
+          return { label: 'Cần liên hệ lại', color: 'purple' };
+        }
+        if (b.contact_result === 'not_coming') {
+          return { label: 'Khách báo không đến', color: 'volcano' };
+        }
+        return { label: 'Khách chưa đến', color: 'volcano' };
       }
     }
     return {
@@ -763,6 +940,116 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
 
   const overviewTab = detail && (
     <>
+      {!detail.actual_check_in_time && ['pending', 'confirmed'].includes(detail.status) && (
+        <Card
+          size="small"
+          style={{
+            marginBottom: 16,
+            borderColor: detail.late_arrival_confirmed ? '#86efac' : '#fed7aa',
+            background: detail.late_arrival_confirmed ? '#f0fdf4' : '#fffbeb'
+          }}
+          title={
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontWeight: 600, color: '#1e293b' }}>
+                📞 Thông tin liên hệ khách & Trạng thái nhận phòng
+              </span>
+              <Tag color={detail.late_arrival_confirmed ? 'cyan' : detail.contact_result === 'unreachable' ? 'orange' : detail.contact_result === 'callback_later' ? 'purple' : 'volcano'}>
+                {detail.late_arrival_confirmed
+                  ? 'ĐÃ LIÊN HỆ — TIẾP TỤC GIỮ PHÒNG'
+                  : detail.contact_result === 'unreachable'
+                    ? 'Không liên hệ được'
+                    : detail.contact_result === 'callback_later'
+                      ? 'Cần liên hệ lại'
+                      : 'Khách chưa đến'}
+              </Tag>
+            </div>
+          }
+        >
+          <Row gutter={[16, 12]} style={{ marginBottom: 12 }}>
+            <Col xs={24} sm={8}>
+              <div style={{ fontSize: 12, color: '#64748b' }}>Họ tên khách:</div>
+              <div style={{ fontWeight: 600, fontSize: 14 }}>{detail.customer_name || '—'}</div>
+            </Col>
+            <Col xs={24} sm={8}>
+              <div style={{ fontSize: 12, color: '#64748b' }}>Số điện thoại:</div>
+              <div>
+                {detail.customer_phone ? (
+                  <a href={`tel:${detail.customer_phone}`} style={{ fontWeight: 600, color: '#2563eb' }}>
+                    📞 {detail.customer_phone}
+                  </a>
+                ) : '—'}
+              </div>
+            </Col>
+            <Col xs={24} sm={8}>
+              <div style={{ fontSize: 12, color: '#64748b' }}>Email:</div>
+              <div>
+                {detail.customer_email ? (
+                  <a href={`mailto:${detail.customer_email}`} style={{ color: '#2563eb' }}>
+                    ✉️ {detail.customer_email}
+                  </a>
+                ) : '—'}
+              </div>
+            </Col>
+          </Row>
+
+          <div style={{ padding: '8px 12px', background: '#fff', borderRadius: 6, border: '1px solid #e2e8f0', marginBottom: 12, fontSize: 13 }}>
+            <div>
+              Hạn giữ phòng mặc định: <strong>14:00 ngày {dayjs(detail.check_in).add(1, 'day').format('DD/MM/YYYY')}</strong> (24 giờ tính từ giờ check-in chuẩn).
+            </div>
+            {detail.late_arrival_confirmed ? (
+              <div style={{ color: '#15803d', marginTop: 4 }}>
+                ✓ Đã xác nhận giữ phòng đến hết kỳ lưu trú (12:00 ngày {day(detail.check_out)})
+                {detail.late_arrival_note && <span> · Lý do: <em>"{detail.late_arrival_note}"</em></span>}
+                {detail.late_arrival_confirmed_by_name && <span> · Người xác nhận: <strong>{detail.late_arrival_confirmed_by_name}</strong></span>}
+                {detail.late_arrival_confirmed_at && <span> · Lúc: {dateTime(detail.late_arrival_confirmed_at)}</span>}
+              </div>
+            ) : detail.contact_result === 'unreachable' ? (
+              <div style={{ color: '#c2410c', marginTop: 4 }}>
+                ⚠️ Đã liên hệ nhưng không liên lạc được{detail.late_arrival_note ? ` (Ghi chú: ${detail.late_arrival_note})` : ''}. Phòng tiếp tục được giữ đến hạn 24h mặc định.
+              </div>
+            ) : detail.contact_result === 'callback_later' ? (
+              <div style={{ color: '#7e22ce', marginTop: 4 }}>
+                ℹ️ Cần liên hệ lại sau{detail.late_arrival_note ? ` (Ghi chú: ${detail.late_arrival_note})` : ''}.
+              </div>
+            ) : (
+              <div style={{ color: '#b91c1c', marginTop: 4 }}>
+                ⚠️ Đến giờ nhận phòng mà khách chưa đến. Lễ tân chủ động liên hệ theo số điện thoại trên để xác nhận nhu cầu giữ phòng.
+              </div>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            <Button
+              type="primary"
+              style={{ backgroundColor: '#16a34a', borderColor: '#16a34a' }}
+              icon={<CheckCircleOutlined />}
+              onClick={() => handleContactAction('will_arrive_late')}
+            >
+              Khách sẽ đến muộn
+            </Button>
+            <Button
+              style={{ color: '#ea580c', borderColor: '#fdba74' }}
+              icon={<PhoneOutlined />}
+              onClick={() => handleContactAction('unreachable')}
+            >
+              Không liên hệ được
+            </Button>
+            <Button
+              icon={<ClockCircleOutlined />}
+              onClick={() => handleContactAction('callback_later')}
+            >
+              Chưa rõ / Liên hệ lại
+            </Button>
+            <Button
+              danger
+              icon={<CloseCircleOutlined />}
+              onClick={() => handleContactAction('not_coming')}
+            >
+              Khách xác nhận không đến
+            </Button>
+          </div>
+        </Card>
+      )}
       <Descriptions bordered size="small" column={2} style={{ marginBottom: 16 }} title="Thông tin khách và phòng">
         <Descriptions.Item label="Mã đặt phòng">
           #{detail.id}

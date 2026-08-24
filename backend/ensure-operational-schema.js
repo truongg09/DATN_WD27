@@ -87,6 +87,31 @@ const ensureOperationalSchema = async () => {
       'ALTER TABLE bookings ADD COLUMN last_hold_reset_at DATETIME NULL DEFAULT NULL AFTER hold_reset_count'
     );
   }
+  if (!bookingColumns.some((column) => column.Field === 'lateArrivalConfirmed')) {
+    await db.query(
+      'ALTER TABLE bookings ADD COLUMN lateArrivalConfirmed TINYINT(1) NOT NULL DEFAULT 0 AFTER actualCheckInTime'
+    );
+  }
+  if (!bookingColumns.some((column) => column.Field === 'lateArrivalNote')) {
+    await db.query(
+      'ALTER TABLE bookings ADD COLUMN lateArrivalNote TEXT NULL AFTER lateArrivalConfirmed'
+    );
+  }
+  if (!bookingColumns.some((column) => column.Field === 'lateArrivalConfirmedAt')) {
+    await db.query(
+      'ALTER TABLE bookings ADD COLUMN lateArrivalConfirmedAt DATETIME NULL DEFAULT NULL AFTER lateArrivalNote'
+    );
+  }
+  if (!bookingColumns.some((column) => column.Field === 'lateArrivalConfirmedBy')) {
+    await db.query(
+      'ALTER TABLE bookings ADD COLUMN lateArrivalConfirmedBy INT NULL DEFAULT NULL AFTER lateArrivalConfirmedAt'
+    );
+  }
+  if (!bookingColumns.some((column) => column.Field === 'contactResult')) {
+    await db.query(
+      'ALTER TABLE bookings ADD COLUMN contactResult VARCHAR(50) NULL DEFAULT NULL AFTER lateArrivalConfirmedBy'
+    );
+  }
   // Khởi tạo hold_expires_at cho các đơn cũ chưa có giá trị
   await db.query(`
     UPDATE bookings
