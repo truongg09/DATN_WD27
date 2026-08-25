@@ -139,7 +139,7 @@ const assertAllBookingRoomsAvailable = async (booking, connection) => {
   }
 };
 
-const createGatewayOrder = async (paymentId, { paymentMethod, amount, ipAddress }) => {
+const createGatewayOrder = async (paymentId, { paymentMethod, amount, ipAddress, returnContext }) => {
   if (!['zalopay', 'vnpay'].includes(paymentMethod)) {
     throw new HttpError(400, 'Gateway payment method must be zalopay or vnpay');
   }
@@ -159,9 +159,12 @@ const createGatewayOrder = async (paymentId, { paymentMethod, amount, ipAddress 
   }
   await assertAllBookingRoomsAvailable(booking, connection);
   const payableAmount = validatePaymentAmount(payment, amount ?? payment.remainingAmount);
+  const contextSuffix = returnContext === 'admin_bookings'
+    ? '_ADMIN'
+    : returnContext === 'staff_bookings' ? '_STAFF' : '';
   const orderId = paymentMethod === 'zalopay'
-    ? `${new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Ho_Chi_Minh' }).slice(2).replace(/-/g, '')}_${payment.id}_${Date.now()}`
-    : `${paymentMethod.toUpperCase()}-${payment.id}-${Date.now()}`;
+    ? `${new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Ho_Chi_Minh' }).slice(2).replace(/-/g, '')}_${payment.id}_${Date.now()}${contextSuffix}`
+    : `${paymentMethod.toUpperCase()}-${payment.id}-${Date.now()}${contextSuffix}`;
   // paymentDate belongs to the previously completed installment. Clear it
   // when opening a new gateway order so its callback is processed exactly once.
   // Hạn giữ phòng chỉ áp dụng trước khoản cọc đầu tiên. Khi khách đã cọc,
@@ -201,10 +204,13 @@ const createGatewayOrder = async (paymentId, { paymentMethod, amount, ipAddress 
   const orderInfo = `Thanh toan booking ${order.bookingId}`;
   try {
     const paymentUrl = paymentMethod === 'vnpay'
-      ? gateway.createVnpayUrl({ orderId: order.orderId, amount: order.payableAmount, orderInfo, ipAddress, expiresAt: order.expiresAt })
+      ? gateway.createVnpayUrl({
+        orderId: order.orderId, amount: order.payableAmount, orderInfo, ipAddress,
+        expiresAt: order.expiresAt, returnContext
+      })
       : await gateway.createZalopayPayment({
         orderId: order.orderId, bookingId: order.bookingId, amount: order.payableAmount,
-        orderInfo, expiresAt: order.expiresAt
+        orderInfo, expiresAt: order.expiresAt, returnContext
       });
     return { orderId: order.orderId, paymentUrl, expiresAt: order.expiresAt };
   } catch (error) {

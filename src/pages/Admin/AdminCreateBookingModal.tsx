@@ -746,7 +746,10 @@ export const AdminCreateBookingModal: React.FC<AdminCreateBookingModalProps> = (
 
         const gatewayRes = await createGatewayOrder(paymentId, {
           paymentMethod,
-          amount: actualPaymentAmount
+          amount: actualPaymentAmount,
+          returnContext: window.location.pathname.startsWith('/staff')
+            ? 'staff_bookings'
+            : 'admin_bookings'
         });
 
         const gData = gatewayRes?.data;

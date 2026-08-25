@@ -46,7 +46,10 @@ const normalizeProcessPaymentPayload = (body) => {
   return {
     paymentMethod,
     amount: body.amount !== undefined ? toAmount(body.amount, 'amount') : undefined,
-    sandbox: body.sandbox === true
+    sandbox: body.sandbox === true,
+    returnContext: ['admin_bookings', 'staff_bookings'].includes(body.returnContext)
+      ? body.returnContext
+      : null
   };
 };
 

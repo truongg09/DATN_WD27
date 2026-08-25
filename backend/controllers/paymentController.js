@@ -18,6 +18,17 @@ const sendError = (res, error) => {
   });
 };
 
+const gatewayFrontendReturnUrl = ({ frontendUrl, bookingId, orderId, gateway, success, paymentStatus, returnContext }) => {
+  const resultQuery = `gateway=${gateway}&payment=${success ? 'success' : 'failed'}${paymentStatus ? `&status=${encodeURIComponent(paymentStatus)}` : ''}`;
+  if (returnContext === 'admin_bookings' || orderId.endsWith('_ADMIN')) {
+    return `${frontendUrl}/admin/bookings?${resultQuery}&bookingId=${encodeURIComponent(bookingId)}`;
+  }
+  if (returnContext === 'staff_bookings' || orderId.endsWith('_STAFF')) {
+    return `${frontendUrl}/staff/bookings?${resultQuery}&bookingId=${encodeURIComponent(bookingId)}`;
+  }
+  return `${frontendUrl}/booking/${bookingId}?${resultQuery}`;
+};
+
 const createPayment = async (req, res) => {
   try {
     const payload = normalizeCreatePaymentPayload(req.body);
@@ -155,9 +166,10 @@ const vnpayReturn = async (req, res) => {
   } catch (error) {
     console.error('VNPay return error:', error);
   }
-  res.redirect(
-    `${FRONTEND_URL}/booking/${bookingId}?gateway=vnpay&payment=${success ? 'success' : 'failed'}${paymentStatus ? `&status=${encodeURIComponent(paymentStatus)}` : ''}`
-  );
+  res.redirect(gatewayFrontendReturnUrl({
+    frontendUrl: FRONTEND_URL, bookingId, orderId, gateway: 'vnpay', success, paymentStatus,
+    returnContext: req.query.returnContext
+  }));
 };
 
 const vnpayIpn = async (req, res) => {
@@ -241,9 +253,10 @@ const zalopayReturn = async (req, res) => {
     console.error('ZaloPay return error:', error);
   }
 
-  res.redirect(
-    `${FRONTEND_URL}/booking/${bookingId}?gateway=zalopay&payment=${success ? 'success' : 'failed'}${paymentStatus ? `&status=${encodeURIComponent(paymentStatus)}` : ''}`
-  );
+  res.redirect(gatewayFrontendReturnUrl({
+    frontendUrl: FRONTEND_URL, bookingId, orderId, gateway: 'zalopay', success, paymentStatus,
+    returnContext: req.query.returnContext
+  }));
 };
 
 const submitTransferConfirmation = async (req, res) => {
