@@ -98,12 +98,12 @@ const listInvoiceServices = async (bookingId, connection) => {
     `
       SELECT
         bs.serviceId,
-        s.serviceName,
+        COALESCE(s.serviceName, 'Phụ thu nhận phòng sớm') AS serviceName,
         bs.quantity,
-        s.price AS unitPrice,
+        COALESCE(bs.unitPrice, s.price, bs.totalPrice) AS unitPrice,
         bs.totalPrice
       FROM booking_services bs
-      JOIN services s ON s.id = bs.serviceId
+      LEFT JOIN services s ON s.id = bs.serviceId
       WHERE bs.bookingId = ? AND COALESCE(bs.status, 'used') = 'used'
       ORDER BY bs.id ASC
     `,

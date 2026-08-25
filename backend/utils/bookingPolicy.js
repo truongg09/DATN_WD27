@@ -137,49 +137,114 @@ const getMaxLateCheckoutTime = (standardCheckOut, nextBookingCheckInDate, tiers)
   return staticCap < dynamicCap ? staticCap : dynamicCap;
 };
 
-/**
- * Tính phụ thu Check-in sớm theo chuẩn ngành khách sạn:
- * - Trước 06:00: Phụ thu 100% giá 1 đêm
- * - 06:00 - 09:00: Phụ thu 50% giá 1 đêm
- * - 09:00 - 12:00: Phụ thu 30% giá 1 đêm
- * - 12:00 - 14:00 (hoặc giờ chuẩn): Miễn phí (0%)
- */
-const computeEarlyCheckInSurcharge = (now = new Date(), standardCheckInTime = '14:00:00', nightlyRate = 0) => {
-  const hour = now.getHours() + (now.getMinutes() / 60);
-  const stdParts = (standardCheckInTime || '14:00:00').split(':');
-  const stdHour = parseInt(stdParts[0] || '14', 10) + (parseInt(stdParts[1] || '0', 10) / 60);
+const formatDecimalHourToHHmm = (h) => {
+  const norm = Math.max(0, h);
+  const totalMinutes = Math.round(norm * 60);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+};
 
-  if (hour >= stdHour) {
+/**
+ * Tính phụ thu Check-in sớm theo cấu hình policy động:
+ * Dựa trên SỐ GIỜ SỚM HƠN GIỜ CHECK-IN CHUẨN (hoursEarly = standardCheckInTime - now):
+ * - hoursEarly >= tier1Hours (mặc định 8h): tier1Percent (mặc định 100%)
+ * - hoursEarly >= tier2Hours (mặc định 5h): tier2Percent (mặc định 50%)
+ * - hoursEarly >= tier3Hours (mặc định 2h): tier3Percent (mặc định 30%)
+ * - hoursEarly < tier3Hours: Miễn phí (0%)
+ */
+const computeEarlyCheckInSurcharge = (
+  now = new Date(),
+  standardCheckInOrPolicy = '14:00:00',
+  nightlyRate = 0,
+  policyConfig = null
+) => {
+  let standardCheckInTime = '14:00:00';
+  let tier1Hours = 8.0;
+  let tier1Percent = 100.0;
+  let tier2Hours = 5.0;
+  let tier2Percent = 50.0;
+  let tier3Hours = 2.0;
+  let tier3Percent = 30.0;
+
+  const extractFromObject = (obj) => {
+    if (!obj || typeof obj !== 'object') return;
+    if (obj.standardCheckInTime) standardCheckInTime = String(obj.standardCheckInTime);
+    if (obj.checkInTime) standardCheckInTime = String(obj.checkInTime);
+    if (obj.earlyCheckInPolicy) {
+      extractFromObject(obj.earlyCheckInPolicy);
+    }
+    if (obj.tier1Hours !== undefined) tier1Hours = Number(obj.tier1Hours);
+    if (obj.earlyTier1Hours !== undefined) tier1Hours = Number(obj.earlyTier1Hours);
+    if (obj.tier1Percent !== undefined) tier1Percent = Number(obj.tier1Percent);
+    if (obj.earlyTier1Percent !== undefined) tier1Percent = Number(obj.earlyTier1Percent);
+
+    if (obj.tier2Hours !== undefined) tier2Hours = Number(obj.tier2Hours);
+    if (obj.earlyTier2Hours !== undefined) tier2Hours = Number(obj.earlyTier2Hours);
+    if (obj.tier2Percent !== undefined) tier2Percent = Number(obj.tier2Percent);
+    if (obj.earlyTier2Percent !== undefined) tier2Percent = Number(obj.earlyTier2Percent);
+
+    if (obj.tier3Hours !== undefined) tier3Hours = Number(obj.tier3Hours);
+    if (obj.earlyTier3Hours !== undefined) tier3Hours = Number(obj.earlyTier3Hours);
+    if (obj.tier3Percent !== undefined) tier3Percent = Number(obj.tier3Percent);
+    if (obj.earlyTier3Percent !== undefined) tier3Percent = Number(obj.earlyTier3Percent);
+  };
+
+  if (typeof standardCheckInOrPolicy === 'object' && standardCheckInOrPolicy !== null) {
+    extractFromObject(standardCheckInOrPolicy);
+  } else if (typeof standardCheckInOrPolicy === 'string') {
+    standardCheckInTime = standardCheckInOrPolicy;
+  }
+  if (policyConfig && typeof policyConfig === 'object') {
+    extractFromObject(policyConfig);
+  }
+
+  const nowDate = now instanceof Date ? now : new Date(now);
+  const nowHour = nowDate.getHours() + (nowDate.getMinutes() / 60) + (nowDate.getSeconds() / 3600);
+
+  const stdParts = (standardCheckInTime || '14:00:00').split(':');
+  const stdHour = parseInt(stdParts[0] || '14', 10) + (parseInt(stdParts[1] || '0', 10) / 60) + ((parseInt(stdParts[2] || '0', 10) || 0) / 3600);
+  const stdLabel = (standardCheckInTime || '14:00:00').slice(0, 5);
+
+  if (nowHour >= stdHour) {
     return {
       isEarly: false,
       percent: 0,
       surchargeAmount: 0,
+      hoursEarly: 0,
       timeWindowLabel: 'Đúng giờ',
       isFree: true,
       description: 'Check-in đúng giờ tiêu chuẩn'
     };
   }
 
+  const hoursEarly = Math.round((stdHour - nowHour) * 10000) / 10000;
+  const displayHoursEarly = Math.round(hoursEarly * 10) / 10;
+
+  const t1TimeStr = formatDecimalHourToHHmm(stdHour - tier1Hours);
+  const t2TimeStr = formatDecimalHourToHHmm(stdHour - tier2Hours);
+  const t3TimeStr = formatDecimalHourToHHmm(stdHour - tier3Hours);
+
   let percent = 0;
   let timeWindowLabel = '';
   let description = '';
 
-  if (hour < 6) {
-    percent = 100;
-    timeWindowLabel = 'Trước 06:00 (Sáng sớm)';
-    description = 'Phụ thu 100% giá phòng 1 đêm do nhận phòng trước 06:00 sáng';
-  } else if (hour < 9) {
-    percent = 50;
-    timeWindowLabel = '06:00 - 09:00 (Sáng)';
-    description = 'Phụ thu 50% giá phòng 1 đêm do nhận phòng từ 06:00 đến 09:00';
-  } else if (hour < 12) {
-    percent = 30;
-    timeWindowLabel = '09:00 - 12:00 (Trưa)';
-    description = 'Phụ thu 30% giá phòng 1 đêm do nhận phòng từ 09:00 đến 12:00';
+  if (hoursEarly >= tier1Hours) {
+    percent = tier1Percent;
+    timeWindowLabel = `Trước ${t1TimeStr} (Sáng sớm)`;
+    description = `Phụ thu ${tier1Percent}% giá phòng 1 đêm do nhận phòng trước ${t1TimeStr} (sớm ${displayHoursEarly} tiếng, từ ${tier1Hours}h trở lên)`;
+  } else if (hoursEarly >= tier2Hours) {
+    percent = tier2Percent;
+    timeWindowLabel = `${t1TimeStr} - ${t2TimeStr} (Sáng)`;
+    description = `Phụ thu ${tier2Percent}% giá phòng 1 đêm do nhận phòng từ ${t1TimeStr} đến ${t2TimeStr} (sớm ${displayHoursEarly} tiếng, từ ${tier2Hours}h đến ${tier1Hours}h)`;
+  } else if (hoursEarly >= tier3Hours) {
+    percent = tier3Percent;
+    timeWindowLabel = `${t2TimeStr} - ${t3TimeStr} (Trưa)`;
+    description = `Phụ thu ${tier3Percent}% giá phòng 1 đêm do nhận phòng từ ${t2TimeStr} đến ${t3TimeStr} (sớm ${displayHoursEarly} tiếng, từ ${tier3Hours}h đến ${tier2Hours}h)`;
   } else {
     percent = 0;
-    timeWindowLabel = '12:00 - 14:00 (Miễn phí)';
-    description = 'Miễn phí nhận phòng sớm (từ 12:00 đến 14:00)';
+    timeWindowLabel = `${t3TimeStr} - ${stdLabel} (Miễn phí)`;
+    description = `Miễn phí nhận phòng sớm (từ ${t3TimeStr} đến ${stdLabel}, sớm dưới ${tier3Hours} tiếng)`;
   }
 
   const surchargeAmount = Math.round((Number(nightlyRate || 0) * percent) / 100);
@@ -188,6 +253,7 @@ const computeEarlyCheckInSurcharge = (now = new Date(), standardCheckInTime = '1
     isEarly: true,
     percent,
     surchargeAmount,
+    hoursEarly: displayHoursEarly,
     timeWindowLabel,
     isFree: percent === 0,
     description

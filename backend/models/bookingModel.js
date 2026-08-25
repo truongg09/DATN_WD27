@@ -556,8 +556,8 @@ const getBookingServiceChargeById = async (svcId, connection) => {
   const [rows] = await run(connection).query(
     `SELECT bs.id, bs.bookingId, bs.roomId, r.roomNumber, bs.customerId, bs.guestName,
             COALESCE(NULLIF(c.fullName, ''), a.email, bs.guestName) AS customerName,
-            bs.serviceId, s.serviceName,
-            COALESCE(bs.unitPrice, s.price) AS unitPrice, bs.quantity, bs.totalPrice,
+            bs.serviceId, COALESCE(s.serviceName, 'Phụ thu nhận phòng sớm') AS serviceName,
+            COALESCE(bs.unitPrice, s.price, bs.totalPrice) AS unitPrice, bs.quantity, bs.totalPrice,
             COALESCE(bs.status, 'used') AS status, bs.usedAt, bs.createdAt
      FROM booking_services bs
      LEFT JOIN services s ON s.id = bs.serviceId
@@ -575,8 +575,9 @@ const getBookingServicesByBookingId = async (bookingId, connection) => {
   const [rows] = await run(connection).query(
     `SELECT bs.id, bs.bookingId, bs.roomId, r.roomNumber, bs.customerId, bs.guestName,
             COALESCE(NULLIF(c.fullName, ''), a.email, bs.guestName) AS customerName,
-            bs.serviceId, s.serviceName, s.description,
-            COALESCE(bs.unitPrice, s.price) AS unitPrice, bs.quantity, bs.totalPrice,
+            bs.serviceId, COALESCE(s.serviceName, 'Phụ thu nhận phòng sớm') AS serviceName,
+            COALESCE(s.description, 'Phụ thu nhận phòng sớm') AS description,
+            COALESCE(bs.unitPrice, s.price, bs.totalPrice) AS unitPrice, bs.quantity, bs.totalPrice,
             COALESCE(bs.status, 'used') AS status, bs.usedAt, bs.createdAt
      FROM booking_services bs
      LEFT JOIN services s ON s.id = bs.serviceId
@@ -1440,7 +1441,13 @@ const DEFAULT_CHECKOUT_LATE_FEE_TIERS = {
   standardCheckOutTime: '12:00:00',
   standardCheckInTime: '14:00:00',
   housekeepingBufferMinutes: 60,
-  absoluteMaxLateHours: 6.0
+  absoluteMaxLateHours: 6.0,
+  earlyTier1Hours: 8.0,
+  earlyTier1Percent: 100.00,
+  earlyTier2Hours: 5.0,
+  earlyTier2Percent: 50.00,
+  earlyTier3Hours: 2.0,
+  earlyTier3Percent: 30.00
 };
 
 const notifyStaffAndAdmins = async (title, content, connection) => {

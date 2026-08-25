@@ -15,9 +15,9 @@ router.get('/', requireAuth, requireStaff, async (_req, res) => {
   try {
     const [rows] = await db.query(`
       SELECT bs.id, bs.bookingId, bs.roomId, bs.serviceId, bs.quantity,
-             COALESCE(bs.unitPrice, s.price) AS unitPrice, bs.totalPrice,
+             COALESCE(bs.unitPrice, s.price, bs.totalPrice) AS unitPrice, bs.totalPrice,
              COALESCE(bs.status, 'used') AS status, bs.usedAt, bs.createdAt,
-             s.serviceName,
+             COALESCE(s.serviceName, 'Phụ thu nhận phòng sớm') AS serviceName,
              COALESCE(b.guest_name, c.fullName) AS bookingCustomer,
              r.roomNumber, b.status AS bookingStatus
       FROM booking_services bs

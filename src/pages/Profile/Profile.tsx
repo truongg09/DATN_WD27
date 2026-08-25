@@ -445,7 +445,7 @@ function Profile() {
               }}>
                 <DollarCircleOutlined style={{ marginRight: "12px", fontSize: "17px" }} />
                 <Space>
-                  <span>Hoàn tiền</span>
+                  <span>Ví</span>
                   <Badge
                     count={refunds.filter((r) => r.status === "pending").length}
                     style={{ backgroundColor: "#faad14", color: "#fff", fontSize: "10px" }}

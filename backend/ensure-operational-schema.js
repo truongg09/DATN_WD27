@@ -1038,7 +1038,13 @@ const ensureOperationalSchema = async () => {
         standardCheckOutTime TIME NOT NULL DEFAULT '12:00:00',
         standardCheckInTime TIME NOT NULL DEFAULT '14:00:00',
         housekeepingBufferMinutes INT NOT NULL DEFAULT 60,
-        absoluteMaxLateHours DECIMAL(4,1) NOT NULL DEFAULT 6.0
+        absoluteMaxLateHours DECIMAL(4,1) NOT NULL DEFAULT 6.0,
+        earlyTier1Hours DECIMAL(4,1) NOT NULL DEFAULT 8.0,
+        earlyTier1Percent DECIMAL(5,2) NOT NULL DEFAULT 100.00,
+        earlyTier2Hours DECIMAL(4,1) NOT NULL DEFAULT 5.0,
+        earlyTier2Percent DECIMAL(5,2) NOT NULL DEFAULT 50.00,
+        earlyTier3Hours DECIMAL(4,1) NOT NULL DEFAULT 2.0,
+        earlyTier3Percent DECIMAL(5,2) NOT NULL DEFAULT 30.00
       )
     `);
     const [lateFeeTierRows] = await db.query('SELECT id FROM checkout_late_fee_tiers WHERE id = 1');
@@ -1046,9 +1052,31 @@ const ensureOperationalSchema = async () => {
       await db.query(
         `INSERT INTO checkout_late_fee_tiers
           (id, graceMinutes, tier1MaxHours, tier1Percent, tier2MaxHours, tier2Percent, tier3Percent,
-           standardCheckOutTime, standardCheckInTime, housekeepingBufferMinutes, absoluteMaxLateHours)
-         VALUES (1, 60, 3.0, 30.00, 6.0, 50.00, 100.00, '12:00:00', '14:00:00', 60, 6.0)`
+           standardCheckOutTime, standardCheckInTime, housekeepingBufferMinutes, absoluteMaxLateHours,
+           earlyTier1Hours, earlyTier1Percent, earlyTier2Hours, earlyTier2Percent, earlyTier3Hours, earlyTier3Percent)
+         VALUES (1, 60, 3.0, 30.00, 6.0, 50.00, 100.00, '12:00:00', '14:00:00', 60, 6.0, 8.0, 100.00, 5.0, 50.00, 2.0, 30.00)`
       );
+    } else {
+      const [cols] = await db.query('SHOW COLUMNS FROM checkout_late_fee_tiers');
+      const colNames = cols.map(c => c.Field);
+      if (!colNames.includes('earlyTier1Hours')) {
+        await db.query('ALTER TABLE checkout_late_fee_tiers ADD COLUMN earlyTier1Hours DECIMAL(4,1) NOT NULL DEFAULT 8.0 AFTER absoluteMaxLateHours');
+      }
+      if (!colNames.includes('earlyTier1Percent')) {
+        await db.query('ALTER TABLE checkout_late_fee_tiers ADD COLUMN earlyTier1Percent DECIMAL(5,2) NOT NULL DEFAULT 100.00 AFTER earlyTier1Hours');
+      }
+      if (!colNames.includes('earlyTier2Hours')) {
+        await db.query('ALTER TABLE checkout_late_fee_tiers ADD COLUMN earlyTier2Hours DECIMAL(4,1) NOT NULL DEFAULT 5.0 AFTER earlyTier1Percent');
+      }
+      if (!colNames.includes('earlyTier2Percent')) {
+        await db.query('ALTER TABLE checkout_late_fee_tiers ADD COLUMN earlyTier2Percent DECIMAL(5,2) NOT NULL DEFAULT 50.00 AFTER earlyTier2Hours');
+      }
+      if (!colNames.includes('earlyTier3Hours')) {
+        await db.query('ALTER TABLE checkout_late_fee_tiers ADD COLUMN earlyTier3Hours DECIMAL(4,1) NOT NULL DEFAULT 2.0 AFTER earlyTier2Percent');
+      }
+      if (!colNames.includes('earlyTier3Percent')) {
+        await db.query('ALTER TABLE checkout_late_fee_tiers ADD COLUMN earlyTier3Percent DECIMAL(5,2) NOT NULL DEFAULT 30.00 AFTER earlyTier3Hours');
+      }
     }
   } catch (err) {
     console.error('Lỗi khi khởi tạo checkout_late_fee_tiers:', err.message);

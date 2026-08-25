@@ -45,6 +45,7 @@ import axios from 'axios';
 import dayjs from 'dayjs';
 import { useLocation, useNavigate } from 'react-router-dom';
 import api from '../../services/api';
+import { getPolicies, type PoliciesInfo } from '../../services/settingsService';
 import { AdminCreateBookingModal } from './AdminCreateBookingModal';
 
 const { Option } = Select;
@@ -137,13 +138,144 @@ function RoomManagement() {
     }
   };
 
-  const handleCalendarCheckIn = async (bookingId: number, _customerName: string, _customerPhone: string) => {
+  const [policies, setPolicies] = useState<PoliciesInfo | null>(null);
+
+  useEffect(() => {
+    getPolicies()
+      .then((res) => {
+        if (res?.data) setPolicies(res.data);
+      })
+      .catch((err) => console.warn('Lỗi lấy chính sách giờ nhận phòng:', err));
+  }, []);
+
+  const computeEarlyCheckInInfo = (b: any, checkInTimeStr = '14:00') => {
+    if (!b?.check_in) {
+      return { isEarly: false, percent: 0, surchargeAmount: 0, timeWindowLabel: 'Đúng giờ', hoursEarly: 0, description: '' };
+    }
+    const now = dayjs();
+    const checkInDate = dayjs(b.check_in).startOf('day');
+    const isToday = now.isSame(checkInDate, 'day');
+    if (!isToday) {
+      return { isEarly: false, percent: 0, surchargeAmount: 0, timeWindowLabel: 'Đúng giờ', hoursEarly: 0, description: '' };
+    }
+
+    const stdTime = checkInTimeStr || '14:00';
+    const [stdH, stdM] = stdTime.split(':').map((v: string) => parseInt(v, 10) || 0);
+    const standardCheckIn = checkInDate.hour(stdH).minute(stdM).second(0);
+
+    if (!now.isBefore(standardCheckIn)) {
+      return { isEarly: false, percent: 0, surchargeAmount: 0, timeWindowLabel: 'Đúng giờ', hoursEarly: 0, description: 'Check-in đúng giờ tiêu chuẩn' };
+    }
+
+    const t1H = Number(policies?.earlyCheckInPolicy?.tier1Hours ?? policies?.earlyTier1Hours ?? 8.0);
+    const t1P = Number(policies?.earlyCheckInPolicy?.tier1Percent ?? policies?.earlyTier1Percent ?? 100.0);
+    const t2H = Number(policies?.earlyCheckInPolicy?.tier2Hours ?? policies?.earlyTier2Hours ?? 5.0);
+    const t2P = Number(policies?.earlyCheckInPolicy?.tier2Percent ?? policies?.earlyTier2Percent ?? 50.0);
+    const t3H = Number(policies?.earlyCheckInPolicy?.tier3Hours ?? policies?.earlyTier3Hours ?? 2.0);
+    const t3P = Number(policies?.earlyCheckInPolicy?.tier3Percent ?? policies?.earlyTier3Percent ?? 30.0);
+
+    const diffMinutes = Math.max(0, standardCheckIn.diff(now, 'minute'));
+    const hoursEarly = Math.round((diffMinutes / 60) * 10000) / 10000;
+    const displayHoursEarly = Math.round(hoursEarly * 10) / 10;
+
+    const stdDecimal = stdH + (stdM / 60);
+
+    const formatDec = (h: number) => {
+      const norm = Math.max(0, h);
+      const totalMins = Math.round(norm * 60);
+      const hrs = Math.floor(totalMins / 60);
+      const mins = totalMins % 60;
+      return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+    };
+
+    const t1TimeStr = formatDec(stdDecimal - t1H);
+    const t2TimeStr = formatDec(stdDecimal - t2H);
+    const t3TimeStr = formatDec(stdDecimal - t3H);
+    const stdLabel = stdTime.slice(0, 5);
+
+    let percent = 0;
+    let timeWindowLabel = '';
+    let description = '';
+
+    if (hoursEarly >= t1H) {
+      percent = t1P;
+      timeWindowLabel = `Trước ${t1TimeStr} (Sáng sớm)`;
+      description = `Phụ thu ${t1P}% giá 1 đêm do nhận phòng trước ${t1TimeStr} (sớm ${displayHoursEarly} tiếng, từ ${t1H}h trở lên)`;
+    } else if (hoursEarly >= t2H) {
+      percent = t2P;
+      timeWindowLabel = `${t1TimeStr} - ${t2TimeStr} (Sáng)`;
+      description = `Phụ thu ${t2P}% giá 1 đêm do nhận phòng từ ${t1TimeStr} đến ${t2TimeStr} (sớm ${displayHoursEarly} tiếng, từ ${t2H}h đến ${t1H}h)`;
+    } else if (hoursEarly >= t3H) {
+      percent = t3P;
+      timeWindowLabel = `${t2TimeStr} - ${t3TimeStr} (Trưa)`;
+      description = `Phụ thu ${t3P}% giá 1 đêm do nhận phòng từ ${t2TimeStr} đến ${t3TimeStr} (sớm ${displayHoursEarly} tiếng, từ ${t3H}h đến ${t2H}h)`;
+    } else {
+      percent = 0;
+      timeWindowLabel = `${t3TimeStr} - ${stdLabel} (Miễn phí)`;
+      description = `Miễn phí nhận phòng sớm (từ ${t3TimeStr} đến ${stdLabel}, sớm dưới ${t3H} tiếng)`;
+    }
+
+    const nightlyRate = Array.isArray(b.details) && b.details.length > 0
+      ? b.details.reduce((sum: number, d: any) => sum + Number(d.roomPrice || d.price || 0), 0)
+      : Number(b.room_price || b.price_per_night || 0);
+    const surchargeAmount = Math.round((nightlyRate * percent) / 100);
+
+    return {
+      isEarly: true,
+      percent,
+      surchargeAmount,
+      timeWindowLabel,
+      hoursEarly: displayHoursEarly,
+      description
+    };
+  };
+
+  const handleCalendarCheckIn = async (bookingId: number, bookingData?: any) => {
+    const targetBooking = bookingData || selectedBooking;
+    const earlyInfo = computeEarlyCheckInInfo(targetBooking, policies?.checkInTime || '14:00');
+
+    if (earlyInfo.isEarly && earlyInfo.surchargeAmount > 0) {
+      Modal.confirm({
+        title: 'Xác nhận Check-in sớm',
+        width: 500,
+        content: (
+          <div style={{ marginTop: 8 }}>
+            <div style={{ marginBottom: 6 }}>
+              Khách nhận phòng sớm <strong>{earlyInfo.hoursEarly} tiếng</strong> (Khung giờ: <strong>{earlyInfo.timeWindowLabel}</strong>).
+            </div>
+            <div style={{ marginBottom: 6, color: '#475569' }}>Quy định: {earlyInfo.description}</div>
+            <div style={{ marginTop: 8, color: '#dc2626', fontWeight: 600, fontSize: 14 }}>
+              Mức phụ thu dự kiến: +{formatPrice(earlyInfo.surchargeAmount)} ({earlyInfo.percent}%)
+            </div>
+            <div style={{ marginTop: 8, color: '#64748b', fontSize: 12 }}>
+              * Số tiền phụ thu chính thức do máy chủ tự động tính toán và ghi nhận vào hóa đơn.
+            </div>
+          </div>
+        ),
+        okText: 'Xác nhận nhận phòng',
+        cancelText: 'Hủy',
+        onOk: () => executeCalendarCheckIn(bookingId),
+      });
+      return;
+    }
+
+    await executeCalendarCheckIn(bookingId);
+  };
+
+  const executeCalendarCheckIn = async (bookingId: number) => {
     try {
-      // Check-in không kèm danh sách khách. Trước đây màn hình này gửi CCCD giả
-      // '000000000000' và ghi đè toàn bộ khách đã khai báo trước đó — hồ sơ lưu
-      // trú là dữ liệu pháp lý nên phải nhập CCCD thật ở trang Quản lý đặt phòng.
-      await api.patch(`/bookings/${bookingId}/check-in`);
-      message.success('Check-in thành công. Vui lòng khai báo CCCD khách lưu trú ở trang Quản lý đặt phòng.');
+      const response = await api.patch(`/bookings/${bookingId}/check-in`, {}, { skipMutationConfirm: true });
+      const resData = (response as any)?.data || response;
+      const earlySurchargeAmt = Number(resData?.earlyCheckIn?.surchargeAmount || resData?.earlySurcharge?.amount || 0);
+
+      if (earlySurchargeAmt > 0) {
+        message.success(resData?.message || `Check-in thành công. Phụ thu nhận phòng sớm: +${formatPrice(earlySurchargeAmt)}`);
+      } else if (resData?.earlyCheckIn?.isEarly && resData?.earlyCheckIn?.tierPercent === 0) {
+        message.success(resData?.message || 'Check-in sớm thành công (Miễn phí phụ thu)');
+      } else {
+        message.success(resData?.message || 'Check-in thành công');
+      }
+
       fetchRooms();
       setBookingDetailVisible(false);
     } catch (error: any) {
@@ -1816,7 +1948,7 @@ function RoomManagement() {
                       <Button
                         type="primary"
                         style={{ backgroundColor: '#22c55e', borderColor: '#22c55e' }}
-                        onClick={() => handleCalendarCheckIn(b.id, b.customer_name, b.customer_phone)}
+                        onClick={() => handleCalendarCheckIn(b.id, b)}
                       >
                         Check-in nhanh
                       </Button>
