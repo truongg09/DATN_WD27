@@ -23,15 +23,11 @@ import {
 } from "antd";
 import {
   UserOutlined,
-  CreditCardOutlined,
   CalendarOutlined,
   GiftOutlined,
   LogoutOutlined,
   LockOutlined,
-  TrophyOutlined,
-  AuditOutlined,
   BellOutlined,
-  SolutionOutlined,
   DollarCircleOutlined,
   CopyOutlined,
   ExclamationCircleOutlined,
@@ -367,44 +363,16 @@ function Profile() {
           <div style={{ backgroundColor: "#fff", borderRadius: "16px", boxShadow: "0 4px 20px rgba(0,0,0,0.06)", overflow: "hidden" }}>
             <div style={sidebarHeaderStyle}>
               <Avatar size={70} icon={<UserOutlined />} style={{ border: "3px solid rgba(255,255,255,0.6)", backgroundColor: "#fff", color: "#ab8965" }} />
-              <Title level={4} style={{ color: "#fff", margin: "12px 0 4px", fontSize: "18px" }}>
+              <Title level={4} style={{ color: "#fff", margin: "12px 0 0", fontSize: "18px" }}>
                 {profile?.fullName || user?.email?.split("@")[0] || "Khách hàng"}
               </Title>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", fontSize: "13px" }}>
-                <TrophyOutlined style={{ color: "#ffd700" }} />
-                <Text style={{ color: "#fefefe", fontWeight: 500 }}>Thành viên Bronze Priority</Text>
-              </div>
             </div>
 
             {/* Menu options giống ảnh mockup */}
             <div style={{ padding: "12px 0" }}>
-              <div style={{ display: "flex", alignItems: "center", padding: "14px 20px", borderBottom: "1px solid #f0f0f0" }}>
-                <TrophyOutlined style={{ fontSize: "18px", color: "#ab8965", marginRight: "12px" }} />
-                <div>
-                  <div style={{ fontSize: "12px", color: "#888" }}>Điểm tích lũy</div>
-                  <strong style={{ fontSize: "15px" }}>0 Điểm</strong>
-                </div>
-              </div>
-
               <div style={menuItemStyle("profile-edit")} onClick={() => setActiveTab("profile-edit")}>
                 <UserOutlined style={{ marginRight: "12px", fontSize: "17px" }} />
                 <span>Chỉnh sửa hồ sơ</span>
-              </div>
-
-              <div style={menuItemStyle("my-cards")} onClick={() => {
-                setActiveTab("my-cards");
-                message.info("Tính năng thẻ thành viên đang được xây dựng!");
-              }}>
-                <CreditCardOutlined style={{ marginRight: "12px", fontSize: "17px" }} />
-                <span>Thẻ của tôi</span>
-              </div>
-
-              <div style={menuItemStyle("transactions")} onClick={() => {
-                setActiveTab("transactions");
-                message.info("Tính năng giao dịch đang được nâng cấp!");
-              }}>
-                <AuditOutlined style={{ marginRight: "12px", fontSize: "17px" }} />
-                <span>Danh sách giao dịch</span>
               </div>
 
               <div style={menuItemStyle("bookings")} onClick={() => setActiveTab("bookings")}>
@@ -439,14 +407,6 @@ function Profile() {
                     style={{ backgroundColor: "#1677ff", color: "#fff", fontSize: "10px" }}
                   />
                 </Space>
-              </div>
-
-              <div style={menuItemStyle("saved-passengers")} onClick={() => {
-                setActiveTab("saved-passengers");
-                message.info("Thông tin hành khách sẽ tự động lưu khi đặt chỗ.");
-              }}>
-                <SolutionOutlined style={{ marginRight: "12px", fontSize: "17px" }} />
-                <span>Thông tin hành khách đã lưu</span>
               </div>
 
               <div style={menuItemStyle("vouchers")} onClick={() => setActiveTab("vouchers")}>
