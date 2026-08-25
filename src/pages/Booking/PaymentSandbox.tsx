@@ -25,6 +25,9 @@ const PaymentSandbox: React.FC = () => {
   const method = searchParams.get('method') || 'vnpay';
   const amountStr = searchParams.get('amount') || '0';
   const txn = searchParams.get('txn') || '';
+  const explicitReturnContext = searchParams.get('returnContext');
+  const returnContext = explicitReturnContext
+    || (txn.endsWith('_ADMIN') ? 'admin_bookings' : txn.endsWith('_STAFF') ? 'staff_bookings' : null);
   const amount = Number(amountStr);
 
   const [loading, setLoading] = useState(true);
@@ -110,6 +113,13 @@ const PaymentSandbox: React.FC = () => {
         gatewayOrderId: txn,
       });
       const status = response.data.payment.paymentStatus;
+      if (returnContext === 'admin_bookings' || returnContext === 'staff_bookings') {
+        const prefix = returnContext === 'staff_bookings' ? '/staff' : '/admin';
+        navigate(
+          `${prefix}/bookings?gateway=${method.toLowerCase()}&payment=success&status=${encodeURIComponent(status)}&bookingId=${bookingId}`
+        );
+        return;
+      }
       navigate(
         `/booking/${bookingId}?gateway=${method.toLowerCase()}&payment=success&status=${encodeURIComponent(status)}`
       );

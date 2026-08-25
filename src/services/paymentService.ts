@@ -101,7 +101,11 @@ export const payWithWallet = async (
 
 export const createGatewayOrder = async (
   id: number,
-  data: { paymentMethod: Extract<PaymentMethod, "zalopay" | "vnpay">; amount: number }
+  data: {
+    paymentMethod: Extract<PaymentMethod, "zalopay" | "vnpay">;
+    amount: number;
+    returnContext?: "admin_bookings" | "staff_bookings";
+  }
 ) => {
   return api.post(`/payments/${id}/gateway-order`, data) as Promise<
     ApiResponse<{ orderId: string; paymentUrl: string; expiresAt: string }>

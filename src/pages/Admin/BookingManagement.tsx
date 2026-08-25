@@ -683,6 +683,23 @@ function BookingManagement() {
   const [searchParams, setSearchParams] = useSearchParams();
   const statusFilter = searchParams.get('status') || '';
   const dueFilter = searchParams.get('due') || '';
+
+  useEffect(() => {
+    const paymentResult = searchParams.get('payment');
+    const gateway = searchParams.get('gateway');
+    if (!paymentResult || !gateway) return;
+
+    const bookingId = searchParams.get('bookingId');
+    if (paymentResult === 'success') {
+      message.success(`Thanh toán ${gateway.toUpperCase()} cho đơn #${bookingId || ''} thành công!`);
+    } else {
+      message.error(`Thanh toán ${gateway.toUpperCase()} không thành công.`);
+    }
+
+    const nextParams = new URLSearchParams(searchParams);
+    ['payment', 'gateway', 'status', 'bookingId'].forEach((key) => nextParams.delete(key));
+    setSearchParams(nextParams, { replace: true });
+  }, [searchParams, setSearchParams]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [services, setServices] = useState<ServiceItem[]>([]);
   const [rooms, setRooms] = useState<RoomItem[]>([]);

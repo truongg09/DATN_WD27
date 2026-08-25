@@ -34,14 +34,15 @@ const requireEnv = (keys, provider) => {
   if (missing.length) throw new HttpError(503, `${provider} Sandbox thiếu cấu hình: ${missing.join(', ')}`);
 };
 
-const createVnpayUrl = ({ orderId, amount, orderInfo, ipAddress, expiresAt }) => {
+const createVnpayUrl = ({ orderId, amount, orderInfo, ipAddress, expiresAt, returnContext }) => {
   requireEnv(['VNPAY_TMN_CODE', 'VNPAY_HASH_SECRET'], 'VNPay');
   const stamp = (date) => date.toLocaleString('sv-SE', { timeZone: 'Asia/Ho_Chi_Minh', hour12: false }).replace(/[-: ]/g, '').slice(0, 14);
   const params = {
     vnp_Amount: Math.round(amount * 100), vnp_Command: 'pay', vnp_CreateDate: stamp(new Date()),
     vnp_CurrCode: 'VND', vnp_ExpireDate: stamp(new Date(expiresAt)),
     vnp_IpAddr: normalizeVnpayIp(ipAddress), vnp_Locale: 'vn', vnp_OrderInfo: orderInfo,
-    vnp_OrderType: 'other', vnp_ReturnUrl: `${API_BASE_URL}/api/payments/gateway/vnpay/return`,
+    vnp_OrderType: 'other',
+    vnp_ReturnUrl: `${API_BASE_URL}/api/payments/gateway/vnpay/return${returnContext ? `?returnContext=${encodeURIComponent(returnContext)}` : ''}`,
     vnp_TmnCode: process.env.VNPAY_TMN_CODE, vnp_TxnRef: orderId, vnp_Version: '2.1.0'
   };
   const query = vnpayQueryString(params);
@@ -50,15 +51,20 @@ const createVnpayUrl = ({ orderId, amount, orderInfo, ipAddress, expiresAt }) =>
 
 const verifyVnpay = (query) => {
   requireEnv(['VNPAY_HASH_SECRET'], 'VNPay');
-  const { vnp_SecureHash: signature, vnp_SecureHashType: _ignored, ...params } = query;
+  const { vnp_SecureHash: signature } = query;
   if (!signature) return false;
+  // Query parameters already present in vnp_ReturnUrl are not part of
+  // VNPay's response signature. Only verify fields supplied by VNPay.
+  const params = Object.fromEntries(
+    Object.entries(query).filter(([key]) => key.startsWith('vnp_') && !['vnp_SecureHash', 'vnp_SecureHashType'].includes(key))
+  );
   const expected = hmac('sha512', process.env.VNPAY_HASH_SECRET, vnpayQueryString(params)).toLowerCase();
   const received = String(signature).trim().toLowerCase();
   return expected.length === received.length
     && crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(received));
 };
 
-const createZalopayPayment = async ({ orderId, bookingId, amount, orderInfo, expiresAt }) => {
+const createZalopayPayment = async ({ orderId, bookingId, amount, orderInfo, expiresAt, returnContext }) => {
   requireEnv(['ZALOPAY_APP_ID', 'ZALOPAY_KEY1'], 'ZaloPay');
   const appId = Number(process.env.ZALOPAY_APP_ID);
   if (!Number.isInteger(appId) || appId <= 0) {
@@ -69,7 +75,8 @@ const createZalopayPayment = async ({ orderId, bookingId, amount, orderInfo, exp
   // usable through the project's simulator. Real Merchant v2 credentials
   // continue through the official API below.
   if (appId === 554) {
-    return `${FRONTEND_URL}/booking/${bookingId}/payment/sandbox?method=zalopay&amount=${encodeURIComponent(Math.round(amount))}&txn=${encodeURIComponent(orderId)}`;
+    const contextQuery = returnContext ? `&returnContext=${encodeURIComponent(returnContext)}` : '';
+    return `${FRONTEND_URL}/booking/${bookingId}/payment/sandbox?method=zalopay&amount=${encodeURIComponent(Math.round(amount))}&txn=${encodeURIComponent(orderId)}${contextQuery}`;
   }
   const appTime = Date.now();
   const expireDurationSeconds = Math.floor((new Date(expiresAt).getTime() - appTime) / 1000);
@@ -79,7 +86,7 @@ const createZalopayPayment = async ({ orderId, bookingId, amount, orderInfo, exp
   const appUser = process.env.ZALOPAY_APP_USER || 'HotelBooking';
   const embedData = JSON.stringify({
     preferred_payment_method: ['zalopay_wallet'],
-    redirecturl: `${API_BASE_URL}/api/payments/gateway/zalopay/return`
+    redirecturl: `${API_BASE_URL}/api/payments/gateway/zalopay/return${returnContext ? `?returnContext=${encodeURIComponent(returnContext)}` : ''}`
   });
   const item = '[]';
   const roundedAmount = Math.round(amount);
