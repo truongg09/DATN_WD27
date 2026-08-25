@@ -15,6 +15,7 @@ const {
   getCheckOutDeadline,
   combineDateTime,
   computeLateCheckoutFee,
+  computeEarlyCheckInSurcharge,
   getMaxLateCheckoutTime,
   DEFAULT_ROOM_HOLD_HOURS,
   HOLD_MINUTES,
@@ -4321,10 +4322,8 @@ const transferRoom = async (bookingId, payload, actor = null) => {
   }
 };
 
-// Nhãn mô tả cho từng nhánh check-in, dùng cả trong booking_history và trả về
-// cho frontend hiển thị. Cả 3 nhánh đều KHÔNG thu phí (xem quyết định nghiệp
-// vụ: sớm chỉ cần phòng sẵn sàng; muộn khách tự chịu thiệt thời gian lưu trú,
-// khách sạn không phát sinh chi phí nên không cần tier phí như late-checkout).
+// Nhãn mô tả cho từng nhánh check-in, dùng trong booking_history và trả về
+// cho frontend hiển thị.
 const CHECK_IN_TIMING_LABEL = {
   early: "nhận phòng sớm",
   on_time: "nhận phòng đúng giờ",
@@ -4355,18 +4354,15 @@ const checkIn = async (bookingId, payload = {}, actor = null) => {
 
     const tiers = await bookingModel.getCheckoutLateFeeTiers(connection);
 
-    // Không bắt buộc thanh toán 100% khi Check-in. Ghi nhận thông tin thanh toán để thu trước/khi Check-out.
-    const payment = await paymentService.getPaymentByBookingId(bookingId);
-    const paidAmount = Number(payment?.paidAmount || 0);
-    const remainingAmount = Number(payment?.remainingAmount || 0);
-    const hasUnpaidDebt = remainingAmount > 0;
-
-    const now = new Date();
+    const now = (payload._now && (['admin', 'staff', 'test'].includes(actor?.role) || payload._testMode || process.env.NODE_ENV === 'test'))
+      ? new Date(payload._now)
+      : new Date();
     const standardCheckInTime = tiers?.standardCheckInTime || '14:00:00';
     const standardCheckOutTime = tiers?.standardCheckOutTime || '12:00:00';
     const isLateConfirmed = Boolean(booking.late_arrival_confirmed || booking.lateArrivalConfirmed);
 
-    const checkInDay = new Date(`${dayString(booking.check_in)}T00:00:00`);
+    const checkInDayStr = dayString(booking.check_in);
+    const checkInDay = new Date(`${checkInDayStr}T00:00:00`);
     if (now < checkInDay) {
       throw new HttpError(409, "Chưa đến ngày nhận phòng");
     }
@@ -4382,8 +4378,9 @@ const checkIn = async (bookingId, payload = {}, actor = null) => {
       booking.check_in,
       standardCheckInTime,
     );
+    const isEarlyArrival = now < standardCheckIn && dayString(now) === checkInDayStr;
     const checkInTiming =
-      now < standardCheckIn
+      isEarlyArrival
         ? "early"
         : now > standardCheckIn
           ? "late"
@@ -4391,9 +4388,11 @@ const checkIn = async (bookingId, payload = {}, actor = null) => {
 
     // Lấy tất cả phòng vật lý từ booking_details (source of truth), fallback sang booking.room_id cho đơn cũ
     const [details] = await connection.query(
-      `SELECT bd.id AS bookingDetailId, bd.roomId, r.roomNumber, r.status AS roomStatus
+      `SELECT bd.id AS bookingDetailId, bd.roomId, bd.roomTypeId, bd.roomPrice,
+              r.roomNumber, r.status AS roomStatus, rt.typeName AS roomTypeName, rt.defaultPrice
        FROM booking_details bd
        LEFT JOIN rooms r ON r.id = bd.roomId
+       LEFT JOIN room_types rt ON rt.id = COALESCE(bd.roomTypeId, r.roomTypeId)
        WHERE bd.bookingId = ?
        ORDER BY bd.id ASC FOR UPDATE`,
       [bookingId],
@@ -4454,39 +4453,153 @@ const checkIn = async (bookingId, payload = {}, actor = null) => {
     }
     await bookingModel.updateActualCheckInTime(bookingId, now, connection);
 
-    let earlySurchargeRecord = null;
-    if (payload.applyEarlySurcharge && Number(payload.earlySurchargeAmount || 0) > 0) {
-      const surchargeAmt = Number(payload.earlySurchargeAmount);
-      const timeLabel = payload.earlyTimeLabel ? ` (${payload.earlyTimeLabel})` : '';
-      const [svcRes] = await connection.query(
-        `INSERT INTO booking_services (bookingId, roomId, serviceId, unitPrice, quantity, totalPrice, status, usedAt)
-         VALUES (?, ?, NULL, ?, 1, ?, 'used', ?)`,
-        [bookingId, roomIds[0] || null, surchargeAmt, surchargeAmt, now]
-      );
-      earlySurchargeRecord = { id: svcRes.insertId, amount: surchargeAmt };
+    // Tính phụ thu check-in sớm chuẩn server-side
+    let earlyCalculation = {
+      isEarly: false,
+      tierPercent: 0,
+      timeWindowLabel: 'Đúng giờ',
+      earlyBaseAmount: 0,
+      originalSurchargeAmount: 0,
+      surchargeAmount: 0,
+      waived: false,
+      waiveReason: null,
+      details: []
+    };
+    let createdSurcharges = [];
+
+    if (checkInTiming === "early") {
+      const earlyTierInfo = computeEarlyCheckInSurcharge(now, tiers, 0);
+      const tierPercent = earlyTierInfo.percent;
+      const timeWindowLabel = earlyTierInfo.timeWindowLabel;
+
+      const nextDay = new Date(checkInDay);
+      nextDay.setDate(nextDay.getDate() + 1);
+      const nextDayStr = dayString(nextDay);
+      const existingNightly = await bookingModel.listNightlyPrices(bookingId, checkInDayStr, nextDayStr, connection);
+
+      const targetDetails = details.length > 0
+        ? details
+        : [{
+            bookingDetailId: null,
+            roomId: booking.room_id,
+            roomTypeId: booking.room_type_id,
+            roomPrice: booking.room_price,
+            roomNumber: booking.room_number,
+            roomTypeName: booking.room_type_name,
+            defaultPrice: booking.price_per_night
+          }];
+
+      const detailSurcharges = [];
+      for (const detail of targetDetails) {
+        let firstNightPrice = 0;
+        const matchedNight = existingNightly.find((n) =>
+          (n.roomId && detail.roomId && Number(n.roomId) === Number(detail.roomId)) ||
+          (!n.roomId && existingNightly.length === 1)
+        );
+        if (matchedNight && Number(matchedNight.price) > 0) {
+          firstNightPrice = Number(matchedNight.price);
+        } else {
+          const calcResult = await calcNightlyPrices(
+            detail.roomTypeId || booking.room_type_id,
+            Number(detail.roomPrice || detail.defaultPrice || 0),
+            checkInDay,
+            nextDay,
+            connection,
+            detail.roomId || booking.room_id
+          );
+          firstNightPrice = calcResult.prices[0]?.price || Number(detail.roomPrice || detail.defaultPrice || 0);
+        }
+
+        const roomSurchargeAmt = tierPercent > 0 ? Math.round((firstNightPrice * tierPercent) / 100) : 0;
+        detailSurcharges.push({
+          bookingDetailId: detail.bookingDetailId || null,
+          roomId: detail.roomId || null,
+          roomNumber: detail.roomNumber || null,
+          roomTypeName: detail.roomTypeName || null,
+          firstNightPrice,
+          surchargeAmt: roomSurchargeAmt
+        });
+      }
+
+      const totalCalculatedSurcharge = detailSurcharges.reduce((sum, d) => sum + d.surchargeAmt, 0);
+      const earlyBaseAmount = detailSurcharges.reduce((sum, d) => sum + d.firstNightPrice, 0);
+
+      const isWaiveRequested = Boolean(payload.waiveEarlySurcharge || payload.waive);
+      let isWaived = false;
+
+      if (isWaiveRequested && totalCalculatedSurcharge > 0) {
+        const actorRole = String(actor?.role || '').toLowerCase();
+        if (!['admin', 'staff', 'employee'].includes(actorRole)) {
+          throw new HttpError(403, "Chỉ nhân viên hoặc quản trị viên mới có quyền miễn phí phụ thu check-in sớm");
+        }
+        isWaived = true;
+      }
+
+      if (!isWaived && totalCalculatedSurcharge > 0) {
+        for (const item of detailSurcharges) {
+          if (item.surchargeAmt > 0) {
+            const [svcRes] = await connection.query(
+              `INSERT INTO booking_services (bookingId, bookingDetailId, roomId, serviceId, unitPrice, quantity, totalPrice, status, usedAt)
+               VALUES (?, ?, ?, NULL, ?, 1, ?, 'used', ?)`,
+              [bookingId, item.bookingDetailId || null, item.roomId || null, item.surchargeAmt, item.surchargeAmt, now]
+            );
+            createdSurcharges.push({
+              id: svcRes.insertId,
+              bookingDetailId: item.bookingDetailId,
+              roomId: item.roomId,
+              roomNumber: item.roomNumber,
+              amount: item.surchargeAmt
+            });
+          }
+        }
+
+        // Tái tính toán tài chính và cập nhật payments table ngay lập tức
+        await paymentService.recalculatePaymentForBooking(bookingId, connection);
+      }
+
+      earlyCalculation = {
+        isEarly: true,
+        tierPercent,
+        timeWindowLabel,
+        earlyBaseAmount,
+        originalSurchargeAmount: totalCalculatedSurcharge,
+        surchargeAmount: isWaived ? 0 : totalCalculatedSurcharge,
+        waived: isWaived,
+        waiveReason: isWaived ? (payload.waiveReason || 'Miễn phí phụ thu check-in sớm (Hỗ trợ khách hàng / Khách VIP)') : null,
+        details: detailSurcharges
+      };
     }
 
     const wasLate = checkInTiming === "late";
-    const timingLabel = CHECK_IN_TIMING_LABEL[checkInTiming];
     const roomNumbersStr = details.length > 0
       ? details.map((d) => d.roomNumber || d.roomId).filter(Boolean).join(", ")
       : (booking.room_number || booking.room_id || "");
 
-    const paymentNote = hasUnpaidDebt
-      ? ` (Đã thanh toán: ${displayMoney(paidAmount)}, còn lại: ${displayMoney(remainingAmount + (earlySurchargeRecord?.amount || 0))})`
-      : earlySurchargeRecord
-        ? ` (Đã thanh toán: ${displayMoney(paidAmount)}, phụ thu nhận phòng sớm: +${displayMoney(earlySurchargeRecord.amount)})`
-        : ` (Đã thanh toán đủ: ${displayMoney(paidAmount)})`;
+    const timingDesc = checkInTiming === "early"
+      ? `nhận phòng sớm (${earlyCalculation.timeWindowLabel}${earlyCalculation.tierPercent > 0 ? ` - ${earlyCalculation.tierPercent}%` : ''})`
+      : CHECK_IN_TIMING_LABEL[checkInTiming];
+
+    const surchargeNote = earlyCalculation.surchargeAmount > 0
+      ? `, phụ thu nhận phòng sớm: +${displayMoney(earlyCalculation.surchargeAmount)}`
+      : earlyCalculation.waived
+        ? `, miễn phụ thu sớm (${displayMoney(earlyCalculation.originalSurchargeAmount)}) do ${actor?.role || 'nhân viên'} xác nhận${earlyCalculation.waiveReason ? `: ${earlyCalculation.waiveReason}` : ''}`
+        : '';
 
     await logHistory(
       bookingId,
       "checked_in",
-      `Khách nhận phòng (${timingLabel})${roomNumbersStr ? ` - Phòng: ${roomNumbersStr}` : ""}${paymentNote}${Array.isArray(payload.guests) && payload.guests.length > 0 ? `. Khách lưu trú: ${payload.guests.map((g) => g.fullName).join(", ")}` : ""}`,
+      `Khách nhận phòng (${timingDesc})${roomNumbersStr ? ` - Phòng: ${roomNumbersStr}` : ""}${surchargeNote}${Array.isArray(payload.guests) && payload.guests.length > 0 ? `. Khách lưu trú: ${payload.guests.map((g) => g.fullName).join(", ")}` : ""}`,
       {
         entityType: "stay",
         entityId: booking.room_id,
         oldValue: { status: booking.status },
-        newValue: { status: "checked_in", checkInTiming, lateCheckIn: wasLate, roomIds, paidAmount, remainingAmount },
+        newValue: {
+          status: "checked_in",
+          checkInTiming,
+          lateCheckIn: wasLate,
+          roomIds,
+          earlyCheckIn: earlyCalculation
+        },
       },
       actor,
       connection,
@@ -4495,17 +4608,28 @@ const checkIn = async (bookingId, payload = {}, actor = null) => {
     await connection.commit();
 
     const updatedBooking = await bookingModel.getBookingById(bookingId);
+    const payment = await paymentService.getPaymentByBookingId(bookingId);
+    const paidAmount = Number(payment?.paidAmount || 0);
+    const remainingAmount = Number(payment?.remainingAmount || 0);
+
     return {
       ...updatedBooking,
       checkInTiming,
       lateCheckIn: wasLate,
       paidAmount,
-      remainingAmount: remainingAmount + (earlySurchargeRecord?.amount || 0),
-      hasUnpaidDebt: (remainingAmount + (earlySurchargeRecord?.amount || 0)) > 0,
-      earlySurcharge: earlySurchargeRecord,
+      remainingAmount,
+      hasUnpaidDebt: remainingAmount > 0,
+      earlyCheckIn: earlyCalculation,
+      earlySurcharge: earlyCalculation.surchargeAmount > 0
+        ? { amount: earlyCalculation.surchargeAmount, records: createdSurcharges }
+        : null,
       message:
         checkInTiming === "early"
-          ? (earlySurchargeRecord ? `Check-in sớm thành công (+${displayMoney(earlySurchargeRecord.amount)} phụ thu). Phòng đã sẵn sàng đón khách.` : "Check-in sớm thành công. Phòng đã sẵn sàng đón khách.")
+          ? (earlyCalculation.surchargeAmount > 0
+              ? `Check-in sớm thành công (+${displayMoney(earlyCalculation.surchargeAmount)} phụ thu). Phòng đã sẵn sàng đón khách.`
+              : (earlyCalculation.waived
+                  ? `Check-in sớm thành công (Đã miễn phí phụ thu ${displayMoney(earlyCalculation.originalSurchargeAmount)}). Phòng đã sẵn sàng đón khách.`
+                  : "Check-in sớm thành công. Phòng đã sẵn sàng đón khách."))
           : checkInTiming === "late"
             ? "Check-in muộn thành công. Phòng vẫn được giữ theo cam kết vì khách đã thanh toán."
             : "Check-in thành công",

@@ -51,6 +51,57 @@ const PaymentSettings = () => {
   const accountName = Form.useWatch('accountName', form);
   const transferPrefix = Form.useWatch('transferPrefix', form);
 
+  const stdCheckInWatch = Form.useWatch('standardCheckInTime', lateTiersForm);
+  const earlyT1HWatch = Form.useWatch('earlyTier1Hours', lateTiersForm);
+  const earlyT1PWatch = Form.useWatch('earlyTier1Percent', lateTiersForm);
+  const earlyT2HWatch = Form.useWatch('earlyTier2Hours', lateTiersForm);
+  const earlyT2PWatch = Form.useWatch('earlyTier2Percent', lateTiersForm);
+  const earlyT3HWatch = Form.useWatch('earlyTier3Hours', lateTiersForm);
+  const earlyT3PWatch = Form.useWatch('earlyTier3Percent', lateTiersForm);
+
+  const earlyCheckInPreview = useMemo(() => {
+    let stdH = 14;
+    let stdM = 0;
+    if (stdCheckInWatch && typeof (stdCheckInWatch as any).hour === 'function') {
+      stdH = (stdCheckInWatch as dayjs.Dayjs).hour();
+      stdM = (stdCheckInWatch as dayjs.Dayjs).minute();
+    }
+    const stdDecimal = stdH + (stdM / 60);
+
+    const t1H = Number(earlyT1HWatch ?? 8.0);
+    const t1P = Number(earlyT1PWatch ?? 100.0);
+    const t2H = Number(earlyT2HWatch ?? 5.0);
+    const t2P = Number(earlyT2PWatch ?? 50.0);
+    const t3H = Number(earlyT3HWatch ?? 2.0);
+    const t3P = Number(earlyT3PWatch ?? 30.0);
+
+    const formatDec = (h: number) => {
+      const norm = Math.max(0, h);
+      const totalMins = Math.round(norm * 60);
+      const hrs = Math.floor(totalMins / 60);
+      const mins = totalMins % 60;
+      return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+    };
+
+    const t1TimeStr = formatDec(stdDecimal - t1H);
+    const t2TimeStr = formatDec(stdDecimal - t2H);
+    const t3TimeStr = formatDec(stdDecimal - t3H);
+    const stdTimeStr = formatDec(stdDecimal);
+
+    return {
+      t1TimeStr,
+      t2TimeStr,
+      t3TimeStr,
+      stdTimeStr,
+      t1H,
+      t1P,
+      t2H,
+      t2P,
+      t3H,
+      t3P,
+    };
+  }, [stdCheckInWatch, earlyT1HWatch, earlyT1PWatch, earlyT2HWatch, earlyT2PWatch, earlyT3HWatch, earlyT3PWatch]);
+
   useEffect(() => {
     const load = async () => {
       try {
@@ -86,6 +137,12 @@ const PaymentSettings = () => {
             tier3Percent: Number(tiersRes.data.tier3Percent ?? 100.0),
             housekeepingBufferMinutes: tiersRes.data.housekeepingBufferMinutes ?? 60,
             absoluteMaxLateHours: Number(tiersRes.data.absoluteMaxLateHours ?? 6.0),
+            earlyTier1Hours: Number(tiersRes.data.earlyTier1Hours ?? 8.0),
+            earlyTier1Percent: Number(tiersRes.data.earlyTier1Percent ?? 100.0),
+            earlyTier2Hours: Number(tiersRes.data.earlyTier2Hours ?? 5.0),
+            earlyTier2Percent: Number(tiersRes.data.earlyTier2Percent ?? 50.0),
+            earlyTier3Hours: Number(tiersRes.data.earlyTier3Hours ?? 2.0),
+            earlyTier3Percent: Number(tiersRes.data.earlyTier3Percent ?? 30.0),
           });
         }
       } catch {
@@ -135,6 +192,15 @@ const PaymentSettings = () => {
   };
 
   const handleSaveLateTiers = async (values: Record<string, unknown>) => {
+    const e1H = Number(values.earlyTier1Hours ?? 8.0);
+    const e2H = Number(values.earlyTier2Hours ?? 5.0);
+    const e3H = Number(values.earlyTier3Hours ?? 2.0);
+
+    if (e3H <= 0 || e2H <= e3H || e1H <= e2H) {
+      message.error('Các mốc giờ nhận phòng sớm phải giảm dần và lớn hơn 0 (Mức 1 > Mức 2 > Mức 3 > 0)');
+      return;
+    }
+
     setSavingTiers(true);
     try {
       const payload: LateCheckoutTiersInfo = {
@@ -148,9 +214,15 @@ const PaymentSettings = () => {
         tier3Percent: Number(values.tier3Percent ?? 100.0),
         housekeepingBufferMinutes: Number(values.housekeepingBufferMinutes ?? 60),
         absoluteMaxLateHours: Number(values.absoluteMaxLateHours ?? 6.0),
+        earlyTier1Hours: e1H,
+        earlyTier1Percent: Number(values.earlyTier1Percent ?? 100.0),
+        earlyTier2Hours: e2H,
+        earlyTier2Percent: Number(values.earlyTier2Percent ?? 50.0),
+        earlyTier3Hours: e3H,
+        earlyTier3Percent: Number(values.earlyTier3Percent ?? 30.0),
       };
       await updateLateCheckoutTiers(payload);
-      message.success('Đã lưu cấu hình giờ chuẩn và phí trả phòng muộn');
+      message.success('Đã lưu cấu hình giờ chuẩn, nhận phòng sớm và phí trả phòng muộn');
     } catch (error: unknown) {
       const err = error as { response?: { data?: { message?: string } } };
       message.error(err.response?.data?.message || 'Không thể lưu cấu hình trễ giờ');
@@ -349,6 +421,76 @@ const PaymentSettings = () => {
             >
               <InputNumber min={1} max={12} step={0.5} style={{ width: '100%' }} addonAfter="giờ" />
             </Form.Item>
+
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 20 }}
+              message="Cấu hình các mốc phụ thu nhận phòng sớm (tính theo % giá 1 đêm)"
+            />
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+              <Form.Item
+                name="earlyTier1Hours"
+                label="Mức 1: Sớm từ (giờ)"
+                rules={[{ required: true, message: 'Nhập số giờ' }]}
+                extra={`Nhận phòng sớm từ ${earlyCheckInPreview.t1H} tiếng trở lên (Trước ${earlyCheckInPreview.t1TimeStr})`}
+              >
+                <InputNumber min={1} max={24} step={0.5} style={{ width: '100%' }} addonAfter="giờ" />
+              </Form.Item>
+              <Form.Item
+                name="earlyTier1Percent"
+                label="Mức 1: Phụ thu (%)"
+                rules={[{ required: true, message: 'Nhập % phụ thu' }]}
+              >
+                <InputNumber min={0} max={100} style={{ width: '100%' }} addonAfter="%" />
+              </Form.Item>
+
+              <Form.Item
+                name="earlyTier2Hours"
+                label="Mức 2: Sớm từ (giờ)"
+                rules={[{ required: true, message: 'Nhập số giờ' }]}
+                extra={`Nhận phòng sớm từ ${earlyCheckInPreview.t2H} đến ${earlyCheckInPreview.t1H} tiếng (${earlyCheckInPreview.t1TimeStr} - ${earlyCheckInPreview.t2TimeStr})`}
+              >
+                <InputNumber min={0.5} max={24} step={0.5} style={{ width: '100%' }} addonAfter="giờ" />
+              </Form.Item>
+              <Form.Item
+                name="earlyTier2Percent"
+                label="Mức 2: Phụ thu (%)"
+                rules={[{ required: true, message: 'Nhập % phụ thu' }]}
+              >
+                <InputNumber min={0} max={100} style={{ width: '100%' }} addonAfter="%" />
+              </Form.Item>
+
+              <Form.Item
+                name="earlyTier3Hours"
+                label="Mức 3: Sớm từ (giờ)"
+                rules={[{ required: true, message: 'Nhập số giờ' }]}
+                extra={`Nhận phòng sớm từ ${earlyCheckInPreview.t3H} đến ${earlyCheckInPreview.t2H} tiếng (${earlyCheckInPreview.t2TimeStr} - ${earlyCheckInPreview.t3TimeStr})`}
+              >
+                <InputNumber min={0.5} max={24} step={0.5} style={{ width: '100%' }} addonAfter="giờ" />
+              </Form.Item>
+              <Form.Item
+                name="earlyTier3Percent"
+                label="Mức 3: Phụ thu (%)"
+                rules={[{ required: true, message: 'Nhập % phụ thu' }]}
+              >
+                <InputNumber min={0} max={100} style={{ width: '100%' }} addonAfter="%" />
+              </Form.Item>
+            </div>
+
+            {/* Dynamic Live Preview Box */}
+            <div style={{ marginBottom: 20, padding: '10px 14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8 }}>
+              <div style={{ fontWeight: 600, color: '#334155', fontSize: 13, marginBottom: 4 }}>
+                Xem trước quy tắc áp dụng theo giờ chuẩn hiện tại ({earlyCheckInPreview.stdTimeStr}):
+              </div>
+              <div style={{ fontSize: 13, color: '#475569', lineHeight: 1.6 }}>
+                <div>• Trước <strong>{earlyCheckInPreview.t1TimeStr}</strong> (sớm &ge; {earlyCheckInPreview.t1H}h) &rarr; Phụ thu <strong>{earlyCheckInPreview.t1P}%</strong> giá 1 đêm</div>
+                <div>• <strong>{earlyCheckInPreview.t1TimeStr} – {earlyCheckInPreview.t2TimeStr}</strong> (sớm {earlyCheckInPreview.t2H}h – {earlyCheckInPreview.t1H}h) &rarr; Phụ thu <strong>{earlyCheckInPreview.t2P}%</strong> giá 1 đêm</div>
+                <div>• <strong>{earlyCheckInPreview.t2TimeStr} – {earlyCheckInPreview.t3TimeStr}</strong> (sớm {earlyCheckInPreview.t3H}h – {earlyCheckInPreview.t2H}h) &rarr; Phụ thu <strong>{earlyCheckInPreview.t3P}%</strong> giá 1 đêm</div>
+                <div>• <strong>{earlyCheckInPreview.t3TimeStr} – {earlyCheckInPreview.stdTimeStr}</strong> (sớm &lt; {earlyCheckInPreview.t3H}h) &rarr; <strong>Miễn phí phụ thu (0%)</strong></div>
+              </div>
+            </div>
 
             <Alert
               type="info"

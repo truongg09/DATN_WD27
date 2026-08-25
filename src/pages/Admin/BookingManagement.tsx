@@ -807,32 +807,56 @@ function BookingManagement() {
       return { isEarly: false, percent: 0, surchargeAmount: 0, timeWindowLabel: 'Đúng giờ', hoursEarly: 0, description: '' };
     }
 
-    const hour = now.hour() + now.minute() / 60;
+    const t1H = Number(policies?.earlyCheckInPolicy?.tier1Hours ?? policies?.earlyTier1Hours ?? 8.0);
+    const t1P = Number(policies?.earlyCheckInPolicy?.tier1Percent ?? policies?.earlyTier1Percent ?? 100.0);
+    const t2H = Number(policies?.earlyCheckInPolicy?.tier2Hours ?? policies?.earlyTier2Hours ?? 5.0);
+    const t2P = Number(policies?.earlyCheckInPolicy?.tier2Percent ?? policies?.earlyTier2Percent ?? 50.0);
+    const t3H = Number(policies?.earlyCheckInPolicy?.tier3Hours ?? policies?.earlyTier3Hours ?? 2.0);
+    const t3P = Number(policies?.earlyCheckInPolicy?.tier3Percent ?? policies?.earlyTier3Percent ?? 30.0);
+
     const diffMinutes = Math.max(0, standardCheckIn.diff(now, 'minute'));
-    const hoursEarly = Math.round((diffMinutes / 60) * 10) / 10;
+    const hoursEarly = Math.round((diffMinutes / 60) * 10000) / 10000;
+    const displayHoursEarly = Math.round(hoursEarly * 10) / 10;
+
+    const stdParts = standardTime.split(':');
+    const stdDecimal = parseInt(stdParts[0] || '14', 10) + (parseInt(stdParts[1] || '0', 10) / 60);
+
+    const formatDec = (h: number) => {
+      const norm = Math.max(0, h);
+      const totalMins = Math.round(norm * 60);
+      const hrs = Math.floor(totalMins / 60);
+      const mins = totalMins % 60;
+      return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+    };
+
+    const t1TimeStr = formatDec(stdDecimal - t1H);
+    const t2TimeStr = formatDec(stdDecimal - t2H);
+    const t3TimeStr = formatDec(stdDecimal - t3H);
+    const stdLabel = standardTime.slice(0, 5);
+
     let percent = 0;
     let timeWindowLabel = '';
     let description = '';
 
-    if (hour < 6) {
-      percent = 100;
-      timeWindowLabel = 'Trước 06:00 (Sáng sớm)';
-      description = 'Phụ thu 100% giá 1 đêm do nhận phòng trước 06:00 sáng';
-    } else if (hour < 9) {
-      percent = 50;
-      timeWindowLabel = '06:00 - 09:00 (Sáng)';
-      description = 'Phụ thu 50% giá 1 đêm do nhận phòng từ 06:00 đến 09:00';
-    } else if (hour < 12) {
-      percent = 30;
-      timeWindowLabel = '09:00 - 12:00 (Trưa)';
-      description = 'Phụ thu 30% giá 1 đêm do nhận phòng từ 09:00 đến 12:00';
+    if (hoursEarly >= t1H) {
+      percent = t1P;
+      timeWindowLabel = `Trước ${t1TimeStr} (Sáng sớm)`;
+      description = `Phụ thu ${t1P}% giá 1 đêm do nhận phòng trước ${t1TimeStr} (sớm ${displayHoursEarly} tiếng, từ ${t1H}h trở lên)`;
+    } else if (hoursEarly >= t2H) {
+      percent = t2P;
+      timeWindowLabel = `${t1TimeStr} - ${t2TimeStr} (Sáng)`;
+      description = `Phụ thu ${t2P}% giá 1 đêm do nhận phòng từ ${t1TimeStr} đến ${t2TimeStr} (sớm ${displayHoursEarly} tiếng, từ ${t2H}h đến ${t1H}h)`;
+    } else if (hoursEarly >= t3H) {
+      percent = t3P;
+      timeWindowLabel = `${t2TimeStr} - ${t3TimeStr} (Trưa)`;
+      description = `Phụ thu ${t3P}% giá 1 đêm do nhận phòng từ ${t2TimeStr} đến ${t3TimeStr} (sớm ${displayHoursEarly} tiếng, từ ${t3H}h đến ${t2H}h)`;
     } else {
       percent = 0;
-      timeWindowLabel = '12:00 - 14:00 (Miễn phí)';
-      description = 'Miễn phí nhận phòng sớm (từ 12:00 đến 14:00)';
+      timeWindowLabel = `${t3TimeStr} - ${stdLabel} (Miễn phí)`;
+      description = `Miễn phí nhận phòng sớm (từ ${t3TimeStr} đến ${stdLabel}, sớm dưới ${t3H} tiếng)`;
     }
 
-    const nightlyRate = Number(booking.room_price || booking.total_price || 0);
+    const nightlyRate = Number(booking.room_price || 0);
     const surchargeAmount = Math.round((nightlyRate * percent) / 100);
 
     return {
@@ -840,7 +864,7 @@ function BookingManagement() {
       percent,
       surchargeAmount,
       timeWindowLabel,
-      hoursEarly,
+      hoursEarly: displayHoursEarly,
       description
     };
   };
@@ -1136,9 +1160,6 @@ function BookingManagement() {
       }
 
       if (operation === 'guests') {
-        const earlyInfo = computeEarlyCheckInInfo(selectedBooking);
-        const shouldApplySurcharge = earlyInfo.isEarly && !waiveEarlySurcharge && earlyInfo.surchargeAmount > 0;
-
         const mainPayment = (selectedBooking as any)?.payment || (selectedBooking as any)?.payments?.[0];
         const totalAmount = Number(mainPayment?.totalAmount || selectedBooking?.payable_total || selectedBooking?.total_price || 0);
         const paidAmount = Number(mainPayment?.paidAmount || 0);
@@ -1160,15 +1181,14 @@ function BookingManagement() {
 
         const response = await api.patch(`/bookings/${selectedBooking.id}/check-in`, {
           guests: values.guests,
-          applyEarlySurcharge: shouldApplySurcharge,
-          earlySurchargeAmount: shouldApplySurcharge ? earlyInfo.surchargeAmount : 0,
-          earlyTimeLabel: earlyInfo.timeWindowLabel,
+          waiveEarlySurcharge: Boolean(waiveEarlySurcharge),
         }, { skipMutationConfirm: true });
-        const lateCheckIn = response.data?.lateCheckIn;
+        const resData = (response as any)?.data || response;
         message.success(
-          lateCheckIn
+          resData?.message ||
+          (resData?.lateCheckIn
             ? 'Check-in muộn thành công. Phòng vẫn được giữ vì khách đã thanh toán.'
-            : response.data?.message || 'Check-in thành công'
+            : 'Check-in thành công')
         );
       }
 
@@ -1726,7 +1746,7 @@ const handleCheckIn = (booking: Booking) => {
             <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '12px 16px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                 <span style={{ fontWeight: 600, color: '#1e40af', fontSize: 13 }}>
-                  🌅 Khách nhận phòng SỚM (trước giờ chuẩn {(policies?.checkInTime || '14:00').slice(0, 5)})
+                  Khách nhận phòng SỚM (trước giờ chuẩn {(policies?.checkInTime || '14:00').slice(0, 5)})
                 </span>
                 <Tag color="blue">Đến sớm {earlyInfo.hoursEarly} tiếng</Tag>
               </div>
@@ -2282,7 +2302,7 @@ const handleCheckIn = (booking: Booking) => {
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                             <div><Tag color={tag.color}>{tag.label}</Tag></div>
                             {isEarlyCheckIn(booking) && ['pending', 'confirmed'].includes(booking.status) && (
-                              <div><Tag color="cyan">🌅 Đến sớm</Tag></div>
+                              <div><Tag color="cyan">Đến sớm</Tag></div>
                             )}
                             {holdInfo && (
                               <Tooltip title={holdInfo.tooltip}>

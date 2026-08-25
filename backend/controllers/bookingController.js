@@ -547,9 +547,10 @@ const checkIn = async (req, res) => {
     const bookingId = normalizeIdParam(req.params.id);
     const payload = {
       ...(req.body?.guests ? normalizeGuestIdentitiesPayload(req.body) : {}),
-      applyEarlySurcharge: Boolean(req.body?.applyEarlySurcharge),
-      earlySurchargeAmount: Number(req.body?.earlySurchargeAmount || 0),
-      earlyTimeLabel: req.body?.earlyTimeLabel || '',
+      waiveEarlySurcharge: Boolean(req.body?.waiveEarlySurcharge ?? req.body?.waive ?? (!req.body?.applyEarlySurcharge && req.body?.applyEarlySurcharge !== undefined ? true : false)),
+      waiveReason: typeof req.body?.waiveReason === 'string'
+        ? req.body.waiveReason.trim()
+        : (typeof req.body?.reason === 'string' ? req.body.reason.trim() : ''),
     };
     const result = await bookingService.checkIn(bookingId, payload, req.user || null);
     res.json({

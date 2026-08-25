@@ -156,6 +156,13 @@ router.get('/policies', async (_req, res) => {
     const [[cancellation]] = await db.query('SELECT * FROM cancellation_policies WHERE id = 1');
     const [[tiers]] = await db.query('SELECT * FROM checkout_late_fee_tiers WHERE id = 1');
 
+    const earlyTier1Hours = Number(tiers?.earlyTier1Hours ?? 8.0);
+    const earlyTier1Percent = Number(tiers?.earlyTier1Percent ?? 100.0);
+    const earlyTier2Hours = Number(tiers?.earlyTier2Hours ?? 5.0);
+    const earlyTier2Percent = Number(tiers?.earlyTier2Percent ?? 50.0);
+    const earlyTier3Hours = Number(tiers?.earlyTier3Hours ?? 2.0);
+    const earlyTier3Percent = Number(tiers?.earlyTier3Percent ?? 30.0);
+
     res.json({
       data: {
         checkInTime: tiers?.standardCheckInTime || cancellation?.standardCheckInTime || '14:00:00',
@@ -164,7 +171,21 @@ router.get('/policies', async (_req, res) => {
         nearTierPercent: Number(cancellation?.nearTierPercent ?? 100),
         midTierMaxDays: cancellation?.midTierMaxDays ?? 7,
         midTierPercent: Number(cancellation?.midTierPercent ?? 50),
-        farTierPercent: Number(cancellation?.farTierPercent ?? 0)
+        farTierPercent: Number(cancellation?.farTierPercent ?? 0),
+        earlyTier1Hours,
+        earlyTier1Percent,
+        earlyTier2Hours,
+        earlyTier2Percent,
+        earlyTier3Hours,
+        earlyTier3Percent,
+        earlyCheckInPolicy: {
+          tier1Hours: earlyTier1Hours,
+          tier1Percent: earlyTier1Percent,
+          tier2Hours: earlyTier2Hours,
+          tier2Percent: earlyTier2Percent,
+          tier3Hours: earlyTier3Hours,
+          tier3Percent: earlyTier3Percent
+        }
       }
     });
   } catch (error) {
@@ -259,7 +280,13 @@ router.get('/late-checkout-tiers', async (_req, res) => {
         standardCheckOutTime: '12:00:00',
         standardCheckInTime: '14:00:00',
         housekeepingBufferMinutes: 60,
-        absoluteMaxLateHours: 6.0
+        absoluteMaxLateHours: 6.0,
+        earlyTier1Hours: 8.0,
+        earlyTier1Percent: 100.0,
+        earlyTier2Hours: 5.0,
+        earlyTier2Percent: 50.0,
+        earlyTier3Hours: 2.0,
+        earlyTier3Percent: 30.0
       }
     });
   } catch (error) {
@@ -285,7 +312,13 @@ router.put('/late-checkout-tiers', requireAuth, async (req, res) => {
       standardCheckInTime,
       standardCheckOutTime,
       housekeepingBufferMinutes,
-      absoluteMaxLateHours
+      absoluteMaxLateHours,
+      earlyTier1Hours,
+      earlyTier1Percent,
+      earlyTier2Hours,
+      earlyTier2Percent,
+      earlyTier3Hours,
+      earlyTier3Percent
     } = req.body || {};
 
     const normalizedCheckIn = normalizeTime(standardCheckInTime, '14:00:00');
@@ -300,11 +333,31 @@ router.put('/late-checkout-tiers', requireAuth, async (req, res) => {
     const hkBuffer = Number(housekeepingBufferMinutes ?? 60);
     const absMax = Number(absoluteMaxLateHours ?? 6.0);
 
+    const e1Hours = Number(earlyTier1Hours ?? 8.0);
+    const e1Pct = Number(earlyTier1Percent ?? 100.0);
+    const e2Hours = Number(earlyTier2Hours ?? 5.0);
+    const e2Pct = Number(earlyTier2Percent ?? 50.0);
+    const e3Hours = Number(earlyTier3Hours ?? 2.0);
+    const e3Pct = Number(earlyTier3Percent ?? 30.0);
+
+    if (!Number.isFinite(e1Hours) || !Number.isFinite(e2Hours) || !Number.isFinite(e3Hours)) {
+      return res.status(400).json({ message: 'Số giờ các mốc nhận phòng sớm phải là số hợp lệ' });
+    }
+    if (e3Hours <= 0 || e2Hours <= e3Hours || e1Hours <= e2Hours) {
+      return res.status(400).json({ message: 'Các mốc giờ nhận phòng sớm phải giảm dần và lớn hơn 0 (Mức 1 > Mức 2 > Mức 3 > 0)' });
+    }
+    for (const [label, pct] of [['Mức 1', e1Pct], ['Mức 2', e2Pct], ['Mức 3', e3Pct]]) {
+      if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
+        return res.status(400).json({ message: `Phụ thu nhận phòng sớm ${label} phải từ 0% đến 100%` });
+      }
+    }
+
     await db.query(
       `INSERT INTO checkout_late_fee_tiers
          (id, graceMinutes, tier1MaxHours, tier1Percent, tier2MaxHours, tier2Percent, tier3Percent,
-          standardCheckOutTime, standardCheckInTime, housekeepingBufferMinutes, absoluteMaxLateHours)
-       VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          standardCheckOutTime, standardCheckInTime, housekeepingBufferMinutes, absoluteMaxLateHours,
+          earlyTier1Hours, earlyTier1Percent, earlyTier2Hours, earlyTier2Percent, earlyTier3Hours, earlyTier3Percent)
+       VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
          graceMinutes = VALUES(graceMinutes),
          tier1MaxHours = VALUES(tier1MaxHours),
@@ -315,8 +368,18 @@ router.put('/late-checkout-tiers', requireAuth, async (req, res) => {
          standardCheckOutTime = VALUES(standardCheckOutTime),
          standardCheckInTime = VALUES(standardCheckInTime),
          housekeepingBufferMinutes = VALUES(housekeepingBufferMinutes),
-         absoluteMaxLateHours = VALUES(absoluteMaxLateHours)`,
-      [grace, t1Max, t1Pct, t2Max, t2Pct, t3Pct, normalizedCheckOut, normalizedCheckIn, hkBuffer, absMax]
+         absoluteMaxLateHours = VALUES(absoluteMaxLateHours),
+         earlyTier1Hours = VALUES(earlyTier1Hours),
+         earlyTier1Percent = VALUES(earlyTier1Percent),
+         earlyTier2Hours = VALUES(earlyTier2Hours),
+         earlyTier2Percent = VALUES(earlyTier2Percent),
+         earlyTier3Hours = VALUES(earlyTier3Hours),
+         earlyTier3Percent = VALUES(earlyTier3Percent)`,
+      [
+        grace, t1Max, t1Pct, t2Max, t2Pct, t3Pct,
+        normalizedCheckOut, normalizedCheckIn, hkBuffer, absMax,
+        e1Hours, e1Pct, e2Hours, e2Pct, e3Hours, e3Pct
+      ]
     );
 
     // Đồng bộ lại giờ chuẩn vào bảng cancellation_policies
@@ -338,9 +401,23 @@ router.put('/late-checkout-tiers', requireAuth, async (req, res) => {
         standardCheckInTime: normalizedCheckIn,
         standardCheckOutTime: normalizedCheckOut,
         housekeepingBufferMinutes: hkBuffer,
-        absoluteMaxLateHours: absMax
+        absoluteMaxLateHours: absMax,
+        earlyTier1Hours: e1Hours,
+        earlyTier1Percent: e1Pct,
+        earlyTier2Hours: e2Hours,
+        earlyTier2Percent: e2Pct,
+        earlyTier3Hours: e3Hours,
+        earlyTier3Percent: e3Pct,
+        earlyCheckInPolicy: {
+          tier1Hours: e1Hours,
+          tier1Percent: e1Pct,
+          tier2Hours: e2Hours,
+          tier2Percent: e2Pct,
+          tier3Hours: e3Hours,
+          tier3Percent: e3Pct
+        }
       },
-      message: 'Đã lưu cấu hình phí trả phòng muộn và giờ chuẩn'
+      message: 'Đã lưu cấu hình phí trễ giờ, nhận phòng sớm và giờ chuẩn'
     });
   } catch (error) {
     console.error('Update late checkout tiers error:', error);
