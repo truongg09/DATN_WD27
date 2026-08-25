@@ -782,8 +782,8 @@ function BookingDetailPage() {
       );
 
       let itemName = values.itemName;
-      let roomId = selectedDetail?.id ?? null;
-      let bookingDetailId = selectedDetail?.bookingDetailId ?? null;
+      const roomId = selectedDetail?.id ?? null;
+      const bookingDetailId = selectedDetail?.bookingDetailId ?? null;
 
       if (chargeType === 'damage') {
         const selectedItem = inventoryItems.find(

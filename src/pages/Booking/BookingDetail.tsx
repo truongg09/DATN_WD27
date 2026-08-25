@@ -491,7 +491,7 @@ const BookingDetail: React.FC = () => {
             <Descriptions.Item label="Ngày đặt">{formatDate(String(booking.created_at))}</Descriptions.Item>
             <Descriptions.Item label="Nhận phòng">
               <div>{formatDate(String(booking.check_in))}</div>
-              {Boolean(booking.actual_check_in_time) ? (
+              {booking.actual_check_in_time ? (
                 <div style={{ fontSize: 12, color: '#16a34a', marginTop: 2 }}>
                   ✓ Thực tế nhận: <strong>{dayjs(String(booking.actual_check_in_time)).format('HH:mm:ss DD/MM/YYYY')}</strong>
                 </div>
@@ -499,7 +499,7 @@ const BookingDetail: React.FC = () => {
             </Descriptions.Item>
             <Descriptions.Item label="Trả phòng">
               <div>{formatDate(String(booking.check_out))} (Trước 12:00)</div>
-              {Boolean(booking.actual_check_out_time) ? (
+              {booking.actual_check_out_time ? (
                 <div style={{ fontSize: 12, color: '#2563eb', marginTop: 2 }}>
                   ✓ Thực tế trả: <strong>{dayjs(String(booking.actual_check_out_time)).format('HH:mm:ss DD/MM/YYYY')}</strong>
                 </div>
