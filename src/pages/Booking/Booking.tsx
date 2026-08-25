@@ -11,7 +11,6 @@ import { Button,
 } from "antd";
 import {
   ArrowRightOutlined,
-  CalendarOutlined,
   HistoryOutlined,
   MailOutlined,
   PhoneOutlined,
@@ -27,7 +26,6 @@ import { useAuth } from "../../contexts/AuthContext";
 import { checkTypeAvailability,
   checkAvailability,
   createBooking,
-  getBookings,
 } from "../../services/bookingService";
 import {
   getRoomById,
@@ -40,7 +38,6 @@ import type {
   NightlyPriceItem,
 } from "../../services/roomService";
 import { unwrapList } from "../../utils/unwrapList";
-import { BOOKING_STATUS_META } from "../../constants/bookingStatus";
 import api from "../../services/api";
 import {
   getRoomTypeCardImage,
@@ -108,16 +105,6 @@ interface SelectedRoom {
   availableRooms?: number;
 }
 
-interface BookingHistoryItem {
-  id: number;
-  room_number?: string;
-  room_type_name?: string;
-  check_in: string;
-  check_out: string;
-  total_price: number | string;
-  status: string;
-}
-
 interface DateAvailability {
   available: boolean;
   availableRooms?: number;
@@ -140,7 +127,6 @@ interface DateAvailability {
 }
 
 // Dùng chung bảng nhãn ở constants/bookingStatus để không sót trạng thái no_show.
-const bookingStatusMap = BOOKING_STATUS_META;
 
 const roomStatusMap: Record<string, { label: string; className: string }> = {
   available: { label: "Còn trống", className: "available" },
@@ -158,10 +144,6 @@ const Booking: React.FC = () => {
     [dayjs.Dayjs | null, dayjs.Dayjs | null]
   >([null, null]);
   const [submitting, setSubmitting] = useState(false);
-  const [recentBookings, setRecentBookings] = useState<BookingHistoryItem[]>(
-    [],
-  );
-  const [historyLoading, setHistoryLoading] = useState(false);
   const [dateAvailability, setDateAvailability] =
     useState<DateAvailability | null>(null);
   const [availabilityChecking, setAvailabilityChecking] = useState(false);
@@ -411,27 +393,6 @@ const Booking: React.FC = () => {
   };
 
 
-  useEffect(() => {
-    const loadRecentBookings = async () => {
-      if (!isAuthenticated || !user?.id) {
-        setRecentBookings([]);
-        return;
-      }
-
-      setHistoryLoading(true);
-      try {
-        const response = await getBookings({ userId: user.id });
-        setRecentBookings(unwrapList<BookingHistoryItem>(response).slice(0, 3));
-      } catch {
-        setRecentBookings([]);
-      } finally {
-        setHistoryLoading(false);
-      }
-    };
-
-    loadRecentBookings();
-  }, [isAuthenticated, user?.id]);
-
   // Prefill ngày + số khách từ query string (Fix Item 2: Bỏ max 4 NL / 3 TE)
   useEffect(() => {
     const paramCheckIn = searchParams.get("checkIn");
@@ -468,7 +429,6 @@ const Booking: React.FC = () => {
       .map((age) => parseInt(age, 10))
       .filter((age) => Number.isInteger(age) && age >= 0 && age <= 17);
     if (paramAges.length > 0) setChildrenAges(paramAges);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, setValue]);
 
   useEffect(() => {
@@ -1032,11 +992,6 @@ const Booking: React.FC = () => {
     return new Intl.NumberFormat("vi-VN").format(Number(price || 0)) + "đ";
   };
 
-  const formatDate = (date?: string) => {
-    if (!date) return "-";
-    return dayjs(date).format("DD/MM/YYYY");
-  };
-
   useEffect(() => {
     let cancelled = false;
 
@@ -1279,76 +1234,14 @@ const Booking: React.FC = () => {
       </div>
 
       <div className="booking-container">
+        {/* Lịch sử đặt phòng đã có nơi riêng trong trang Hồ sơ, nên ở đây chỉ để
+            một lối tắt. Trang này nên tập trung cho việc đang làm là đặt phòng. */}
         {isAuthenticated && (
-          <section className="booking-history-panel">
-            <div className="history-panel-header">
-              <div>
-                <span className="history-eyebrow">
-                  <HistoryOutlined />
-                  Lịch sử đặt phòng của bạn
-                </span>
-                <h2>Các chuyến đi gần đây</h2>
-              </div>
-              <Link to="/booking/history" className="history-view-all">
-                Xem tất cả <ArrowRightOutlined />
-              </Link>
-            </div>
-
-            {historyLoading ? (
-              <div className="history-loading">
-                Đang tải lịch sử đặt phòng...
-              </div>
-            ) : recentBookings.length > 0 ? (
-              <div className="history-card-grid">
-                {recentBookings.map((booking) => {
-                  const status = bookingStatusMap[booking.status] || {
-                    label: booking.status,
-                    className: "default",
-                  };
-
-                  return (
-                    <article className="history-card" key={booking.id}>
-                      <div className="history-card-top">
-                        <span className="history-code">#{booking.id}</span>
-                        <span className={`history-status ${status.className}`}>
-                          {status.label}
-                        </span>
-                      </div>
-                      <h3>
-                        {booking.status === 'checked_in' && booking.room_number
-                          ? `Phòng ${booking.room_number} - ${booking.room_type_name || ''}`
-                          : booking.room_type_name || 'Đặt phòng'}
-                      </h3>
-                      <div className="history-date">
-                        <CalendarOutlined />
-                        <span>
-                          {formatDate(booking.check_in)} -{" "}
-                          {formatDate(booking.check_out)}
-                        </span>
-                      </div>
-                      <div className="history-card-bottom">
-                        <strong>{formatMoney(booking.total_price)}</strong>
-                        <Link to={`/booking/${booking.id}`}>Chi tiết</Link>
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="history-empty">
-                <div>
-                  <h3>Chưa có lịch sử đặt phòng</h3>
-                  <p>
-                    Các đặt phòng mới của bạn sẽ xuất hiện tại đây để dễ theo
-                    dõi.
-                  </p>
-                </div>
-                <Link to="/rooms" className="history-empty-action">
-                  Khám phá phòng
-                </Link>
-              </div>
-            )}
-          </section>
+          <Link to="/profile?tab=bookings" className="booking-history-link">
+            <HistoryOutlined />
+            Lịch sử đặt phòng của bạn
+            <ArrowRightOutlined className="booking-history-link-arrow" />
+          </Link>
         )}
 
         <form
@@ -2172,9 +2065,8 @@ const Booking: React.FC = () => {
 
                   <div className="booking-summary-fixed-details">
                     <div className="capacity-preview-box">
-                      <span className="capacity-preview-title">Số khách</span>
                       <div className="capacity-spec-row">
-                        <span className="spec-label">Khách của bạn:</span>
+                        <span className="capacity-preview-title">Số khách</span>
                         <span className="spec-val">
                           {effectiveAdults} người lớn + {effectiveChildren} trẻ em
                         </span>
@@ -2278,30 +2170,21 @@ const Booking: React.FC = () => {
                         );
                       })()}
                     </div>
-                    {nights > 0 && (
+                    {/* Chỉ báo khi có vấn đề: phòng còn trống là trường hợp bình
+                        thường, khoe ra chỉ làm bill dài thêm mà khách không cần
+                        đọc. Vẫn giữ trạng thái "đang kiểm tra" để khách biết hệ
+                        thống đang xử lý sau khi họ đổi ngày. */}
+                    {nights > 0 && (availabilityChecking || isRoomDateUnavailable) && (
                       <div
                         className={`date-availability-note ${
-                          availabilityChecking
-                            ? "checking"
-                            : isRoomDateUnavailable
-                              ? "unavailable"
-                              : dateAvailability?.available
-                                ? "available"
-                                : ""
+                          availabilityChecking ? "checking" : "unavailable"
                         }`}
                       >
                         {availabilityChecking
                           ? "Đang kiểm tra phòng trống theo ngày đã chọn..."
-                          : isRoomDateUnavailable
-                            ? selectedRoom.mode === "type"
-                              ? "Rất tiếc, hạng phòng này đã hết phòng trống trong khoảng ngày bạn chọn. Vui lòng chọn ngày khác hoặc hạng phòng khác."
-                              : "Rất tiếc, phòng này đã có khách giữ chỗ trong khoảng ngày bạn chọn. Bạn vui lòng chọn ngày khác hoặc tham khảo phòng còn trống nhé."
-                            : dateAvailability?.available
-                              ? selectedRoom.mode === "type" &&
-                                dateAvailability.availableRooms !== undefined
-                                ? `Còn ${dateAvailability.availableRooms} phòng trống trong khoảng ngày đã chọn.`
-                                : "Phòng còn trống trong khoảng ngày đã chọn."
-                              : "Chọn ngày để kiểm tra phòng trống."}
+                          : selectedRoom.mode === "type"
+                            ? "Rất tiếc, hạng phòng này đã hết phòng trống trong khoảng ngày bạn chọn. Vui lòng chọn ngày khác hoặc hạng phòng khác."
+                            : "Rất tiếc, phòng này đã có khách giữ chỗ trong khoảng ngày bạn chọn. Bạn vui lòng chọn ngày khác hoặc tham khảo phòng còn trống nhé."}
                       </div>
                     )}
                     {isRoomBlockedByStatus && (
