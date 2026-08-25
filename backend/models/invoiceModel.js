@@ -280,6 +280,27 @@ const listInvoiceRooms = async (bookingId, connection) => {
   return legacy;
 };
 
+const listInvoiceLateCharges = async (bookingId, connection) => {
+  const [rows] = await run(connection).query(
+    `
+      SELECT
+        id,
+        bookingId,
+        lateMinutes,
+        tierPercent,
+        nightlyRate,
+        totalPrice,
+        note,
+        createdAt
+      FROM booking_late_checkout_charges
+      WHERE bookingId = ?
+      ORDER BY id ASC
+    `,
+    [bookingId]
+  );
+  return rows;
+};
+
 module.exports = {
   createInvoice,
   updateInvoiceAmounts,
@@ -288,6 +309,7 @@ module.exports = {
   getInvoiceByBookingId,
   listInvoiceRooms,
   listInvoiceServices,
+  listInvoiceLateCharges,
   listInvoiceNightlyPrices,
   listInvoiceTransfers,
   listInvoiceDamages,

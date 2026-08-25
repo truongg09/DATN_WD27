@@ -208,6 +208,7 @@ function InvoiceDetail({
   const nightlyPrices = invoice.nightlyPrices || [];
   const transfers = invoice.transfers || [];
   const damages = invoice.damages || [];
+  const lateCharges = invoice.lateCharges || [];
   const rooms = invoice.rooms || [];
 
   return (
@@ -442,6 +443,21 @@ function InvoiceDetail({
                   <small>{dmg.quantity} × {formatCurrency(dmg.unitPrice)}</small>
                 </span>
                 <strong>{formatCurrency(dmg.totalPrice)}</strong>
+              </div>
+            ))}
+          </>
+        )}
+
+        {lateCharges.length > 0 && (
+          <>
+            <AmountRow label="Phụ thu trả phòng muộn" value={lateCharges.reduce((sum, l) => sum + l.totalPrice, 0)} />
+            {lateCharges.map((lc) => (
+              <div className="invoice-service-item" key={lc.id} style={{ borderLeftColor: '#faad14' }}>
+                <span>
+                  {lc.name} {lc.tierPercent ? `(${lc.tierPercent}%)` : ''}
+                  <small>{lc.note || (lc.lateMinutes ? `Trễ ${lc.lateMinutes} phút` : 'Phụ thu trả phòng muộn')}</small>
+                </span>
+                <strong>{formatCurrency(lc.totalPrice)}</strong>
               </div>
             ))}
           </>

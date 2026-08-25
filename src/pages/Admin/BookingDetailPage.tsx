@@ -213,6 +213,8 @@ export interface BookingDetailData {
   actual_check_out_time?: string | null;
   services?: Record<string, unknown>[];
   damages?: Record<string, unknown>[];
+  late_checkout_charges?: Record<string, unknown>[];
+  lateCheckoutCharge?: Record<string, unknown> | null;
   guests?: Record<string, unknown>[];
   transfers?: Record<string, unknown>[];
   payments?: PaymentSnapshot[];
@@ -1371,6 +1373,56 @@ function BookingDetailPage() {
           }
         />
       </Card>
+
+      {booking?.late_checkout_charges && (booking.late_checkout_charges as any[]).length > 0 && (
+        <Card
+          size="small"
+          style={{ marginTop: 16 }}
+          title={`Phụ thu trả phòng muộn (${(booking.late_checkout_charges as any[]).length})`}
+        >
+          <Table
+            rowKey="id"
+            size="small"
+            pagination={false}
+            dataSource={booking.late_checkout_charges as any[]}
+            columns={[
+              {
+                title: 'Khoản mục',
+                dataIndex: 'note',
+                render: (note: string, r: any) => (
+                  <span>
+                    <Tag color="gold" style={{ fontWeight: 600, marginRight: 8 }}>Phụ thu trễ giờ</Tag>
+                    {note || `Trễ ${r.lateMinutes} phút`}
+                  </span>
+                ),
+              },
+              {
+                title: 'Tỷ lệ áp dụng',
+                dataIndex: 'tierPercent',
+                align: 'center',
+                render: (pct: number) => <Tag color="blue">{pct}%</Tag>,
+              },
+              {
+                title: 'Giá đêm cơ sở',
+                dataIndex: 'nightlyRate',
+                align: 'right',
+                render: (nr: number) => money(nr),
+              },
+              {
+                title: 'Thành tiền',
+                dataIndex: 'totalPrice',
+                align: 'right',
+                render: (tp: number) => <strong style={{ color: '#d97706' }}>{money(tp)}</strong>,
+              },
+              {
+                title: 'Thời điểm',
+                dataIndex: 'createdAt',
+                render: dateTime,
+              },
+            ]}
+          />
+        </Card>
+      )}
 
       <Card
         size="small"
