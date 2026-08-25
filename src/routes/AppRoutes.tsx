@@ -1,4 +1,4 @@
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
 
 // Layouts
 import ClientLayout from "../layouts/ClientLayout";
@@ -23,7 +23,6 @@ import ResetPassword from "../pages/ForgotPassword/ResetPassword";
 import EmployeeManagement from "../pages/Admin/EmployeeManagement";
 
 import Booking from "../pages/Booking/Booking";
-import BookingHistory from "../pages/Booking/BookingHistory";
 import BookingDetail from "../pages/Booking/BookingDetail";
 import PaymentPage from "../pages/Booking/Payment";
 import PaymentSandbox from "../pages/Booking/PaymentSandbox";
@@ -69,7 +68,10 @@ const AppRoutes = () => {
 
         <Route path="/booking">
           <Route index element={<Booking />} />
-          <Route path="history" element={<BookingHistory />} />
+          {/* Lịch sử đặt phòng nay nằm trong trang Hồ sơ. Giữ đường dẫn cũ và
+              chuyển hướng để các link đã lưu và những chỗ navigate('/booking/history')
+              rải rác trong app vẫn tới đúng nơi. */}
+          <Route path="history" element={<Navigate to="/profile?tab=bookings" replace />} />
           <Route path=":id/payment" element={<PaymentPage />} />
           <Route path=":id/payment/sandbox" element={<PaymentSandbox />} />
           <Route path=":id" element={<BookingDetail />} />

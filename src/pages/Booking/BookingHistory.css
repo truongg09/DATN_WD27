@@ -6,9 +6,77 @@
     radial-gradient(circle at 15% 8%, rgba(177, 141, 101, 0.18), transparent 30%);
 }
 
+/* Bản nhúng trong trang Hồ sơ: khung trắng, tiêu đề và khoảng đệm đã do Profile
+   lo, nên ở đây chỉ cần gỡ nền + padding của trang riêng. */
+.booking-history-embedded {
+  background: none;
+  min-height: 0;
+  padding: 0;
+}
+
+/* Chuỗi container từ ngoài vào bảng đều phải cho phép co lại. Thiếu min-width:0
+   thì một flex/grid item mặc định lấy min-width:auto — tức không bao giờ hẹp
+   hơn nội dung của nó — và đó là cách thanh cuộn ngang lọt qua dù bảng đã khai
+   width 100%. */
+.booking-history-page,
+.booking-history-embedded,
+.booking-history-shell,
+.history-table-panel {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
 .booking-history-shell {
   max-width: 1180px;
   margin: 0 auto;
+}
+
+.booking-history-embedded .booking-history-shell {
+  max-width: none;
+}
+
+/* Tiêu đề và 2 nút nằm chung một hàng; bỏ viền + đổ bóng để không tạo thành
+   "hộp trong hộp" với panel của Profile. */
+.booking-history-hero.is-embedded {
+  align-items: center;
+  padding: 0 0 20px;
+  border: none;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+
+.booking-history-embedded-title {
+  margin: 0;
+  color: #2b2420;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+/* Trong Profile đã có sẵn một lớp khung trắng, nên các khối con chỉ cần viền
+   mảnh: giữ nguyên đổ bóng dày của trang riêng sẽ thành nhiều lớp nổi chồng
+   lên nhau, rối mắt. */
+.booking-history-embedded .history-stats {
+  gap: 12px;
+  margin: 0 0 16px;
+}
+
+.booking-history-embedded .history-stat-card {
+  padding: 14px 16px;
+  border-radius: 12px;
+  box-shadow: none;
+  background: #fbf9f6;
+}
+
+.booking-history-embedded .history-stat-card strong {
+  font-size: 24px;
+}
+
+.booking-history-embedded .history-table-panel {
+  border-radius: 14px;
+  box-shadow: none;
 }
 
 .booking-history-hero {
@@ -85,7 +153,10 @@
   margin: 18px 0;
 }
 
+/* minmax(0, 1fr) ở trên đã cho phép cột co lại; thêm min-width:0 ở thẻ để số
+   liệu dài không nong ô ra và đẩy cả hàng tràn khung. */
 .history-stat-card {
+  min-width: 0;
   padding: 18px 20px;
   border: 1px solid #efe7dd;
   border-radius: 16px;
@@ -116,24 +187,50 @@
   box-shadow: 0 28px 70px rgba(35, 31, 28, 0.08);
 }
 
+/* Ba dòng dưới là chốt chặn chống tràn: bảng không bao giờ rộng hơn khung chứa,
+   và table-layout:fixed buộc trình duyệt chia cột đúng theo % đã khai thay vì
+   nong cột ra theo nội dung dài nhất. */
+.history-table,
 .history-table .ant-table {
+  width: 100%;
+  max-width: 100%;
   background: transparent;
 }
 
+.history-table .ant-table-container,
+.history-table .ant-table-content {
+  max-width: 100%;
+}
+
+.history-table table {
+  width: 100% !important;
+  max-width: 100%;
+  table-layout: fixed;
+}
+
+/* Nội dung dài (tên nhiều hạng phòng, số tiền lớn) xuống dòng trong ô thay vì
+   đẩy bảng rộng ra. Không cắt bằng dấu "..." vì đây đều là thông tin khách cần. */
+.history-table .ant-table-tbody > tr > td,
 .history-table .ant-table-thead > tr > th {
-  padding: 18px 20px;
-  border-bottom: 1px solid #eadfD3;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
+}
+
+.history-table .ant-table-thead > tr > th {
+  padding: 14px 12px;
+  border-bottom: 1px solid #eadfd3;
   background: #fbf7f2;
   color: #202124;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 800;
 }
 
 .history-table .ant-table-tbody > tr > td {
-  padding: 20px;
+  padding: 14px 12px;
   border-bottom: 1px solid #f1ece6;
   color: #202124;
-  font-size: 15px;
+  font-size: 13px;
 }
 
 .history-table .ant-table-tbody > tr:hover > td {
@@ -156,7 +253,7 @@
 
 .history-booking-code {
   color: #202124;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 800;
 }
 
@@ -164,9 +261,10 @@
 .history-date-cell {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   color: #667085;
-  line-height: 1.5;
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 .history-room-line .anticon,
@@ -181,7 +279,7 @@
 
 .history-price {
   color: #111827;
-  font-size: 16px;
+  font-size: 14px;
 }
 
 .history-price-note {
@@ -189,14 +287,23 @@
   color: #8c6b48;
   font-size: 11px;
   font-weight: 500;
-  white-space: nowrap;
 }
 
+/* Chỉ giữ chữ màu, bỏ nền viên thuốc và viền. Màu chữ vẫn do lớp .ant-tag-*
+   của Ant Design quyết định nên mỗi trạng thái giữ đúng màu cũ. Bỏ nền cũng
+   trả lại chiều rộng cho ô, nhãn dài như "Đã hoàn 31.400.000đ" đỡ phải ngắt dòng. */
 .history-status-tag {
   margin: 0;
-  padding: 4px 10px;
-  border-radius: 999px;
+  padding: 0;
+  /* !important vì .ant-tag-blue/-green/... của Ant Design cùng độ ưu tiên một
+     class, thứ tự nạp CSS giữa antd và file này không đảm bảo. */
+  border: none !important;
+  background: transparent !important;
+  border-radius: 0;
+  font-size: 13px;
   font-weight: 700;
+  white-space: normal;
+  line-height: 1.45;
 }
 
 .history-payment-cell {
@@ -217,12 +324,207 @@
   color: #b42318;
 }
 
+/* Các nút thao tác nằm gọn một hàng, căn giữa trong cột 15%. Cho phép xuống
+   dòng khi một đơn có nhiều nút hơn bình thường (đơn đã trả phòng có thêm nút
+   đánh giá kèm nhãn trạng thái) thay vì tràn khỏi ô. */
 .history-actions {
-  gap: 8px !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px !important;
+}
+
+/* Cột Thao tác rộng 15% (~159px ở màn 1920) và trừ padding ô chỉ còn ~131px.
+   Nút 30px + gap 6px cần 102px nên ba nút luôn nằm gọn một hàng; nút 40px từng
+   cần tới 136px và chính nó đẩy nút thứ ba xuống dòng. */
+.history-actions .ant-btn {
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  padding: 0;
+  border-radius: 9px;
+}
+
+.history-actions .ant-btn .anticon {
+  font-size: 13px;
+}
+
+/* Cột Thao tác là cột cuối: bóp padding ngang để nhường chỗ cho hàng nút,
+   lấy lại đúng 12px mà ba nút đang thiếu ở các màn hình hẹp hơn. */
+.history-table .ant-table-thead > tr > th:last-child,
+.history-table .ant-table-tbody > tr > td:last-child {
+  padding-left: 6px;
+  padding-right: 6px;
+}
+
+/* Laptop 1200-1439px: cột Thao tác chỉ còn ~121px nên nút rút thêm 4px. */
+@media (max-width: 1439px) {
+  .history-actions {
+    gap: 4px !important;
+  }
+
+  .history-actions .ant-btn {
+    width: 26px;
+    height: 26px;
+    min-width: 26px;
+  }
+
+  .history-actions .ant-btn .anticon {
+    font-size: 12px;
+  }
+}
+
+/* Ngày nhận và ngày trả tự xuống dòng thành hai dòng cân đối thay vì kéo dài ô. */
+.history-date-cell {
+  align-items: flex-start;
+}
+
+.history-date-cell .anticon {
+  margin-top: 4px;
+}
+
+.history-room-line {
+  align-items: flex-start;
+}
+
+.history-room-line .anticon {
+  margin-top: 4px;
 }
 
 .history-empty {
   padding: 70px 24px;
+}
+
+/* ---- Danh sách thẻ (dùng dưới 768px) ----
+   Ba tầng: mã đơn + trạng thái / ngày + thanh toán / giá + thao tác. Thẻ không
+   có bề ngang tối thiểu nên không bao giờ sinh thanh cuộn ngang. */
+.history-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+}
+
+.history-card-item {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid #efe7dd;
+  border-radius: 16px;
+  background: #fff;
+}
+
+.history-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.history-card-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.history-card-identity .history-room-line {
+  font-size: 15px;
+  font-weight: 600;
+  color: #344054;
+  overflow-wrap: anywhere;
+}
+
+.history-card-meta {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  padding: 12px 0;
+  border-top: 1px dashed #f0e8df;
+  border-bottom: 1px dashed #f0e8df;
+}
+
+.history-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.history-card-foot .history-price {
+  font-size: 19px;
+  font-weight: 800;
+  color: #8d6240;
+}
+
+.history-card-foot .history-actions {
+  justify-content: flex-start;
+}
+
+.history-pagination {
+  display: flex;
+  justify-content: center;
+  padding: 0 16px 16px;
+}
+
+/* Tablet và laptop nhỏ: giữ đủ 6 cột nhưng bóp padding, cỡ chữ và nút để mọi
+   thứ còn nằm trong ô. Điểm hẹp nhất là 1024px (cột Thao tác chỉ ~94px), nên
+   nút rút còn 26px và khoảng cách 4px; nếu một đơn có nhiều nút hơn thì hàng
+   nút tự xuống dòng chứ không đẩy bảng rộng ra. */
+@media (max-width: 1199px) {
+  .history-table .ant-table-thead > tr > th,
+  .history-table .ant-table-tbody > tr > td {
+    padding: 12px 8px;
+    font-size: 13px;
+  }
+
+  .history-booking-code {
+    font-size: 14px;
+  }
+
+  .history-price {
+    font-size: 14px;
+  }
+
+  .history-actions .ant-btn {
+    width: 24px;
+    height: 24px;
+    min-width: 24px;
+    border-radius: 8px;
+  }
+
+  /* Ngay sát ngưỡng 992px cột Thao tác chỉ còn ~90px, thiếu đúng 2px cho ba
+     nút. Bóp nốt padding ô cột cuối để hàng nút không phải xuống dòng. */
+  .history-table .ant-table-thead > tr > th:last-child,
+  .history-table .ant-table-tbody > tr > td:last-child {
+    padding-left: 4px;
+    padding-right: 4px;
+  }
+
+  .history-actions .ant-btn .anticon {
+    font-size: 11px;
+  }
+
+  .history-status-tag {
+    font-size: 12px;
+  }
+
+  .history-stats {
+    gap: 12px;
+  }
+
+  .history-stat-card {
+    padding: 14px 16px;
+  }
+
+  .history-stat-card strong {
+    font-size: 24px;
+  }
 }
 
 @media (max-width: 768px) {

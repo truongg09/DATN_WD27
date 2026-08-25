@@ -11,6 +11,7 @@ import {
   InputNumber,
   Input,
   Modal,
+  Pagination,
   Popconfirm,
   Select,
   Tabs,
@@ -206,12 +207,50 @@ const reviewStatusMap: Record<string, { label: string; color: string }> = {
 
 const activeStatuses = ['pending', 'confirmed', 'checked_in'];
 
-const BookingHistory: React.FC = () => {
+// Ngưỡng đổi sang danh sách thẻ. Lấy 991px (điểm lg của Ant Design) chứ không
+// phải 767px vì ở dải tablet trang Hồ sơ vẫn chia 8/16 cho menu, khiến khung
+// bảng chỉ còn ~413px — cột "Tổng tiền" xuống dưới 60px và số tiền vỡ thành
+// nhiều dòng. Dưới ngưỡng này thẻ đọc dễ hơn hẳn.
+// Theo dõi bằng matchMedia thay vì resize handler để không phải tính lại layout
+// theo từng pixel người dùng kéo.
+const MOBILE_QUERY = '(max-width: 991px)';
+
+// Số thẻ mỗi trang ở chế độ mobile, khớp pageSize của bảng để hai chế độ hiển
+// thị cùng khối lượng dữ liệu.
+const CARDS_PER_PAGE = 6;
+
+const useIsMobile = () => {
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia(MOBILE_QUERY).matches
+  );
+
+  useEffect(() => {
+    // Giá trị ban đầu đã lấy trong useState nên ở đây chỉ đăng ký lắng nghe;
+    // gọi setState thẳng trong thân effect sẽ tạo thêm một vòng render thừa.
+    const mql = window.matchMedia(MOBILE_QUERY);
+    const onChange = (event: MediaQueryListEvent) => setIsMobile(event.matches);
+    mql.addEventListener('change', onChange);
+    return () => mql.removeEventListener('change', onChange);
+  }, []);
+
+  return isMobile;
+};
+
+type BookingHistoryProps = {
+  /** Khi nhúng trong trang Hồ sơ: bỏ nền + tiêu đề lớn của trang riêng, vì
+   *  Profile đã có khung và tiêu đề mục rồi. Mặc định false để route độc lập
+   *  (nếu còn dùng) hiển thị y như cũ. */
+  embedded?: boolean;
+};
+
+const BookingHistory: React.FC<BookingHistoryProps> = ({ embedded = false }) => {
   const { user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const [bookings, setBookings] = useState<BookingRow[]>([]);
   const [payments, setPayments] = useState<PaymentByBooking>({});
   const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(1);
   const [cancellingId, setCancellingId] = useState<number | null>(null);
   const [nowTick, setNowTick] = useState(0);
   const [reviewBooking, setReviewBooking] = useState<BookingRow | null>(null);
@@ -1134,12 +1173,132 @@ const BookingHistory: React.FC = () => {
     );
   };
 
+  // Huỷ đơn xong danh sách ngắn lại, trang đang xem có thể vượt quá số trang còn
+  // lại và hiện ra khoảng trắng. Kẹp về trang cuối hợp lệ thay vì để trống.
+  const safePage = Math.min(page, Math.max(1, Math.ceil(bookings.length / CARDS_PER_PAGE)));
+
+  // Mỗi đơn là một thẻ thay vì một hàng bảng: bảng cũ cần 1160px nên luôn tràn
+  // khi nằm trong khung Hồ sơ, còn thẻ thì co theo bề ngang sẵn có và đọc được
+  // trên cả điện thoại.
+  const renderBookingCard = (record: BookingRow) => {
+    const payment = payments[record.id];
+    const total =
+      payment?.totalAmount ??
+      Number(record.payable_total ?? record.total_price ?? 0);
+
+    const hasDeposit = Number(payment?.paidAmount || 0) > 0;
+    const holdRemainingMs = getHoldRemainingMs(record.hold_expires_at, record.created_at);
+    const isHoldExpired =
+      (!payment || ['unpaid', 'deposit_paid'].includes(payment.paymentStatus)) &&
+      !hasDeposit &&
+      holdRemainingMs <= 0 &&
+      record.status !== 'cancelled';
+    const canCancel = ['pending', 'confirmed'].includes(record.status);
+    const canPay =
+      (!payment || ['unpaid', 'deposit_paid'].includes(payment.paymentStatus)) &&
+      !isHoldExpired &&
+      record.status !== 'cancelled';
+    const existingReview = reviewsByBooking[record.id];
+
+    return (
+      <article className="history-card-item" key={record.id}>
+        <div className="history-card-head">
+          <div className="history-card-identity">
+            <span className="history-booking-code">#{record.id}</span>
+            <span className="history-room-line">
+              <HomeOutlined />
+              {record.status === 'checked_in' && record.room_number
+                ? `Phòng ${record.room_number} · ${record.room_type_name || ''}`
+                : record.room_type_name || 'Đặt phòng'}
+            </span>
+          </div>
+          <Tag className="history-status-tag" color={bookingStatusMap[record.status]?.color || 'default'}>
+            {bookingStatusMap[record.status]?.label || record.status}
+          </Tag>
+        </div>
+
+        <div className="history-card-meta">
+          <div className="history-date-cell">
+            <CalendarOutlined />
+            <span>
+              {formatDate(record.check_in)} - {formatDate(record.check_out)}
+            </span>
+          </div>
+          {renderPaymentStatus(record)}
+        </div>
+
+        <div className="history-card-foot">
+          <strong className="history-price">{formatPrice(total)}</strong>
+
+          <Space className="history-actions" size="small" wrap>
+            <Tooltip title="Xem chi tiết đặt phòng">
+              <Button
+                type="primary"
+                icon={<EyeOutlined style={{ color: 'white' }} />}
+                size="small"
+                onClick={() => {
+                  setViewBookingId(record.id);
+                  setViewModalVisible(true);
+                }}
+              ></Button>
+            </Tooltip>
+
+            {['pending', 'confirmed', 'checked_in'].includes(record.status) && (
+              <Tooltip title="Chỉnh sửa đặt phòng (ngày, hạng phòng, dịch vụ)">
+                <Button
+                  type="primary"
+                  icon={<EditOutlined style={{ color: 'white' }} />}
+                  size="small"
+                  onClick={() => openEditModal(record)}
+                ></Button>
+              </Tooltip>
+            )}
+
+            {canPay && (
+              <Tooltip title="Thanh toán đặt phòng">
+                <Link to={`/booking/${record.id}/payment`}>
+                  <Button className="history-pay-btn" type="primary" icon={<CreditCardOutlined />} size="small"></Button>
+                </Link>
+              </Tooltip>
+            )}
+
+            {canCancel && (
+              <Tooltip title="Hủy đặt phòng">
+                <Button
+                  type="primary"
+                  danger
+                  icon={<StopOutlined />}
+                  size="small"
+                  loading={cancellingId === record.id}
+                  onClick={() => openCancelModal(record)}
+                ></Button>
+              </Tooltip>
+            )}
+
+            {record.status === 'checked_out' && (
+              <Space size={4} wrap>
+                <Tooltip title={existingReview ? 'Xem/Sửa đánh giá' : 'Đánh giá phòng'}>
+                  <Button type="primary" icon={<StarOutlined />} size="small" onClick={() => openReviewModal(record)}></Button>
+                </Tooltip>
+                {existingReview?.status && existingReview.status !== 'approved' && (
+                  <Tag color={reviewStatusMap[existingReview.status]?.color || 'default'}>
+                    {reviewStatusMap[existingReview.status]?.label || existingReview.status}
+                  </Tag>
+                )}
+              </Space>
+            )}
+          </Space>
+        </div>
+      </article>
+    );
+  };
+
   const columns = useMemo<ColumnsType<BookingRow>>(
     () => [
       {
         title: 'Đặt phòng',
         key: 'booking',
-        width: 220,
+        width: '20%',
         render: (_, record) => (
           <div className="history-booking-cell">
             <span className="history-booking-code">#{record.id}</span>
@@ -1155,7 +1314,7 @@ const BookingHistory: React.FC = () => {
       {
         title: 'Thời gian lưu trú',
         key: 'dates',
-        width: 230,
+        width: '20%',
         render: (_, record) => (
           <div className="history-date-cell">
             <CalendarOutlined />
@@ -1169,7 +1328,7 @@ const BookingHistory: React.FC = () => {
         title: 'Tổng tiền',
         key: 'payable_total',
         align: 'right',
-        width: 150,
+        width: '14%',
         render: (_, record) => {
           const payment = payments[record.id];
           const total =
@@ -1192,7 +1351,7 @@ const BookingHistory: React.FC = () => {
         title: 'Trạng thái',
         dataIndex: 'status',
         key: 'status',
-        width: 150,
+        width: '14%',
         render: (status: string) => (
           <Tag className="history-status-tag" color={bookingStatusMap[status]?.color || 'default'}>
             {bookingStatusMap[status]?.label || status}
@@ -1202,14 +1361,13 @@ const BookingHistory: React.FC = () => {
       {
         title: 'Thanh toán',
         key: 'payment',
-        width: 170,
+        width: '17%',
         render: (_, record) => renderPaymentStatus(record),
       },
       {
         title: 'Thao tác',
         key: 'actions',
-        fixed: 'right',
-        width: 250,
+        width: '15%',
         render: (_, record) => {
           const payment = payments[record.id];
           const hasDeposit = Number(payment?.paidAmount || 0) > 0;
@@ -1293,13 +1451,17 @@ const BookingHistory: React.FC = () => {
   );
 
   return (
-    <main className="booking-history-page">
+    <main className={embedded ? 'booking-history-embedded' : 'booking-history-page'}>
       <section className="booking-history-shell">
-        <div className="booking-history-hero">
-          <div>
-            <h1>Lịch sử đặt phòng</h1>
-            <p>Theo dõi đặt phòng, thanh toán và thao tác hủy phòng của bạn tại một nơi.</p>
-          </div>
+        <div className={`booking-history-hero${embedded ? ' is-embedded' : ''}`}>
+          {embedded ? (
+            <h2 className="booking-history-embedded-title">Lịch sử đặt phòng</h2>
+          ) : (
+            <div>
+              <h1>Lịch sử đặt phòng</h1>
+              <p>Theo dõi đặt phòng, thanh toán và thao tác hủy phòng của bạn tại một nơi.</p>
+            </div>
+          )}
 
           <div className="booking-history-toolbar">
             <Button icon={<ReloadOutlined />} onClick={loadHistory} loading={loading}>
@@ -1336,7 +1498,32 @@ const BookingHistory: React.FC = () => {
                   </Button>
                 </Link>
               </Empty>
+            ) : isMobile ? (
+              // Dưới 768px: mỗi đơn một thẻ, thông tin xếp dọc và không cột nào
+              // bị ép chiều ngang nên không sinh thanh cuộn ngang.
+              <>
+                <div className="history-card-list">
+                  {bookings
+                    .slice((safePage - 1) * CARDS_PER_PAGE, safePage * CARDS_PER_PAGE)
+                    .map(renderBookingCard)}
+                </div>
+
+                {bookings.length > CARDS_PER_PAGE && (
+                  <div className="history-pagination">
+                    <Pagination
+                      current={safePage}
+                      pageSize={CARDS_PER_PAGE}
+                      total={bookings.length}
+                      onChange={setPage}
+                      showSizeChanger={false}
+                      simple
+                    />
+                  </div>
+                )}
+              </>
             ) : (
+              // Bỏ hẳn scroll={{ x }}: 6 cột đã khai theo % nên bảng luôn vừa
+              // đúng bề ngang container, không cần kéo ngang nữa.
               <Table
                 className="history-table"
                 rowKey="id"
@@ -1347,7 +1534,6 @@ const BookingHistory: React.FC = () => {
                   pageSize: 6,
                   showSizeChanger: false,
                 }}
-                scroll={{ x: 1160 }}
               />
             )}
           </Spin>

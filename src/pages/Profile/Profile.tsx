@@ -40,6 +40,7 @@ import {
 import { useAuth } from "../../contexts/AuthContext";
 import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import api from "../../services/api";
+import BookingHistory from "../Booking/BookingHistory";
 import { getMyRefunds, type RefundRow } from "../../services/refundService";
 import {
   getMyWallet,
@@ -54,7 +55,6 @@ import {
 } from "../../services/notificationService";
 import type { NotificationItem } from "../../types/notification";
 import { VIETQR_BANKS } from "../../utils/vietqr";
-import { getBookingStatusMeta } from "../../constants/bookingStatus";
 import dayjs from "dayjs";
 
 const { Title, Text } = Typography;
@@ -70,16 +70,6 @@ interface CustomerProfile {
   citizenId?: string;
   nationality?: string;
   address?: string;
-}
-
-interface BookingHistoryItem {
-  id: number;
-  bookingCode: string;
-  roomType: string;
-  checkInDate: string;
-  checkOutDate: string;
-  totalAmount: number;
-  bookingStatus: string;
 }
 
 interface VoucherItem {
@@ -117,7 +107,6 @@ function Profile() {
 
   const [activeTab, setActiveTab] = useState<string>(getInitialTab);
   const [profile, setProfile] = useState<CustomerProfile | null>(null);
-  const [bookings, setBookings] = useState<BookingHistoryItem[]>([]);
   const [vouchers, setVouchers] = useState<VoucherItem[]>([]);
   const [refunds, setRefunds] = useState<RefundRow[]>([]);
   const [walletBalance, setWalletBalance] = useState<WalletBalance>({
@@ -157,27 +146,12 @@ function Profile() {
           address: data.address
         });
 
-        // Tiện tay fetch list bookings của customer này
-        fetchBookings(data.id);
       }
     } catch (error) {
       console.error("Error fetching profile:", error);
       message.error("Lỗi khi tải thông tin tài khoản");
     } finally {
       setLoading(false);
-    }
-  };
-
-  // Fetch lịch sử đặt phòng của khách hàng
-  const fetchBookings = async (customerId: number) => {
-    try {
-      const response = await api.get(`/customers/bookings?id=${customerId}`);
-      const data = response.data?.data || response.data || [];
-      if (Array.isArray(data)) {
-        setBookings(data);
-      }
-    } catch (error) {
-      console.error("Error fetching customer bookings:", error);
     }
   };
 
@@ -387,7 +361,7 @@ function Profile() {
   return (
     <div style={{ padding: "120px 20px 40px", maxWidth: "1200px", margin: "0 auto", minHeight: "80vh" }}>
       <Row gutter={[24, 24]}>
-        
+
         {/* SIDEBAR MENU */}
         <Col xs={24} md={8} lg={7}>
           <div style={{ backgroundColor: "#fff", borderRadius: "16px", boxShadow: "0 4px 20px rgba(0,0,0,0.06)", overflow: "hidden" }}>
@@ -592,53 +566,11 @@ function Profile() {
             {/* TAB: Lịch sử đặt phòng */}
             {activeTab === "bookings" && (
               <div>
-                <Title level={3} style={{ marginBottom: "24px", color: "#2b2420" }}>Lịch sử đặt phòng</Title>
-                <Table
-                  dataSource={bookings}
-                  rowKey="id"
-                  pagination={{ pageSize: 5 }}
-                  columns={[
-                    {
-                      title: "Mã đơn đặt",
-                      dataIndex: "bookingCode",
-                      key: "bookingCode",
-                      render: (text) => <strong>{text}</strong>
-                    },
-                    {
-                      title: "Loại phòng",
-                      dataIndex: "roomType",
-                      key: "roomType",
-                      render: (text) => text || "Đang xếp phòng"
-                    },
-                    {
-                      title: "Ngày nhận",
-                      dataIndex: "checkInDate",
-                      key: "checkInDate",
-                      render: (date) => dayjs(date).format("DD/MM/YYYY")
-                    },
-                    {
-                      title: "Ngày trả",
-                      dataIndex: "checkOutDate",
-                      key: "checkOutDate",
-                      render: (date) => dayjs(date).format("DD/MM/YYYY")
-                    },
-                    {
-                      title: "Tổng tiền",
-                      dataIndex: "totalAmount",
-                      key: "totalAmount",
-                      render: (amount) => new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND" }).format(amount)
-                    },
-                    {
-                      title: "Trạng thái",
-                      dataIndex: "bookingStatus",
-                      key: "bookingStatus",
-                      render: (status) => {
-                        const meta = getBookingStatusMeta(status);
-                        return <Tag color={meta.color}>{meta.label}</Tag>;
-                      }
-                    }
-                  ]}
-                />
+                {/* Dùng thẳng màn Lịch sử đặt phòng đầy đủ (thống kê, thao tác
+                    xem/sửa/huỷ/thanh toán/đánh giá) thay cho bảng rút gọn cũ,
+                    để khách chỉ có một nơi duy nhất quản lý đơn của mình. Tiêu đề
+                    do chính nó render để nằm cùng hàng với hai nút thao tác. */}
+                <BookingHistory embedded />
               </div>
             )}
 
