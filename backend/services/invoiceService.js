@@ -23,12 +23,13 @@ const DAY_NAMES_VI = [
 
 const enrichInvoiceWithServices = async (row, connection) => {
   const invoice = formatInvoice(row);
-  const [serviceRows, nightlyRows, transferRows, damageRows, roomRows] = await Promise.all([
+  const [serviceRows, nightlyRows, transferRows, damageRows, roomRows, lateChargeRows] = await Promise.all([
     invoiceModel.listInvoiceServices(invoice.bookingId, connection),
     invoiceModel.listInvoiceNightlyPrices(invoice.bookingId, connection),
     invoiceModel.listInvoiceTransfers(invoice.bookingId, connection),
     invoiceModel.listInvoiceDamages(invoice.bookingId, connection),
-    invoiceModel.listInvoiceRooms(invoice.bookingId, connection)
+    invoiceModel.listInvoiceRooms(invoice.bookingId, connection),
+    invoiceModel.listInvoiceLateCharges(invoice.bookingId, connection)
   ]);
 
   const rooms = roomRows.map((r) => ({
@@ -179,7 +180,19 @@ const enrichInvoiceWithServices = async (row, connection) => {
     .filter((p) => p.isSaturday && !p.isHoliday)
     .reduce((sum, p) => sum + Math.max(0, p.price - (basePricePerNight || p.price)), 0);
 
+  const lateCharges = lateChargeRows.map((l) => ({
+    id: Number(l.id),
+    name: 'Phụ thu trả phòng muộn',
+    lateMinutes: Number(l.lateMinutes ?? 0),
+    tierPercent: Number(l.tierPercent ?? 0),
+    nightlyRate: Number(l.nightlyRate ?? 0),
+    totalPrice: Number(l.totalPrice ?? 0),
+    note: l.note || (l.lateMinutes ? `Trễ ${l.lateMinutes} phút (${l.tierPercent}%)` : 'Phụ thu trả phòng muộn'),
+    createdAt: l.createdAt
+  }));
+
   const damageAmount = damages.reduce((sum, d) => sum + d.totalPrice, 0);
+  const lateCheckoutAmount = lateCharges.reduce((sum, l) => sum + l.totalPrice, 0);
   const serviceAmount = Number(invoice.serviceAmount || 0);
   const occupancySurcharge = Math.max(Number(invoice.occupancySurcharge || 0), totalOccupancySurcharge);
   const roomAmount = Number(invoice.roomAmount || 0);
@@ -196,6 +209,8 @@ const enrichInvoiceWithServices = async (row, connection) => {
     weekendSurcharge,
     occupancySurcharge,
     damageAmount,
+    lateCheckoutAmount,
+    lateCheckoutSurcharge: lateCheckoutAmount,
     serviceAmount,
     discountAmount,
     roomAmount,
@@ -214,6 +229,7 @@ const enrichInvoiceWithServices = async (row, connection) => {
     rooms,
     services,
     damages,
+    lateCharges,
     transfers,
     nightlyPrices,
     breakdown,

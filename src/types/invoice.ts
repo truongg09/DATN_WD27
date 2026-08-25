@@ -20,6 +20,17 @@ export interface InvoiceDamageItem {
   createdAt?: string;
 }
 
+export interface InvoiceLateChargeItem {
+  id: number;
+  name: string;
+  lateMinutes: number;
+  tierPercent: number;
+  nightlyRate: number;
+  totalPrice: number;
+  note?: string;
+  createdAt?: string;
+}
+
 export interface InvoiceTransfer {
   id: number;
   fromRoomId: number;
@@ -59,6 +70,7 @@ export interface InvoiceBreakdown {
   weekendSurcharge: number;
   occupancySurcharge: number;
   damageAmount: number;
+  lateCheckoutSurcharge?: number;
   serviceAmount: number;
   discountAmount: number;
   roomAmount: number;
@@ -100,6 +112,7 @@ export interface Invoice {
   rooms?: InvoiceRoom[];
   services?: InvoiceServiceItem[];
   damages?: InvoiceDamageItem[];
+  lateCharges?: InvoiceLateChargeItem[];
   transfers?: InvoiceTransfer[];
   nightlyPrices?: InvoiceNightlyPrice[];
   breakdown?: InvoiceBreakdown;

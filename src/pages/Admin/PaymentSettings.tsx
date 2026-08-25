@@ -59,6 +59,15 @@ const PaymentSettings = () => {
   const earlyT3HWatch = Form.useWatch('earlyTier3Hours', lateTiersForm);
   const earlyT3PWatch = Form.useWatch('earlyTier3Percent', lateTiersForm);
 
+  const stdCheckOutWatch = Form.useWatch('standardCheckOutTime', lateTiersForm);
+  const graceMinutesWatch = Form.useWatch('graceMinutes', lateTiersForm);
+  const lateT1MaxHoursWatch = Form.useWatch('tier1MaxHours', lateTiersForm);
+  const lateT1PercentWatch = Form.useWatch('tier1Percent', lateTiersForm);
+  const lateT2MaxHoursWatch = Form.useWatch('tier2MaxHours', lateTiersForm);
+  const lateT2PercentWatch = Form.useWatch('tier2Percent', lateTiersForm);
+  const lateT3PercentWatch = Form.useWatch('tier3Percent', lateTiersForm);
+  const absMaxLateHoursWatch = Form.useWatch('absoluteMaxLateHours', lateTiersForm);
+
   const earlyCheckInPreview = useMemo(() => {
     let stdH = 14;
     let stdM = 0;
@@ -101,6 +110,67 @@ const PaymentSettings = () => {
       t3P,
     };
   }, [stdCheckInWatch, earlyT1HWatch, earlyT1PWatch, earlyT2HWatch, earlyT2PWatch, earlyT3HWatch, earlyT3PWatch]);
+
+  const lateCheckOutPreview = useMemo(() => {
+    let stdH = 12;
+    let stdM = 0;
+    if (stdCheckOutWatch && typeof (stdCheckOutWatch as any).hour === 'function') {
+      stdH = (stdCheckOutWatch as dayjs.Dayjs).hour();
+      stdM = (stdCheckOutWatch as dayjs.Dayjs).minute();
+    }
+    const stdDecimal = stdH + (stdM / 60);
+
+    const graceM = Number(graceMinutesWatch ?? 60);
+    const t1MaxH = Number(lateT1MaxHoursWatch ?? 3.0);
+    const t1P = Number(lateT1PercentWatch ?? 30.0);
+    const t2MaxH = Number(lateT2MaxHoursWatch ?? 6.0);
+    const t2P = Number(lateT2PercentWatch ?? 50.0);
+    const t3P = Number(lateT3PercentWatch ?? 100.0);
+    const maxLateH = Number(absMaxLateHoursWatch ?? 6.0);
+
+    const formatDec = (h: number) => {
+      const norm = Math.max(0, h);
+      const totalMins = Math.round(norm * 60);
+      const hrs = Math.floor(totalMins / 60);
+      const mins = totalMins % 60;
+      return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+    };
+
+    const graceEndDecimal = stdDecimal + (graceM / 60);
+    const t1EndDecimal = graceEndDecimal + t1MaxH;
+    const t2EndDecimal = graceEndDecimal + t2MaxH;
+    const softLimitDecimal = stdDecimal + maxLateH;
+
+    const stdTimeStr = formatDec(stdDecimal);
+    const graceEndTimeStr = formatDec(graceEndDecimal);
+    const t1EndTimeStr = formatDec(t1EndDecimal);
+    const t2EndTimeStr = formatDec(t2EndDecimal);
+    const softLimitTimeStr = formatDec(softLimitDecimal);
+
+    return {
+      stdTimeStr,
+      graceM,
+      graceEndTimeStr,
+      t1MaxH,
+      t1P,
+      t1EndTimeStr,
+      t2MaxH,
+      t2P,
+      t2EndTimeStr,
+      t3P,
+      maxLateH,
+      softLimitTimeStr,
+    };
+  }, [
+    stdCheckOutWatch,
+    graceMinutesWatch,
+    lateT1MaxHoursWatch,
+    lateT1PercentWatch,
+    lateT2MaxHoursWatch,
+    lateT2PercentWatch,
+    lateT3PercentWatch,
+    absMaxLateHoursWatch,
+  ]);
 
   useEffect(() => {
     const load = async () => {
@@ -417,7 +487,7 @@ const PaymentSettings = () => {
             <Form.Item
               name="absoluteMaxLateHours"
               label="Số giờ trả phòng muộn tối đa"
-              extra="Vượt quá mốc này hệ thống sẽ yêu cầu gia hạn thêm 1 đêm thay vì phạt trễ giờ"
+              extra="Vượt quá mốc này hệ thống sẽ cảnh báo trả phòng quá muộn và kiểm tra ảnh hưởng tới lịch nhận phòng kế tiếp"
             >
               <InputNumber min={1} max={12} step={0.5} style={{ width: '100%' }} addonAfter="giờ" />
             </Form.Item>
@@ -479,10 +549,10 @@ const PaymentSettings = () => {
               </Form.Item>
             </div>
 
-            {/* Dynamic Live Preview Box */}
+            {/* Dynamic Live Preview Box - Early Check-in */}
             <div style={{ marginBottom: 20, padding: '10px 14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8 }}>
               <div style={{ fontWeight: 600, color: '#334155', fontSize: 13, marginBottom: 4 }}>
-                Xem trước quy tắc áp dụng theo giờ chuẩn hiện tại ({earlyCheckInPreview.stdTimeStr}):
+                Xem trước quy tắc áp dụng theo giờ nhận phòng chuẩn hiện tại ({earlyCheckInPreview.stdTimeStr}):
               </div>
               <div style={{ fontSize: 13, color: '#475569', lineHeight: 1.6 }}>
                 <div>• Trước <strong>{earlyCheckInPreview.t1TimeStr}</strong> (sớm &ge; {earlyCheckInPreview.t1H}h) &rarr; Phụ thu <strong>{earlyCheckInPreview.t1P}%</strong> giá 1 đêm</div>
@@ -517,6 +587,20 @@ const PaymentSettings = () => {
               <Form.Item name="tier3Percent" label="Mức 3 (Vượt mức 2): Phụ thu (%)" style={{ gridColumn: 'span 2' }}>
                 <InputNumber min={0} max={100} style={{ width: '100%' }} addonAfter="%" />
               </Form.Item>
+            </div>
+
+            {/* Dynamic Live Preview Box - Late Check-out */}
+            <div style={{ marginBottom: 20, padding: '10px 14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8 }}>
+              <div style={{ fontWeight: 600, color: '#334155', fontSize: 13, marginBottom: 4 }}>
+                Xem trước quy tắc áp dụng theo giờ trả phòng chuẩn hiện tại ({lateCheckOutPreview.stdTimeStr}):
+              </div>
+              <div style={{ fontSize: 13, color: '#475569', lineHeight: 1.6 }}>
+                <div>• Trễ trong <strong>{lateCheckOutPreview.graceM} phút</strong> đầu ({lateCheckOutPreview.stdTimeStr} – {lateCheckOutPreview.graceEndTimeStr}) &rarr; Miễn phí trong thời gian ân hạn</div>
+                <div>• Sau ân hạn, trễ tối đa <strong>{lateCheckOutPreview.t1MaxH} giờ</strong> ({lateCheckOutPreview.graceEndTimeStr} – {lateCheckOutPreview.t1EndTimeStr}) &rarr; Phụ thu <strong>{lateCheckOutPreview.t1P}%</strong> giá đêm cuối</div>
+                <div>• Sau ân hạn, trễ trên <strong>{lateCheckOutPreview.t1MaxH} giờ đến {lateCheckOutPreview.t2MaxH} giờ</strong> ({lateCheckOutPreview.t1EndTimeStr} – {lateCheckOutPreview.t2EndTimeStr}) &rarr; Phụ thu <strong>{lateCheckOutPreview.t2P}%</strong> giá đêm cuối</div>
+                <div>• Sau ân hạn, trễ trên <strong>{lateCheckOutPreview.t2MaxH} giờ</strong> (sau {lateCheckOutPreview.t2EndTimeStr}) &rarr; Phụ thu <strong>{lateCheckOutPreview.t3P}%</strong> giá đêm cuối</div>
+                <div>• Trễ quá <strong>{lateCheckOutPreview.maxLateH} giờ</strong> tính từ giờ trả phòng chuẩn (sau {lateCheckOutPreview.softLimitTimeStr}) &rarr; Cảnh báo vượt mốc trả phòng muộn tối đa</div>
+              </div>
             </div>
 
             <Button type="primary" htmlType="submit" icon={<SaveOutlined />} loading={savingTiers}>

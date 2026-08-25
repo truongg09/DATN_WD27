@@ -2130,6 +2130,13 @@ const getBookingById = async (bookingId) => {
      ORDER BY id DESC`,
     [bookingId],
   );
+  const [lateCheckoutCharges] = await db.query(
+    `SELECT id, bookingId, lateMinutes, tierPercent, nightlyRate, totalPrice, note, createdAt
+     FROM booking_late_checkout_charges
+     WHERE bookingId = ?
+     ORDER BY id ASC`,
+    [bookingId],
+  );
   const history = await bookingModel.listBookingHistory(bookingId);
   const handoverWarning = await computeHandoverWarning(booking);
 
@@ -2302,6 +2309,8 @@ const getBookingById = async (bookingId) => {
     refunds,
     damages,
     transfers,
+    late_checkout_charges: lateCheckoutCharges,
+    lateCheckoutCharge: lateCheckoutCharges[0] || null,
     payments,
     payment: payments[0] || null,
     history,
@@ -5569,9 +5578,77 @@ const checkOut = async (
           conflictingBookingId = nextBooking?.id || null;
         }
 
-        const nightlyRate = Number(
-          booking.room_price || booking.price_per_night || 0,
+        // ── Lấy chính xác giá đêm cuối (last night) cho từng phòng ───────
+        // Tránh fan-out bug do JOIN customers và hỗ trợ đơn nhiều phòng / giá biến động
+        const [coDetailRows] = await connection.query(
+          `SELECT bd.id, bd.roomId, bd.roomTypeId, bd.roomPrice,
+                  DATE_FORMAT(bd.checkInDate, '%Y-%m-%d') AS checkInDate,
+                  DATE_FORMAT(bd.checkOutDate, '%Y-%m-%d') AS checkOutDate,
+                  r.roomNumber, r.roomTypeId AS actualRoomTypeId, rt.defaultPrice
+           FROM booking_details bd
+           LEFT JOIN rooms r ON r.id = bd.roomId
+           LEFT JOIN room_types rt ON rt.id = COALESCE(bd.roomTypeId, r.roomTypeId)
+           WHERE bd.bookingId = ?
+           ORDER BY bd.id ASC`,
+          [bookingId]
         );
+
+        const [coNightlyPrices] = await connection.query(
+          `SELECT id, DATE_FORMAT(stayDate, '%Y-%m-%d') AS stayDate, price, roomId
+           FROM booking_nightly_prices
+           WHERE bookingId = ?
+           ORDER BY stayDate DESC`,
+          [bookingId]
+        );
+
+        let totalLastNightRate = 0;
+        const detailsForRate = coDetailRows.length > 0
+          ? coDetailRows
+          : [{
+              roomId: booking.room_id,
+              roomTypeId: booking.roomTypeId,
+              roomPrice: booking.price_per_night || 0,
+              checkOutDate: dayString(booking.check_out)
+            }];
+
+        if (coNightlyPrices.length > 0 && coNightlyPrices.every((n) => !n.roomId)) {
+          // booking_nightly_prices lưu tổng giá đêm cho cả đơn đặt phòng
+          const checkOutStr = dayString(booking.check_out);
+          const checkOutD = new Date(`${checkOutStr}T00:00:00Z`);
+          const lastNightD = new Date(checkOutD.getTime() - 24 * 3600 * 1000);
+          const lastNightStr = lastNightD.toISOString().slice(0, 10);
+
+          const matchedNightly = coNightlyPrices.find((n) => n.stayDate === lastNightStr) || coNightlyPrices[0];
+          totalLastNightRate = Number(matchedNightly?.price || 0);
+        } else {
+          for (const d of detailsForRate) {
+            const checkOutStr = d.checkOutDate || dayString(booking.check_out);
+            const checkOutD = new Date(`${checkOutStr}T00:00:00Z`);
+            const lastNightD = new Date(checkOutD.getTime() - 24 * 3600 * 1000);
+            const lastNightStr = lastNightD.toISOString().slice(0, 10);
+
+            // Tìm giá đêm cuối trong booking_nightly_prices cho đúng phòng này
+            let matchedNightly = coNightlyPrices.find(
+              (n) => n.stayDate === lastNightStr && Number(n.roomId) === Number(d.roomId)
+            );
+            if (!matchedNightly) {
+              matchedNightly = coNightlyPrices.find(
+                (n) => Number(n.roomId) === Number(d.roomId)
+              );
+            }
+
+            const roomNightRate = matchedNightly
+              ? Number(matchedNightly.price || 0)
+              : Number(d.roomPrice || d.defaultPrice || booking.price_per_night || 0);
+
+            totalLastNightRate += roomNightRate;
+          }
+        }
+
+        const nightlyRate = totalLastNightRate > 0
+          ? totalLastNightRate
+          : Number(booking.room_price || booking.price_per_night || 0);
+
         const result = computeLateCheckoutFee(
           tiers,
           standardCheckOut,
@@ -5598,7 +5675,7 @@ const checkOut = async (
                 bookingId,
                 connection,
               );
-            lateCheckout = { ...result };
+            lateCheckout = { ...result, nightlyRate };
 
             await logHistory(
               bookingId,
