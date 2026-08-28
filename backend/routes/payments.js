@@ -37,6 +37,16 @@ router.post('/gateway/zalopay/callback', paymentController.zalopayCallback);
 router.get('/booking/:bookingId', requireAuth, requireBookingPaymentAccess, paymentController.getPaymentByBookingId);
 router.get('/:id/customer-vouchers', requireAuth, requirePaymentAccess, paymentController.listCustomerVouchers);
 router.post('/:id/preview-voucher', requireAuth, requirePaymentAccess, voucherAttemptLimiter, paymentController.previewVoucher);
+// Gỡ voucher để chọn lại mã khác. Cùng lớp quyền với apply-voucher: chủ đơn
+// hoặc nhân viên; giới hạn nhịp gọi để không ai dùng nó dò kho mã.
+router.delete(
+  '/:id/voucher',
+  requireAuth,
+  requirePaymentAccess,
+  voucherAttemptLimiter,
+  paymentController.removeVoucher
+);
+
 router.post('/:id/apply-voucher', requireAuth, requirePaymentAccess, voucherAttemptLimiter, paymentController.applyVoucher);
 router.post('/:id/pay-wallet', requireAuth, requirePaymentAccess, walletPaymentLimiter, paymentController.payWithWallet);
 router.post('/:id/gateway-order', requireAuth, requirePaymentAccess, paymentController.createGatewayOrder);

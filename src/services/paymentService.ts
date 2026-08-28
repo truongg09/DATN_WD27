@@ -55,6 +55,13 @@ export const previewVoucher = async (id: number, code: string) => {
   >;
 };
 
+/** Gỡ voucher đang áp để lễ tân/khách chọn lại mã khác. */
+export const removeVoucher = async (id: number) => {
+  return api.delete(`/payments/${id}/voucher`) as Promise<
+    ApiResponse<{ payment: Payment; removedVoucher: { id: number; code: string | null } }>
+  >;
+};
+
 export const applyVoucher = async (id: number, code: string) => {
   return api.post(`/payments/${id}/apply-voucher`, { code }) as Promise<
     ApiResponse<{

@@ -90,6 +90,8 @@ interface ApplicableVoucher {
   validUntil: string | null;
   roomTypes: string[];
   isPersonal: boolean;
+  /** Mã đang được áp cho chính đơn này */
+  isApplied?: boolean;
   isApplicable: boolean;
   unavailableReason: string | null;
   discountAmount: number;
@@ -138,6 +140,7 @@ const CheckoutPaymentModal: React.FC<Props> = ({
   const [voucherLoadError, setVoucherLoadError] = useState<string | null>(null);
   const [voucherListVersion, setVoucherListVersion] = useState(0);
   const [applyingVoucher, setApplyingVoucher] = useState(false);
+  const [removingVoucher, setRemovingVoucher] = useState(false);
   const [waiveLateFee, setWaiveLateFee] = useState(false);
 
   const loadSummary = useCallback(
@@ -183,7 +186,10 @@ const CheckoutPaymentModal: React.FC<Props> = ({
 
   useEffect(() => {
     const paymentId = summary?.paymentId;
-    if (!open || !paymentId || summary?.voucherCode || Number(summary?.remainingAmount || 0) <= 0) {
+    // Vẫn tải danh sách khi đơn ĐÃ có voucher: lễ tân cần thấy các mã khác để
+    // đổi sang mã lợi hơn. Trước đây gặp voucherCode là xoá rỗng danh sách nên
+    // ô chọn trống trơn, không còn gì để chọn lại.
+    if (!open || !paymentId || Number(summary?.remainingAmount || 0) <= 0) {
       setAvailableVouchers([]);
       setSelectedVoucherCode("");
       setVoucherLoadError(null);
@@ -234,6 +240,7 @@ const CheckoutPaymentModal: React.FC<Props> = ({
       });
       message.success("Áp dụng mã giảm giá thành công!");
       setSelectedVoucherCode("");
+      setVoucherListVersion((current) => current + 1);
       await loadSummary();
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })
@@ -243,6 +250,29 @@ const CheckoutPaymentModal: React.FC<Props> = ({
       setVoucherListVersion((current) => current + 1);
     } finally {
       setApplyingVoucher(false);
+    }
+  };
+
+  /**
+   * Gỡ mã đang áp. Backend trả lượt dùng về kho và mở lại mã cá nhân cho khách,
+   * nên sau bước này danh sách voucher phải nạp lại (tăng voucherListVersion)
+   * để mã vừa gỡ xuất hiện trở lại trong ô chọn.
+   */
+  const handleRemoveVoucher = async () => {
+    if (!summary?.paymentId) return;
+    setRemovingVoucher(true);
+    try {
+      await api.delete(`/payments/${summary.paymentId}/voucher`);
+      message.success("Đã gỡ voucher khỏi đơn");
+      setSelectedVoucherCode("");
+      setVoucherListVersion((current) => current + 1);
+      await loadSummary();
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })
+        .response?.data?.message;
+      message.error(msg || "Không thể gỡ voucher");
+    } finally {
+      setRemovingVoucher(false);
     }
   };
 
@@ -605,10 +635,9 @@ const CheckoutPaymentModal: React.FC<Props> = ({
               <span style={{ fontWeight: 500 }}>Chọn Voucher:</span>
               <Select
                 placeholder={loadingVouchers ? "Đang tải voucher..." : "Chọn voucher của khách"}
-                value={summary.voucherCode || selectedVoucherCode || undefined}
+                value={selectedVoucherCode || summary.voucherCode || undefined}
                 onChange={(value) => setSelectedVoucherCode(value || "")}
                 style={{ minWidth: 300, flex: "1 1 360px" }}
-                disabled={Boolean(summary.voucherCode)}
                 loading={loadingVouchers}
                 showSearch
                 allowClear
@@ -631,13 +660,16 @@ const CheckoutPaymentModal: React.FC<Props> = ({
                   const expiry = voucher.validUntil && dayjs(voucher.validUntil).isValid()
                     ? ` • HSD ${dayjs(voucher.validUntil).format("DD/MM/YYYY")}`
                     : "";
-                  const applicability = voucher.isApplicable
-                    ? `Áp dụng giảm ${money(voucher.discountAmount)}`
-                    : `Không áp dụng: ${voucher.unavailableReason || "Chưa đủ điều kiện"}`;
+                  const applicability = voucher.isApplied
+                    ? "✓ Đang áp dụng cho đơn này"
+                    : voucher.isApplicable
+                      ? `Áp dụng giảm ${money(voucher.discountAmount)}`
+                      : `Không áp dụng: ${voucher.unavailableReason || "Chưa đủ điều kiện"}`;
                   return {
                     value: voucher.code,
                     label: `${voucher.code} — ${personal}${benefit}${maximum}${expiry} — ${applicability}`,
-                    disabled: !voucher.isApplicable,
+                    // Mã đang dùng vẫn hiện để lễ tân biết, nhưng không chọn lại được.
+                    disabled: !voucher.isApplicable || Boolean(voucher.isApplied),
                   };
                 })}
               />
@@ -645,10 +677,23 @@ const CheckoutPaymentModal: React.FC<Props> = ({
                 type="primary"
                 onClick={handleApplyVoucher}
                 loading={applyingVoucher}
-                disabled={Boolean(summary.voucherCode) || !selectedVoucherCode}
+                // Đã có mã rồi thì nút chỉ bật khi lễ tân chọn sang mã KHÁC,
+                // tránh bấm nhầm áp lại đúng mã đang dùng.
+                disabled={
+                  !selectedVoucherCode || selectedVoucherCode === summary.voucherCode
+                }
               >
-                {summary.voucherCode ? "Đã áp dụng" : "Áp dụng"}
+                {summary.voucherCode ? "Đổi mã" : "Áp dụng"}
               </Button>
+              {summary.voucherCode && (
+                <Button
+                  danger
+                  onClick={handleRemoveVoucher}
+                  loading={removingVoucher}
+                >
+                  Bỏ voucher
+                </Button>
+              )}
               {summary.voucherCode && (
                 <Tag
                   color="purple"
