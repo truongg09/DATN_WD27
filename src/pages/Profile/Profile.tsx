@@ -80,6 +80,17 @@ interface VoucherItem {
   grantedSource?: string;
 }
 
+// Sáu mục trong sidebar. Khai một chỗ để lúc đọc tab từ URL và lúc kiểm tra
+// tab hợp lệ không bị lệch danh sách như trước.
+const PROFILE_TABS = [
+  "profile-edit",
+  "bookings",
+  "refunds",
+  "notifications",
+  "vouchers",
+  "change-password",
+];
+
 function Profile() {
   const { user, logout, updateUser } = useAuth();
   const navigate = useNavigate();
@@ -94,14 +105,21 @@ function Profile() {
   // State quản lý tab đang chọn trong sidebar
   const getInitialTab = () => {
     const tabParam = searchParams.get("tab") || (location.state as { tab?: string } | null)?.tab;
-    const validTabs = ["profile-edit", "bookings", "refunds", "notifications", "vouchers", "change-password"];
-    if (tabParam && validTabs.includes(tabParam)) {
+    if (tabParam && PROFILE_TABS.includes(tabParam)) {
       return tabParam;
     }
     return "profile-edit";
   };
 
   const [activeTab, setActiveTab] = useState<string>(getInitialTab);
+
+  // Đổi tab phải ghi luôn lên URL, nếu không F5 sẽ rơi về "Chỉnh sửa hồ sơ"
+  // dù khách đang xem dở lịch sử đặt phòng hay ví. Dùng replace để nút Back
+  // thoát khỏi trang Hồ sơ chứ không phải lùi qua từng tab đã bấm.
+  const changeTab = (tab: string) => {
+    setActiveTab(tab);
+    setSearchParams({ tab }, { replace: true });
+  };
   const [profile, setProfile] = useState<CustomerProfile | null>(null);
   const [vouchers, setVouchers] = useState<VoucherItem[]>([]);
   const [refunds, setRefunds] = useState<RefundRow[]>([]);
@@ -370,18 +388,18 @@ function Profile() {
 
             {/* Menu options giống ảnh mockup */}
             <div style={{ padding: "12px 0" }}>
-              <div style={menuItemStyle("profile-edit")} onClick={() => setActiveTab("profile-edit")}>
+              <div style={menuItemStyle("profile-edit")} onClick={() => changeTab("profile-edit")}>
                 <UserOutlined style={{ marginRight: "12px", fontSize: "17px" }} />
                 <span>Chỉnh sửa hồ sơ</span>
               </div>
 
-              <div style={menuItemStyle("bookings")} onClick={() => setActiveTab("bookings")}>
+              <div style={menuItemStyle("bookings")} onClick={() => changeTab("bookings")}>
                 <CalendarOutlined style={{ marginRight: "12px", fontSize: "17px" }} />
                 <span>Lịch sử đặt phòng</span>
               </div>
 
               <div style={menuItemStyle("refunds")} onClick={() => {
-                setActiveTab("refunds");
+                changeTab("refunds");
                 fetchRefunds();
                 fetchWallet();
               }}>
@@ -396,7 +414,7 @@ function Profile() {
               </div>
 
               <div style={menuItemStyle("notifications")} onClick={() => {
-                setActiveTab("notifications");
+                changeTab("notifications");
                 fetchProfileNotifications();
               }}>
                 <BellOutlined style={{ marginRight: "12px", fontSize: "17px" }} />
@@ -409,12 +427,12 @@ function Profile() {
                 </Space>
               </div>
 
-              <div style={menuItemStyle("vouchers")} onClick={() => setActiveTab("vouchers")}>
+              <div style={menuItemStyle("vouchers")} onClick={() => changeTab("vouchers")}>
                 <GiftOutlined style={{ marginRight: "12px", fontSize: "17px" }} />
                 <span>Khuyến mãi</span>
               </div>
 
-              <div style={menuItemStyle("change-password")} onClick={() => setActiveTab("change-password")}>
+              <div style={menuItemStyle("change-password")} onClick={() => changeTab("change-password")}>
                 <LockOutlined style={{ marginRight: "12px", fontSize: "17px" }} />
                 <span>Đổi mật khẩu</span>
               </div>
@@ -995,15 +1013,13 @@ function Profile() {
                             }
                           }
                           if (isVoucher) {
-                            setActiveTab("vouchers");
-                            setSearchParams({ tab: "vouchers" });
+                            changeTab("vouchers");
                             fetchVouchers();
                           } else if (item.type === "booking" || item.referenceType === "booking") {
                             if (item.referenceId) {
                               navigate(`/booking/${item.referenceId}`);
                             } else {
-                              setActiveTab("bookings");
-                              setSearchParams({ tab: "bookings" });
+                              changeTab("bookings");
                             }
                           } else if (item.type === "review" || item.referenceType === "review") {
                             navigate("/reviews");

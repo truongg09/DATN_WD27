@@ -44,6 +44,7 @@ import {
 import axios from 'axios';
 import dayjs from 'dayjs';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { useUrlTab } from '../../hooks/useUrlTab';
 import api from '../../services/api';
 import { getPolicies, type PoliciesInfo } from '../../services/settingsService';
 import { AdminCreateBookingModal } from './AdminCreateBookingModal';
@@ -88,6 +89,8 @@ interface CalendarBooking {
   customer_name?: string;
   customer_phone?: string;
 }
+
+const ROOM_VIEW_MODES = ['list', 'grid', 'calendar'] as const;
 
 function RoomManagement() {
   const location = useLocation();
@@ -565,7 +568,9 @@ function RoomManagement() {
   };
 
   // Calendar states
-  const [viewMode, setViewMode] = useState<'list' | 'calendar' | 'grid'>('list');
+  // Chế độ xem nằm trên URL (?view=grid|calendar): lễ tân hay mở sơ đồ phòng
+  // hoặc lịch phòng suốt ca, F5 mà nhảy về danh sách thì phải chọn lại mỗi lần.
+  const [viewMode, setViewMode] = useUrlTab('view', ROOM_VIEW_MODES, 'list');
   const [calendarStartDate, setCalendarStartDate] = useState<dayjs.Dayjs>(dayjs());
   const [calendarBookings, setCalendarBookings] = useState<CalendarBooking[]>([]);
 

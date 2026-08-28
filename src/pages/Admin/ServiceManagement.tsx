@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { Tabs, Button } from 'antd';
 import {
   CustomerServiceOutlined,
@@ -15,10 +14,21 @@ import DamageReportsTab from './service/DamageReportsTab';
 import BookingServicesTab from './service/BookingServicesTab';
 import ServiceRequestsTab from './service/ServiceRequestsTab';
 import HolidayPriceManagementTab from './service/HolidayPriceManagementTab';
+import { useUrlTab } from '../../hooks/useUrlTab';
 import './service/service-management.css';
 
+const SERVICE_TABS = [
+  'services',
+  'holiday-pricing',
+  'service-requests',
+  'room-items',
+  'damage-reports',
+  'booking-services',
+] as const;
+
 function ServiceManagement() {
-  const [activeTab, setActiveTab] = useState('services');
+  // Tab nằm trên URL để F5 không văng về "Dịch vụ" khi đang dở việc ở tab khác.
+  const [activeTab, setActiveTab] = useUrlTab('tab', SERVICE_TABS, 'services');
 
   return (
     <div className="service-management" style={{ padding: '24px' }}>

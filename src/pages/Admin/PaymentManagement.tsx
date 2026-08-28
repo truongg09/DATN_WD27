@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useUrlTab } from '../../hooks/useUrlTab';
 import {
   Table,
   Tag,
@@ -79,7 +80,12 @@ const refundStatusMap: Record<string, { label: string; color: string }> = {
   rejected: { label: 'Đã từ chối', color: 'red' },
 };
 
+const PAYMENT_TABS = ['payments', 'refunds', 'withdrawals'] as const;
+
 function PaymentManagement() {
+  // Giữ tab trên URL: duyệt xong một phiếu hoàn tiền rồi F5 vẫn ở tab hoàn tiền.
+  const [activeTab, setActiveTab] = useUrlTab('tab', PAYMENT_TABS, 'payments');
+
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
@@ -569,7 +575,8 @@ function PaymentManagement() {
     <div style={{ padding: '12px 8px 24px' }}>
       <Card styles={{ body: { padding: '16px 10px 20px' } }}>
         <Tabs
-          defaultActiveKey="payments"
+          activeKey={activeTab}
+          onChange={setActiveTab}
           items={[
             {
               key: 'payments',
