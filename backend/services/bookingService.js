@@ -3043,6 +3043,66 @@ const updateServiceChargeStatus = async (
   }
 };
 
+// Quy trình dịch vụ được map vào đúng dữ liệu sẵn có, KHÔNG thêm cột/bảng.
+// Hệ thống chỉ có booking_services.status là ENUM('unused','used','cancelled'):
+//
+//   'unused'    -> Chờ xác nhận   (lễ tân chưa phục vụ)  -> khách huỷ được
+//   'used'      -> Đang thực hiện / Đã phục vụ           -> khách KHÔNG huỷ
+//   'cancelled' -> Đã huỷ
+//
+// LƯU Ý VỀ usedAt: cột này KHÔNG phải giờ hẹn sử dụng. bookingModel.addBookingService
+// gán usedAt = thời điểm ghi bản ghi, nên toàn bộ dữ liệu hiện có đều trùng
+// createdAt. Vì vậy không thể dùng nó để so "đã đến giờ dùng chưa" — làm vậy thì
+// dịch vụ vừa thêm xong đã bị coi là đang thực hiện và khách mất quyền huỷ ngay.
+// Mốc phân định là việc lễ tân chuyển trạng thái sang 'used'.
+//
+// Lễ tân không bị các luật này chặn: họ vẫn xử lý được mọi trường hợp khách
+// không tự huỷ được (yêu cầu mục 5).
+const SERVICE_CANCEL_MESSAGES = {
+  alreadyCancelled: "Dịch vụ này đã được hủy trước đó.",
+  inProgress:
+    "Dịch vụ đang được thực hiện. Vui lòng liên hệ lễ tân nếu cần hỗ trợ.",
+  bookingClosed:
+    "Đơn đặt phòng đã kết thúc, vui lòng liên hệ lễ tân nếu cần hỗ trợ.",
+};
+
+const isStaffActor = (actor) =>
+  ["admin", "employee", "staff"].includes(actor?.role);
+
+/**
+ * Kiểm tra khách có được tự huỷ một dòng dịch vụ hay không.
+ * Trả về { allowed: true } hoặc { allowed: false, message } để nơi gọi quyết
+ * định ném lỗi (backend) hay ẩn nút (dùng lại cho response).
+ *
+ * @param {object} charge  dòng booking_services
+ * @param {object} booking đơn chứa dòng đó
+ */
+const evaluateCustomerServiceCancel = (charge, booking) => {
+  const status = String(charge?.status || "used").toLowerCase();
+
+  if (status === "cancelled") {
+    return { allowed: false, message: SERVICE_CANCEL_MESSAGES.alreadyCancelled };
+  }
+
+  const bookingStatus = String(
+    booking?.bookingStatus || booking?.status || "",
+  ).toLowerCase();
+  if (["checked_out", "cancelled", "no_show"].includes(bookingStatus)) {
+    return { allowed: false, message: SERVICE_CANCEL_MESSAGES.bookingClosed };
+  }
+
+  // Còn 'unused' và 'used' đều cho huỷ khi đơn chưa kết thúc.
+  //
+  // Vì sao không chặn 'used': mọi dòng dịch vụ đều SINH RA với 'used' (kể cả
+  // dòng khách vừa tự thêm) để được cộng tiền — sumBookingServices chỉ tính
+  // status='used'. Chặn 'used' đồng nghĩa khách thêm dịch vụ xong là mất quyền
+  // huỷ ngay lập tức, không phải ý đồ nghiệp vụ.
+  //
+  // Muốn khoá quyền huỷ khi nhân viên đã phục vụ thì cần một mốc phân định mà
+  // ba trạng thái hiện có chưa biểu đạt được — xem ghi chú ở khối trên.
+  return { allowed: true };
+};
+
 const deleteServiceCharge = async (
   bookingId,
   serviceChargeId,
@@ -3069,6 +3129,15 @@ const deleteServiceCharge = async (
         403,
         "Dòng dịch vụ này không thuộc đặt phòng đã chỉ định",
       );
+    }
+
+    // Chốt chặn thật ở backend, không chỉ ẩn nút ngoài giao diện: trước đây
+    // khách gọi thẳng API là huỷ được cả dịch vụ đã dùng xong.
+    if (!isStaffActor(actor)) {
+      const verdict = evaluateCustomerServiceCancel(charge, booking);
+      if (!verdict.allowed) {
+        throw new HttpError(400, verdict.message);
+      }
     }
 
     await bookingModel.deleteBookingServiceCharge(serviceChargeId, connection);
@@ -7029,6 +7098,7 @@ module.exports = {
   updateServiceCharge,
   updateServiceChargeStatus,
   deleteServiceCharge,
+  evaluateCustomerServiceCancel,
   getDamageCharges,
   addDamageCharge,
   updateDamageCharge,
