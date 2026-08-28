@@ -44,6 +44,11 @@ router.patch('/:id/cancel', requireAuth, bookingController.cancelBooking);
 router.post('/:id/reset-hold', requireAuth, bookingController.resetBookingHold);
 router.post('/:id/guests', requireAuth, bookingController.saveGuestIdentities);
 // Khách (chủ booking) hoặc nhân viên thao tác dịch vụ/phí phát sinh trên booking
+// Khách đặt thêm dịch vụ giữa kỳ lưu trú: tạo yêu cầu chờ lễ tân duyệt, chưa
+// tính tiền ngay. Chừng nào chưa được duyệt thì khách còn tự huỷ được.
+router.get('/:id/service-requests', requireAuth, bookingController.listBookingServiceRequests);
+router.post('/:id/service-requests', requireAuth, bookingController.createServiceRequest);
+
 router.get('/:id/services', requireAuth, bookingController.getBookingServices);
 router.post('/:id/services', requireAuth, bookingController.addServiceCharge);
 router.patch('/:id/services/:serviceChargeId/status', requireAuth, bookingController.updateServiceChargeStatus);
