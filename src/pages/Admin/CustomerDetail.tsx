@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { useUrlTab } from "../../hooks/useUrlTab";
+
+const CUSTOMER_TABS = ["bookings", "payments", "reviews"] as const;
 import { message } from "antd";
 import EmptyState from "../../components/Common/EmptyState";
 import {
@@ -232,9 +235,8 @@ function AdminCustomerDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [activeTab, setActiveTab] = useState<
-    "bookings" | "payments" | "reviews"
-  >("bookings");
+  // Giữ tab trên URL để F5 khi đang xem lịch sử thanh toán không nhảy về đặt phòng.
+  const [activeTab, setActiveTab] = useUrlTab("tab", CUSTOMER_TABS, "bookings");
   const [bookingPage, setBookingPage] = useState(0);
   const [bookingTotal, setBookingTotal] = useState(0);
 

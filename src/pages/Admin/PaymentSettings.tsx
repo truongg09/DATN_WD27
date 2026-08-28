@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useUrlTab } from '../../hooks/useUrlTab';
 import { Card, Form, Input, Select, Button, message, QRCode, Alert, Spin, InputNumber, Tabs, TimePicker } from 'antd';
 import { BankOutlined, SaveOutlined, TeamOutlined, ClockCircleOutlined, SafetyOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
@@ -29,7 +30,17 @@ interface ChildrenPolicy {
   surchargePerNight: number;
 }
 
+const SETTINGS_TABS = [
+  'payment-account',
+  'checkin-checkout',
+  'cancellation',
+  'children',
+] as const;
+
 const PaymentSettings = () => {
+  // Bốn tab là bốn nhóm chính sách khác nhau; giữ trên URL để F5 hoặc gửi link
+  // cho đồng nghiệp đều mở đúng nhóm đang bàn.
+  const [activeTab, setActiveTab] = useUrlTab('tab', SETTINGS_TABS, 'payment-account');
   const [form] = Form.useForm<FormValues>();
   const [lateTiersForm] = Form.useForm();
   const [cancellationForm] = Form.useForm();
@@ -359,7 +370,7 @@ const PaymentSettings = () => {
 
   const tabItems = [
     {
-      key: '1',
+      key: 'payment-account',
       label: (
         <span>
           <BankOutlined /> Tài khoản thanh toán
@@ -447,7 +458,7 @@ const PaymentSettings = () => {
       ),
     },
     {
-      key: '2',
+      key: 'checkin-checkout',
       label: (
         <span>
           <ClockCircleOutlined /> Giờ chuẩn & Phí trễ giờ
@@ -611,7 +622,7 @@ const PaymentSettings = () => {
       ),
     },
     {
-      key: '3',
+      key: 'cancellation',
       label: (
         <span>
           <SafetyOutlined /> Chính sách hủy phòng
@@ -676,7 +687,7 @@ const PaymentSettings = () => {
       ),
     },
     {
-      key: '4',
+      key: 'children',
       label: (
         <span>
           <TeamOutlined /> Phụ thu trẻ em
@@ -750,7 +761,7 @@ const PaymentSettings = () => {
         Quản lý tài khoản thanh toán, giờ nhận/trả phòng chuẩn, chính sách phụ thu trễ giờ, phụ thu trẻ em và quy định hủy phòng.
       </p>
 
-      <Tabs defaultActiveKey="1" items={tabItems} size="large" />
+      <Tabs activeKey={activeTab} onChange={setActiveTab} items={tabItems} size="large" />
     </div>
   );
 };
