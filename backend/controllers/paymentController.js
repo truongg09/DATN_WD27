@@ -344,6 +344,19 @@ const applyVoucher = async (req, res) => {
   }
 };
 
+const removeVoucher = async (req, res) => {
+  try {
+    const paymentId = normalizeIdParam(req.params.id);
+    const result = await paymentService.removeVoucher(paymentId, {
+      userId: req.user.userId,
+      role: req.user.role
+    });
+    res.json({ message: 'Đã gỡ voucher khỏi đơn', data: result });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
 module.exports = {
   createPayment,
   listPayments,
@@ -360,6 +373,7 @@ module.exports = {
   zalopayCallback,
   listCustomerVouchers,
   applyVoucher,
+  removeVoucher,
   previewVoucher,
   submitTransferConfirmation,
   confirmTransferPayment,

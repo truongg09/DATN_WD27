@@ -1302,7 +1302,9 @@ const listCustomerVouchers = async (paymentId, actor) => {
     throw new HttpError(403, 'Bạn không có quyền xem voucher của đặt phòng này');
   }
 
-  if (booking.voucher_id || booking.voucherId) return [];
+  // Đơn đã có voucher vẫn phải trả danh sách: người dùng cần nhìn các mã còn
+  // lại để đổi sang mã lợi hơn. Trước đây trả rỗng nên ô chọn trống trơn và
+  // không còn cách nào chọn lại ngoài việc gỡ mã cũ trước.
   if (!['unpaid', 'deposit_paid'].includes(payment.paymentStatus)) return [];
 
   const hasPaidDeposit = Number(payment.paidAmount || 0) > 0;
@@ -1317,6 +1319,9 @@ const listCustomerVouchers = async (paymentId, actor) => {
   const subtotal = roomAmount + serviceAmount + guestSurcharge + damageSurcharge + lateCheckoutSurcharge;
   const paidAmount = Number(payment.paidAmount || 0);
   const customerId = booking.user_id || null;
+  // Mã đang áp cho đơn này: đánh dấu để giao diện nói rõ "đang dùng" thay vì
+  // hiện lý do khô khan kiểu "mã đã được sử dụng".
+  const appliedVoucherId = Number(booking.voucher_id || booking.voucherId || 0);
 
   const [candidates] = await db.query(
     `SELECT
@@ -1371,6 +1376,7 @@ const listCustomerVouchers = async (paymentId, actor) => {
         validUntil: evaluation.voucher.endDate,
         roomTypes: evaluation.allowedRoomTypes.map((item) => item.typeName),
         isPersonal: Boolean(candidate.isPersonal),
+        isApplied: Number(evaluation.voucher.id) === appliedVoucherId,
         isApplicable: true,
         unavailableReason: null,
         discountAmount: evaluation.discountAmount,
@@ -1388,8 +1394,12 @@ const listCustomerVouchers = async (paymentId, actor) => {
           validUntil: candidate.endDate,
           roomTypes: [],
           isPersonal: Boolean(candidate.isPersonal),
+          isApplied: Number(candidate.id) === appliedVoucherId,
           isApplicable: false,
-          unavailableReason: error.message,
+          unavailableReason:
+            Number(candidate.id) === appliedVoucherId
+              ? 'Đang áp dụng cho đơn này'
+              : error.message,
           discountAmount: 0,
           remainingAfterDiscount: Math.max(subtotal - paidAmount, 0)
         });
@@ -1404,6 +1414,104 @@ const listCustomerVouchers = async (paymentId, actor) => {
     if (first.isPersonal !== second.isPersonal) return first.isPersonal ? -1 : 1;
     return String(first.code).localeCompare(String(second.code), 'vi');
   });
+};
+
+/**
+ * Trả voucher đang áp về kho, đảo ngược đúng những gì applyVoucher đã làm:
+ * hoàn lại một lượt dùng, mở khoá dòng customer_vouchers, xoá giảm giá khỏi
+ * hoá đơn. Dùng chung cho nút "Bỏ voucher" và cho việc đổi sang mã khác.
+ *
+ * Chạy trong connection của lời gọi (đang mở transaction) để việc gỡ mã cũ và
+ * áp mã mới hoặc cùng thành công, hoặc cùng bị huỷ — không có trạng thái lỡ dở
+ * kiểu mã cũ đã trả về kho mà mã mới lại áp không được.
+ */
+const releaseAppliedVoucher = async (booking, payment, connection, actor) => {
+  const currentVoucherId = booking.voucher_id || booking.voucherId;
+  if (!currentVoucherId) return null;
+
+  const [voucherRows] = await connection.query(
+    'SELECT id, code FROM vouchers WHERE id = ? FOR UPDATE',
+    [currentVoucherId]
+  );
+  const currentVoucher = voucherRows[0];
+
+  // Hoàn lại lượt dùng cho kho voucher.
+  await connection.query(
+    'UPDATE vouchers SET quantity = quantity + 1 WHERE id = ?',
+    [currentVoucherId]
+  );
+
+  // Mở khoá mã cá nhân để khách còn dùng lại được cho lần sau.
+  if (booking.user_id) {
+    await connection.query(
+      `UPDATE customer_vouchers SET isUsed = 0
+        WHERE voucherId = ? AND userId = ? AND isUsed = 1
+        ORDER BY id DESC LIMIT 1`,
+      [currentVoucherId, booking.user_id]
+    );
+  }
+
+  await connection.query('UPDATE bookings SET voucherId = NULL WHERE id = ?', [booking.id]);
+  await connection.query('UPDATE payments SET discountAmount = 0 WHERE id = ?', [payment.id]);
+
+  await logBookingHistory(
+    booking.id,
+    'voucher_removed',
+    `Gỡ mã ưu đãi ${currentVoucher?.code || `#${currentVoucherId}`} khỏi đơn`,
+    {
+      oldValue: {
+        voucherCode: currentVoucher?.code || null,
+        discountAmount: Number(payment.discountAmount || 0)
+      },
+      amount: Number(payment.discountAmount || 0)
+    },
+    actor,
+    connection
+  );
+
+  return currentVoucher || { id: currentVoucherId, code: null };
+};
+
+/** Gỡ voucher khỏi đơn và tính lại hoá đơn (điểm vào của API bỏ voucher). */
+const removeVoucher = async (paymentId, actor) => {
+  const userId = typeof actor === 'object' ? actor?.userId : actor;
+  const userRole = typeof actor === 'object' ? actor?.role : 'customer';
+  const isStaff = ['admin', 'employee', 'staff', 'manager', 'receptionist'].includes(userRole);
+
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    const [paymentRows] = await connection.query(
+      'SELECT * FROM payments WHERE id = ? FOR UPDATE',
+      [paymentId]
+    );
+    const payment = paymentRows[0];
+    if (!payment) throw new HttpError(404, 'Không tìm thấy thanh toán');
+    if (!['unpaid', 'deposit_paid'].includes(payment.paymentStatus)) {
+      throw new HttpError(409, 'Giao dịch đã hoàn tất, không thể đổi voucher');
+    }
+
+    const booking = await bookingModel.getBookingById(payment.bookingId, connection, true);
+    if (!booking) throw new HttpError(404, 'Không tìm thấy đặt phòng');
+    if (!isStaff && Number(booking.user_id) !== Number(userId)) {
+      throw new HttpError(403, 'Bạn không có quyền đổi voucher của đặt phòng này');
+    }
+    if (!(booking.voucher_id || booking.voucherId)) {
+      throw new HttpError(400, 'Đơn này chưa áp dụng voucher nào');
+    }
+
+    const released = await releaseAppliedVoucher(booking, payment, connection, actor);
+    const updatedPayment = await recalculatePaymentForBooking(payment.bookingId, connection);
+
+    await connection.commit();
+    return { payment: updatedPayment, removedVoucher: released };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
 };
 
 const applyVoucher = async (paymentId, code, actor) => {
@@ -1433,7 +1541,25 @@ const applyVoucher = async (paymentId, code, actor) => {
     if (!isStaff && Number(booking.user_id) !== Number(userId)) {
       throw new HttpError(403, 'Bạn không có quyền áp voucher cho đặt phòng này');
     }
-    if (booking.voucher_id || booking.voucherId) throw new HttpError(409, 'Đặt phòng đã áp dụng voucher');
+    // Đơn đã có voucher thì ĐỔI sang mã mới thay vì từ chối: lễ tân hay gặp
+    // cảnh khách đưa nhiều mã rồi chọn lại mã lợi hơn, trước đây phải chịu mã
+    // đã lỡ bấm. Mã cũ được trả về kho ngay trong transaction này.
+    const appliedVoucherId = booking.voucher_id || booking.voucherId;
+    if (appliedVoucherId) {
+      const [sameRows] = await connection.query(
+        'SELECT id FROM vouchers WHERE id = ? AND UPPER(code) = ?',
+        [appliedVoucherId, normalizedCode]
+      );
+      if (sameRows.length > 0) {
+        throw new HttpError(409, `Đơn đang áp dụng mã ${normalizedCode} rồi`);
+      }
+
+      await releaseAppliedVoucher(booking, payment, connection, actor);
+      // Đọc lại để các bước sau tính trên số liệu đã gỡ giảm giá.
+      booking.voucherId = null;
+      booking.voucher_id = null;
+      payment.discountAmount = 0;
+    }
 
     // Voucher chỉ dùng ở lần thanh toán cuối (hoặc lúc trả phòng), không dùng
     // để bớt tiền cọc giữ phòng. Cọc là khoản cam kết giữ phòng nên phải tính
@@ -1559,6 +1685,7 @@ module.exports = {
   getPaymentByBookingId,
   listCustomerVouchers,
   applyVoucher,
+  removeVoucher,
   previewVoucher,
   processPayment,
   payWithWallet,
