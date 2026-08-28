@@ -42,7 +42,12 @@ const STATUS_META: Record<string, { label: string; color: string }> = {
 
 type FilterValue = 'pending' | 'confirmed' | 'rejected' | 'all';
 
-function ServiceRequestsTab() {
+interface ServiceRequestsTabProps {
+  /** Báo số yêu cầu đang chờ ra ngoài để trang cha chấm đỏ lên nhãn tab. */
+  onPendingCountChange?: (count: number) => void;
+}
+
+function ServiceRequestsTab({ onPendingCountChange }: ServiceRequestsTabProps) {
   const [requests, setRequests] = useState<ServiceRequest[]>([]);
   const [loading, setLoading] = useState(false);
   const [processingId, setProcessingId] = useState<number | null>(null);
@@ -66,11 +71,13 @@ function ServiceRequestsTab() {
   const fetchPendingCount = useCallback(async () => {
     try {
       const response = await api.get('/service-requests', { params: { status: 'pending' } });
-      setPendingCount(unwrapList<ServiceRequest>(response).length);
+      const count = unwrapList<ServiceRequest>(response).length;
+      setPendingCount(count);
+      onPendingCountChange?.(count);
     } catch {
       // ignore badge errors
     }
-  }, []);
+  }, [onPendingCountChange]);
 
   useEffect(() => {
     void fetchRequests();
