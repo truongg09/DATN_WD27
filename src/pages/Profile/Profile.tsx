@@ -286,10 +286,32 @@ function Profile() {
     fetchProfileNotifications();
   }, [user]);
 
+  // Hai chấm đỏ trong menu (Ví: phiếu hoàn tiền chờ duyệt, Thông báo: tin chưa
+  // đọc) trước đây chỉ đếm đúng một lần lúc mở trang. Khách ngồi lại trang này
+  // trong lúc lễ tân duyệt hoàn tiền hoặc gửi thông báo thì không thấy gì cho
+  // tới khi F5. Đếm lại theo nhịp, và ngay khi quay lại tab trình duyệt.
+  useEffect(() => {
+    if (!user) return;
+
+    const refreshBadges = () => {
+      fetchRefunds();
+      fetchProfileNotifications();
+    };
+
+    // 30 giây: khách không cần nhanh như quầy lễ tân (10 giây), đủ để thấy
+    // thông báo mới mà không gọi API dày đặc.
+    const timer = window.setInterval(refreshBadges, 30000);
+    window.addEventListener("focus", refreshBadges);
+
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refreshBadges);
+    };
+  }, [user]);
+
   useEffect(() => {
     const tabParam = searchParams.get("tab") || (location.state as { tab?: string } | null)?.tab;
-    const validTabs = ["profile-edit", "bookings", "refunds", "notifications", "vouchers", "change-password"];
-    if (tabParam && validTabs.includes(tabParam) && tabParam !== activeTab) {
+    if (tabParam && PROFILE_TABS.includes(tabParam) && tabParam !== activeTab) {
       setActiveTab(tabParam);
       if (tabParam === "vouchers") {
         fetchVouchers();
