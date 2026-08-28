@@ -2852,11 +2852,17 @@ const addServiceCharge = async (bookingId, payload, actor = null) => {
       connection,
     );
 
-    if (payment && Number(payment.remainingAmount) > 0 && created.status === "used") {
+    // Luôn báo cho khách khi dịch vụ được cộng vào đơn — kể cả khi không còn nợ
+    // tiền. Khách gửi yêu cầu rồi chờ duyệt, im lặng thì họ không biết đã xong.
+    if (created.status === "used") {
+      const remaining = Number(payment?.remainingAmount || 0);
       await bookingModel.createCustomerNotification(
         booking.user_id,
-        "Thanh toán dịch vụ phát sinh",
-        `Dịch vụ ${service.serviceName} đã được thêm vào đặt phòng #${bookingId} với số tiền ${addedAmount.toLocaleString("vi-VN")} VNĐ. Số tiền còn phải thanh toán là ${Number(payment.remainingAmount).toLocaleString("vi-VN")} VNĐ.`,
+        remaining > 0 ? "Thanh toán dịch vụ phát sinh" : "Dịch vụ đã được xác nhận",
+        `Dịch vụ ${service.serviceName} đã được thêm vào đặt phòng #${bookingId} với số tiền ${addedAmount.toLocaleString("vi-VN")} VNĐ.` +
+          (remaining > 0
+            ? ` Số tiền còn phải thanh toán là ${remaining.toLocaleString("vi-VN")} VNĐ.`
+            : " Cảm ơn bạn đã sử dụng dịch vụ."),
         connection,
       );
     }

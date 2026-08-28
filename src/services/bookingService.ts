@@ -81,6 +81,53 @@ export const getBookingServiceCharges = async (bookingId: number) => {
   return api.get(`/bookings/${bookingId}/services`);
 };
 
+/** Một yêu cầu dịch vụ khách gửi, chờ lễ tân duyệt mới tính tiền. */
+export interface BookingServiceRequest {
+  id: number;
+  bookingId: number;
+  roomId?: number | null;
+  bookingDetailId?: number | null;
+  serviceId: number;
+  serviceName?: string;
+  description?: string;
+  unitPrice?: number;
+  totalPrice?: number;
+  quantity: number;
+  status: 'pending' | 'confirmed' | 'rejected' | 'cancelled';
+  note?: string | null;
+  roomNumber?: string | null;
+  createdAt?: string;
+}
+
+/** Danh sách yêu cầu dịch vụ của một đơn (khách xem đơn của chính mình). */
+export const getBookingServiceRequests = async (id: number) => {
+  return api.get(`/bookings/${id}/service-requests`) as Promise<{
+    data: BookingServiceRequest[];
+  }>;
+};
+
+/**
+ * Khách đặt thêm dịch vụ giữa kỳ lưu trú. Khác addBookingServiceCharge (lễ tân
+ * ghi thẳng vào hóa đơn): hàm này chỉ tạo yêu cầu chờ duyệt, chưa cộng tiền.
+ */
+export const createBookingServiceRequest = async (
+  id: number,
+  data: {
+    serviceId: number;
+    quantity: number;
+    roomId?: number | null;
+    bookingDetailId?: number | null;
+    note?: string | null;
+  }
+) => {
+  return api.post(`/bookings/${id}/service-requests`, data);
+};
+
+/** Khách tự hủy yêu cầu dịch vụ khi lễ tân chưa xác nhận. */
+export const cancelBookingServiceRequest = async (requestId: number) => {
+  return api.patch(`/service-requests/${requestId}/cancel`);
+};
+
 export const addBookingServiceCharge = async (
   id: number,
   data: { serviceId: number; quantity: number; roomId?: number | null; bookingDetailId?: number | null; customerId?: number | null; guestName?: string | null; status?: string }

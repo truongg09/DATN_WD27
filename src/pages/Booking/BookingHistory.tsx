@@ -42,7 +42,10 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import {
-  addBookingServiceCharge,
+  createBookingServiceRequest,
+  cancelBookingServiceRequest,
+  getBookingServiceRequests,
+  type BookingServiceRequest,
   cancelBooking,
   previewBookingChange,
   executeBookingChange,
@@ -61,6 +64,9 @@ import { VIETQR_BANKS } from '../../utils/vietqr';
 import { useAuth } from '../../contexts/AuthContext';
 import { unwrapList } from '../../utils/unwrapList';
 import { getServiceStageInfo, formatServiceTime } from '../../utils/serviceStatus';
+
+/** Yêu cầu dịch vụ khách gửi, hiển thị chung bảng với dịch vụ đã duyệt. */
+type ServiceRequestRow = BookingServiceRequest;
 
 /** Một dòng dịch vụ phát sinh của đơn (API trả kèm status và usedAt). */
 interface ServiceChargeRow {
@@ -290,6 +296,9 @@ const BookingHistory: React.FC<BookingHistoryProps> = ({ embedded = false }) => 
   const [editBookingId, setEditBookingId] = useState<number | null>(null);
   const [editLoading, setEditLoading] = useState(false);
   const [editDetail, setEditDetail] = useState<any>(null);
+  // Yêu cầu dịch vụ khách đã gửi nhưng lễ tân chưa duyệt — nằm ở bảng riêng
+  // (booking_service_requests) nên phải nạp tách khỏi chi tiết đơn.
+  const [editServiceRequests, setEditServiceRequests] = useState<ServiceRequestRow[]>([]);
   const [allRoomTypes, setAllRoomTypes] = useState<any[]>([]);
   const [allRooms, setAllRooms] = useState<any[]>([]);
   const [allServices, setAllServices] = useState<Service[]>([]);
@@ -439,16 +448,18 @@ const BookingHistory: React.FC<BookingHistoryProps> = ({ embedded = false }) => 
     setEditRefundAccountNumber('');
     setEditRefundAccountName('');
     try {
-      const [detailRes, rtRes, roomsRes, servicesRes] = await Promise.all([
+      const [detailRes, rtRes, roomsRes, servicesRes, reqRes] = await Promise.all([
         api.get(`/bookings/${record.id}`),
         getRoomTypes(),
         getRooms(),
         getServices(),
+        getBookingServiceRequests(record.id).catch(() => ({ data: [] })),
       ]);
       const detail = (detailRes as any).data || detailRes;
       const rTypes = unwrapList<any>(rtRes);
       const rooms = unwrapList<any>(roomsRes);
       setEditDetail(detail);
+      setEditServiceRequests(unwrapList<ServiceRequestRow>(reqRes));
       setAllRoomTypes(rTypes);
       setAllRooms(rooms);
       setAllServices(servicesRes);
@@ -772,61 +783,88 @@ const BookingHistory: React.FC<BookingHistoryProps> = ({ embedded = false }) => 
     }
   };
 
+  /** Nạp lại chi tiết đơn + danh sách yêu cầu dịch vụ sau mỗi thao tác. */
+  const reloadEditDetail = async () => {
+    if (!editBookingId) return;
+    const [detailRes, reqRes] = await Promise.all([
+      api.get(`/bookings/${editBookingId}`),
+      getBookingServiceRequests(editBookingId).catch(() => ({ data: [] })),
+    ]);
+    setEditDetail((detailRes as any).data || detailRes);
+    setEditServiceRequests(unwrapList<ServiceRequestRow>(reqRes));
+    await loadHistory();
+  };
+
+  /**
+   * Khách đặt thêm dịch vụ: gửi yêu cầu chờ lễ tân duyệt chứ KHÔNG cộng thẳng
+   * vào hóa đơn. Nhờ vậy chừng nào chưa được duyệt thì khách còn tự hủy được.
+   */
   const addServiceToBooking = async () => {
     if (!editBookingId || !newServiceId) return;
     setSavingEdit(true);
     try {
-      const res = await addBookingServiceCharge(editBookingId, {
+      await createBookingServiceRequest(editBookingId, {
         serviceId: Number(newServiceId),
         quantity: Number(newServiceQty || 1),
       });
-      const result = (res as any).data ?? res;
-      const serviceName = allServices.find((s) => s.id === Number(newServiceId))?.serviceName || 'Dịch vụ';
-      const svc = result?.service;
-      const pm = result?.payment;
+      const serviceName =
+        allServices.find((s) => s.id === Number(newServiceId))?.serviceName || 'Dịch vụ';
+
       Modal.success({
-        title: 'Đã cộng dịch vụ',
+        title: 'Đã gửi yêu cầu dịch vụ',
         content: (
           <div>
             <p>
-              <strong>{serviceName}</strong> × {newServiceQty} đã được cộng thêm{' '}
-              <strong>
-                {new Intl.NumberFormat('vi-VN').format(
-                  Number(svc?.totalPrice ?? 0)
-                )}
-                đ
-              </strong>
-              .
+              <strong>{serviceName}</strong> × {newServiceQty} đã được gửi tới lễ tân.
             </p>
-            {pm && (
-              <p>
-                Số tiền khách còn phải thanh toán:{' '}
-                <strong style={{ color: '#cf1322' }}>
-                  {new Intl.NumberFormat('vi-VN').format(
-                    Number(pm.remainingAmount ?? 0)
-                  )}
-                  đ
-                </strong>
-              </p>
-            )}
+            <p style={{ margin: 0, color: '#8c8c8c' }}>
+              Dịch vụ chỉ được tính vào hóa đơn sau khi lễ tân xác nhận. Trong lúc chờ,
+              bạn vẫn có thể tự hủy yêu cầu này.
+            </p>
           </div>
         ),
         onOk: async () => {
-          if (editBookingId) {
-            const detailRes = await api.get(`/bookings/${editBookingId}`);
-            const detail = (detailRes as any).data || detailRes;
-            setEditDetail(detail);
-          }
           setNewServiceId(null);
           setNewServiceQty(1);
-          await loadHistory();
+          await reloadEditDetail();
         },
       });
     } catch (err: any) {
-      message.error(err.response?.data?.message || 'Không thể cộng dịch vụ');
+      message.error(err.response?.data?.message || 'Không thể gửi yêu cầu dịch vụ');
     } finally {
       setSavingEdit(false);
     }
+  };
+
+  /** Khách tự hủy yêu cầu dịch vụ khi lễ tân chưa duyệt. */
+  const confirmCancelServiceRequest = (row: ServiceRequestRow) => {
+    Modal.confirm({
+      title: 'Xác nhận hủy dịch vụ',
+      content: (
+        <div>
+          <p>Bạn có chắc chắn muốn hủy dịch vụ này không?</p>
+          <p style={{ margin: 0 }}>
+            <strong>{row.serviceName || 'Dịch vụ'}</strong>
+            {row.quantity ? ` (x${row.quantity})` : ''}
+          </p>
+        </div>
+      ),
+      okText: 'Xác nhận hủy',
+      cancelText: 'Quay lại',
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        setSavingServiceAction?.(`del-req-${row.id}`);
+        try {
+          await cancelBookingServiceRequest(Number(row.id));
+          message.success('Hủy dịch vụ thành công');
+          await reloadEditDetail();
+        } catch (err: any) {
+          message.error(err.response?.data?.message || 'Không thể hủy dịch vụ');
+        } finally {
+          setSavingServiceAction?.(null);
+        }
+      },
+    });
   };
 
   const saveGuestChanges = async () => {
@@ -2293,6 +2331,89 @@ const BookingHistory: React.FC<BookingHistoryProps> = ({ embedded = false }) => 
                 label: 'Dịch vụ',
                 children: (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+                    {/* Yêu cầu khách vừa gửi, lễ tân chưa duyệt: chưa tính tiền
+                        và khách còn tự hủy được. */}
+                    {editServiceRequests.some((r) => r.status === 'pending') && (
+                      <div>
+                        <h4 style={{ margin: '0 0 8px' }}>Yêu cầu đang chờ lễ tân xác nhận</h4>
+                        <Table
+                          size="small"
+                          rowKey="id"
+                          pagination={false}
+                          dataSource={editServiceRequests.filter((r) => r.status === 'pending')}
+                          columns={[
+                            {
+                              title: 'Dịch vụ',
+                              dataIndex: 'serviceName',
+                              render: (v: string, row: ServiceRequestRow) => (
+                                <div>
+                                  <strong>{v || 'Dịch vụ'}</strong>
+                                  {row.description && (
+                                    <div style={{ fontSize: 12, color: '#666' }}>
+                                      {row.description}
+                                    </div>
+                                  )}
+                                </div>
+                              ),
+                            },
+                            {
+                              title: 'Đơn giá',
+                              dataIndex: 'unitPrice',
+                              align: 'right',
+                              render: (v: number) =>
+                                new Intl.NumberFormat('vi-VN').format(Number(v || 0)) + 'đ',
+                            },
+                            { title: 'SL', dataIndex: 'quantity', align: 'center' },
+                            {
+                              title: 'Tạm tính',
+                              dataIndex: 'totalPrice',
+                              align: 'right',
+                              render: (v: number) => (
+                                <strong>
+                                  {new Intl.NumberFormat('vi-VN').format(Number(v || 0))}đ
+                                </strong>
+                              ),
+                            },
+                            {
+                              title: 'Thời gian gửi',
+                              dataIndex: 'createdAt',
+                              width: 150,
+                              render: (v: string) => formatServiceTime(v),
+                            },
+                            {
+                              title: 'Trạng thái',
+                              key: 'reqStatus',
+                              width: 130,
+                              render: () => <Tag color="gold">Chờ xác nhận</Tag>,
+                            },
+                            {
+                              title: 'Thao tác',
+                              key: 'reqAction',
+                              align: 'center',
+                              width: 150,
+                              render: (_v: unknown, row: ServiceRequestRow) => (
+                                <Button
+                                  type="link"
+                                  size="small"
+                                  danger
+                                  icon={<DeleteOutlined />}
+                                  loading={savingServiceAction === `del-req-${row.id}`}
+                                  onClick={() => confirmCancelServiceRequest(row)}
+                                >
+                                  Hủy dịch vụ
+                                </Button>
+                              ),
+                            },
+                          ]}
+                        />
+                        <div style={{ marginTop: 6, fontSize: 12, color: '#8c8c8c' }}>
+                          Các yêu cầu này chưa được tính vào hóa đơn. Sau khi lễ tân xác nhận,
+                          dịch vụ sẽ chuyển xuống bảng bên dưới và bạn cần liên hệ lễ tân nếu
+                          muốn thay đổi.
+                        </div>
+                      </div>
+                    )}
+
                     <div>
                       <h4 style={{ margin: '0 0 8px' }}>Dịch vụ đã cộng trong đặt phòng</h4>
                       <Table

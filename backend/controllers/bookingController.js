@@ -633,6 +633,142 @@ const checkOut = async (req, res) => {
   }
 };
 
+// ── Yêu cầu dịch vụ do KHÁCH tự đặt ──────────────────────────────────────────
+// Khách không ghi thẳng vào booking_services (như lễ tân) mà tạo một dòng chờ
+// duyệt trong booking_service_requests. Tiền chỉ được cộng vào đơn khi lễ tân
+// bấm xác nhận (confirmServiceRequest). Nhờ vậy khách còn quyền tự huỷ chừng
+// nào yêu cầu chưa được duyệt — dùng đúng bảng và cột đã có, không thêm gì.
+
+const SERVICE_REQUEST_SELECT = `
+  SELECT sr.id, sr.bookingId, sr.bookingDetailId,
+         COALESCE(bd.roomId, sr.roomId) AS roomId,
+         sr.serviceId, sr.quantity, sr.status, sr.note, sr.createdAt,
+         s.serviceName, s.description, s.price AS unitPrice,
+         (s.price * sr.quantity) AS totalPrice,
+         r.roomNumber
+    FROM booking_service_requests sr
+    LEFT JOIN services s ON s.id = sr.serviceId
+    LEFT JOIN bookings b ON b.id = sr.bookingId
+    LEFT JOIN booking_details bd ON bd.id = sr.bookingDetailId
+    LEFT JOIN rooms r ON r.id = COALESCE(bd.roomId, sr.roomId, b.room_id)
+`;
+
+/** Khách xem các yêu cầu dịch vụ của chính đơn mình. */
+const listBookingServiceRequests = async (req, res) => {
+  try {
+    const db = require('../config/db');
+    const bookingId = normalizeIdParam(req.params.id);
+    const currentBooking = await bookingService.getBookingById(bookingId);
+    ensureBookingAccess(req.user, currentBooking, 'xem dịch vụ trong');
+
+    const [rows] = await db.query(
+      `${SERVICE_REQUEST_SELECT} WHERE sr.bookingId = ? ORDER BY sr.id DESC`,
+      [bookingId]
+    );
+    res.json({ data: rows });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
+/** Khách gửi yêu cầu dịch vụ, chờ lễ tân duyệt mới tính tiền. */
+const createServiceRequest = async (req, res) => {
+  try {
+    const db = require('../config/db');
+    const bookingId = normalizeIdParam(req.params.id);
+    const currentBooking = await bookingService.getBookingById(bookingId);
+    ensureBookingAccess(req.user, currentBooking, 'đặt thêm dịch vụ cho');
+
+    const bookingStatus = String(
+      currentBooking.bookingStatus || currentBooking.status || ''
+    ).toLowerCase();
+    if (!['pending', 'confirmed', 'checked_in'].includes(bookingStatus)) {
+      throw new HttpError(
+        400,
+        'Đơn đặt phòng đã kết thúc, không thể đặt thêm dịch vụ.'
+      );
+    }
+
+    const serviceId = normalizeIdParam(req.body.serviceId, 'serviceId');
+    const quantity = normalizeIdParam(req.body.quantity ?? 1, 'quantity');
+    const roomId = req.body.roomId != null ? normalizeIdParam(req.body.roomId, 'roomId') : null;
+    const bookingDetailId = req.body.bookingDetailId != null
+      ? normalizeIdParam(req.body.bookingDetailId, 'bookingDetailId')
+      : null;
+    const note = typeof req.body.note === 'string' ? req.body.note.trim().slice(0, 500) : null;
+
+    const [services] = await db.query('SELECT id FROM services WHERE id = ?', [serviceId]);
+    if (services.length === 0) {
+      throw new HttpError(404, 'Không tìm thấy dịch vụ này');
+    }
+
+    const [result] = await db.query(
+      `INSERT INTO booking_service_requests
+         (bookingId, bookingDetailId, roomId, serviceId, quantity, status, note)
+       VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
+      [bookingId, bookingDetailId, roomId, serviceId, quantity, note]
+    );
+
+    const [rows] = await db.query(`${SERVICE_REQUEST_SELECT} WHERE sr.id = ?`, [result.insertId]);
+
+    res.status(201).json({
+      message: 'Đã gửi yêu cầu dịch vụ, vui lòng chờ lễ tân xác nhận.',
+      data: rows[0] || { id: result.insertId }
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
+/**
+ * Khách tự huỷ yêu cầu dịch vụ khi lễ tân CHƯA duyệt.
+ * Đã duyệt rồi thì tiền đã vào đơn, phải nhờ lễ tân xử lý.
+ */
+const cancelServiceRequest = async (req, res) => {
+  try {
+    const db = require('../config/db');
+    const requestId = normalizeIdParam(req.params.id);
+
+    const [requests] = await db.query(
+      'SELECT * FROM booking_service_requests WHERE id = ?',
+      [requestId]
+    );
+    if (!requests.length) {
+      return res.status(404).json({ message: 'Không tìm thấy yêu cầu dịch vụ' });
+    }
+
+    const request = requests[0];
+    const currentBooking = await bookingService.getBookingById(request.bookingId);
+    ensureBookingAccess(req.user, currentBooking, 'hủy dịch vụ trong');
+
+    if (request.status === 'confirmed') {
+      return res.status(400).json({
+        message:
+          'Dịch vụ đã được lễ tân xác nhận, vui lòng liên hệ lễ tân nếu cần hỗ trợ.'
+      });
+    }
+    if (request.status !== 'pending') {
+      return res.status(400).json({ message: 'Yêu cầu dịch vụ này đã được xử lý.' });
+    }
+
+    // Điều kiện status='pending' ngay trong câu UPDATE để hai người bấm cùng lúc
+    // (khách huỷ / lễ tân duyệt) không ghi đè kết quả của nhau.
+    const [result] = await db.query(
+      "UPDATE booking_service_requests SET status = 'cancelled' WHERE id = ? AND status = 'pending'",
+      [requestId]
+    );
+    if (result.affectedRows === 0) {
+      return res.status(409).json({
+        message: 'Yêu cầu vừa được lễ tân xử lý, vui lòng tải lại trang.'
+      });
+    }
+
+    res.json({ message: 'Hủy dịch vụ thành công', data: { id: requestId } });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
 const listServiceRequests = async (req, res) => {
   try {
     const db = require('../config/db');
@@ -782,6 +918,34 @@ const rejectServiceRequest = async (req, res) => {
       });
     }
 
+    // Khách đang chờ nên phải báo lại, nếu không họ cứ thấy "chờ xác nhận" mãi
+    // và không hiểu vì sao dịch vụ biến mất. Lỗi ghi thông báo không được làm
+    // hỏng thao tác từ chối vốn đã ghi xong.
+    try {
+      const [rows] = await db.query(
+        `SELECT sr.bookingId, b.user_id, s.serviceName
+           FROM booking_service_requests sr
+           LEFT JOIN bookings b ON b.id = sr.bookingId
+           LEFT JOIN services s ON s.id = sr.serviceId
+          WHERE sr.id = ?`,
+        [requestId]
+      );
+      const info = rows[0];
+      if (info?.user_id) {
+        await db.query(
+          `INSERT INTO notifications (accountId, title, content, isRead)
+           VALUES (?, ?, ?, 0)`,
+          [
+            info.user_id,
+            'Yêu cầu dịch vụ không được duyệt',
+            `Rất tiếc, yêu cầu dịch vụ ${info.serviceName || ''} cho đặt phòng #${info.bookingId} chưa thể phục vụ. Vui lòng liên hệ lễ tân để được hỗ trợ.`
+          ]
+        );
+      }
+    } catch (notifyError) {
+      console.error('Không tạo được thông báo từ chối dịch vụ:', notifyError.message);
+    }
+
     res.json({ message: 'Đã từ chối yêu cầu dịch vụ' });
   } catch (error) {
     console.error('Error rejecting service request:', error);
@@ -894,6 +1058,9 @@ module.exports = {
   recordCustomerContact,
   processOverdue,
   listServiceRequests,
+  listBookingServiceRequests,
+  createServiceRequest,
+  cancelServiceRequest,
   confirmServiceRequest,
   rejectServiceRequest,
   reassignRoom

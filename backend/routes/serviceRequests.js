@@ -16,4 +16,9 @@ router.get('/', requireAuth, requireStaff, bookingController.listServiceRequests
 router.patch('/:id/confirm', requireAuth, requireStaff, bookingController.confirmServiceRequest);
 router.patch('/:id/reject', requireAuth, requireStaff, bookingController.rejectServiceRequest);
 
+// Ngoại lệ duy nhất không cần requireStaff: khách tự huỷ yêu cầu của chính mình
+// khi lễ tân chưa duyệt. Handler tự đối chiếu chủ đơn (ensureBookingAccess) và
+// từ chối nếu yêu cầu đã được xác nhận.
+router.patch('/:id/cancel', requireAuth, bookingController.cancelServiceRequest);
+
 module.exports = router;
