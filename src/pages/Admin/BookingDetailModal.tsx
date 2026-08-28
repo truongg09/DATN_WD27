@@ -340,9 +340,17 @@ interface Props {
   bookingId: number | null;
   open: boolean;
   onClose: () => void;
+  /**
+   * Bật khi khách tự xem đơn của mình (trang Lịch sử đặt phòng). Modal này vốn
+   * viết cho lễ tân nên có sẵn form thêm/sửa/huỷ phí hư hỏng, nút Chỉnh sửa
+   * Booking và card liên hệ khách — toàn bộ đều là API chỉ dành cho nhân viên,
+   * khách bấm vào chỉ nhận 403. Ở chế độ này chỉ giữ phần xem: khách vẫn thấy
+   * đầy đủ khoản hư hỏng bị tính và số tiền, nhưng không thao tác được.
+   */
+  readOnly?: boolean;
 }
 
-const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
+const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose, readOnly = false }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [adminModifyModalOpen, setAdminModifyModalOpen] = useState(false);
@@ -434,13 +442,18 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
       .then(setAllServices)
       .catch(() => setAllServices([]));
 
+    // Kho vật tư chỉ phục vụ form thêm phí hư hỏng của lễ tân; /room-items là API
+    // staff nên chế độ xem của khách gọi vào chỉ tốn một request 403. Danh sách
+    // vốn khởi tạo rỗng nên thoát luôn, không cần setState ở đây.
+    if (readOnly) return;
+
     api.get('/room-items')
       .then((res: any) => {
         const list = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
         setInventoryItems(list);
       })
       .catch(() => setInventoryItems([]));
-  }, [open]);
+  }, [open, readOnly]);
 
   // Danh sách phòng thuộc booking: source of truth = booking_details (API trả booking_rooms).
   // Fallback bookings.room_id cho legacy single-room booking.
@@ -878,7 +891,10 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
 
   const overviewTab = detail && (
     <>
-      {!detail.actual_check_in_time && ['pending', 'confirmed'].includes(detail.status) && (
+      {/* Card này là bảng công việc của lễ tân (gọi điện xác nhận khách có đến
+          không, đánh dấu không đến). Ẩn với khách: nội dung không dành cho họ
+          đọc, và 4 nút bên trong đều gọi contact-status vốn chỉ staff mới được. */}
+      {!readOnly && !detail.actual_check_in_time && ['pending', 'confirmed'].includes(detail.status) && (
         <Card
           size="small"
           style={{
@@ -1148,6 +1164,8 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
     { title: 'Thời điểm', dataIndex: 'createdAt', render: dateTime },
     {
       title: 'Thao tác', width: 180, align: 'center' as const,
+      // Chế độ xem: giấu hẳn nút sửa/huỷ, chỉ còn nhãn trạng thái.
+      hidden: readOnly,
       render: (_: unknown, row: ServiceRow) => {
         const s = (row.status || 'used').toLowerCase();
         if (s === 'cancelled') return <Tag>Đã hủy</Tag>;
@@ -1201,6 +1219,9 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
         </div>
       )}
 
+      {/* Form thêm dịch vụ chỉ dành cho lễ tân */}
+      {!readOnly && (
+        <>
       {/* ── Form thêm dịch vụ ── */}
       <Divider titlePlacement="left" style={{ margin: '16px 0 8px' }}>Thêm dịch vụ</Divider>
       <Form form={addServiceForm} layout="inline" style={{ flexWrap: 'wrap', gap: 8 }}>
@@ -1242,6 +1263,8 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
           </Button>
         </Form.Item>
       </Form>
+        </>
+      )}
       {/* ── Modal sửa dịch vụ ── */}
       <Modal
         title={editingService ? `Sửa: ${editingService.serviceName}` : 'Sửa dịch vụ'}
@@ -1302,6 +1325,8 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
     { title: 'Thời điểm', dataIndex: 'createdAt', render: dateTime },
     {
       title: 'Thao tác', width: 180, align: 'center' as const,
+      // Khách chỉ được biết mình bị tính khoản gì, việc sửa/huỷ là của lễ tân.
+      hidden: readOnly,
       render: (_: unknown, row: DamageRow) => {
         const s = (row.status || 'used').toLowerCase();
         if (s === 'cancelled') return null;
@@ -1353,6 +1378,9 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
         </div>
       )}
 
+      {/* Ghi phí hư hỏng là việc của lễ tân; khách chỉ xem khoản đã bị tính */}
+      {!readOnly && (
+        <>
       {/* ── Form thêm khoản phát sinh / hỏng hóc ── */}
       <Divider titlePlacement="left" style={{ margin: '16px 0 8px' }}>
         {(!selectedAddDamageChargeType || selectedAddDamageChargeType === 'damage')
@@ -1483,6 +1511,8 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
           }}
         </Form.Item>
       </Form>
+        </>
+      )}
       {/* ── Modal sửa khoản phát sinh ── */}
       <Modal
         title={editingDamage ? `Sửa: ${editingDamage.itemName}` : 'Sửa khoản phát sinh'}
@@ -1763,7 +1793,10 @@ const BookingDetailModal: React.FC<Props> = ({ bookingId, open, onClose }) => {
               {statusText[detail.status] || detail.status}
             </Tag>
           )}
-          {detail && (
+          {/* Mở AdminBookingModifyModal — toàn bộ API bên trong là admin-* nên
+              khách bấm vào chỉ nhận 403. Khách muốn đổi đơn đã có nút "Chỉnh sửa"
+              riêng ở trang Lịch sử đặt phòng. */}
+          {detail && !readOnly && (
             <Button
               type="primary"
               icon={<EditOutlined />}

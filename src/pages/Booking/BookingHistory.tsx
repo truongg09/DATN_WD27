@@ -2540,10 +2540,14 @@ const BookingHistory: React.FC<BookingHistoryProps> = ({ embedded = false }) => 
         )}
       </Modal>
 
+      {/* readOnly: modal này vốn là màn của lễ tân. Khách chỉ xem đơn của mình —
+          thấy đủ dịch vụ, phí hư hỏng bị tính và số tiền, nhưng không có nút
+          thêm/sửa/xoá (những API đó chỉ nhân viên mới gọi được). */}
       <BookingDetailModal
         bookingId={viewModalVisible ? viewBookingId : null}
         open={viewModalVisible}
         onClose={() => setViewModalVisible(false)}
+        readOnly
       />
     </main>
   );
