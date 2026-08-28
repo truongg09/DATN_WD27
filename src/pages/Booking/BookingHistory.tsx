@@ -12,7 +12,6 @@ import {
   Input,
   Modal,
   Pagination,
-  Popconfirm,
   Select,
   Tabs,
   Tooltip,
@@ -61,6 +60,20 @@ import { getRooms, getRoomTypes } from '../../services/roomService';
 import { VIETQR_BANKS } from '../../utils/vietqr';
 import { useAuth } from '../../contexts/AuthContext';
 import { unwrapList } from '../../utils/unwrapList';
+import { getServiceStageInfo, formatServiceTime } from '../../utils/serviceStatus';
+
+/** Một dòng dịch vụ phát sinh của đơn (API trả kèm status và usedAt). */
+interface ServiceChargeRow {
+  id: number;
+  serviceName?: string;
+  name?: string;
+  quantity?: number;
+  totalPrice?: number;
+  unitPrice?: number;
+  status?: string;
+  usedAt?: string | null;
+  createdAt?: string | null;
+}
 import type { Payment } from '../../types/payment';
 import type { Service } from '../../types/service';
 import api from '../../services/api';
@@ -915,6 +928,31 @@ const BookingHistory: React.FC<BookingHistoryProps> = ({ embedded = false }) => 
     }
   };
 
+  /**
+   * Hỏi lại trước khi hủy. Backend vẫn kiểm tra quyền hủy một lần nữa
+   * (evaluateCustomerServiceCancel), nên nếu trạng thái vừa đổi ở phía lễ tân
+   * thì khách sẽ nhận đúng thông báo lý do thay vì hủy nhầm.
+   */
+  const confirmCancelService = (row: ServiceChargeRow) => {
+    Modal.confirm({
+      title: 'Xác nhận hủy dịch vụ',
+      content: (
+        <div>
+          <p>Bạn có chắc chắn muốn hủy dịch vụ này không?</p>
+          <p style={{ margin: 0 }}>
+            <strong>{row.serviceName || row.name || 'Dịch vụ'}</strong>
+            {row.quantity ? ` (x${row.quantity})` : ''} —{' '}
+            {new Intl.NumberFormat('vi-VN').format(Number(row.totalPrice || 0))}đ
+          </p>
+        </div>
+      ),
+      okText: 'Xác nhận hủy',
+      cancelText: 'Quay lại',
+      okButtonProps: { danger: true },
+      onOk: () => removeServiceCharge(row),
+    });
+  };
+
   const removeServiceCharge = async (row: any) => {
     if (!editBookingId) return;
     setSavingServiceAction?.(`del-${row.id}`);
@@ -924,11 +962,11 @@ const BookingHistory: React.FC<BookingHistoryProps> = ({ embedded = false }) => 
       const removed = Number(result?.removed?.totalPrice ?? 0);
       const pm = result?.payment;
       Modal.success({
-        title: 'Đã xóa dịch vụ',
+        title: 'Hủy dịch vụ thành công',
         content: (
           <div>
             <p>
-              Đã xóa <strong>{row.serviceName || row.name || 'dịch vụ'}</strong> khỏi đơn, hoàn lại{' '}
+              Đã hủy <strong>{row.serviceName || row.name || 'dịch vụ'}</strong> khỏi đơn, hoàn lại{' '}
               <strong style={{ color: '#3f8600' }}>
                 {new Intl.NumberFormat('vi-VN').format(Math.abs(removed))}đ
               </strong>
@@ -2304,12 +2342,23 @@ const BookingHistory: React.FC<BookingHistoryProps> = ({ embedded = false }) => 
                             ),
                           },
                           {
-                            title: 'Ghi chú',
-                            dataIndex: 'createdAt',
-                            render: (v: any) =>
-                              v
-                                ? dayjs(v).format('HH:mm DD/MM/YYYY')
-                                : '—',
+                            title: 'Thời gian sử dụng',
+                            dataIndex: 'usedAt',
+                            width: 150,
+                            render: (_v: unknown, row: ServiceChargeRow) =>
+                              formatServiceTime(row.usedAt ?? row.createdAt),
+                          },
+                          {
+                            title: 'Trạng thái',
+                            key: 'serviceStage',
+                            width: 130,
+                            render: (_v: unknown, row: ServiceChargeRow) => {
+                              const info = getServiceStageInfo(
+                                row,
+                                editDetail.status as string
+                              );
+                              return <Tag color={info.color}>{info.label}</Tag>;
+                            },
                           },
                           ...(
                             ['pending', 'confirmed', 'checked_in'].includes(
@@ -2320,58 +2369,55 @@ const BookingHistory: React.FC<BookingHistoryProps> = ({ embedded = false }) => 
                                     title: 'Thao tác',
                                     key: 'action',
                                     align: 'center',
-                                    width: 128,
-                                    render: (_v: any, row: any) => (
-                                      <Space size={4}>
-                                        <Tooltip title="Sửa số lượng dịch vụ">
-                                          <Button
-                                            type="link"
-                                            size="small"
-                                            icon={<EditOutlined />}
-                                            onClick={() => openEditServiceQty(row)}
-                                            disabled={
-                                              savingServiceAction === `edit-${row.id}`
-                                            }
-                                          />
-                                        </Tooltip>
-                                        <Popconfirm
-                                          title="Xóa dịch vụ này?"
-                                          description={
-                                            <>
-                                              Xóa{' '}
-                                              <strong>
-                                                {row.serviceName || row.name} (x
-                                                {row.quantity})
-                                              </strong>{' '}
-                                              khỏi đơn, hoàn lại{' '}
-                                              <strong style={{ color: '#3f8600' }}>
-                                                {new Intl.NumberFormat('vi-VN').format(
-                                                  Number(row.totalPrice || 0)
-                                                )}
-                                                đ
-                                              </strong>
-                                              ?
-                                            </>
-                                          }
-                                          okText="Xóa"
-                                          cancelText="Hủy"
-                                          okButtonProps={{
-                                            danger: true,
-                                            loading: savingServiceAction === `del-${row.id}`,
-                                          }}
-                                          onConfirm={() => removeServiceCharge(row)}
-                                        >
-                                          <Tooltip title="Xóa dịch vụ khỏi đơn">
+                                    width: 150,
+                                    render: (_v: unknown, row: ServiceChargeRow) => {
+                                      // Luật hủy dùng chung với backend
+                                      // (evaluateCustomerServiceCancel). Không được
+                                      // hủy thì hiện thẳng lý do thay vì để nút
+                                      // bấm vào rồi mới báo lỗi.
+                                      const info = getServiceStageInfo(
+                                        row,
+                                        editDetail.status as string
+                                      );
+
+                                      if (!info.canCancel) {
+                                        return info.blockedReason ? (
+                                          <Tooltip title={info.blockedReason}>
+                                            <span style={{ fontSize: 12, color: '#8c8c8c' }}>
+                                              Liên hệ lễ tân
+                                            </span>
+                                          </Tooltip>
+                                        ) : (
+                                          <span style={{ fontSize: 12, color: '#8c8c8c' }}>—</span>
+                                        );
+                                      }
+
+                                      return (
+                                        <Space size={4}>
+                                          <Tooltip title="Sửa số lượng dịch vụ">
                                             <Button
                                               type="link"
                                               size="small"
-                                              danger
-                                              icon={<DeleteOutlined />}
+                                              icon={<EditOutlined />}
+                                              onClick={() => openEditServiceQty(row)}
+                                              disabled={
+                                                savingServiceAction === `edit-${row.id}`
+                                              }
                                             />
                                           </Tooltip>
-                                        </Popconfirm>
-                                      </Space>
-                                    ),
+                                          <Button
+                                            type="link"
+                                            size="small"
+                                            danger
+                                            icon={<DeleteOutlined />}
+                                            loading={savingServiceAction === `del-${row.id}`}
+                                            onClick={() => confirmCancelService(row)}
+                                          >
+                                            Hủy dịch vụ
+                                          </Button>
+                                        </Space>
+                                      );
+                                    },
                                   } as any,
                                 ]
                               : []
