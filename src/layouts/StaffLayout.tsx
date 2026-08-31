@@ -90,7 +90,6 @@ function StaffLayout() {
         </div>
         <nav className="staff-nav">
           <ul>
-            <li><Link to="/staff">Dashboard</Link></li>
             <li><Link to="/staff/rooms">Quản lý phòng</Link></li>
             <li>
               <Link to="/staff/bookings">
