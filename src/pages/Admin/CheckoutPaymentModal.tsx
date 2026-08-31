@@ -109,7 +109,7 @@ interface EarlyCheckoutInfo {
 }
 
 const money = (value?: string | number | null) =>
-  new Intl.NumberFormat("vi-VN").format(Number(value || 0)) + "₫";
+  new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 }).format(Number(value || 0)) + "₫";
 
 const dateTime = (value?: string | null) =>
   value && dayjs(value).isValid()

@@ -600,12 +600,12 @@ function Profile() {
                               <div style={{ marginTop: "12px", fontWeight: 600, fontSize: "16px" }}>
                                 {voucher.discountType === "percentage" 
                                   ? `Giảm ${Number(voucher.discountValue).toLocaleString("vi-VN", { maximumFractionDigits: 2 })}% giá phòng` 
-                                  : `Giảm trực tiếp ${new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND" }).format(voucher.discountValue)}`
+                                  : `Giảm trực tiếp ${new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(voucher.discountValue)}`
                                 }
                               </div>
                               {voucher.maxDiscount > 0 && (
                                 <div style={{ fontSize: "12px", color: "#666", marginTop: "4px" }}>
-                                  Giảm tối đa: {new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND" }).format(voucher.maxDiscount)}
+                                  Giảm tối đa: {new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(voucher.maxDiscount)}
                                 </div>
                               )}
                               <div style={{ fontSize: "12px", color: "#999", marginTop: "8px" }}>
@@ -640,7 +640,7 @@ function Profile() {
                     >
                       <div style={{ opacity: 0.85, fontSize: 13 }}>Số dư khả dụng</div>
                       <div style={{ fontSize: 28, fontWeight: 700, margin: "6px 0 14px" }}>
-                        {new Intl.NumberFormat("vi-VN").format(walletBalance.available)}₫
+                        {new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 }).format(walletBalance.available)}₫
                       </div>
                       <Button
                         type="primary"
@@ -663,7 +663,7 @@ function Profile() {
                     <Card style={{ borderLeft: "5px solid #faad14", borderRadius: "8px" }}>
                       <Text type="secondary">Đang chờ rút</Text>
                       <div style={{ fontSize: 22, fontWeight: 700, color: "#b45309" }}>
-                        {new Intl.NumberFormat("vi-VN").format(walletBalance.pendingWithdraw)}₫
+                        {new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 }).format(walletBalance.pendingWithdraw)}₫
                       </div>
                     </Card>
                   </Col>
@@ -671,7 +671,7 @@ function Profile() {
                     <Card style={{ borderLeft: "5px solid #1677ff", borderRadius: "8px" }}>
                       <Text type="secondary">Chờ duyệt hoàn tiền</Text>
                       <div style={{ fontSize: 22, fontWeight: 700, color: "#1677ff" }}>
-                        {new Intl.NumberFormat("vi-VN").format(
+                        {new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 }).format(
                           refunds
                             .filter((r) => r.status === "pending")
                             .reduce((sum, r) => sum + Number(r.amount || 0), 0)
@@ -724,7 +724,7 @@ function Profile() {
                       render: (_: unknown, record: WalletTransaction) => (
                         <strong style={{ color: record.type === "refund_credit" ? "#15803d" : record.type === "booking_payment" ? "#1d4ed8" : "#b45309" }}>
                           {record.type === "refund_credit" ? "+" : "-"}
-                          {new Intl.NumberFormat("vi-VN").format(Number(record.amount))}₫
+                          {new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 }).format(Number(record.amount))}₫
                         </strong>
                       )
                     },
@@ -734,7 +734,7 @@ function Profile() {
                       align: "right" as const,
                       render: (_: unknown, record: WalletTransaction) => (
                         <span style={{ color: "#666" }}>
-                          {new Intl.NumberFormat("vi-VN").format(Number(record.balanceBefore ?? 0))}₫
+                          {new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 }).format(Number(record.balanceBefore ?? 0))}₫
                         </span>
                       )
                     },
@@ -749,7 +749,7 @@ function Profile() {
                         return (
                           <div>
                             <strong>
-                              {new Intl.NumberFormat("vi-VN").format(Number(record.balanceAfter ?? 0))}₫
+                              {new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 }).format(Number(record.balanceAfter ?? 0))}₫
                             </strong>
                             {unchanged && (
                               <div style={{ fontSize: 11, color: "#999" }}>không đổi</div>
@@ -817,11 +817,11 @@ function Profile() {
                       render: (_: unknown, record: RefundRow) => (
                         <div>
                           <strong style={{ color: "#b45309" }}>
-                            {new Intl.NumberFormat("vi-VN").format(Number(record.amount))}₫
+                            {new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 }).format(Number(record.amount))}₫
                           </strong>
                           <div style={{ fontSize: 12, color: "#999" }}>
                             {Math.round(Number(record.refundRate) * 100)}% của{" "}
-                            {new Intl.NumberFormat("vi-VN").format(Number(record.paidAmount))}₫ đã trả
+                            {new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 }).format(Number(record.paidAmount))}₫ đã trả
                           </div>
                         </div>
                       )
@@ -896,7 +896,7 @@ function Profile() {
                       <Text type="secondary">
                         Số dư khả dụng:{" "}
                         <strong style={{ color: "#15803d" }}>
-                          {new Intl.NumberFormat("vi-VN").format(walletBalance.available)}₫
+                          {new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 }).format(walletBalance.available)}₫
                         </strong>
                       </Text>
                     </div>
@@ -931,7 +931,7 @@ function Profile() {
                           <ExclamationCircleOutlined style={{ color: "#ff4d4f", fontSize: 15 }} />
                           <span>
                             Số dư không đủ để rút. Vui lòng nhập số tiền nhỏ hơn hoặc bằng số dư hiện có (
-                            <strong>{new Intl.NumberFormat("vi-VN").format(walletBalance.available)}₫</strong>).
+                            <strong>{new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 }).format(walletBalance.available)}₫</strong>).
                           </span>
                         </div>
                       )}

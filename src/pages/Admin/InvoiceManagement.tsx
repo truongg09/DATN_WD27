@@ -14,7 +14,7 @@ const STATUS_META: Record<InvoiceStatus, { label: string; color: string }> = {
   issued: { label: 'Đã phát hành', color: 'green' },
   cancelled: { label: 'Đã hủy', color: 'red' },
 };
-const formatCurrency = (value: number) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(value || 0);
+const formatCurrency = (value: number) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(value || 0);
 const formatDateTime = (value?: string) => value ? dayjs(value).format('DD/MM/YYYY HH:mm') : 'Chưa cập nhật';
 
 function InvoiceManagement() {

@@ -75,7 +75,7 @@ router.post('/withdraw', requireAuth, async (req, res) => {
     if (amount < MIN_WITHDRAW_AMOUNT) {
       await connection.rollback();
       return res.status(400).json({
-        message: `Số tiền rút tối thiểu là ${MIN_WITHDRAW_AMOUNT.toLocaleString('vi-VN')}₫`
+        message: `Số tiền rút tối thiểu là ${MIN_WITHDRAW_AMOUNT.toLocaleString('vi-VN', { maximumFractionDigits: 0 })}₫`
       });
     }
 
@@ -92,7 +92,7 @@ router.post('/withdraw', requireAuth, async (req, res) => {
     if (amount > balance.available) {
       await connection.rollback();
       return res.status(400).json({
-        message: `Số dư khả dụng chỉ còn ${new Intl.NumberFormat('vi-VN').format(balance.available)}₫`
+        message: `Số dư khả dụng chỉ còn ${new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(balance.available)}₫`
       });
     }
 

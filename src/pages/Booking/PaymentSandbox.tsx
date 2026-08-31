@@ -9,7 +9,7 @@ import type { Payment } from '../../types/payment';
 import './PaymentSandbox.css';
 
 const formatPrice = (price: number) =>
-  new Intl.NumberFormat('vi-VN').format(price) + '₫';
+  new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(price) + '₫';
 
 const formatDate = (date: string | Date) => {
   return dayjs(date).format('DD/MM/YYYY');

@@ -8,7 +8,7 @@ const NO_SHOW_VOUCHER_VALID_DAYS = 90;
 const { dayString } = require('../utils/bookingPolicy');
 
 const run = (connection) => connection || db;
-const money = (amount) => `${Number(amount || 0).toLocaleString('vi-VN')}₫`;
+const money = (amount) => `${Number(amount || 0).toLocaleString('vi-VN', { maximumFractionDigits: 0 })}₫`;
 
 // Các hạng phòng thuộc một đơn, dùng để đối chiếu điều kiện áp dụng của voucher.
 const listBookingRoomTypeIds = async (bookingId, connection) => {

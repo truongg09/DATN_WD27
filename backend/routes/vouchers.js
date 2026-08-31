@@ -64,9 +64,9 @@ const sendVoucherEmails = async (
 
 const buildVoucherNotification = (voucher) => {
   const discountText = voucher.discountType === 'percentage'
-    ? `${Number(voucher.discountValue)}%${voucher.maxDiscount ? ` (tối đa ${new Intl.NumberFormat('vi-VN').format(voucher.maxDiscount)}đ)` : ''}`
-    : `${new Intl.NumberFormat('vi-VN').format(voucher.discountValue)}đ`;
-  const minAmountText = voucher.minBookingAmount ? ` cho đơn từ ${new Intl.NumberFormat('vi-VN').format(voucher.minBookingAmount)}đ` : '';
+    ? `${Number(voucher.discountValue)}%${voucher.maxDiscount ? ` (tối đa ${new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(voucher.maxDiscount)}đ)` : ''}`
+    : `${new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(voucher.discountValue)}đ`;
+  const minAmountText = voucher.minBookingAmount ? ` cho đơn từ ${new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(voucher.minBookingAmount)}đ` : '';
   const expiryText = voucher.endDate ? ` đến hết ${new Date(voucher.endDate).toLocaleDateString('vi-VN')}` : '';
 
   const title = `Ưu đãi mới: Mã giảm giá ${voucher.code}`;

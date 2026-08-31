@@ -182,7 +182,7 @@ type ReviewsByBooking = Record<number, ReviewInfo>;
 const HOLD_MINUTES = 15;
 
 const formatPrice = (price: number | string) =>
-  new Intl.NumberFormat('vi-VN').format(Number(price || 0)) + 'đ';
+  new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(Number(price || 0)) + 'đ';
 
 const formatDate = (date?: string) => {
   if (!date) return '-';
@@ -933,7 +933,7 @@ const BookingHistory: React.FC<BookingHistoryProps> = ({ embedded = false }) => 
                   {' '}Tổng tiền dịch vụ{' '}
                   <strong style={{ color: delta > 0 ? '#cf1322' : '#3f8600' }}>
                     {delta > 0 ? 'tăng thêm ' : 'giảm bớt '}
-                    {new Intl.NumberFormat('vi-VN').format(Math.abs(delta))}đ
+                    {new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(Math.abs(delta))}đ
                   </strong>
                   .
                 </span>
@@ -943,7 +943,7 @@ const BookingHistory: React.FC<BookingHistoryProps> = ({ embedded = false }) => 
               <p>
                 Số tiền còn phải thanh toán:{' '}
                 <strong style={{ color: '#cf1322' }}>
-                  {new Intl.NumberFormat('vi-VN').format(Number(pm.remainingAmount ?? 0))}đ
+                  {new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(Number(pm.remainingAmount ?? 0))}đ
                 </strong>
               </p>
             )}
@@ -980,7 +980,7 @@ const BookingHistory: React.FC<BookingHistoryProps> = ({ embedded = false }) => 
           <p style={{ margin: 0 }}>
             <strong>{row.serviceName || row.name || 'Dịch vụ'}</strong>
             {row.quantity ? ` (x${row.quantity})` : ''} —{' '}
-            {new Intl.NumberFormat('vi-VN').format(Number(row.totalPrice || 0))}đ
+            {new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(Number(row.totalPrice || 0))}đ
           </p>
         </div>
       ),
@@ -1006,7 +1006,7 @@ const BookingHistory: React.FC<BookingHistoryProps> = ({ embedded = false }) => 
             <p>
               Đã hủy <strong>{row.serviceName || row.name || 'dịch vụ'}</strong> khỏi đơn, hoàn lại{' '}
               <strong style={{ color: '#3f8600' }}>
-                {new Intl.NumberFormat('vi-VN').format(Math.abs(removed))}đ
+                {new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(Math.abs(removed))}đ
               </strong>
               .
             </p>
@@ -1014,7 +1014,7 @@ const BookingHistory: React.FC<BookingHistoryProps> = ({ embedded = false }) => 
               <p>
                 Số tiền còn phải thanh toán:{' '}
                 <strong style={{ color: '#cf1322' }}>
-                  {new Intl.NumberFormat('vi-VN').format(Number(pm.remainingAmount ?? 0))}đ
+                  {new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(Number(pm.remainingAmount ?? 0))}đ
                 </strong>
               </p>
             )}
@@ -2361,7 +2361,7 @@ const BookingHistory: React.FC<BookingHistoryProps> = ({ embedded = false }) => 
                               dataIndex: 'unitPrice',
                               align: 'right',
                               render: (v: number) =>
-                                new Intl.NumberFormat('vi-VN').format(Number(v || 0)) + 'đ',
+                                new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(Number(v || 0)) + 'đ',
                             },
                             { title: 'SL', dataIndex: 'quantity', align: 'center' },
                             {
@@ -2370,7 +2370,7 @@ const BookingHistory: React.FC<BookingHistoryProps> = ({ embedded = false }) => 
                               align: 'right',
                               render: (v: number) => (
                                 <strong>
-                                  {new Intl.NumberFormat('vi-VN').format(Number(v || 0))}đ
+                                  {new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(Number(v || 0))}đ
                                 </strong>
                               ),
                             },
@@ -2449,7 +2449,7 @@ const BookingHistory: React.FC<BookingHistoryProps> = ({ embedded = false }) => 
                             dataIndex: 'unitPrice',
                             align: 'right',
                             render: (v: any) =>
-                              new Intl.NumberFormat('vi-VN').format(Number(v || 0)) + 'đ',
+                              new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(Number(v || 0)) + 'đ',
                           },
                           { title: 'SL', dataIndex: 'quantity', align: 'center' },
                           {
@@ -2458,7 +2458,7 @@ const BookingHistory: React.FC<BookingHistoryProps> = ({ embedded = false }) => 
                             align: 'right',
                             render: (v: any) => (
                               <strong>
-                                {new Intl.NumberFormat('vi-VN').format(Number(v || 0))}đ
+                                {new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(Number(v || 0))}đ
                               </strong>
                             ),
                           },
@@ -2559,7 +2559,7 @@ const BookingHistory: React.FC<BookingHistoryProps> = ({ embedded = false }) => 
                               </Table.Summary.Cell>
                               <Table.Summary.Cell index={3} align="right">
                                 <strong>
-                                  {new Intl.NumberFormat('vi-VN').format(total)}đ
+                                  {new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(total)}đ
                                 </strong>
                               </Table.Summary.Cell>
                               <Table.Summary.Cell index={4} />
@@ -2593,7 +2593,7 @@ const BookingHistory: React.FC<BookingHistoryProps> = ({ embedded = false }) => 
                               <p style={{ margin: '4px 0 0' }}>
                                 Đơn giá hiện tại:{' '}
                                 <strong>
-                                  {new Intl.NumberFormat('vi-VN').format(
+                                  {new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(
                                     Number(editSvcRow?.unitPrice || 0) ||
                                       Math.round(
                                         Number(editSvcRow?.totalPrice || 0) /
@@ -2622,7 +2622,7 @@ const BookingHistory: React.FC<BookingHistoryProps> = ({ embedded = false }) => 
                             message="Tạm tính"
                             description={
                               <strong style={{ color: '#b45309' }}>
-                                {new Intl.NumberFormat('vi-VN').format(
+                                {new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(
                                   editSvcQty *
                                     (Number(editSvcRow?.unitPrice || 0) ||
                                       Math.round(
@@ -2669,7 +2669,7 @@ const BookingHistory: React.FC<BookingHistoryProps> = ({ embedded = false }) => 
                               onChange={(val) => setNewServiceId(val ?? null)}
                               options={allServices.map((s: Service) => ({
                                 value: s.id,
-                                label: `${s.serviceName} — ${new Intl.NumberFormat('vi-VN').format(
+                                label: `${s.serviceName} — ${new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(
                                   Number(s.price || 0)
                                 )}đ`,
                                 description: s.description,
@@ -2689,7 +2689,7 @@ const BookingHistory: React.FC<BookingHistoryProps> = ({ embedded = false }) => 
                           <Alert
                             type="info"
                             showIcon
-                            message={`Thành tiền tạm tính: ${new Intl.NumberFormat('vi-VN').format(
+                            message={`Thành tiền tạm tính: ${new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(
                               Number(
                                 allServices.find((s) => s.id === Number(newServiceId))?.price ??
                                   0

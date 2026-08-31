@@ -44,7 +44,7 @@ import { unwrapList } from '../../utils/unwrapList';
 import type { Payment } from '../../types/payment';
 
 const formatPrice = (price: number) =>
-  new Intl.NumberFormat('vi-VN').format(price) + '₫';
+  new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(price) + '₫';
 
 const statusMap: Record<string, { label: string; color: string }> = {
   unpaid: { label: 'Chưa thanh toán', color: 'orange' },

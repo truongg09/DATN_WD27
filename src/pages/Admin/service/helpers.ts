@@ -1,6 +1,6 @@
 export const formatPrice = (price: string | number | null | undefined) => {
   const numPrice = typeof price === 'number' ? price : parseFloat(price ?? '') || 0;
-  return new Intl.NumberFormat('vi-VN').format(numPrice) + ' VNĐ';
+  return new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(numPrice) + ' VNĐ';
 };
 
 export const ROOM_ITEM_STATUS: Record<string, { label: string; color: string }> = {

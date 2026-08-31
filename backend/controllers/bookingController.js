@@ -620,7 +620,7 @@ const checkOut = async (req, res) => {
     );
     if (booking.requiresPayment) {
       return res.status(409).json({
-        message: `Đã cộng phí trả phòng muộn ${Number(booking.lateCheckout.feeAmount || 0).toLocaleString('vi-VN')}₫. Vui lòng thu đủ tiền trước khi trả phòng.`,
+        message: `Đã cộng phí trả phòng muộn ${Number(booking.lateCheckout.feeAmount || 0).toLocaleString('vi-VN', { maximumFractionDigits: 0 })}₫. Vui lòng thu đủ tiền trước khi trả phòng.`,
         data: booking
       });
     }
