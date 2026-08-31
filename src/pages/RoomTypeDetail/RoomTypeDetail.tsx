@@ -31,7 +31,7 @@ const { Text } = Typography;
 const DATE_FORMAT = "YYYY-MM-DD";
 
 const formatPrice = (price: number) =>
-  new Intl.NumberFormat("vi-VN").format(price) + "đ";
+  new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 }).format(price) + "đ";
 
 const unwrapDetail = (response: unknown): RoomTypeSearchResult | null => {
   let current = response as Record<string, unknown> | null;
@@ -332,7 +332,7 @@ const RoomTypeDetail: React.FC = () => {
             <div className="type-specs">
               <span>
                 <FontAwesomeIcon icon={faUserGroup} /> Tiêu chuẩn:{" "}
-                <strong>{adultCapacity} người lớn + {childCapacity} trẻ em</strong>
+                <strong>{adultCapacity + childCapacity} khách</strong>
               </span>
 
               <span><strong>Tối đa:</strong> {maxOcc} khách/phòng</span>
@@ -353,9 +353,10 @@ const RoomTypeDetail: React.FC = () => {
                 <div className="policy-box">
                   <h4>1. Sức chứa tiêu chuẩn (Đã bao gồm trong giá phòng)</h4>
                   <ul>
-                    <li>Người lớn tiêu chuẩn: <strong>{adultCapacity} người lớn</strong></li>
-                    <li>Trẻ em tiêu chuẩn: <strong>{childCapacity} trẻ em</strong></li>
-                    <li>Tổng sức chứa tiêu chuẩn: <strong>{adultCapacity + childCapacity} người / phòng</strong></li>
+                    {/* Sức chứa đếm theo đầu người, không tách người lớn / trẻ em —
+                        khớp với cách cấu hình bên quản trị. */}
+                    <li>Số khách tiêu chuẩn: <strong>{adultCapacity + childCapacity} khách / phòng</strong></li>
+                    <li>Số khách tối đa: <strong>{maxOcc} khách / phòng</strong></li>
                   </ul>
                 </div>
 
