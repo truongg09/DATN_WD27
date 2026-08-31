@@ -156,7 +156,9 @@ const TransferPricePreview: React.FC<{
   if (!previewData) return null;
 
   const fb = previewData.financialBreakdown || {};
-  const nightsList = previewData.nightlyPrices || [];
+  // nightlyTotals đã cộng tiền của MỌI phòng trong đơn cho từng đêm. nightlyPrices
+  // chỉ là biểu giá của một phòng đại diện nên chỉ dùng làm dự phòng.
+  const nightsList = previewData.nightlyTotals || previewData.nightlyPrices || [];
 
   return (
     <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -441,7 +443,10 @@ const ExtendPricePreview: React.FC<{
   if (!previewData) return null;
 
   const fb = previewData.financialBreakdown || {};
-  const nightsList = previewData.nightlyPrices || [];
+  // nightlyTotals đã cộng tiền của MỌI phòng trong đơn cho từng đêm. nightlyPrices
+  // chỉ là biểu giá của một phòng đại diện nên chỉ dùng làm dự phòng.
+  const nightsList = previewData.nightlyTotals || previewData.nightlyPrices || [];
+  const roomCount = Number(previewData.roomCount || 1);
   const reducedNightsList = fb.reducedNightlyPrices || [];
   const isShortening = Boolean(previewData.isShortening || fb.isShortening);
 
@@ -469,10 +474,29 @@ const ExtendPricePreview: React.FC<{
           {isShortening ? 'Chi tiết chi phí rút ngắn ngày ở:' : 'Chi tiết chi phí gia hạn:'}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span>Tiền phòng lưu trú mới ({previewData.totalNights || nightsList.length} đêm):</span>
-            <strong>{formatPrice(fb.baseRoomAmount || 0)}</strong>
-          </div>
+          {/* Khi gia hạn thì chỉ hiện tiền của những đêm ở thêm, tính từ ngày
+              trả phòng cũ — đó mới là khoản khách phải trả thêm. Số này đã cộng
+              đủ mọi phòng trong đơn nên đơn 2 phòng không còn bị tính thiếu. */}
+          {!isShortening && fb.extensionRoomAmount != null ? (
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span>
+                Tiền phòng ở thêm ({fb.extensionNights || 0} đêm
+                {fb.roomCount > 1 ? ` × ${fb.roomCount} phòng` : ''}):
+              </span>
+              <strong>{formatPrice(fb.extensionRoomAmount || 0)}</strong>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span>Tiền phòng lưu trú mới ({previewData.totalNights || nightsList.length} đêm):</span>
+              <strong>{formatPrice(fb.baseRoomAmount || 0)}</strong>
+            </div>
+          )}
+          {!isShortening && fb.newStayAmount != null && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', color: '#64748b' }}>
+              <span>Tổng tiền phòng cả kỳ sau gia hạn:</span>
+              <span>{formatPrice(fb.newStayAmount || 0)}</span>
+            </div>
+          )}
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
             <span>Phụ thu ngày lễ (+20%):</span>
             <strong style={{ color: fb.holidaySurcharge > 0 ? '#cf1322' : '#64748b' }}>
@@ -561,7 +585,8 @@ const ExtendPricePreview: React.FC<{
       {nightsList.length > 0 && (
         <div style={{ padding: '10px 14px', background: '#fff', border: '1px solid #dcfce7', borderRadius: 8 }}>
           <div style={{ fontWeight: 600, color: '#166534', marginBottom: 8, fontSize: 13 }}>
-            Chi tiết các đêm lưu trú ({nightsList.length} đêm):
+            Chi tiết các đêm lưu trú ({nightsList.length} đêm
+            {roomCount > 1 ? `, giá đã gồm cả ${roomCount} phòng` : ''}):
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 160, overflowY: 'auto' }}>
             {nightsList.map((night: any, idx: number) => (
@@ -665,7 +690,7 @@ const formatDate = (date?: string | null) => {
 
 const formatPrice = (price?: string | number | null) => {
   const amount = Number(price || 0);
-  return new Intl.NumberFormat('vi-VN').format(amount) + ' VNĐ';
+  return new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(amount) + ' VNĐ';
 };
 
 function BookingManagement() {
