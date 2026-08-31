@@ -196,9 +196,8 @@ function RoomTypeManagement() {
     form.setFieldsValue({
       typeName: '',
       capacity: 2,
-      adultCapacity: 2,
-      childCapacity: 1,
-      maxOccupancy: 3,
+      standardCapacity: 3,
+      maxOccupancy: 4,
       extraAdultFee: 200000,
       extraChildFee: 100000,
       defaultPrice: 500000,
@@ -217,8 +216,10 @@ function RoomTypeManagement() {
     form.setFieldsValue({
       typeName: type.typeName,
       capacity: type.capacity,
-      adultCapacity: type.adultCapacity ?? type.capacity ?? 2,
-      childCapacity: type.childCapacity ?? 1,
+      // Hai cột adultCapacity / childCapacity trong CSDL gộp lại thành một ô
+      // "số khách tiêu chuẩn" trên giao diện.
+      standardCapacity:
+        (type.adultCapacity ?? type.capacity ?? 2) + (type.childCapacity ?? 0),
       maxOccupancy: type.maxOccupancy ?? (type.adultCapacity ? (type.adultCapacity + (type.childCapacity || 0)) : type.capacity) ?? 3,
       extraAdultFee: !isNaN(parsedExtraAdult) ? parsedExtraAdult : 200000,
       extraChildFee: !isNaN(parsedExtraChild) ? parsedExtraChild : 100000,
@@ -250,9 +251,18 @@ function RoomTypeManagement() {
   const handleModalSubmit = async () => {
     try {
       const values = await form.validateFields();
+      // CSDL vẫn giữ hai cột adultCapacity / childCapacity, nên quy ô "số khách
+      // tiêu chuẩn" về đó: toàn bộ suất tiêu chuẩn tính là suất người lớn, phần
+      // trẻ em để 0. Cách tính phụ thu vẫn đúng vì backend xếp trẻ em vào chỗ
+      // người lớn còn trống trước rồi mới tính khách phát sinh — chỉ khác ở chỗ
+      // 3 khách tiêu chuẩn giờ là 3 khách bất kể người lớn hay trẻ em.
+      const { standardCapacity, ...rest } = values;
+      const standard = Number(standardCapacity) || 1;
       const payload = {
-        ...values,
-        capacity: values.maxOccupancy ?? values.capacity ?? values.adultCapacity ?? 2,
+        ...rest,
+        adultCapacity: standard,
+        childCapacity: 0,
+        capacity: values.maxOccupancy ?? values.capacity ?? standard,
       };
       if (editingType) {
         // Update
@@ -274,7 +284,7 @@ function RoomTypeManagement() {
 
   const formatPrice = (price: string | number) => {
     const numPrice = typeof price === 'number' ? price : parseFloat(price) || 0;
-    return new Intl.NumberFormat('vi-VN').format(numPrice) + ' VNĐ';
+    return new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(numPrice) + ' VNĐ';
   };
 
   const columns = [
@@ -290,13 +300,17 @@ function RoomTypeManagement() {
       key: 'capacity',
       sorter: (a: RoomType, b: RoomType) => (a.maxOccupancy ?? a.capacity) - (b.maxOccupancy ?? b.capacity),
       render: (_: unknown, record: RoomType) => {
-        const adult = record.adultCapacity ?? record.capacity ?? 2;
-        const child = record.childCapacity ?? 0;
-        const max = record.maxOccupancy ?? record.capacity ?? (adult + child);
+        // Gộp hai cột adultCapacity + childCapacity thành một con số khách, khớp
+        // với ô nhập trong modal.
+        const standard = (record.adultCapacity ?? record.capacity ?? 2) + (record.childCapacity ?? 0);
+        const max = record.maxOccupancy ?? record.capacity ?? standard;
         return (
           <div style={{ fontSize: 13, color: '#334155', lineHeight: 1.4 }}>
-            <div><strong>{adult} NL</strong>{child > 0 ? ` + ${child} TE` : ''}</div>
-            <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>Tối đa {max} khách</div>
+            <div><strong>{standard} khách</strong> tiêu chuẩn</div>
+            <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+              Tối đa {max} khách
+              {max > standard ? ` (+${max - standard} phát sinh)` : ''}
+            </div>
           </div>
         );
       }
@@ -309,8 +323,8 @@ function RoomTypeManagement() {
         const childFee = typeof record.extraChildFee === 'number' ? record.extraChildFee : parseFloat(record.extraChildFee as string) || 0;
         return (
           <div style={{ fontSize: 12, color: '#475569', lineHeight: 1.4 }}>
-            <div>NL: <strong style={{ color: '#0f172a' }}>+{new Intl.NumberFormat('vi-VN').format(adultFee)}đ</strong></div>
-            <div>TE: <strong style={{ color: '#0f172a' }}>+{new Intl.NumberFormat('vi-VN').format(childFee)}đ</strong></div>
+            <div>NL: <strong style={{ color: '#0f172a' }}>+{new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(adultFee)}đ</strong></div>
+            <div>TE: <strong style={{ color: '#0f172a' }}>+{new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(childFee)}đ</strong></div>
           </div>
         );
       }
@@ -549,53 +563,43 @@ function RoomTypeManagement() {
           </Row>
 
           <Card type="inner" title="Thiết lập Sức chứa phòng" style={{ marginBottom: 16, backgroundColor: '#f8fafc' }}>
+            {/* Sức chứa đếm theo đầu người, không tách người lớn / trẻ em: đã
+                nằm trong giá phòng thì ai ở cũng vậy. Chỗ cần phân biệt là mức
+                phụ thu bên dưới, vì khách phát sinh là người lớn hay trẻ em thì
+                thu khác nhau. */}
             <Row gutter={16}>
-              <Col span={8}>
+              <Col span={12}>
                 <Form.Item
-                  name="adultCapacity"
-                  label="Người lớn tiêu chuẩn"
-                  tooltip="Số người lớn mặc định cho 1 phòng"
+                  name="standardCapacity"
+                  label="Số khách tiêu chuẩn"
+                  tooltip="Số khách đã bao gồm trong giá phòng, chưa phát sinh phụ thu"
                   rules={[
-                    { required: true, message: 'Nhập số người lớn tiêu chuẩn!' },
-                    { type: 'number', min: 1, message: 'Tối thiểu 1 người lớn!' }
+                    { required: true, message: 'Nhập số khách tiêu chuẩn!' },
+                    { type: 'number', min: 1, message: 'Tối thiểu 1 khách!' }
                   ]}
                 >
-                  <InputNumber min={1} style={{ width: '100%' }} placeholder="2" />
+                  <InputNumber min={1} style={{ width: '100%' }} placeholder="3" />
                 </Form.Item>
               </Col>
-              <Col span={8}>
-                <Form.Item
-                  name="childCapacity"
-                  label="Trẻ em tiêu chuẩn"
-                  tooltip="Số trẻ em mặc định cho 1 phòng"
-                  rules={[
-                    { required: true, message: 'Nhập số trẻ em tiêu chuẩn!' },
-                    { type: 'number', min: 0, message: 'Không được nhỏ hơn 0!' }
-                  ]}
-                >
-                  <InputNumber min={0} style={{ width: '100%' }} placeholder="1" />
-                </Form.Item>
-              </Col>
-              <Col span={8}>
+              <Col span={12}>
                 <Form.Item
                   name="maxOccupancy"
-                  label="Sức chứa tối đa"
-                  tooltip="Tổng số khách tối đa (Người lớn + Trẻ em) cho 1 phòng"
+                  label="Số khách tối đa"
+                  tooltip="Số khách nhiều nhất được ở 1 phòng. Phần vượt quá số khách tiêu chuẩn sẽ bị tính phụ thu."
                   rules={[
-                    { required: true, message: 'Nhập tổng sức chứa tối đa!' },
+                    { required: true, message: 'Nhập số khách tối đa!' },
                     ({ getFieldValue }) => ({
                       validator(_, value) {
-                        const adult = getFieldValue('adultCapacity') || 0;
-                        const child = getFieldValue('childCapacity') || 0;
-                        if (value !== undefined && value < adult + child) {
-                          return Promise.reject(new Error(`Sức chứa tối đa (${value}) phải lớn hơn hoặc bằng tổng sức chứa tiêu chuẩn (${adult + child})`));
+                        const standard = getFieldValue('standardCapacity') || 0;
+                        if (value !== undefined && value < standard) {
+                          return Promise.reject(new Error(`Số khách tối đa (${value}) phải lớn hơn hoặc bằng số khách tiêu chuẩn (${standard})`));
                         }
                         return Promise.resolve();
                       }
                     })
                   ]}
                 >
-                  <InputNumber min={1} style={{ width: '100%' }} placeholder="3" />
+                  <InputNumber min={1} style={{ width: '100%' }} placeholder="4" />
                 </Form.Item>
               </Col>
             </Row>
@@ -772,28 +776,23 @@ function RoomTypeManagement() {
                     </div>
                   </Card>
                 </Col>
-                <Col xs={12} sm={12} md={4}>
+                <Col xs={12} sm={12} md={8}>
                   <Card size="small" style={{ background: '#f8fafc', border: '1px solid #e2e8f0', height: '100%' }}>
-                    <div style={{ fontSize: 12, color: '#64748b' }}>Người lớn tiêu chuẩn</div>
-                    <div style={{ fontSize: 17, fontWeight: 700, color: '#334155', marginTop: 4 }}>{adult}</div>
-                  </Card>
-                </Col>
-                <Col xs={12} sm={12} md={4}>
-                  <Card size="small" style={{ background: '#f8fafc', border: '1px solid #e2e8f0', height: '100%' }}>
-                    <div style={{ fontSize: 12, color: '#64748b' }}>Trẻ em tiêu chuẩn</div>
-                    <div style={{ fontSize: 17, fontWeight: 700, color: '#334155', marginTop: 4 }}>{child}</div>
-                  </Card>
-                </Col>
-                <Col xs={12} sm={12} md={4}>
-                  <Card size="small" style={{ background: '#f8fafc', border: '1px solid #e2e8f0', height: '100%' }}>
-                    <div style={{ fontSize: 12, color: '#64748b' }}>Tổng tiêu chuẩn</div>
+                    <div style={{ fontSize: 12, color: '#64748b' }}>Số khách tiêu chuẩn</div>
                     <div style={{ fontSize: 17, fontWeight: 700, color: '#334155', marginTop: 4 }}>{standardTotal} khách</div>
                   </Card>
                 </Col>
-                <Col xs={12} sm={12} md={4}>
+                <Col xs={12} sm={12} md={8}>
                   <Card size="small" style={{ background: '#eff6ff', border: '1px solid #bfdbfe', height: '100%' }}>
-                    <div style={{ fontSize: 12, color: '#1e40af' }}>Sức chứa tối đa</div>
-                    <div style={{ fontSize: 17, fontWeight: 700, color: '#1e3a8a', marginTop: 4 }}>{maxOccupancy} khách</div>
+                    <div style={{ fontSize: 12, color: '#1e40af' }}>Số khách tối đa</div>
+                    <div style={{ fontSize: 17, fontWeight: 700, color: '#1e3a8a', marginTop: 4 }}>
+                      {maxOccupancy} khách
+                      {maxOccupancy > standardTotal && (
+                        <span style={{ fontSize: 12, fontWeight: 500, color: '#3b82f6', marginLeft: 6 }}>
+                          (thêm {maxOccupancy - standardTotal} khách phát sinh)
+                        </span>
+                      )}
+                    </div>
                   </Card>
                 </Col>
               </Row>

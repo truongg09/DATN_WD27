@@ -681,10 +681,10 @@ function VoucherManagement() {
               {selectedVoucher.discountType === 'percentage' ? formatPercentage(selectedVoucher.discountValue) : `${selectedVoucher.discountValue}đ`}
             </Descriptions.Item>
             <Descriptions.Item label="Giảm tối đa">
-              {selectedVoucher.maxDiscount ? `${selectedVoucher.maxDiscount.toLocaleString('vi-VN')}đ` : 'Không giới hạn'}
+              {selectedVoucher.maxDiscount ? `${selectedVoucher.maxDiscount.toLocaleString('vi-VN', { maximumFractionDigits: 0 })}đ` : 'Không giới hạn'}
             </Descriptions.Item>
             <Descriptions.Item label="Số tiền tối thiểu">
-              {selectedVoucher.minBookingAmount ? `${selectedVoucher.minBookingAmount.toLocaleString('vi-VN')}đ` : 'Không giới hạn'}
+              {selectedVoucher.minBookingAmount ? `${selectedVoucher.minBookingAmount.toLocaleString('vi-VN', { maximumFractionDigits: 0 })}đ` : 'Không giới hạn'}
             </Descriptions.Item>
             <Descriptions.Item label="Hạng phòng áp dụng">
               {selectedVoucher.roomTypeNames ? (

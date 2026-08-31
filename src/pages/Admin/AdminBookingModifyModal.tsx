@@ -303,7 +303,7 @@ export const AdminBookingModifyModal: React.FC<AdminBookingModifyModalProps> = (
   };
 
   const formatVND = (num: number) => {
-    return new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND" }).format(num || 0);
+    return new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(num || 0);
   };
 
   return (

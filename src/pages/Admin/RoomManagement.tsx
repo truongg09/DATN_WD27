@@ -864,7 +864,7 @@ function RoomManagement() {
 
   const formatPrice = (price: string | number) => {
     const numPrice = typeof price === 'number' ? price : parseFloat(price) || 0;
-    return new Intl.NumberFormat('vi-VN').format(numPrice) + ' VNĐ';
+    return new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(numPrice) + ' VNĐ';
   };
 
   const getRoomStatusMeta = (room: Room) => {
@@ -1027,14 +1027,21 @@ function RoomManagement() {
             >
               Làm mới
             </Button>
-            {/* Thêm hàng loạt là thao tác phụ nên dùng nút viền, tránh hai nút
-                tô đậm cạnh nhau và bỏ mã màu cứng gây lệch tone. */}
-            <Button icon={<PlusOutlined />} onClick={handleOpenBulkModal}>
-              Thêm hàng loạt
-            </Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
-              Thêm phòng mới
-            </Button>
+            {/* Mở thêm phòng là việc của quản trị, không phải việc quầy: lễ tân
+                chỉ vận hành số phòng đã có nên hai nút này ẩn ở /staff, cùng
+                cách nút xóa phòng trong cột Thao tác đã làm. */}
+            {isAdminArea && (
+              <>
+                {/* Thêm hàng loạt là thao tác phụ nên dùng nút viền, tránh hai nút
+                    tô đậm cạnh nhau và bỏ mã màu cứng gây lệch tone. */}
+                <Button icon={<PlusOutlined />} onClick={handleOpenBulkModal}>
+                  Thêm hàng loạt
+                </Button>
+                <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
+                  Thêm phòng mới
+                </Button>
+              </>
+            )}
             <Button
               type="primary"
               icon={<PlusOutlined />}

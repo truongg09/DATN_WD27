@@ -51,7 +51,7 @@ const paymentMethodLabel = (method) => ({
   wallet: 'ví số dư HotelHub'
 }[method] || method || 'khác');
 
-const money = (amount) => `${Number(amount || 0).toLocaleString('vi-VN')}₫`;
+const money = (amount) => `${Number(amount || 0).toLocaleString('vi-VN', { maximumFractionDigits: 0 })}₫`;
 
 // Ghi dấu vết thanh toán vào lịch sử đặt phòng (booking_history).
 // Không ném lỗi: sự cố ghi log không được làm hỏng giao dịch tiền đã nhận.

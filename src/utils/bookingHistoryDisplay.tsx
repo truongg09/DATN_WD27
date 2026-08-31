@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import dayjs from 'dayjs';
 
 const money = (value: unknown) =>
-  `${new Intl.NumberFormat('vi-VN').format(Number(value || 0))}₫`;
+  `${new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(Number(value || 0))}₫`;
 
 export const bookingHistoryActionText: Record<string, string> = {
   created: 'Tạo đơn đặt phòng',

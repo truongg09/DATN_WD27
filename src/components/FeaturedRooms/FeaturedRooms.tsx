@@ -38,7 +38,7 @@ const FeaturedRooms: React.FC = () => {
   }, []);
 
   const formatPrice = (price: number | string) => {
-    return new Intl.NumberFormat('vi-VN').format(Number(price || 0)) + 'đ';
+    return new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(Number(price || 0)) + 'đ';
   };
 
   const formatArea = (type: RoomTypeSearchResult) => {

@@ -458,7 +458,7 @@ function AdminCustomerDetail() {
                 color: brand.primary,
               }}
             >
-              {customer.totalSpent.toLocaleString("vi-VN")} VND
+              {customer.totalSpent.toLocaleString("vi-VN", { maximumFractionDigits: 0 })} VND
             </p>
           </div>
         </div>
@@ -549,7 +549,7 @@ function AdminCustomerDetail() {
                               ).toLocaleDateString("vi-VN")}
                             </td>
                             <td style={tdStyle("right")}>
-                              {booking.totalAmount.toLocaleString("vi-VN")} VND
+                              {booking.totalAmount.toLocaleString("vi-VN", { maximumFractionDigits: 0 })} VND
                             </td>
                             <td style={tdStyle("center")}>
                               <StatusPill label={meta.label} tone={meta.tone} />
@@ -660,7 +660,7 @@ function AdminCustomerDetail() {
                             {payment.bookingCode}
                           </td>
                           <td style={tdStyle("right")}>
-                            {payment.paidAmount.toLocaleString("vi-VN")} VND
+                            {payment.paidAmount.toLocaleString("vi-VN", { maximumFractionDigits: 0 })} VND
                           </td>
                           <td style={tdStyle("left")}>
                             {payment.paymentMethod}

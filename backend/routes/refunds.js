@@ -192,7 +192,7 @@ router.patch('/:id/approve', requireAuth, requireStaff, async (req, res) => {
       connection,
       refund.bookingId,
       'refund_approved',
-      `Duyệt hoàn tiền ${Number(refund.amount || 0).toLocaleString('vi-VN')}₫ vào ví khách${req.body?.note ? `. Ghi chú: ${req.body.note}` : ''}`,
+      `Duyệt hoàn tiền ${Number(refund.amount || 0).toLocaleString('vi-VN', { maximumFractionDigits: 0 })}₫ vào ví khách${req.body?.note ? `. Ghi chú: ${req.body.note}` : ''}`,
       Number(refund.amount || 0),
       req.user
     );
@@ -230,7 +230,7 @@ router.patch('/:id/reject', requireAuth, requireStaff, async (req, res) => {
         null,
         refund.bookingId,
         'refund_rejected',
-        `Từ chối yêu cầu hoàn tiền ${Number(refund.amount || 0).toLocaleString('vi-VN')}₫${req.body?.note ? `. Lý do: ${req.body.note}` : ''}`,
+        `Từ chối yêu cầu hoàn tiền ${Number(refund.amount || 0).toLocaleString('vi-VN', { maximumFractionDigits: 0 })}₫${req.body?.note ? `. Lý do: ${req.body.note}` : ''}`,
         Number(refund.amount || 0),
         req.user
       );

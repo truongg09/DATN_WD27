@@ -469,7 +469,7 @@ const Booking: React.FC = () => {
           name: roomType.typeName,
           image: getRoomTypeCardImage(roomType.typeName, roomType.images),
           price: Number(roomType.defaultPrice),
-          beds: `${adultCap} người lớn + ${childCap} trẻ em (Tối đa ${maxOcc} khách)`,
+          beds: `${adultCap + childCap} khách tiêu chuẩn (tối đa ${maxOcc} khách)`,
           area:
             roomType.minArea !== null
               ? roomType.minArea === roomType.maxArea
@@ -535,7 +535,7 @@ const Booking: React.FC = () => {
           name: room.room_type_name,
           image: getRoomTypeCardImage(room.room_type_name),
           price: Number(room.price_per_night),
-          beds: `${adultCap} người lớn + ${childCap} trẻ em (Tối đa ${maxOcc} khách)`,
+          beds: `${adultCap + childCap} khách tiêu chuẩn (tối đa ${maxOcc} khách)`,
           area: room.area
             ? `${room.area}m²`
             : `${room.room_type_name || 'Phòng chuẩn'}`,
@@ -601,6 +601,16 @@ const Booking: React.FC = () => {
     selectedRoom?.childCapacity ?? (selectedRoom?.adultCapacity !== undefined ? 0 : 1),
   );
   const maxOcc = Number(selectedRoom?.maxOccupancy ?? adultCap + childCap);
+
+  // Trần khách của cả đơn: sức chứa tối đa mỗi phòng nhân số phòng đang chọn.
+  // Ô chọn phải dừng đúng ở đây, nếu không khách vẫn bấm được số vượt trần rồi
+  // mới nhận thông báo "Vượt quá sức chứa tối đa" — chọn xong mới biết là sai.
+  const maxGuestsForSelection = Math.max(1, maxOcc * Math.max(1, activeRoomQuantity));
+  // Người lớn và trẻ em chia nhau cùng một trần, nên mỗi bên chỉ được chọn tới
+  // phần còn lại sau khi trừ bên kia. Luôn chừa ít nhất 1 người lớn.
+  const maxAdultsSelectable = Math.max(1, maxGuestsForSelection - children);
+  const maxChildrenSelectable = Math.max(0, maxGuestsForSelection - adults);
+
   const extraAdultFee = Number(selectedRoom?.extraAdultFee ?? 200000);
   const extraChildFee = Number(selectedRoom?.extraChildFee ?? 100000);
 
@@ -643,9 +653,21 @@ const Booking: React.FC = () => {
     0,
     room1EffectiveAdults - room1StandardAdultCapacity,
   );
+  // Sức chứa tiêu chuẩn đếm theo ĐẦU NGƯỜI: trẻ em được xếp vào những suất
+  // tiêu chuẩn chưa dùng hết rồi mới tính là khách phát sinh. Thiếu bước này
+  // thì phòng 3 khách tiêu chuẩn mà khách đặt 2 người lớn + 1 trẻ em vẫn bị
+  // thu phụ thu oan, và số liệu lệch với cách máy chủ tính khi thanh toán.
+  const room1UnusedStandardSlots = Math.max(
+    0,
+    room1StandardAdultCapacity - room1EffectiveAdults,
+  );
+  const room1RemainingChildren = Math.max(
+    0,
+    room1EffectiveChildren - room1UnusedStandardSlots,
+  );
   const room1RawExtraChildren = Math.max(
     0,
-    room1EffectiveChildren - room1StandardChildCapacity,
+    room1RemainingChildren - room1StandardChildCapacity,
   );
   const room1ExtraChildren =
     room1ValidChildrenAges.length > 0
@@ -985,11 +1007,11 @@ const Booking: React.FC = () => {
   }, [extraTypeIdsKey, dateRange]);
 
   const formatPrice = (price: number) => {
-    return new Intl.NumberFormat("vi-VN").format(price) + "₫";
+    return new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 }).format(price) + "₫";
   };
 
   const formatMoney = (price: number | string) => {
-    return new Intl.NumberFormat("vi-VN").format(Number(price || 0)) + "đ";
+    return new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 }).format(Number(price || 0)) + "đ";
   };
 
   useEffect(() => {
@@ -1530,9 +1552,10 @@ const Booking: React.FC = () => {
                       <Select
                         value={adults}
                         onChange={(value) => setValue("adults", value)}
-                        options={Array.from({ length: Math.max(5, adults) }, (_, i) => ({
+                        options={Array.from({ length: Math.max(maxAdultsSelectable, adults) }, (_, i) => ({
                           value: i + 1,
                           label: `${i + 1} người lớn`,
+                          disabled: i + 1 > maxAdultsSelectable,
                         }))}
                         size="large"
                         style={{ width: "100%" }}
@@ -1543,9 +1566,10 @@ const Booking: React.FC = () => {
                       <Select
                         value={children}
                         onChange={(value) => setValue("children", value)}
-                        options={Array.from({ length: Math.max(5, children + 1) }, (_, i) => ({
+                        options={Array.from({ length: Math.max(maxChildrenSelectable + 1, children + 1) }, (_, i) => ({
                           value: i,
                           label: i === 0 ? "Không có trẻ em" : `${i} trẻ em`,
+                          disabled: i > maxChildrenSelectable,
                         }))}
                         size="large"
                         style={{ width: "100%" }}
@@ -1590,7 +1614,7 @@ const Booking: React.FC = () => {
                       <div className="room-policy-item">
                         <span className="room-policy-label">Sức chứa tiêu chuẩn:</span>
                         <span className="room-policy-val">
-                          {adultCap} người lớn + {childCap} trẻ em ({adultCap + childCap} khách)
+                          {adultCap + childCap} khách
                         </span>
                       </div>
                       <div className="room-policy-item">
@@ -1785,7 +1809,7 @@ const Booking: React.FC = () => {
                           <div className="room-policy-item">
                             <span className="room-policy-label">Sức chứa tiêu chuẩn:</span>
                             <span className="room-policy-val">
-                              {currentAdultCap} người lớn + {currentChildCap} trẻ em ({currentAdultCap + currentChildCap} khách)
+                              {currentAdultCap + currentChildCap} khách
                             </span>
                           </div>
                           <div className="room-policy-item">
@@ -1851,10 +1875,29 @@ const Booking: React.FC = () => {
                 );
                 if (specialNights.length === 0) return null;
 
+                // Mức phụ thu do admin đặt trong "Bảng giá Lễ & Chủ nhật", mỗi
+                // hạng phòng một mức, nên phải đọc từ dữ liệu máy chủ trả về
+                // chứ không viết cứng — admin sửa bảng giá là nhãn phải đổi theo.
+                const pctOf = (nights: NightlyPriceItem[]) => {
+                  const found = nights
+                    .map((n) => Number(n.surchargePercent || 0))
+                    .filter((v) => v > 0);
+                  return found.length > 0 ? Array.from(new Set(found)).sort((a, b) => a - b) : [];
+                };
+                const specialTyped = specialNights as NightlyPriceItem[];
+                const holidayPcts = pctOf(specialTyped.filter((n) => n.isHoliday));
+                const weekendPcts = pctOf(specialTyped.filter((n) => !n.isHoliday && (n.isSaturday || n.isSunday)));
+                const pctText = (list: number[]) => list.map((v) => `+${v}%`).join(' / ');
+
                 return (
                   <div style={{ margin: '18px 30px 0', padding: '14px 16px', background: '#fffbe6', border: '1px solid #ffe58f', borderRadius: 8 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#d46b08', fontWeight: 600, fontSize: 14 }}>
-                      <span>⚠️ Các đêm áp dụng phụ thu Cuối tuần (+10%) / Dịp lễ (+20%)</span>
+                      <span>
+                        ⚠️ Các đêm áp dụng phụ thu
+                        {weekendPcts.length > 0 ? ` Cuối tuần (${pctText(weekendPcts)})` : ''}
+                        {weekendPcts.length > 0 && holidayPcts.length > 0 ? ' /' : ''}
+                        {holidayPcts.length > 0 ? ` Dịp lễ (${pctText(holidayPcts)})` : ''}
+                      </span>
                     </div>
                     <p style={{ margin: '6px 0 10px', fontSize: 13, color: '#595959' }}>
                       Chi tiết đơn giá các đêm tăng giá trong khoảng thời gian lưu trú:
@@ -1877,9 +1920,9 @@ const Booking: React.FC = () => {
                           >
                             <span>
                               <strong>{dayjs(night.date || night.stayDate).format('DD/MM/YYYY')}</strong> ({night.dayName || ''})
-                              {night.isHoliday && <Tag color="red" style={{ marginLeft: 6 }}>Ngày lễ (+20%)</Tag>}
-                              {night.isSunday && <Tag color="orange" style={{ marginLeft: 6 }}>Chủ nhật (+10%)</Tag>}
-                              {night.isSaturday && <Tag color="purple" style={{ marginLeft: 6 }}>Thứ 7 (+10%)</Tag>}
+                              {night.isHoliday && <Tag color="red" style={{ marginLeft: 6 }}>Ngày lễ{night.surchargePercent ? ` (+${night.surchargePercent}%)` : ''}</Tag>}
+                              {night.isSunday && <Tag color="orange" style={{ marginLeft: 6 }}>Chủ nhật{night.surchargePercent ? ` (+${night.surchargePercent}%)` : ''}</Tag>}
+                              {night.isSaturday && <Tag color="purple" style={{ marginLeft: 6 }}>Thứ 7{night.surchargePercent ? ` (+${night.surchargePercent}%)` : ''}</Tag>}
                               {night.note && <span style={{ color: '#8c8c8c', fontSize: 12, marginLeft: 4 }}>({night.note})</span>}
                             </span>
                             <span style={{ fontWeight: 600, color: '#cf1322' }}>
@@ -2055,7 +2098,7 @@ const Booking: React.FC = () => {
                             </p>
                             <p>
                               <FontAwesomeIcon icon={faBed} /> Sức chứa:{" "}
-                              {typeAdultCapacity} người lớn + {typeChildCapacity} trẻ em (Tối đa {typeMaxOccupancy} khách)
+                              {typeAdultCapacity + typeChildCapacity} khách tiêu chuẩn (tối đa {typeMaxOccupancy} khách)
                             </p>
                           </div>
                         </div>

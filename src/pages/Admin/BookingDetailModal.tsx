@@ -233,7 +233,7 @@ interface BookingDetail {
 }
 
 const money = (value?: string | number | null) =>
-  new Intl.NumberFormat('vi-VN').format(Number(value || 0)) + '₫';
+  new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(Number(value || 0)) + '₫';
 
 const day = (value?: string | null) => {
   if (!value) return '—';

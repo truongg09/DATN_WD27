@@ -98,6 +98,9 @@ export interface NightlyPriceItem {
   isHoliday?: boolean;
   isSunday?: boolean;
   isSaturday?: boolean;
+  // Mức phụ thu thực tế của đêm đó, suy ra từ bảng giá admin đang đặt. Giao diện
+  // phải hiển thị theo trường này thay vì viết cứng +10% / +20%.
+  surchargePercent?: number;
   isWeekend?: boolean;
   roomId?: number | null;
   roomNumber?: string | null;

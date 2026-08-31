@@ -851,7 +851,7 @@ export const AdminCreateBookingModal: React.FC<AdminCreateBookingModalProps> = (
   };
 
   const formatPrice = (amount: number) => {
-    return new Intl.NumberFormat('vi-VN').format(amount) + ' VNĐ';
+    return new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(amount) + ' VNĐ';
   };
 
   const copyText = (text: string, label: string) => {

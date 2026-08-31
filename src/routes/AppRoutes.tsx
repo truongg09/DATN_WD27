@@ -172,7 +172,10 @@ const AppRoutes = () => {
       <Route element={<StaffRoute />}>
         <Route path="/staff" element={<StaffLayout />}>
 
-          <Route index element={<Dashboard />} />
+          {/* Lễ tân không còn trang Dashboard: vào /staff (từ nút "Trang quản lý"
+              trên header hoặc ngay sau khi đăng nhập) thì rơi thẳng vào mục đầu
+              tiên của menu thay vì một khung trống. */}
+          <Route index element={<Navigate to="rooms" replace />} />
 
           <Route path="rooms" element={<RoomManagement />} />
 

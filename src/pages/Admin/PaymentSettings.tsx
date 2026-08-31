@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useUrlTab } from '../../hooks/useUrlTab';
 import { Card, Form, Input, Select, Button, message, QRCode, Alert, Spin, InputNumber, Tabs, TimePicker } from 'antd';
-import { BankOutlined, SaveOutlined, TeamOutlined, ClockCircleOutlined, SafetyOutlined } from '@ant-design/icons';
+import { BankOutlined, SaveOutlined, ClockCircleOutlined, SafetyOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import api from '../../services/api';
 import {
   getPaymentSettings,
   updatePaymentSettings,
@@ -24,21 +23,14 @@ interface FormValues {
   transferPrefix: string;
 }
 
-interface ChildrenPolicy {
-  freeMaxAge: number;
-  childMaxAge: number;
-  surchargePerNight: number;
-}
-
 const SETTINGS_TABS = [
   'payment-account',
   'checkin-checkout',
   'cancellation',
-  'children',
 ] as const;
 
 const PaymentSettings = () => {
-  // Bốn tab là bốn nhóm chính sách khác nhau; giữ trên URL để F5 hoặc gửi link
+  // Ba tab là ba nhóm chính sách khác nhau; giữ trên URL để F5 hoặc gửi link
   // cho đồng nghiệp đều mở đúng nhóm đang bàn.
   const [activeTab, setActiveTab] = useUrlTab('tab', SETTINGS_TABS, 'payment-account');
   const [form] = Form.useForm<FormValues>();
@@ -49,13 +41,6 @@ const PaymentSettings = () => {
   const [saving, setSaving] = useState(false);
   const [savingTiers, setSavingTiers] = useState(false);
   const [savingCancelPolicy, setSavingCancelPolicy] = useState(false);
-  const [savingChildrenPolicy, setSavingChildrenPolicy] = useState(false);
-
-  const [childrenPolicy, setChildrenPolicy] = useState<ChildrenPolicy>({
-    freeMaxAge: 5,
-    childMaxAge: 11,
-    surchargePerNight: 200000,
-  });
 
   const bankBin = Form.useWatch('bankBin', form);
   const accountNumber = Form.useWatch('accountNumber', form);
@@ -198,13 +183,6 @@ const PaymentSettings = () => {
       }
 
       try {
-        const policyRes = (await api.get('/settings/children-policy')) as { data: ChildrenPolicy };
-        setChildrenPolicy(policyRes.data);
-      } catch {
-        // dùng mặc định nếu chưa cấu hình
-      }
-
-      try {
         const tiersRes = await getLateCheckoutTiers();
         if (tiersRes.data) {
           lateTiersForm.setFieldsValue({
@@ -332,19 +310,6 @@ const PaymentSettings = () => {
       message.error(err.response?.data?.message || 'Không thể lưu chính sách hủy phòng');
     } finally {
       setSavingCancelPolicy(false);
-    }
-  };
-
-  const handleSaveChildrenPolicy = async () => {
-    setSavingChildrenPolicy(true);
-    try {
-      await api.put('/settings/children-policy', childrenPolicy);
-      message.success('Đã lưu chính sách phụ thu trẻ em');
-    } catch (error: unknown) {
-      const err = error as { response?: { data?: { message?: string } } };
-      message.error(err.response?.data?.message || 'Không thể lưu chính sách trẻ em');
-    } finally {
-      setSavingChildrenPolicy(false);
     }
   };
 
@@ -683,72 +648,6 @@ const PaymentSettings = () => {
               Lưu chính sách hủy phòng
             </Button>
           </Form>
-        </Card>
-      ),
-    },
-    {
-      key: 'children',
-      label: (
-        <span>
-          <TeamOutlined /> Phụ thu trẻ em
-        </span>
-      ),
-      children: (
-        <Card title={<><TeamOutlined /> Chính sách phụ thu trẻ em & Người ở thêm</>} style={{ maxWidth: 660 }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-              <div>
-                <div style={{ marginBottom: 6 }}>Miễn phí đến (tuổi)</div>
-                <InputNumber
-                  min={0}
-                  max={17}
-                  value={childrenPolicy.freeMaxAge}
-                  onChange={(value) =>
-                    setChildrenPolicy((prev) => ({ ...prev, freeMaxAge: Number(value) || 0 }))
-                  }
-                />
-              </div>
-              <div>
-                <div style={{ marginBottom: 6 }}>Phụ thu đến (tuổi)</div>
-                <InputNumber
-                  min={1}
-                  max={17}
-                  value={childrenPolicy.childMaxAge}
-                  onChange={(value) =>
-                    setChildrenPolicy((prev) => ({ ...prev, childMaxAge: Number(value) || 0 }))
-                  }
-                />
-              </div>
-              <div>
-                <div style={{ marginBottom: 6 }}>Phụ thu mỗi đêm (₫)</div>
-                <InputNumber
-                  min={0}
-                  step={50000}
-                  style={{ width: 180 }}
-                  value={childrenPolicy.surchargePerNight}
-                  onChange={(value) =>
-                    setChildrenPolicy((prev) => ({ ...prev, surchargePerNight: Number(value) || 0 }))
-                  }
-                  formatter={(value) => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, '.')}
-                  parser={(value) => Number((value || '0').replace(/\./g, ''))}
-                />
-              </div>
-            </div>
-            <Alert
-              type="info"
-              showIcon
-              message={`Hiện tại: 0–${childrenPolicy.freeMaxAge} tuổi miễn phí · ${childrenPolicy.freeMaxAge + 1}–${childrenPolicy.childMaxAge} tuổi phụ thu ${new Intl.NumberFormat('vi-VN').format(childrenPolicy.surchargePerNight)}₫/đêm · từ ${childrenPolicy.childMaxAge + 1} tuổi tính như người lớn`}
-            />
-            <Button
-              type="primary"
-              icon={<SaveOutlined />}
-              loading={savingChildrenPolicy}
-              style={{ alignSelf: 'flex-start' }}
-              onClick={handleSaveChildrenPolicy}
-            >
-              Lưu chính sách trẻ em
-            </Button>
-          </div>
         </Card>
       ),
     },

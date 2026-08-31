@@ -82,7 +82,7 @@ interface ReportSummary {
 }
 
 const formatVND = (val: number) =>
-  new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(val || 0);
+  new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(val || 0);
 
 const formatPercent = (val: number) =>
   new Intl.NumberFormat('vi-VN', {
@@ -378,10 +378,12 @@ function ReportManagement() {
         <div className="report-mgmt-stats">
           <div className="report-stat-card">
             <span className="report-stat-label">
-              <DollarCircleOutlined /> Tổng doanh thu
+              {/* Kèm năm để không bị so nhầm với thẻ cùng tên bên Dashboard,
+                  chỗ đó mặc định chỉ tính tháng đang chạy. */}
+              <DollarCircleOutlined /> Tổng doanh thu năm {year}
             </span>
             <div className="report-stat-value">
-              {(summary?.totalRevenue || 0).toLocaleString('vi-VN')}
+              {(summary?.totalRevenue || 0).toLocaleString('vi-VN', { maximumFractionDigits: 0 })}
               <span className="unit">₫</span>
             </div>
             <span className="report-stat-sub">Đã thu: {formatVND(summary?.totalPaid || 0)}</span>
@@ -393,7 +395,7 @@ function ReportManagement() {
             </span>
             <div className={`report-stat-value ${summary?.totalOutstanding ? 'is-danger' : 'is-success'}`}>
               {summary?.totalOutstanding ? <FallOutlined style={{ fontSize: 16 }} /> : null}
-              {(summary?.totalOutstanding || 0).toLocaleString('vi-VN')}
+              {(summary?.totalOutstanding || 0).toLocaleString('vi-VN', { maximumFractionDigits: 0 })}
               <span className="unit">₫</span>
             </div>
             <span className="report-stat-sub">

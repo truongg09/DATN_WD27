@@ -497,7 +497,10 @@ router.get('/:id', async (req, res) => {
 });
 
 // Create rooms in bulk
-router.post('/bulk', requireAuth, requireStaff, async (req, res) => {
+// Mở thêm phòng là quyết định của quản trị, không phải việc quầy — cùng lớp
+// quyền với xóa phòng bên dưới. Giao diện lễ tân đã ẩn nút, nhưng chốt chặn
+// thật phải nằm ở đây thì gọi thẳng API mới không lách được.
+router.post('/bulk', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { rooms } = req.body;
     
@@ -554,8 +557,8 @@ router.post('/bulk', requireAuth, requireStaff, async (req, res) => {
   }
 });
 
-// Create new room
-router.post('/', requireAuth, requireStaff, async (req, res) => {
+// Create new room (chỉ quản trị — xem ghi chú ở route /bulk)
+router.post('/', requireAuth, requireAdmin, async (req, res) => {
   try {
     const normalized = normalizeRoomPayload(req.body);
     if (normalized.error) return res.status(400).json({ message: normalized.error });

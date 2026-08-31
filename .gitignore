@@ -42,3 +42,7 @@ lerna-debug.log*
 
 # Thu muc nhap khi thu nghiem, khong thuoc ma nguon du an
 scratch/
+
+# Thu muc cau hinh cua cong cu soan thao, khong thuoc ma nguon du an
+.agents/
+.claude/

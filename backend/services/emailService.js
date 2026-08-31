@@ -1,6 +1,6 @@
 const nodemailer = require('nodemailer');
 
-const formatMoney = (amount) => `${new Intl.NumberFormat('vi-VN').format(Number(amount || 0))}₫`;
+const formatMoney = (amount) => `${new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(Number(amount || 0))}₫`;
 const formatDate = (date) => date
   ? new Date(date).toLocaleDateString('vi-VN', {
     timeZone: 'Asia/Ho_Chi_Minh',

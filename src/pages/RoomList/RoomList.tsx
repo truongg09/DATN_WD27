@@ -27,7 +27,7 @@ const { Text } = Typography;
 const DATE_FORMAT = "YYYY-MM-DD";
 
 const formatPrice = (price: number) =>
-  new Intl.NumberFormat("vi-VN").format(price) + "đ";
+  new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 }).format(price) + "đ";
 
 const RoomList: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -388,7 +388,7 @@ const RoomList: React.FC = () => {
                     <div className="type-specs">
                       <span>
                         <FontAwesomeIcon icon={faUserGroup} /> Tiêu chuẩn:{" "}
-                        <strong>{adultCapacity} người lớn + {childCapacity} trẻ em</strong>
+                        <strong>{adultCapacity + childCapacity} khách</strong>
                       </span>
 
                       <span>
@@ -439,7 +439,7 @@ const RoomList: React.FC = () => {
 
                     {needMoreRooms && (
                       <p className="capacity-warning">
-                        Hạng phòng này ở tối đa {maxOcc} khách/phòng — với {guestCount} khách cần tối thiểu {minRooms} phòng (Tiêu chuẩn: {adultCapacity} người lớn + {childCapacity} trẻ em/phòng). Khách vượt sức chứa tiêu chuẩn có thể phát sinh phụ thu.
+                        Hạng phòng này ở tối đa {maxOcc} khách/phòng — với {guestCount} khách cần tối thiểu {minRooms} phòng (tiêu chuẩn {adultCapacity + childCapacity} khách/phòng). Khách vượt sức chứa tiêu chuẩn có thể phát sinh phụ thu.
                       </p>
                     )}
 

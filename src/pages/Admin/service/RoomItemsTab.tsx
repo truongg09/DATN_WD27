@@ -186,7 +186,7 @@ function RoomItemsTab() {
       width: 190,
       align: 'right' as const,
       sorter: (a: RoomItem, b: RoomItem) => Number(a.compensationPrice || 0) - Number(b.compensationPrice || 0),
-      render: (value: string | number) => `${Number(value || 0).toLocaleString('vi-VN')}đ`,
+      render: (value: string | number) => `${Number(value || 0).toLocaleString('vi-VN', { maximumFractionDigits: 0 })}đ`,
     },
     {
       title: 'Tình trạng',
@@ -346,7 +346,7 @@ function RoomItemsTab() {
             <Descriptions.Item label="Tên vật dụng">{selectedItem.itemName}</Descriptions.Item>
             <Descriptions.Item label="Số lượng">{selectedItem.quantity}</Descriptions.Item>
             <Descriptions.Item label="Đơn giá bồi thường">
-              {Number(selectedItem.compensationPrice || 0).toLocaleString('vi-VN')}đ
+              {Number(selectedItem.compensationPrice || 0).toLocaleString('vi-VN', { maximumFractionDigits: 0 })}đ
             </Descriptions.Item>
             <Descriptions.Item label="Tình trạng">
               <Tag color={ROOM_ITEM_STATUS[selectedItem.status]?.color || 'default'}>
