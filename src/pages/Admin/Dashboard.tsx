@@ -806,7 +806,12 @@ function AdminDashboard() {
     ? [
         {
           icon: <DollarCircleOutlined />,
-          label: "Tổng doanh thu",
+          // Ghi kỳ ngay trên nhãn: trang Báo cáo tổng kết cả năm, trang này mặc
+          // định chỉ tháng đang chạy. Hai con số vốn khác nhau đúng theo kỳ,
+          // nhưng để nhãn trống thì rất dễ bị đọc thành số liệu lệch.
+          label: periodLabel
+            ? `Tổng doanh thu ${periodLabel.toLowerCase()}`
+            : "Tổng doanh thu",
           value: formatVND(data.kpis?.revenueTotal ?? 0),
           subtext:
             data.kpis?.collectedTotal != null
