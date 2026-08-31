@@ -5,32 +5,31 @@ import {
   Modal,
   Form,
   Input,
-  InputNumber,
-  DatePicker,
   Select,
   message,
   Popconfirm,
   Space,
   Card,
+  Tooltip,
   Descriptions
 } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined, EyeOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import type { Dayjs } from 'dayjs';
 import axios from 'axios';
 import api from '../../services/api';
 
 const { Option } = Select;
 
+// Nhân viên được lưu thẳng trong bảng accounts (role 'staff' hoặc 'admin'),
+// không có bảng employees riêng. `position` do máy chủ suy ra từ role.
 interface Employee {
   id: number;
   accountId: number;
   fullName: string;
   phone: string;
   position: string;
-  salary: number;
-  hireDate: string;
   email: string;
+  role: string;
   status: string;
   created_at: string;
 }
@@ -39,9 +38,7 @@ interface EmployeeFormValues {
   fullName: string;
   email: string;
   phone: string;
-  position: string;
-  salary: number;
-  hireDate: Dayjs;
+  role: string;
   status: string;
   password?: string;
 }
@@ -59,7 +56,6 @@ function EmployeeManagement() {
     setLoading(true);
     try {
       const response = await api.get('/employees');
-      console.log('API response:', response);
       setEmployees(response.data);
     } catch (error) {
       console.error('Error fetching employees:', error);
@@ -70,18 +66,7 @@ function EmployeeManagement() {
   };
 
   useEffect(() => {
-    void (async () => {
-      setLoading(true);
-      try {
-        const response = await api.get('/employees');
-        setEmployees(response.data);
-      } catch (error) {
-        console.error('Error fetching employees:', error);
-        message.error('Lỗi khi tải danh sách nhân viên');
-      } finally {
-        setLoading(false);
-      }
-    })();
+    void fetchEmployees();
   }, []);
 
   const handleAdd = () => {
@@ -96,9 +81,7 @@ function EmployeeManagement() {
       fullName: employee.fullName,
       email: employee.email,
       phone: employee.phone,
-      position: employee.position,
-      salary: employee.salary,
-      hireDate: dayjs(employee.hireDate),
+      role: employee.role,
       status: employee.status
     });
     setModalVisible(true);
@@ -110,10 +93,8 @@ function EmployeeManagement() {
   };
 
   const handleDelete = async (id: number) => {
-    console.log('Trying to delete employee with id:', id);
     try {
-      const response = await api.delete(`/employees/${id}`);
-      console.log('Delete API response:', response);
+      await api.delete(`/employees/${id}`);
       message.success('Xóa nhân viên thành công');
       fetchEmployees();
     } catch (error: unknown) {
@@ -125,17 +106,11 @@ function EmployeeManagement() {
 
   const handleSubmit = async (values: EmployeeFormValues) => {
     try {
-      // Format hireDate to ISO string
-      const submitValues = {
-        ...values,
-        hireDate: values.hireDate ? values.hireDate.format('YYYY-MM-DD') : null
-      };
-
       if (editingEmployee) {
-        await api.put(`/employees/${editingEmployee.id}`, submitValues);
+        await api.put(`/employees/${editingEmployee.id}`, values);
         message.success('Cập nhật nhân viên thành công');
       } else {
-        await api.post('/employees', submitValues);
+        await api.post('/employees', values);
         message.success('Thêm nhân viên thành công');
       }
       setModalVisible(false);
@@ -194,37 +169,32 @@ function EmployeeManagement() {
       )
     },
     {
-      title: 'Hành động',
+      title: 'Thao tác',
       key: 'actions',
+      // Cùng quy ước với các bảng khác: một nút chính tô đậm, thao tác phụ dùng
+      // nút viền, thao tác xóa dùng tone đỏ.
       render: (_: unknown, record: Employee) => (
-        <Space>
-          <Button
-            type="primary"
-            icon={<EyeOutlined style={{ color: 'white' }} />}
-            size="small"
-            onClick={() => handleViewDetail(record)}
-          >
-          </Button>
-          <Button 
-            type="primary" 
-            icon={<EditOutlined />} 
-            size="small"
-            onClick={() => handleEdit(record)}
-          >
-          </Button>
+        <Space size={4}>
+          <Tooltip title="Xem chi tiết nhân viên">
+            <Button
+              type="primary"
+              icon={<EyeOutlined />}
+              size="small"
+              onClick={() => handleViewDetail(record)}
+            />
+          </Tooltip>
+          <Tooltip title="Sửa thông tin nhân viên">
+            <Button icon={<EditOutlined />} size="small" onClick={() => handleEdit(record)} />
+          </Tooltip>
           <Popconfirm
             title="Bạn có chắc chắn muốn xóa?"
             onConfirm={() => handleDelete(record.id)}
             okText="Xóa"
             cancelText="Hủy"
           >
-            <Button 
-              type="primary" 
-              danger 
-              icon={<DeleteOutlined />} 
-              size="small"
-            >
-            </Button>
+            <Tooltip title="Xóa nhân viên">
+              <Button danger icon={<DeleteOutlined />} size="small" />
+            </Tooltip>
           </Popconfirm>
         </Space>
       ),
@@ -299,33 +269,21 @@ function EmployeeManagement() {
             <Input placeholder="Nhập số điện thoại" />
           </Form.Item>
 
+          {/* Chức vụ chính là quyền của tài khoản, nên chọn từ danh sách cố định
+              thay vì gõ tự do — gõ sai một chữ là tài khoản mất quyền vào khu
+              quản trị. */}
           <Form.Item
-            name="position"
+            name="role"
             label="Chức vụ"
-            rules={[{ required: true, message: 'Vui lòng nhập chức vụ' }]}
+            initialValue="staff"
+            rules={[{ required: true, message: 'Vui lòng chọn chức vụ' }]}
           >
-            <Input placeholder="Nhập chức vụ" />
-          </Form.Item>
-
-          <Form.Item
-            name="salary"
-            label="Lương"
-            rules={[{ required: true, message: 'Vui lòng nhập lương' }]}
-          >
-            <InputNumber
-              style={{ width: '100%' }}
-              placeholder="Nhập lương"
-              formatter={(value) => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-              parser={(value) => value?.replace(/\$\s?|(,*)/g, '') ?? ''}
+            <Select
+              options={[
+                { value: 'staff', label: 'Nhân viên' },
+                { value: 'admin', label: 'Quản trị viên' }
+              ]}
             />
-          </Form.Item>
-
-          <Form.Item
-            name="hireDate"
-            label="Ngày vào làm"
-            rules={[{ required: true, message: 'Vui lòng chọn ngày vào làm' }]}
-          >
-            <DatePicker style={{ width: '100%' }} />
           </Form.Item>
 
           {!editingEmployee && (
@@ -382,8 +340,6 @@ function EmployeeManagement() {
             <Descriptions.Item label="Email">{selectedEmployee.email}</Descriptions.Item>
             <Descriptions.Item label="Số điện thoại">{selectedEmployee.phone}</Descriptions.Item>
             <Descriptions.Item label="Chức vụ">{selectedEmployee.position}</Descriptions.Item>
-            <Descriptions.Item label="Lương">{selectedEmployee.salary.toLocaleString('vi-VN')} VND</Descriptions.Item>
-            <Descriptions.Item label="Ngày vào làm">{dayjs(selectedEmployee.hireDate).format('DD/MM/YYYY')}</Descriptions.Item>
             <Descriptions.Item label="Trạng thái">
               <span style={{
                 color: selectedEmployee.status === 'active' ? '#52c41a' : '#ff4d4f',

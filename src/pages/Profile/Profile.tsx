@@ -17,26 +17,26 @@ import {
   Badge,
   Modal,
   InputNumber,
-  Radio
+  Radio,
+  List,
+  Empty
 } from "antd";
 import {
   UserOutlined,
-  CreditCardOutlined,
   CalendarOutlined,
   GiftOutlined,
   LogoutOutlined,
   LockOutlined,
-  TrophyOutlined,
-  AuditOutlined,
   BellOutlined,
-  SolutionOutlined,
   DollarCircleOutlined,
   CopyOutlined,
-  ExclamationCircleOutlined
+  ExclamationCircleOutlined,
+  InfoCircleOutlined
 } from "@ant-design/icons";
 import { useAuth } from "../../contexts/AuthContext";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import api from "../../services/api";
+import BookingHistory from "../Booking/BookingHistory";
 import { getMyRefunds, type RefundRow } from "../../services/refundService";
 import {
   getMyWallet,
@@ -44,6 +44,12 @@ import {
   type WalletBalance,
   type WalletTransaction
 } from "../../services/walletService";
+import {
+  getMyNotifications,
+  markNotificationRead,
+  markAllNotificationsRead
+} from "../../services/notificationService";
+import type { NotificationItem } from "../../types/notification";
 import { VIETQR_BANKS } from "../../utils/vietqr";
 import dayjs from "dayjs";
 
@@ -62,16 +68,6 @@ interface CustomerProfile {
   address?: string;
 }
 
-interface BookingHistoryItem {
-  id: number;
-  bookingCode: string;
-  roomType: string;
-  checkInDate: string;
-  checkOutDate: string;
-  totalAmount: number;
-  bookingStatus: string;
-}
-
 interface VoucherItem {
   id: number;
   code: string;
@@ -80,20 +76,59 @@ interface VoucherItem {
   maxDiscount: number;
   endDate: string;
   status: string;
+  isPersonal?: boolean | number;
+  grantedSource?: string;
 }
 
+// Sáu mục trong sidebar. Khai một chỗ để lúc đọc tab từ URL và lúc kiểm tra
+// tab hợp lệ không bị lệch danh sách như trước.
+const PROFILE_TABS = [
+  "profile-edit",
+  "bookings",
+  "refunds",
+  "notifications",
+  "vouchers",
+  "change-password",
+];
+
 function Profile() {
-  const { user, logout } = useAuth();
+  const { user, logout, updateUser } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [form] = Form.useForm();
-  
+  // Form đổi mật khẩu là một Form riêng. Trước đây nó gọi form.resetFields() của
+  // form hồ sơ (đã bị gỡ khỏi cây khi chuyển tab) nên các ô mật khẩu vẫn còn
+  // nguyên nội dung sau khi đổi thành công.
+  const [passwordForm] = Form.useForm();
+
   // State quản lý tab đang chọn trong sidebar
-  const [activeTab, setActiveTab] = useState<string>("profile-edit");
+  const getInitialTab = () => {
+    const tabParam = searchParams.get("tab") || (location.state as { tab?: string } | null)?.tab;
+    if (tabParam && PROFILE_TABS.includes(tabParam)) {
+      return tabParam;
+    }
+    return "profile-edit";
+  };
+
+  const [activeTab, setActiveTab] = useState<string>(getInitialTab);
+
+  // Đổi tab phải ghi luôn lên URL, nếu không F5 sẽ rơi về "Chỉnh sửa hồ sơ"
+  // dù khách đang xem dở lịch sử đặt phòng hay ví. Dùng replace để nút Back
+  // thoát khỏi trang Hồ sơ chứ không phải lùi qua từng tab đã bấm.
+  const changeTab = (tab: string) => {
+    setActiveTab(tab);
+    setSearchParams({ tab }, { replace: true });
+  };
   const [profile, setProfile] = useState<CustomerProfile | null>(null);
-  const [bookings, setBookings] = useState<BookingHistoryItem[]>([]);
   const [vouchers, setVouchers] = useState<VoucherItem[]>([]);
   const [refunds, setRefunds] = useState<RefundRow[]>([]);
-  const [walletBalance, setWalletBalance] = useState<WalletBalance>({ credited: 0, pendingWithdraw: 0, available: 0 });
+  const [walletBalance, setWalletBalance] = useState<WalletBalance>({
+    credited: 0,
+    pendingWithdraw: 0,
+    paidFromWallet: 0,
+    available: 0,
+  });
   const [walletTransactions, setWalletTransactions] = useState<WalletTransaction[]>([]);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState<number>(0);
@@ -125,8 +160,6 @@ function Profile() {
           address: data.address
         });
 
-        // Tiện tay fetch list bookings của customer này
-        fetchBookings(data.id);
       }
     } catch (error) {
       console.error("Error fetching profile:", error);
@@ -136,27 +169,15 @@ function Profile() {
     }
   };
 
-  // Fetch lịch sử đặt phòng của khách hàng
-  const fetchBookings = async (customerId: number) => {
-    try {
-      const response = await api.get(`/customers/bookings?id=${customerId}`);
-      const data = response.data?.data || response.data || [];
-      if (Array.isArray(data)) {
-        setBookings(data);
-      }
-    } catch (error) {
-      console.error("Error fetching customer bookings:", error);
-    }
-  };
-
-  // Fetch danh sách vouchers khuyến mãi
+  // Fetch danh sách vouchers khuyến mãi.
+  // Gọi /vouchers/me chứ không phải /vouchers: endpoint kia là danh sách quản
+  // trị và trả về cả voucher đền bù tặng riêng cho khách khác.
   const fetchVouchers = async () => {
     try {
-      const response = await api.get("/vouchers");
+      const response = await api.get("/vouchers/me");
       const data = response.data?.data || response.data || [];
       if (Array.isArray(data)) {
-        // Chỉ hiện vouchers còn hoạt động
-        setVouchers(data.filter((v: any) => v.status === "active"));
+        setVouchers(data);
       }
     } catch (error) {
       console.error("Error fetching vouchers:", error);
@@ -236,6 +257,23 @@ function Profile() {
     }
   };
 
+  const [profileNotifications, setProfileNotifications] = useState<NotificationItem[]>([]);
+  const [notificationsLoading, setNotificationsLoading] = useState(false);
+  const [unreadNotifCount, setUnreadNotifCount] = useState(0);
+
+  const fetchProfileNotifications = async () => {
+    try {
+      setNotificationsLoading(true);
+      const res = await getMyNotifications({ limit: 50 });
+      setProfileNotifications(res.data || []);
+      setUnreadNotifCount(res.unreadCount || 0);
+    } catch {
+      // Ignored
+    } finally {
+      setNotificationsLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (!user) {
       navigate("/login");
@@ -245,7 +283,46 @@ function Profile() {
     fetchVouchers();
     fetchRefunds();
     fetchWallet();
+    fetchProfileNotifications();
   }, [user]);
+
+  // Hai chấm đỏ trong menu (Ví: phiếu hoàn tiền chờ duyệt, Thông báo: tin chưa
+  // đọc) trước đây chỉ đếm đúng một lần lúc mở trang. Khách ngồi lại trang này
+  // trong lúc lễ tân duyệt hoàn tiền hoặc gửi thông báo thì không thấy gì cho
+  // tới khi F5. Đếm lại theo nhịp, và ngay khi quay lại tab trình duyệt.
+  useEffect(() => {
+    if (!user) return;
+
+    const refreshBadges = () => {
+      fetchRefunds();
+      fetchProfileNotifications();
+    };
+
+    // 30 giây: khách không cần nhanh như quầy lễ tân (10 giây), đủ để thấy
+    // thông báo mới mà không gọi API dày đặc.
+    const timer = window.setInterval(refreshBadges, 30000);
+    window.addEventListener("focus", refreshBadges);
+
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refreshBadges);
+    };
+  }, [user]);
+
+  useEffect(() => {
+    const tabParam = searchParams.get("tab") || (location.state as { tab?: string } | null)?.tab;
+    if (tabParam && PROFILE_TABS.includes(tabParam) && tabParam !== activeTab) {
+      setActiveTab(tabParam);
+      if (tabParam === "vouchers") {
+        fetchVouchers();
+      } else if (tabParam === "notifications") {
+        fetchProfileNotifications();
+      } else if (tabParam === "refunds") {
+        fetchRefunds();
+        fetchWallet();
+      }
+    }
+  }, [searchParams, location.state]);
 
   // Cập nhật thông tin hồ sơ
   const handleUpdateProfile = async (values: any) => {
@@ -266,6 +343,13 @@ function Profile() {
 
       await api.post("/customers/update", payload);
       message.success("Cập nhật hồ sơ thành công!");
+      // Đồng bộ luôn vào phiên đăng nhập để tên trên đầu trang và phần điền sẵn
+      // ở form đặt phòng đổi theo ngay, không phải đăng nhập lại.
+      updateUser({
+        fullName: values.fullName,
+        phone: values.phone,
+        email: values.email,
+      });
       fetchProfile();
     } catch (error: any) {
       console.error("Update profile error:", error);
@@ -313,65 +397,37 @@ function Profile() {
   return (
     <div style={{ padding: "120px 20px 40px", maxWidth: "1200px", margin: "0 auto", minHeight: "80vh" }}>
       <Row gutter={[24, 24]}>
-        
+
         {/* SIDEBAR MENU */}
         <Col xs={24} md={8} lg={7}>
           <div style={{ backgroundColor: "#fff", borderRadius: "16px", boxShadow: "0 4px 20px rgba(0,0,0,0.06)", overflow: "hidden" }}>
             <div style={sidebarHeaderStyle}>
               <Avatar size={70} icon={<UserOutlined />} style={{ border: "3px solid rgba(255,255,255,0.6)", backgroundColor: "#fff", color: "#ab8965" }} />
-              <Title level={4} style={{ color: "#fff", margin: "12px 0 4px", fontSize: "18px" }}>
+              <Title level={4} style={{ color: "#fff", margin: "12px 0 0", fontSize: "18px" }}>
                 {profile?.fullName || user?.email?.split("@")[0] || "Khách hàng"}
               </Title>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", fontSize: "13px" }}>
-                <TrophyOutlined style={{ color: "#ffd700" }} />
-                <Text style={{ color: "#fefefe", fontWeight: 500 }}>Thành viên Bronze Priority</Text>
-              </div>
             </div>
 
             {/* Menu options giống ảnh mockup */}
             <div style={{ padding: "12px 0" }}>
-              <div style={{ display: "flex", alignItems: "center", padding: "14px 20px", borderBottom: "1px solid #f0f0f0" }}>
-                <TrophyOutlined style={{ fontSize: "18px", color: "#ab8965", marginRight: "12px" }} />
-                <div>
-                  <div style={{ fontSize: "12px", color: "#888" }}>Điểm tích lũy</div>
-                  <strong style={{ fontSize: "15px" }}>0 Điểm</strong>
-                </div>
-              </div>
-
-              <div style={menuItemStyle("profile-edit")} onClick={() => setActiveTab("profile-edit")}>
+              <div style={menuItemStyle("profile-edit")} onClick={() => changeTab("profile-edit")}>
                 <UserOutlined style={{ marginRight: "12px", fontSize: "17px" }} />
                 <span>Chỉnh sửa hồ sơ</span>
               </div>
 
-              <div style={menuItemStyle("my-cards")} onClick={() => {
-                setActiveTab("my-cards");
-                message.info("Tính năng thẻ thành viên đang được xây dựng!");
-              }}>
-                <CreditCardOutlined style={{ marginRight: "12px", fontSize: "17px" }} />
-                <span>Thẻ của tôi</span>
-              </div>
-
-              <div style={menuItemStyle("transactions")} onClick={() => {
-                setActiveTab("transactions");
-                message.info("Tính năng giao dịch đang được nâng cấp!");
-              }}>
-                <AuditOutlined style={{ marginRight: "12px", fontSize: "17px" }} />
-                <span>Danh sách giao dịch</span>
-              </div>
-
-              <div style={menuItemStyle("bookings")} onClick={() => setActiveTab("bookings")}>
+              <div style={menuItemStyle("bookings")} onClick={() => changeTab("bookings")}>
                 <CalendarOutlined style={{ marginRight: "12px", fontSize: "17px" }} />
-                <span>Đặt chỗ của tôi</span>
+                <span>Lịch sử đặt phòng</span>
               </div>
 
               <div style={menuItemStyle("refunds")} onClick={() => {
-                setActiveTab("refunds");
+                changeTab("refunds");
                 fetchRefunds();
                 fetchWallet();
               }}>
                 <DollarCircleOutlined style={{ marginRight: "12px", fontSize: "17px" }} />
                 <Space>
-                  <span>Hoàn tiền</span>
+                  <span>Ví</span>
                   <Badge
                     count={refunds.filter((r) => r.status === "pending").length}
                     style={{ backgroundColor: "#faad14", color: "#fff", fontSize: "10px" }}
@@ -379,28 +435,26 @@ function Profile() {
                 </Space>
               </div>
 
-              <div style={menuItemStyle("price-notifications")} onClick={() => {
-                setActiveTab("price-notifications");
-                message.info("Chúng tôi sẽ sớm cập nhật tính năng thông báo giá!");
+              <div style={menuItemStyle("notifications")} onClick={() => {
+                changeTab("notifications");
+                fetchProfileNotifications();
               }}>
                 <BellOutlined style={{ marginRight: "12px", fontSize: "17px" }} />
-                <span>Thông báo giá vé máy bay</span>
+                <Space>
+                  <span>Thông báo của tôi</span>
+                  <Badge
+                    count={unreadNotifCount}
+                    style={{ backgroundColor: "#1677ff", color: "#fff", fontSize: "10px" }}
+                  />
+                </Space>
               </div>
 
-              <div style={menuItemStyle("saved-passengers")} onClick={() => {
-                setActiveTab("saved-passengers");
-                message.info("Thông tin hành khách sẽ tự động lưu khi đặt chỗ.");
-              }}>
-                <SolutionOutlined style={{ marginRight: "12px", fontSize: "17px" }} />
-                <span>Thông tin hành khách đã lưu</span>
-              </div>
-
-              <div style={menuItemStyle("vouchers")} onClick={() => setActiveTab("vouchers")}>
+              <div style={menuItemStyle("vouchers")} onClick={() => changeTab("vouchers")}>
                 <GiftOutlined style={{ marginRight: "12px", fontSize: "17px" }} />
                 <span>Khuyến mãi</span>
               </div>
 
-              <div style={menuItemStyle("change-password")} onClick={() => setActiveTab("change-password")}>
+              <div style={menuItemStyle("change-password")} onClick={() => changeTab("change-password")}>
                 <LockOutlined style={{ marginRight: "12px", fontSize: "17px" }} />
                 <span>Đổi mật khẩu</span>
               </div>
@@ -509,70 +563,14 @@ function Profile() {
               </div>
             )}
 
-            {/* TAB: ĐẶT CHỖ CỦA TÔI */}
+            {/* TAB: Lịch sử đặt phòng */}
             {activeTab === "bookings" && (
               <div>
-                <Title level={3} style={{ marginBottom: "24px", color: "#2b2420" }}>Đặt phòng gần đây</Title>
-                <Table
-                  dataSource={bookings}
-                  rowKey="id"
-                  pagination={{ pageSize: 5 }}
-                  columns={[
-                    {
-                      title: "Mã đơn đặt",
-                      dataIndex: "bookingCode",
-                      key: "bookingCode",
-                      render: (text) => <strong>{text}</strong>
-                    },
-                    {
-                      title: "Loại phòng",
-                      dataIndex: "roomType",
-                      key: "roomType",
-                      render: (text) => text || "Đang xếp phòng"
-                    },
-                    {
-                      title: "Ngày nhận",
-                      dataIndex: "checkInDate",
-                      key: "checkInDate",
-                      render: (date) => dayjs(date).format("DD/MM/YYYY")
-                    },
-                    {
-                      title: "Ngày trả",
-                      dataIndex: "checkOutDate",
-                      key: "checkOutDate",
-                      render: (date) => dayjs(date).format("DD/MM/YYYY")
-                    },
-                    {
-                      title: "Tổng tiền",
-                      dataIndex: "totalAmount",
-                      key: "totalAmount",
-                      render: (amount) => new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND" }).format(amount)
-                    },
-                    {
-                      title: "Trạng thái",
-                      dataIndex: "bookingStatus",
-                      key: "bookingStatus",
-                      render: (status) => {
-                        let color = "gold";
-                        let text = "Chờ xác nhận";
-                        if (status === "confirmed") {
-                          color = "blue";
-                          text = "Đã xác nhận";
-                        } else if (status === "checked_in") {
-                          color = "green";
-                          text = "Đã check-in";
-                        } else if (status === "checked_out") {
-                          color = "gray";
-                          text = "Đã trả phòng";
-                        } else if (status === "cancelled") {
-                          color = "red";
-                          text = "Đã hủy";
-                        }
-                        return <Tag color={color}>{text}</Tag>;
-                      }
-                    }
-                  ]}
-                />
+                {/* Dùng thẳng màn Lịch sử đặt phòng đầy đủ (thống kê, thao tác
+                    xem/sửa/huỷ/thanh toán/đánh giá) thay cho bảng rút gọn cũ,
+                    để khách chỉ có một nơi duy nhất quản lý đơn của mình. Tiêu đề
+                    do chính nó render để nằm cùng hàng với hai nút thao tác. */}
+                <BookingHistory embedded />
               </div>
             )}
 
@@ -593,7 +591,12 @@ function Profile() {
                         <Card style={{ borderLeft: "5px solid #ab8965", borderRadius: "8px", boxShadow: "0 2px 10px rgba(0,0,0,0.04)" }}>
                           <Row justify="space-between" align="middle">
                             <Col>
-                              <Tag color="gold" style={{ fontSize: "14px", padding: "4px 8px", fontWeight: "bold" }}>{voucher.code}</Tag>
+                              <Space wrap>
+                                <Tag color="gold" style={{ fontSize: "14px", padding: "4px 8px", fontWeight: "bold" }}>{voucher.code}</Tag>
+                                {Boolean(voucher.isPersonal) && (
+                                  <Tag color="purple" style={{ fontSize: "12px" }}>Ưu đãi dành riêng cho bạn</Tag>
+                                )}
+                              </Space>
                               <div style={{ marginTop: "12px", fontWeight: 600, fontSize: "16px" }}>
                                 {voucher.discountType === "percentage" 
                                   ? `Giảm ${Number(voucher.discountValue).toLocaleString("vi-VN", { maximumFractionDigits: 2 })}% giá phòng` 
@@ -697,6 +700,13 @@ function Profile() {
                               <div style={{ fontSize: 12, color: "#999" }}>Đặt phòng #{record.bookingId}</div>
                             )}
                           </div>
+                        ) : record.type === "booking_payment" ? (
+                          <div>
+                            <Tag color="blue">- Thanh toán đặt phòng</Tag>
+                            {record.bookingId && (
+                              <div style={{ fontSize: 12, color: "#999" }}>Đặt phòng #{record.bookingId}</div>
+                            )}
+                          </div>
                         ) : (
                           <div>
                             <Tag color="orange">- Rút tiền</Tag>
@@ -712,7 +722,7 @@ function Profile() {
                       title: "Số tiền",
                       key: "amount",
                       render: (_: unknown, record: WalletTransaction) => (
-                        <strong style={{ color: record.type === "refund_credit" ? "#15803d" : "#b45309" }}>
+                        <strong style={{ color: record.type === "refund_credit" ? "#15803d" : record.type === "booking_payment" ? "#1d4ed8" : "#b45309" }}>
                           {record.type === "refund_credit" ? "+" : "-"}
                           {new Intl.NumberFormat("vi-VN").format(Number(record.amount))}₫
                         </strong>
@@ -795,12 +805,9 @@ function Profile() {
                       title: "Đặt phòng",
                       dataIndex: "bookingId",
                       key: "bookingId",
-                      render: (id: number, record: RefundRow) => (
+                      render: (id: number) => (
                         <div>
                           <strong>#{id}</strong>
-                          {record.room_number && (
-                            <div style={{ fontSize: 12, color: "#999" }}>Phòng {record.room_number}</div>
-                          )}
                         </div>
                       )
                     },
@@ -977,11 +984,117 @@ function Profile() {
               </div>
             )}
 
+            {/* TAB: THÔNG BÁO CỦA TÔI */}
+            {activeTab === "notifications" && (
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+                  <Title level={3} style={{ margin: 0, color: "#2b2420" }}>Thông báo của tôi</Title>
+                  {unreadNotifCount > 0 && (
+                    <Button
+                      type="link"
+                      onClick={async () => {
+                        await markAllNotificationsRead();
+                        setProfileNotifications((prev) => prev.map((n) => ({ ...n, isRead: 1 })));
+                        setUnreadNotifCount(0);
+                        message.success("Đã đánh dấu tất cả thông báo là đã đọc");
+                      }}
+                    >
+                      Đánh dấu tất cả đã đọc
+                    </Button>
+                  )}
+                </div>
+
+                <List
+                  loading={notificationsLoading}
+                  dataSource={profileNotifications}
+                  locale={{ emptyText: <Empty description="Bạn chưa có thông báo nào" /> }}
+                  renderItem={(item) => {
+                    const isUnread = !item.isRead;
+                    const isVoucher = item.type === "voucher" || item.referenceType === "voucher";
+                    return (
+                      <List.Item
+                        key={item.id}
+                        style={{
+                          padding: "14px 16px",
+                          marginBottom: "8px",
+                          borderRadius: "8px",
+                          backgroundColor: isUnread ? "#f0f7ff" : "#fbfbfb",
+                          border: isUnread ? "1px solid #bae0ff" : "1px solid #f0f0f0",
+                          cursor: isUnread ? "pointer" : "default",
+                        }}
+                        onClick={async () => {
+                          if (isUnread) {
+                            try {
+                              await markNotificationRead(item.id);
+                              setProfileNotifications((prev) =>
+                                prev.map((n) => (n.id === item.id ? { ...n, isRead: 1 } : n))
+                              );
+                              setUnreadNotifCount((prev) => Math.max(0, prev - 1));
+                            } catch {
+                              // Ignored
+                            }
+                          }
+                          if (isVoucher) {
+                            changeTab("vouchers");
+                            fetchVouchers();
+                          } else if (item.type === "booking" || item.referenceType === "booking") {
+                            if (item.referenceId) {
+                              navigate(`/booking/${item.referenceId}`);
+                            } else {
+                              changeTab("bookings");
+                            }
+                          } else if (item.type === "review" || item.referenceType === "review") {
+                            navigate("/reviews");
+                          }
+                        }}
+                      >
+                        <List.Item.Meta
+                          avatar={
+                            <div
+                              style={{
+                                width: 36,
+                                height: 36,
+                                borderRadius: "50%",
+                                backgroundColor: isVoucher ? "#fef3c7" : "#e0f2fe",
+                                color: isVoucher ? "#d97706" : "#0284c7",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                fontSize: 16,
+                              }}
+                            >
+                              {isVoucher ? <GiftOutlined /> : <InfoCircleOutlined />}
+                            </div>
+                          }
+                          title={
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                              <span style={{ fontWeight: isUnread ? 700 : 500, fontSize: 14 }}>
+                                {item.title}
+                              </span>
+                              <span style={{ fontSize: 12, color: "#94a3b8" }}>
+                                {dayjs(item.createdAt).format("DD/MM/YYYY HH:mm")}
+                              </span>
+                            </div>
+                          }
+                          description={
+                            <div style={{ marginTop: 4, color: "#475467", fontSize: 13 }}>
+                              {item.content}
+                            </div>
+                          }
+                        />
+                      </List.Item>
+                    );
+                  }}
+                />
+              </div>
+            )}
+
             {/* TAB: ĐỔI MẬT KHẨU */}
             {activeTab === "change-password" && (
               <div style={{ maxWidth: "450px" }}>
                 <Title level={3} style={{ marginBottom: "24px", color: "#2b2420" }}>Đổi mật khẩu tài khoản</Title>
                 <Form
+                  form={passwordForm}
                   layout="vertical"
                   onFinish={async (values) => {
                     try {
@@ -990,7 +1103,7 @@ function Profile() {
                         newPassword: values.newPassword
                       });
                       message.success("Đổi mật khẩu thành công!");
-                      form.resetFields();
+                      passwordForm.resetFields();
                     } catch (error: any) {
                       message.error(error.response?.data?.message || "Đổi mật khẩu thất bại!");
                     }

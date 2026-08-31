@@ -33,20 +33,14 @@ function Login() {
 
   const onSubmit = async (data: LoginForm) => {
     try {
-      console.log('Attempting login with:', data);
       const response = await loginService(data);
-      console.log('Login response:', response);
-      console.log('User role:', response.user.role);
       login({ user: response.user, token: response.token });
       message.success("Đăng nhập thành công!");
       if (response.user.role === "admin") {
-        console.log('Navigating to admin...');
         navigate("/admin");
-      } else if (response.user.role === "employee") {
-        console.log('Navigating to employee...');
-        navigate("/employee");
+      } else if (response.user.role === "staff" || response.user.role === "employee") {
+        navigate("/staff");
       } else {
-        console.log('Navigating to home...');
         navigate("/");
       }
     } catch (error: unknown) {
@@ -112,4 +106,3 @@ function Login() {
 }
 
 export default Login;
-

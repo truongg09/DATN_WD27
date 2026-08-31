@@ -6,6 +6,7 @@ export interface LoginRequest {
 }
 
 export interface RegisterRequest {
+  fullName: string;
   email: string;
   phone: string;
   password: string;
@@ -31,8 +32,4 @@ export const login = async (data: LoginRequest): Promise<AuthResponse> => {
 
 export const register = async (data: RegisterRequest): Promise<AuthResponse> => {
   return api.post("/auth/register", data);
-};
-
-export const getProfile = async () => {
-  return api.get("/auth/profile");
 };

@@ -1,17 +1,21 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
-import { Button, Spin, message, Tag, Alert, Modal, QRCode, Radio, Tooltip, Input } from 'antd';
+import { Button, Spin, message, Tag, Alert, Modal, QRCode, Radio, Tooltip, Select } from 'antd';
 import {
   CheckCircleFilled,
   CopyOutlined,
   GiftOutlined,
   LockOutlined,
+  ReloadOutlined,
   SafetyCertificateOutlined,
+  WalletOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { getBookingDetail } from '../../services/bookingService';
-import { applyVoucher, createGatewayOrder, getPaymentByBookingId, processPayment, submitTransferConfirmation } from '../../services/paymentService';
+import { getBookingDetail, resetBookingHold } from '../../services/bookingService';
+import { applyVoucher, createGatewayOrder, getPaymentByBookingId, payWithWallet, processPayment, submitTransferConfirmation } from '../../services/paymentService';
 import { getPaymentSettings, type PaymentSettings } from '../../services/settingsService';
+import { getMyVouchers, type CustomerVoucher } from '../../services/voucherService';
+import { getMyWallet, type WalletBalance } from '../../services/walletService';
 import { buildVietQrPayload, findBankByBin, toTransferText } from '../../utils/vietqr';
 import type { Payment, PaymentMethod } from '../../types/payment';
 import zalopayLogo from '../../assets/payment/zalopay.svg';
@@ -28,10 +32,18 @@ const formatDate = (date: string | Date) => {
 
 const HOLD_MINUTES = 15;
 const HOLD_DURATION_MS = HOLD_MINUTES * 60 * 1000;
+const MAX_HOLD_RESETS = 1;
+const MIN_RESET_COOLDOWN_SECONDS = 60;
+const MAX_TOTAL_HOLD_MINUTES = 20;
 
-const getHoldRemainingMs = (createdAt?: unknown) => {
-  if (!createdAt) return 0;
-  return Math.max(dayjs(String(createdAt)).add(HOLD_MINUTES, 'minute').diff(dayjs()), 0);
+const getHoldRemainingMs = (holdExpiresAt?: unknown, createdAt?: unknown) => {
+  if (holdExpiresAt) {
+    return Math.max(dayjs(String(holdExpiresAt)).diff(dayjs()), 0);
+  }
+  if (createdAt) {
+    return Math.max(dayjs(String(createdAt)).add(HOLD_MINUTES, 'minute').diff(dayjs()), 0);
+  }
+  return 0;
 };
 
 const formatHoldTime = (milliseconds: number) => {
@@ -84,6 +96,14 @@ const METHOD_OPTIONS: MethodOption[] = [
     badgeClass: 'badge-logo badge-vnpay-logo',
     badgeText: 'VNPay',
   },
+  {
+    value: 'wallet',
+    title: 'Ví số dư HotelHub',
+    description: 'Dùng số tiền hoàn đang có trong ví của bạn',
+    icon: <WalletOutlined />,
+    badgeClass: 'badge-wallet',
+    badgeText: 'Ví',
+  },
 ];
 
 const methodTitle = (method: PaymentMethod) =>
@@ -103,11 +123,37 @@ const PaymentPage: React.FC = () => {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('bank_transfer');
   const [paymentAmountMode, setPaymentAmountMode] = useState<'deposit' | 'full'>('deposit');
   const [holdRemainingMs, setHoldRemainingMs] = useState(0);
+  const [resettingHold, setResettingHold] = useState(false);
+  const [cooldownSeconds, setCooldownSeconds] = useState(0);
   const [roomTakenError, setRoomTakenError] = useState(false);
   const [qrModalOpen, setQrModalOpen] = useState(false);
   const [voucherCode, setVoucherCode] = useState('');
+  const [availableVouchers, setAvailableVouchers] = useState<CustomerVoucher[]>([]);
+  const [loadingVouchers, setLoadingVouchers] = useState(false);
   const [applyingVoucher, setApplyingVoucher] = useState(false);
   const [appliedVoucherCode, setAppliedVoucherCode] = useState('');
+  const [walletBalance, setWalletBalance] = useState<WalletBalance | null>(null);
+  const [loadingWallet, setLoadingWallet] = useState(true);
+  const [walletLoadError, setWalletLoadError] = useState('');
+  const walletActionRef = useRef(false);
+  const walletIdempotencyRef = useRef<{ signature: string; key: string } | null>(null);
+
+  const refreshWallet = useCallback(async (notifyOnError = false) => {
+    setLoadingWallet(true);
+    setWalletLoadError('');
+    try {
+      const response = await getMyWallet();
+      setWalletBalance(response.data.balance);
+      return response.data.balance;
+    } catch {
+      const errorMessage = 'Không tải được số dư ví';
+      setWalletLoadError(errorMessage);
+      if (notifyOnError) message.error(`${errorMessage}. Vui lòng thử lại.`);
+      return null;
+    } finally {
+      setLoadingWallet(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (!isValidBookingId) {
@@ -144,6 +190,16 @@ const PaymentPage: React.FC = () => {
       } catch {
         // Không chặn thanh toán nếu chưa cấu hình tài khoản nhận tiền
       }
+
+      setLoadingVouchers(true);
+      try {
+        const voucherRes = await getMyVouchers();
+        setAvailableVouchers(Array.isArray(voucherRes.data) ? voucherRes.data : []);
+      } catch {
+        message.error('Không thể tải danh sách mã giảm giá');
+      } finally {
+        setLoadingVouchers(false);
+      }
     };
 
     fetchData();
@@ -151,13 +207,23 @@ const PaymentPage: React.FC = () => {
   }, [bookingId, isValidBookingId, navigate]);
 
   useEffect(() => {
+    // Tách việc tải ví khỏi luồng tải booking: lỗi ví không được
+    // làm hỏng trang thanh toán, và callback bất đồng bộ tránh setState
+    // trực tiếp trong thân effect.
+    const timer = window.setTimeout(() => {
+      void refreshWallet();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [bookingId, refreshWallet]);
+
+  useEffect(() => {
     if (!booking || payment?.paymentStatus !== 'unpaid') {
-      setHoldRemainingMs(0);
-      return;
+      const resetTimer = window.setTimeout(() => setHoldRemainingMs(0), 0);
+      return () => window.clearTimeout(resetTimer);
     }
 
     const updateRemaining = () => {
-      setHoldRemainingMs(getHoldRemainingMs(booking.created_at));
+      setHoldRemainingMs(getHoldRemainingMs(booking.hold_expires_at, booking.created_at));
     };
 
     updateRemaining();
@@ -166,24 +232,52 @@ const PaymentPage: React.FC = () => {
     return () => window.clearInterval(timer);
   }, [booking, payment?.paymentStatus]);
 
+  useEffect(() => {
+    if (!booking?.last_hold_reset_at) {
+      const resetTimer = window.setTimeout(() => setCooldownSeconds(0), 0);
+      return () => window.clearTimeout(resetTimer);
+    }
+    const updateCooldown = () => {
+      const elapsedMs = dayjs().diff(dayjs(String(booking.last_hold_reset_at)));
+      const remainingSec = Math.max(0, MIN_RESET_COOLDOWN_SECONDS - Math.floor(elapsedMs / 1000));
+      setCooldownSeconds(remainingSec);
+    };
+    updateCooldown();
+    const interval = setInterval(updateCooldown, 1000);
+    return () => clearInterval(interval);
+  }, [booking?.last_hold_reset_at]);
+
   const isPaid = payment?.paymentStatus === 'paid';
   const hasDeposit = (payment?.paidAmount ?? 0) > 0;
+  const isCancelled = booking?.status === 'cancelled' || booking?.bookingStatus === 'cancelled';
+  const isTotalHoldExceeded = booking?.created_at
+    ? dayjs().diff(dayjs(String(booking.created_at)), 'minute') >= MAX_TOTAL_HOLD_MINUTES
+    : false;
   const requiredDepositAmount = payment
-    ? Math.min(Math.ceil(payment.totalAmount * 0.3), payment.remainingAmount)
+    ? payment.requiredDepositAmount
     : 0;
   const paymentAmount = payment
     ? paymentAmountMode === 'deposit' && !hasDeposit
       ? requiredDepositAmount
       : payment.remainingAmount
     : 0;
-  const isHoldExpired = payment?.paymentStatus === 'unpaid' && !hasDeposit && holdRemainingMs <= 0;
+  const walletAvailable = Number(walletBalance?.available || 0);
+  const walletShortfall = Math.max(paymentAmount - walletAvailable, 0);
+  const walletCanPay = Boolean(
+    !loadingWallet
+    && !walletLoadError
+    && walletBalance
+    && paymentAmount > 0
+    && walletAvailable >= paymentAmount
+  );
+  const isHoldExpired = (payment?.paymentStatus === 'unpaid' && !hasDeposit && holdRemainingMs <= 0) || isCancelled;
   const holdPercent = Math.max(Math.min((holdRemainingMs / HOLD_DURATION_MS) * 100, 100), 0);
 
   // Tiền cọc giữ phòng phải được thanh toán từ xa.
   const isDepositMode = paymentAmountMode === 'deposit' && !hasDeposit;
   const visibleMethods = METHOD_OPTIONS;
 
-  // Chính sách hoàn tiền: <3 ngày = 100%, 3–7 ngày = 50%, >7 ngày = 0%.
+  // Chính sách hoàn tiền: <3 ngày = 0%, 3–7 ngày = 50%, >7 ngày = 100%.
   const refundInfo = useMemo(() => {
     if (!booking?.check_in) return null;
 
@@ -193,10 +287,10 @@ const PaymentPage: React.FC = () => {
     const rate = daysBeforeCheckIn < 0
       ? 0
       : daysBeforeCheckIn < 3
-        ? 1
+        ? 0
         : daysBeforeCheckIn <= 7
           ? 0.5
-          : 0;
+          : 1.0;
     const paidAmount = payment?.paidAmount ?? 0;
 
     return {
@@ -204,14 +298,18 @@ const PaymentPage: React.FC = () => {
       rate,
       paidAmount,
       refundableNow: Math.round(paidAmount * rate),
-      // Mốc ngày cụ thể cho từng mức hoàn
-      fullRefundFrom: checkInDay.subtract(2, 'day'),
+      // Mốc ngày phải khớp đúng công thức phía trên. Mức 100% chỉ áp dụng khi
+      // còn HƠN 7 ngày, tức từ ngày (nhận phòng − 8) trở về trước; đúng ngày
+      // (nhận phòng − 7) đã rơi vào mức 50%. Bản cũ lấy −7 và −6 nên màn hình tự
+      // mâu thuẫn: khung mốc ghi "hoàn 100%" trong khi dòng thông báo ngay dưới
+      // tính ra 50% cho cùng một ngày.
+      fullRefundUntil: checkInDay.subtract(8, 'day'),   // đến hết ngày này: hoàn 100%
       halfRefundFrom: checkInDay.subtract(7, 'day'),    // từ ngày này...
       halfRefundUntil: checkInDay.subtract(3, 'day'),   // ...đến hết ngày này: hoàn 50%
-      noRefundUntil: checkInDay.subtract(8, 'day'),
+      noRefundFrom: checkInDay.subtract(2, 'day'),      // từ ngày này trở đi: hoàn 0%
       checkInDay,
     };
-  }, [booking?.check_in, payment?.paidAmount]);
+  }, [booking, payment]);
 
   const transferContent = useMemo(() => {
     const prefix = paymentSettings?.transferPrefix || 'HB';
@@ -243,6 +341,42 @@ const PaymentPage: React.FC = () => {
     }
   };
 
+  const handleResetHold = async () => {
+    if (!booking || resettingHold || cooldownSeconds > 0) return;
+    if (isCancelled) {
+      message.warning('Đơn đặt phòng đã bị hủy, không thể gia hạn giữ phòng.');
+      return;
+    }
+    const currentResets = Number(booking.hold_reset_count || 0);
+    if (currentResets >= MAX_HOLD_RESETS) {
+      message.warning(`Đã đạt giới hạn tối đa ${MAX_HOLD_RESETS} lần gia hạn giữ phòng.`);
+      return;
+    }
+    if (isTotalHoldExceeded) {
+      message.warning(`Đã vượt quá tổng thời gian giữ phòng tối đa (${MAX_TOTAL_HOLD_MINUTES} phút). Vui lòng hoàn tất thanh toán hoặc đặt phòng mới.`);
+      return;
+    }
+
+    setResettingHold(true);
+    try {
+      const res = await resetBookingHold(bookingId);
+      const data = res.data;
+      setBooking((prev) => prev ? {
+        ...prev,
+        hold_expires_at: data.hold_expires_at || data.holdExpiresAt,
+        hold_reset_count: data.hold_reset_count ?? data.holdResetCount,
+        last_hold_reset_at: new Date().toISOString()
+      } : prev);
+      setHoldRemainingMs(Math.max(0, (data.holdRemainingSeconds || 0) * 1000));
+      message.success(data.message || 'Gia hạn giữ phòng thành công thêm 5 phút!');
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { message?: string } } };
+      message.error(err.response?.data?.message || 'Không thể gia hạn thời gian giữ phòng');
+    } finally {
+      setResettingHold(false);
+    }
+  };
+
   const handleApplyVoucher = async () => {
     if (!payment) return;
     const code = voucherCode.trim();
@@ -271,6 +405,10 @@ const PaymentPage: React.FC = () => {
 
   const submitPayment = async () => {
     if (!payment) return;
+    if (isCancelled || isHoldExpired) {
+      message.error('Thời gian giữ phòng đã hết hạn hoặc đơn đã bị hủy. Vui lòng đặt lại phòng mới.');
+      return;
+    }
 
     setSubmitting(true);
     setRoomTakenError(false);
@@ -303,6 +441,10 @@ const PaymentPage: React.FC = () => {
 
   const submitBankTransferForVerification = async () => {
     if (!payment) return;
+    if (isCancelled || isHoldExpired) {
+      message.error('Thời gian giữ phòng đã hết hạn hoặc đơn đã bị hủy. Vui lòng đặt lại phòng mới.');
+      return;
+    }
     setSubmitting(true);
     try {
       await submitTransferConfirmation(payment.id, { paymentMethod: 'bank_transfer', amount: paymentAmount });
@@ -317,8 +459,106 @@ const PaymentPage: React.FC = () => {
     }
   };
 
+  const handleWalletPayment = () => {
+    if (!payment || walletActionRef.current) return;
+
+    if (loadingWallet) {
+      message.info('Đang kiểm tra số dư ví, vui lòng chờ một chút');
+      return;
+    }
+    if (!walletBalance || walletLoadError) {
+      void refreshWallet(true);
+      return;
+    }
+    if (!walletCanPay) {
+      message.warning(
+        `Số dư ví còn thiếu ${formatPrice(walletShortfall)} để thanh toán khoản đã chọn.`
+      );
+      return;
+    }
+
+    const amountToPay = Math.round(paymentAmount);
+    const balanceBefore = walletAvailable;
+    const balanceAfter = Math.max(balanceBefore - amountToPay, 0);
+    // Mã ngẫu nhiên không thể đoán, nhưng được giữ nguyên khi người dùng
+    // thử lại đúng cùng một khoản sau lỗi mạng. Backend nhờ đó chỉ trừ ví một lần.
+    const paymentSignature = `${payment.id}-${Math.round(payment.paidAmount)}-${amountToPay}`;
+    if (walletIdempotencyRef.current?.signature !== paymentSignature) {
+      walletIdempotencyRef.current = {
+        signature: paymentSignature,
+        key: globalThis.crypto.randomUUID(),
+      };
+    }
+    const idempotencyKey = walletIdempotencyRef.current.key;
+
+    walletActionRef.current = true;
+    Modal.confirm({
+      title: 'Xác nhận thanh toán bằng ví HotelHub',
+      icon: <WalletOutlined style={{ color: '#16865a' }} />,
+      centered: true,
+      okText: `Thanh toán ${formatPrice(amountToPay)}`,
+      cancelText: 'Kiểm tra lại',
+      content: (
+        <div className="wallet-confirmation">
+          <p>Tiền sẽ được trừ trực tiếp từ số dư ví của bạn và ghi nhận ngay vào hóa đơn.</p>
+          <div className="wallet-confirmation-row">
+            <span>Số dư hiện tại</span>
+            <strong>{formatPrice(balanceBefore)}</strong>
+          </div>
+          <div className="wallet-confirmation-row charge">
+            <span>Thanh toán</span>
+            <strong>-{formatPrice(amountToPay)}</strong>
+          </div>
+          <div className="wallet-confirmation-row balance">
+            <span>Số dư sau thanh toán</span>
+            <strong>{formatPrice(balanceAfter)}</strong>
+          </div>
+        </div>
+      ),
+      onCancel: () => {
+        walletActionRef.current = false;
+      },
+      onOk: async () => {
+        setSubmitting(true);
+        try {
+          const result = await payWithWallet(payment.id, {
+            amount: amountToPay,
+            idempotencyKey,
+          });
+          setPayment(result.data.payment);
+          setWalletBalance((current) => current ? {
+            ...current,
+            paidFromWallet: Number(current.paidFromWallet || 0)
+              + (result.data.idempotent ? 0 : Number(result.data.wallet.debitedAmount || 0)),
+            available: Number(result.data.wallet.balanceAfter || 0),
+          } : current);
+          message.success(
+            `Thanh toán bằng ví thành công ${formatPrice(result.data.wallet.debitedAmount)}`
+          );
+          navigate(`/booking/${bookingId}?payment=success`);
+        } catch (error: unknown) {
+          const err = error as { response?: { data?: { message?: string } } };
+          await refreshWallet();
+          message.error(err.response?.data?.message || 'Không thể thanh toán bằng ví');
+        } finally {
+          setSubmitting(false);
+          walletActionRef.current = false;
+        }
+      },
+    });
+  };
+
   const handlePay = async () => {
     if (!payment) return;
+    if (isCancelled || isHoldExpired) {
+      message.error('Thời gian giữ phòng đã hết hạn hoặc đơn đã bị hủy. Vui lòng đặt lại phòng mới.');
+      return;
+    }
+
+    if (paymentMethod === 'wallet') {
+      handleWalletPayment();
+      return;
+    }
 
     if (paymentMethod === 'bank_transfer' && !paymentSettings) {
       message.error('Khách sạn chưa cấu hình tài khoản nhận tiền, vui lòng chọn phương thức khác');
@@ -364,8 +604,8 @@ const PaymentPage: React.FC = () => {
             </span>
             <h1>Hoàn tất thanh toán</h1>
             <p>
-              Đơn đặt phòng <strong>#{bookingId}</strong> · {String(booking.room_number)} ·{' '}
-              {String(booking.room_type_name)}
+              Đơn đặt phòng <strong>#{bookingId}</strong> ·{' '}
+              {String(booking.room_type_name || 'Đặt phòng')}
             </p>
           </div>
           <div className="payment-hero-steps">
@@ -398,6 +638,22 @@ const PaymentPage: React.FC = () => {
           />
         )}
 
+        {payment.gatewayStatus && payment.gatewayStatus !== 'paid' && (
+          <Alert
+            className="payment-alert"
+            type={payment.gatewayStatus === 'created' ? 'info' : 'warning'}
+            showIcon
+            message={payment.gatewayStatus === 'created'
+              ? 'Giao dịch đang chờ thanh toán'
+              : payment.gatewayStatus === 'expired'
+                ? 'Giao dịch đã hết hạn'
+                : payment.gatewayStatus === 'cancelled'
+                  ? 'Giao dịch đã được thay thế'
+                  : 'Giao dịch thanh toán thất bại'}
+            description={payment.gatewayOrderId ? `Mã giao dịch: ${payment.gatewayOrderId}` : undefined}
+          />
+        )}
+
         <div className="payment-grid">
           {/* Cột trái: thông tin */}
           <div className="payment-main">
@@ -410,18 +666,54 @@ const PaymentPage: React.FC = () => {
                       {isHoldExpired ? 'Đã hết thời gian giữ chỗ' : formatHoldTime(holdRemainingMs)}
                     </strong>
                   </div>
-                  <Tag color={isHoldExpired ? 'red' : 'orange'}>
-                    {isHoldExpired ? 'Cần đặt lại' : `Giữ tạm ${HOLD_MINUTES} phút`}
-                  </Tag>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <Tag color={Number(booking.hold_reset_count || 0) >= MAX_HOLD_RESETS ? 'red' : 'blue'}>
+                      Gia hạn: {Number(booking.hold_reset_count || 0)}/{MAX_HOLD_RESETS}
+                    </Tag>
+                    <Tag color={isHoldExpired ? 'red' : 'orange'}>
+                      {isHoldExpired ? 'Cần đặt lại' : `Giữ tạm ${HOLD_MINUTES}p`}
+                    </Tag>
+                  </div>
                 </div>
                 <div className="hold-progress">
                   <span style={{ width: `${holdPercent}%` }} />
                 </div>
                 <p>
-                  {isHoldExpired
-                    ? 'Phiên giữ phòng đã hết hạn. Bạn vui lòng đặt lại để kiểm tra phòng trống mới nhất.'
-                    : 'Phòng đang được giữ tạm cho bạn. Hoàn tất thanh toán trước khi hết giờ để xác nhận đặt phòng.'}
+                  {isCancelled
+                    ? 'Đơn đặt phòng này đã bị hủy. Phòng đã được tự động giải phóng về trạng thái trống.'
+                    : isHoldExpired
+                      ? 'Phiên giữ phòng đã hết hạn và phòng đã được tự động giải phóng. Bạn vui lòng đặt lại để kiểm tra phòng trống mới nhất.'
+                      : isTotalHoldExceeded
+                        ? `Đã đạt giới hạn tổng thời gian giữ phòng tối đa (${MAX_TOTAL_HOLD_MINUTES} phút). Vui lòng hoàn tất thanh toán ngay để không mất phòng.`
+                        : 'Phòng đang được giữ tạm cho bạn. Hoàn tất thanh toán trước khi hết giờ để xác nhận đặt phòng.'}
                 </p>
+
+                {!isHoldExpired ? (
+                  <div className="hold-reset-bar" style={{ marginTop: 14, paddingTop: 10, borderTop: '1px dashed #e2e8f0', display: 'flex', justifyContent: 'flex-end' }}>
+                    <Button
+                      size="small"
+                      type="default"
+                      icon={<ReloadOutlined spin={resettingHold} />}
+                      loading={resettingHold}
+                      disabled={Number(booking.hold_reset_count || 0) >= MAX_HOLD_RESETS || isTotalHoldExceeded || cooldownSeconds > 0}
+                      onClick={handleResetHold}
+                    >
+                      {cooldownSeconds > 0
+                        ? `Gia hạn lại sau (${cooldownSeconds}s)`
+                        : Number(booking.hold_reset_count || 0) >= MAX_HOLD_RESETS
+                          ? `Đã hết lượt gia hạn (${MAX_HOLD_RESETS}/${MAX_HOLD_RESETS})`
+                          : isTotalHoldExceeded
+                            ? `Đã đạt giới hạn ${MAX_TOTAL_HOLD_MINUTES} phút`
+                            : 'Gia hạn giữ phòng (+5 phút)'}
+                    </Button>
+                  </div>
+                ) : (
+                  <div style={{ marginTop: 14, paddingTop: 10, borderTop: '1px dashed #fca5a5' }}>
+                    <Button type="primary" danger onClick={() => navigate('/booking')}>
+                      Đặt phòng khác
+                    </Button>
+                  </div>
+                )}
               </section>
             )}
 
@@ -442,9 +734,9 @@ const PaymentPage: React.FC = () => {
               <h3 className="pay-card-title">Thông tin đặt phòng</h3>
               <div className="info-rows">
                 <div className="info-row">
-                  <span>Phòng</span>
+                  <span>Hạng phòng</span>
                   <strong>
-                    {String(booking.room_number)} · {String(booking.room_type_name)}
+                    {String(booking.room_type_name || 'Đặt phòng')}
                   </strong>
                 </div>
                 <div className="info-row">
@@ -474,9 +766,9 @@ const PaymentPage: React.FC = () => {
               <div className="policy-grid">
                 <div className="policy-item good">
                   <strong>100%</strong>
-                  <span>Hủy dưới 3 ngày</span>
+                  <span>Hủy trên 7 ngày</span>
                   {refundInfo && (
-                    <small>Từ {refundInfo.fullRefundFrom.format('DD/MM/YYYY')}</small>
+                    <small>Đến hết {refundInfo.fullRefundUntil.format('DD/MM/YYYY')}</small>
                   )}
                 </div>
                 <div className="policy-item mid">
@@ -490,9 +782,9 @@ const PaymentPage: React.FC = () => {
                 </div>
                 <div className="policy-item bad">
                   <strong>0%</strong>
-                  <span>Hủy trên 7 ngày</span>
+                  <span>Hủy dưới 3 ngày</span>
                   {refundInfo && (
-                    <small>Đến hết {refundInfo.noRefundUntil.format('DD/MM/YYYY')}</small>
+                    <small>Từ {refundInfo.noRefundFrom.format('DD/MM/YYYY')}</small>
                   )}
                 </div>
               </div>
@@ -529,8 +821,8 @@ const PaymentPage: React.FC = () => {
                   (tiền cọc hoặc toàn bộ), không tính trên giá phòng.
                 </li>
                 <li>
-                  <strong>Ví dụ:</strong> đã cọc 300.000₫ — hủy dưới 3 ngày nhận lại 300.000₫; hủy trong
-                  khoảng 3–7 ngày nhận lại 150.000₫; hủy trên 7 ngày không được hoàn.
+                  <strong>Ví dụ:</strong> đã cọc 300.000₫ — hủy trên 7 ngày nhận lại 300.000₫ (100%); hủy trong
+                  khoảng 3–7 ngày nhận lại 150.000₫ (50%); hủy dưới 3 ngày không được hoàn (0%).
                 </li>
                 <li>
                   <strong>Cách hủy:</strong> vào <em>Lịch sử đặt phòng</em> → bấm <em>Hủy</em> ở đơn tương ứng.
@@ -581,25 +873,57 @@ const PaymentPage: React.FC = () => {
                       <GiftOutlined />
                       Mã giảm giá
                     </label>
-                    <div className="voucher-apply">
-                      <Input
-                        id="voucher-code"
-                        value={voucherCode}
-                        placeholder="Nhập mã voucher"
-                        maxLength={50}
-                        disabled={Boolean(appliedVoucherCode)}
-                        onChange={(event) => setVoucherCode(event.target.value.toUpperCase())}
-                        onPressEnter={handleApplyVoucher}
+
+                    {/* Voucher chỉ trừ vào lần thanh toán cuối nên khi khách mới
+                        đang đóng cọc thì chưa dùng được. Nói trước để khách không
+                        nhập mã rồi nhận lỗi. */}
+                    {isDepositMode ? (
+                      <Alert
+                        type="info"
+                        showIcon
+                        message="Mã giảm giá dùng ở lần thanh toán cuối"
+                        description="Tiền cọc giữ phòng tính trên giá gốc. Sau khi đặt cọc xong, bạn quay lại đây nhập mã để trừ vào số tiền còn lại."
                       />
-                      <Button
-                        type="primary"
-                        loading={applyingVoucher}
-                        disabled={Boolean(appliedVoucherCode)}
-                        onClick={handleApplyVoucher}
-                      >
-                        {appliedVoucherCode ? 'Đã áp dụng' : 'Áp dụng'}
-                      </Button>
-                    </div>
+                    ) : (
+                      <>
+                        <div className="voucher-apply">
+                          <Select
+                            id="voucher-code"
+                            value={voucherCode || undefined}
+                            placeholder={loadingVouchers ? 'Đang tải mã giảm giá...' : 'Chọn mã giảm giá'}
+                            loading={loadingVouchers}
+                            showSearch
+                            allowClear
+                            optionFilterProp="label"
+                            disabled={Boolean(appliedVoucherCode)}
+                            onChange={(value) => setVoucherCode(value || '')}
+                            notFoundContent={loadingVouchers ? 'Đang tải...' : 'Tài khoản chưa có mã giảm giá khả dụng'}
+                            options={availableVouchers.map((voucher) => {
+                              const discount = voucher.discountType === 'percentage'
+                                ? `Giảm ${Number(voucher.discountValue).toLocaleString('vi-VN')}%`
+                                : `Giảm ${formatPrice(Number(voucher.discountValue))}`;
+                              const maxDiscount = voucher.discountType === 'percentage' && Number(voucher.maxDiscount || 0) > 0
+                                ? `, tối đa ${formatPrice(Number(voucher.maxDiscount))}`
+                                : '';
+                              return {
+                                value: voucher.code,
+                                label: `${voucher.code} — ${discount}${maxDiscount} — HSD ${formatDate(voucher.endDate)}`
+                              };
+                            })}
+                          />
+                          <Button
+                            type="primary"
+                            loading={applyingVoucher}
+                            disabled={Boolean(appliedVoucherCode) || !voucherCode.trim()}
+                            onClick={handleApplyVoucher}
+                          >
+                            {appliedVoucherCode ? 'Đã áp dụng' : 'Áp dụng'}
+                          </Button>
+                        </div>
+
+                      </>
+                    )}
+
                     {appliedVoucherCode && (
                       <small>
                         <CheckCircleFilled /> Mã {appliedVoucherCode} đã được áp dụng
@@ -653,32 +977,52 @@ const PaymentPage: React.FC = () => {
                   )}
 
                   <div className="method-list">
-                    {visibleMethods.map((option) => (
-                      <button
-                        key={option.value}
-                        type="button"
-                        className={`method-item ${paymentMethod === option.value ? 'selected' : ''}`}
-                        onClick={() => setPaymentMethod(option.value)}
-                      >
-                        <span className={`method-badge ${option.badgeClass}`}>{option.icon}</span>
-                        <span className="method-text">
-                          <span className="method-title">
-                            {option.title}
-                            {option.recommended && <em>Khuyên dùng</em>}
+                    {visibleMethods.map((option) => {
+                      const isWalletMethod = option.value === 'wallet';
+                      const walletKnownInsufficient = isWalletMethod
+                        && Boolean(walletBalance)
+                        && walletShortfall > 0;
+                      const methodDisabled = isWalletMethod
+                        && (loadingWallet || walletKnownInsufficient);
+                      const description = !isWalletMethod
+                        ? option.description
+                        : loadingWallet
+                          ? 'Đang kiểm tra số dư ví...'
+                          : walletLoadError
+                            ? 'Chưa tải được số dư · chọn để thử tải lại'
+                            : walletKnownInsufficient
+                              ? `Số dư ${formatPrice(walletAvailable)} · còn thiếu ${formatPrice(walletShortfall)}`
+                              : `Số dư khả dụng ${formatPrice(walletAvailable)} · đủ để thanh toán`;
+
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          disabled={methodDisabled}
+                          className={`method-item ${paymentMethod === option.value ? 'selected' : ''} ${methodDisabled ? 'disabled' : ''} ${walletKnownInsufficient ? 'insufficient' : ''}`}
+                          onClick={() => setPaymentMethod(option.value)}
+                        >
+                          <span className={`method-badge ${option.badgeClass}`}>{option.icon}</span>
+                          <span className="method-text">
+                            <span className="method-title">
+                              {option.title}
+                              {option.recommended && <em>Khuyên dùng</em>}
+                              {isWalletMethod && walletCanPay && <em>Sẵn sàng</em>}
+                            </span>
+                            <span className="method-desc">{description}</span>
                           </span>
-                          <span className="method-desc">{option.description}</span>
-                        </span>
-                        <span className="method-check">
-                          <CheckCircleFilled />
-                        </span>
-                      </button>
-                    ))}
+                          <span className="method-check">
+                            <CheckCircleFilled />
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
 
                   {isDepositMode && (
                     <p className="deposit-online-note">
                       Đặt cọc 30% để giữ phòng. Tiền cọc được thanh toán từ xa qua chuyển khoản,
-                      ZaloPay hoặc VNPay; tiền mặt chỉ áp dụng khi thanh toán phần còn lại.
+                      ZaloPay, VNPay hoặc ví số dư HotelHub; tiền mặt chỉ áp dụng khi thanh toán phần còn lại.
                     </p>
                   )}
 
@@ -688,13 +1032,18 @@ const PaymentPage: React.FC = () => {
                     size="large"
                     block
                     loading={submitting}
-                    disabled={isHoldExpired}
+                    disabled={
+                      isHoldExpired
+                      || (paymentMethod === 'wallet' && (loadingWallet || (Boolean(walletBalance) && !walletCanPay)))
+                    }
                     onClick={handlePay}
                   >
                     {paymentMethod === 'vnpay'
                       ? `Xác nhận thanh toán bằng VNPay - ${formatPrice(paymentAmount)}`
                       : paymentMethod === 'zalopay'
                         ? `Xác nhận thanh toán bằng ZaloPay - ${formatPrice(paymentAmount)}`
+                        : paymentMethod === 'wallet'
+                          ? `Thanh toán bằng ví · ${formatPrice(paymentAmount)}`
                         : <>Hiện mã QR thanh toán · {formatPrice(paymentAmount)}</>}
                   </Button>
 

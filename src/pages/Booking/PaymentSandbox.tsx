@@ -25,13 +25,16 @@ const PaymentSandbox: React.FC = () => {
   const method = searchParams.get('method') || 'vnpay';
   const amountStr = searchParams.get('amount') || '0';
   const txn = searchParams.get('txn') || '';
+  const explicitReturnContext = searchParams.get('returnContext');
+  const returnContext = explicitReturnContext
+    || (txn.endsWith('_ADMIN') ? 'admin_bookings' : txn.endsWith('_STAFF') ? 'staff_bookings' : null);
   const amount = Number(amountStr);
 
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [booking, setBooking] = useState<Record<string, unknown> | null>(null);
   const [payment, setPayment] = useState<Payment | null>(null);
-  const [countdown, setCountdown] = useState(600); // 10 minutes in seconds
+  const [countdown, setCountdown] = useState(0);
 
   useEffect(() => {
     if (!isValidBookingId) {
@@ -61,21 +64,38 @@ const PaymentSandbox: React.FC = () => {
   }, [bookingId, isValidBookingId, navigate]);
 
   useEffect(() => {
-    if (loading) return;
+    if (loading || !booking) return;
+
+    const calculateRemaining = () => {
+      const expiresAt = booking.hold_expires_at
+        ? dayjs(String(booking.hold_expires_at))
+        : dayjs(String(booking.created_at)).add(15, 'minute');
+      return Math.max(0, expiresAt.diff(dayjs(), 'second'));
+    };
+
+    const initialSec = calculateRemaining();
+    if (initialSec <= 0) {
+      message.error('Thời gian giữ phòng cho đơn này đã hết hạn!');
+      navigate(`/booking/${bookingId}/payment`);
+      return;
+    }
+    const initialTimer = window.setTimeout(() => setCountdown(initialSec), 0);
+
     const timer = setInterval(() => {
-      setCountdown((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          message.error('Giao dịch đã hết hạn thanh toán!');
-          navigate(`/booking/${bookingId}/payment`);
-          return 0;
-        }
-        return prev - 1;
-      });
+      const remaining = calculateRemaining();
+      setCountdown(remaining);
+      if (remaining <= 0) {
+        clearInterval(timer);
+        message.error('Giao dịch đã hết hạn thanh toán!');
+        navigate(`/booking/${bookingId}/payment`);
+      }
     }, 1000);
 
-    return () => clearInterval(timer);
-  }, [loading, bookingId, navigate]);
+    return () => {
+      window.clearTimeout(initialTimer);
+      clearInterval(timer);
+    };
+  }, [loading, booking, bookingId, navigate]);
 
   const formatCountdown = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -87,8 +107,19 @@ const PaymentSandbox: React.FC = () => {
     if (!payment) return;
     setSubmitting(true);
     try {
-      const response = await confirmPayment(payment.id, { amount, transactionCode: txn });
+      const response = await confirmPayment(payment.id, {
+        amount,
+        transactionCode: txn,
+        gatewayOrderId: txn,
+      });
       const status = response.data.payment.paymentStatus;
+      if (returnContext === 'admin_bookings' || returnContext === 'staff_bookings') {
+        const prefix = returnContext === 'staff_bookings' ? '/staff' : '/admin';
+        navigate(
+          `${prefix}/bookings?gateway=${method.toLowerCase()}&payment=success&status=${encodeURIComponent(status)}&bookingId=${bookingId}`
+        );
+        return;
+      }
       navigate(
         `/booking/${bookingId}?gateway=${method.toLowerCase()}&payment=success&status=${encodeURIComponent(status)}`
       );
@@ -144,8 +175,8 @@ const PaymentSandbox: React.FC = () => {
               <Descriptions column={1} size="small" bordered>
                 <Descriptions.Item label="Đơn vị chấp nhận">HotelHub Booking</Descriptions.Item>
                 <Descriptions.Item label="Mã đặt phòng">#{bookingId}</Descriptions.Item>
-                <Descriptions.Item label="Phòng">
-                  {String(booking.room_number)} ({String(booking.room_type_name)})
+                <Descriptions.Item label="Hạng phòng">
+                  {String(booking.room_type_name || 'Đặt phòng')}
                 </Descriptions.Item>
                 <Descriptions.Item label="Khách hàng">{String(booking.customer_name)}</Descriptions.Item>
                 <Descriptions.Item label="Thời gian nhận">{formatDate(String(booking.check_in))}</Descriptions.Item>

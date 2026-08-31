@@ -1,0 +1,91 @@
+.staff-layout {
+  display: flex;
+  min-height: 100vh;
+  background-color: #f0f2f5;
+}
+
+.staff-sidebar {
+  width: 250px;
+  background-color: #001529;
+  color: white;
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  overflow-y: auto;
+}
+
+.staff-logo {
+  padding: 20px;
+  text-align: center;
+  border-bottom: 1px solid #1f2937;
+}
+
+.staff-logo h2 {
+  color: #fff;
+  font-size: 20px;
+}
+
+.staff-nav ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  flex: 1;
+}
+
+.staff-nav li {
+  border-bottom: 1px solid #1f2937;
+}
+
+.staff-nav a {
+  display: block;
+  padding: 15px 20px;
+  color: rgba(255, 255, 255, 0.85);
+  text-decoration: none;
+  transition: all 0.3s;
+}
+
+.staff-nav a:hover {
+  background-color: #1890ff;
+  color: white;
+}
+
+.staff-nav .ant-badge {
+  color: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.staff-user {
+  text-align: center;
+  padding: 20px;
+  border-top: 1px solid #1f2937;
+}
+
+.staff-user p {
+  margin: 0 0 10px 0;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.staff-user .staff-btn-logout {
+  padding: 10px 50px;
+  background: linear-gradient(135deg, #ab8965 0%, #9a7a5a 100%);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: rgba(255, 255, 255, 0.85);
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.staff-user .staff-btn-logout:hover {
+  background: #70533a;
+}
+
+.staff-content {
+  flex: 0 0 calc(100% - 250px);
+  width: calc(100% - 250px);
+  min-width: 0;
+  margin-left: 250px;
+  padding: 24px;
+}

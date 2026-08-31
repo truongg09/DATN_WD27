@@ -1,12 +1,12 @@
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
 
 // Layouts
 import ClientLayout from "../layouts/ClientLayout";
 import AdminLayout from "../layouts/AdminLayout";
-import EmployeeLayout from "../layouts/EmployeeLayout";
+import StaffLayout from "../layouts/StaffLayout";
 import AuthLayout from "../layouts/AuthLayout";
 import AdminRoute from "./AdminRoute";
-import EmployeeRoute from "./EmployeeRoute";
+import StaffRoute from "./StaffRoute";
 
 // Public Pages
 import Home from "../pages/Home/Home";
@@ -19,9 +19,10 @@ import About from "../pages/About/About";
 import Login from "../pages/Login/Login";
 import Register from "../pages/Register/Register";
 import ForgotPassword from "../pages/ForgotPassword/ForgotPassword";
+import ResetPassword from "../pages/ForgotPassword/ResetPassword";
+import EmployeeManagement from "../pages/Admin/EmployeeManagement";
 
 import Booking from "../pages/Booking/Booking";
-import BookingHistory from "../pages/Booking/BookingHistory";
 import BookingDetail from "../pages/Booking/BookingDetail";
 import PaymentPage from "../pages/Booking/Payment";
 import PaymentSandbox from "../pages/Booking/PaymentSandbox";
@@ -31,11 +32,14 @@ import ChangePassword from "../pages/Profile/ChangePassword";
 
 import ReviewPage from "../pages/Review/ReviewPage";
 
+import HolidayManagement from "../pages/Admin/HolidayManagement";
+
 // Admin Pages
 import Dashboard from "../pages/Admin/Dashboard";
 import RoomManagement from "../pages/Admin/RoomManagement";
 import RoomTypeManagement from "../pages/Admin/RoomTypeManagement";
 import BookingManagement from "../pages/Admin/BookingManagement";
+import BookingDetailPage from "../pages/Admin/BookingDetailPage";
 import CustomerManagement from "../pages/Admin/CustomerManagement";
 import CustomerDetail from "../pages/Admin/CustomerDetail";
 import ServiceManagement from "../pages/Admin/ServiceManagement";
@@ -45,18 +49,6 @@ import PaymentManagement from "../pages/Admin/PaymentManagement";
 import InvoiceManagement from "../pages/Admin/InvoiceManagement";
 import PaymentSettings from "../pages/Admin/PaymentSettings";
 import ReportManagement from "../pages/Admin/ReportManagement";
-
-// Employee Pages
-import EmployeeDashboard from "../pages/Employee/EmployeeDashboard";
-import BookingCalendar from "../pages/Employee/BookingCalendar";
-import ReceiveBooking from "../pages/Employee/ReceiveBooking";
-import RoomStatus from "../pages/Employee/RoomStatus";
-import Customers from "../pages/Employee/Customers";
-import CheckinCheckout from "../pages/Employee/CheckinCheckout";
-import Payment from "../pages/Employee/Payment";
-import CustomerService from "../pages/Employee/CustomerService";
-import RoomRequests from "../pages/Employee/RoomRequests";
-import Reviews from "../pages/Employee/Reviews";
 
 const AppRoutes = () => {
   return (
@@ -76,7 +68,10 @@ const AppRoutes = () => {
 
         <Route path="/booking">
           <Route index element={<Booking />} />
-          <Route path="history" element={<BookingHistory />} />
+          {/* Lịch sử đặt phòng nay nằm trong trang Hồ sơ. Giữ đường dẫn cũ và
+              chuyển hướng để các link đã lưu và những chỗ navigate('/booking/history')
+              rải rác trong app vẫn tới đúng nơi. */}
+          <Route path="history" element={<Navigate to="/profile?tab=bookings" replace />} />
           <Route path=":id/payment" element={<PaymentPage />} />
           <Route path=":id/payment/sandbox" element={<PaymentSandbox />} />
           <Route path=":id" element={<BookingDetail />} />
@@ -98,6 +93,7 @@ const AppRoutes = () => {
         <Route path="login" element={<Login />} />
         <Route path="register" element={<Register />} />
         <Route path="forgot-password" element={<ForgotPassword />} />
+        <Route path="reset-password" element={<ResetPassword />} />
       </Route>
 
       {/* ADMIN */}
@@ -118,10 +114,19 @@ const AppRoutes = () => {
             element={<BookingManagement />}
           />
 
+          <Route
+            path="bookings/:id"
+            element={<BookingDetailPage />}
+          />
+
           <Route path="customers">
             <Route index element={<CustomerManagement />} />
             <Route path=":id" element={<CustomerDetail />} />
           </Route>
+
+          {/* Trang quản lý nhân viên đã có sẵn nhưng chưa từng được khai route
+              nên không có đường dẫn nào mở được. */}
+          <Route path="employees" element={<EmployeeManagement />} />
 
           <Route
             path="services"
@@ -151,6 +156,11 @@ const AppRoutes = () => {
           />
 
           <Route
+            path="holidays"
+            element={<HolidayManagement />}
+          />
+
+          <Route
             path="reports"
             element={<ReportManagement />}
           />
@@ -158,53 +168,39 @@ const AppRoutes = () => {
         </Route>
       </Route>
 
-      {/* EMPLOYEE */}
-      <Route element={<EmployeeRoute />}>
-        <Route path="/employee" element={<EmployeeLayout />}>
+      {/* STAFF */}
+      <Route element={<StaffRoute />}>
+        <Route path="/staff" element={<StaffLayout />}>
 
-          <Route index element={<EmployeeDashboard />} />
-          <Route path="dashboard" element={<EmployeeDashboard />} />
+          <Route index element={<Dashboard />} />
 
-          <Route path="booking-calendar" element={<BookingCalendar />} />
+          <Route path="rooms" element={<RoomManagement />} />
 
           <Route
-            path="receive-booking"
-            element={<ReceiveBooking />}
+            path="bookings"
+            element={<BookingManagement />}
           />
 
           <Route
-            path="room-status"
-            element={<RoomStatus />}
+            path="bookings/:id"
+            element={<BookingDetailPage />}
           />
 
-          <Route
-            path="customers"
-            element={<Customers />}
-          />
+          <Route path="customers">
+            <Route index element={<CustomerManagement />} />
+            <Route path=":id" element={<CustomerDetail />} />
+          </Route>
 
           <Route
-            path="checkin-checkout"
-            element={<CheckinCheckout />}
+            path="services"
+            element={<ServiceManagement />}
           />
 
-          <Route
-            path="payment"
-            element={<Payment />}
-          />
+          <Route path="invoices" element={<InvoiceManagement />} />
 
           <Route
-            path="customer-service"
-            element={<CustomerService />}
-          />
-
-          <Route
-            path="room-requests"
-            element={<RoomRequests />}
-          />
-
-          <Route
-            path="reviews"
-            element={<Reviews />}
+            path="payments"
+            element={<PaymentManagement />}
           />
 
         </Route>

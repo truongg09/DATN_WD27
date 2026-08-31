@@ -10,6 +10,7 @@ import { register as registerService } from "../../services/authService";
 const { Title } = Typography;
 
 interface RegisterForm {
+  fullName: string;
   email: string;
   phone: string;
   password: string;
@@ -23,6 +24,7 @@ function Register() {
 
   const { control, handleSubmit, formState: { errors } }= useForm<RegisterForm>({
     defaultValues: {
+      fullName: "",
       email: "",
       phone: "",
       password: "",
@@ -33,6 +35,7 @@ function Register() {
     setRegisterLoading(true);
     try {
       const response = await registerService({
+        fullName: data.fullName.trim(),
         email: data.email,
         phone: data.phone,
         password: data.password,
@@ -41,8 +44,8 @@ function Register() {
       message.success("Đăng ký tài khoản thành công!");
       if (response.user.role === "admin") {
         navigate("/admin");
-      } else if (response.user.role === "employee") {
-        navigate("/employee");
+      } else if (response.user.role === "staff" || response.user.role === "employee") {
+        navigate("/staff");
       } else {
         navigate("/");
       }
@@ -65,6 +68,22 @@ function Register() {
           <Title level={2}>Đăng ký</Title>
 
           <form onSubmit={handleSubmit(onSubmit)}>
+
+            <Controller
+              name="fullName"
+              control={control}
+              rules={{
+                required: "Vui lòng nhập họ và tên",
+                validate: (value) =>
+                  value.trim().length >= 2 || "Họ và tên phải có ít nhất 2 ký tự",
+              }}
+              render={({ field }) => (
+                <Input placeholder="Họ và tên" {...field} />
+              )}
+            />
+            {errors.fullName && <p style={{ color: "red", margin: "4px 0 0" }}>{errors.fullName.message}</p>}
+            <br />
+            <br />
 
             <Controller
               name="email"

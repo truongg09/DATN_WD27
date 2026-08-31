@@ -17,7 +17,11 @@ import {
   Descriptions,
   Radio,
   DatePicker,
-  Tooltip
+  Tooltip,
+  Divider,
+  Image,
+  Tabs,
+  Spin
 } from 'antd';
 import { 
   PlusOutlined, 
@@ -31,11 +35,19 @@ import {
   LeftOutlined,
   RightOutlined,
   ToolOutlined,
-  AppstoreOutlined
+  AppstoreOutlined,
+  ArrowRightOutlined,
+  DollarOutlined,
+  CustomerServiceOutlined,
+  UserOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
 import dayjs from 'dayjs';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { useUrlTab } from '../../hooks/useUrlTab';
 import api from '../../services/api';
+import { getPolicies, type PoliciesInfo } from '../../services/settingsService';
+import { AdminCreateBookingModal } from './AdminCreateBookingModal';
 
 const { Option } = Select;
 
@@ -44,6 +56,7 @@ interface RoomType {
   typeName: string;
   description: string;
   capacity: number;
+  maxOccupancy?: number;
   defaultPrice: string | number;
 }
 
@@ -57,13 +70,31 @@ interface Room {
   room_type_name: string;
   room_type_description: string;
   capacity: number;
+  maxOccupancy?: number;
   price_per_night: string | number;
   imageUrl?: string;
   maintenanceNote?: string | null;
   maintenanceExpectedCompletion?: string | null;
 }
 
+interface CalendarBooking {
+  id: number;
+  bookingId: number;
+  detail_id: number | null;
+  room_id: number;
+  roomId?: number;
+  check_in: string;
+  check_out: string;
+  status: string;
+  customer_name?: string;
+  customer_phone?: string;
+}
+
+const ROOM_VIEW_MODES = ['list', 'grid', 'calendar'] as const;
+
 function RoomManagement() {
+  const location = useLocation();
+  const isAdminArea = location.pathname.startsWith('/admin');
   const [rooms, setRooms] = useState<Room[]>([]);
   const [roomTypes, setRoomTypes] = useState<RoomType[]>([]);
   const [bookings, setBookings] = useState<any[]>([]);
@@ -80,24 +111,174 @@ function RoomManagement() {
   const [filterFloor, setFilterFloor] = useState<number | null>(null);
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
   
+  const navigate = useNavigate();
+  
   // Quick View Booking states
   const [bookingDetailVisible, setBookingDetailVisible] = useState(false);
   const [selectedBooking, setSelectedBooking] = useState<any | null>(null);
+  const [bookingDetailLoading, setBookingDetailLoading] = useState(false);
 
-  const handleShowBookingDetail = (booking: any) => {
+  // Admin Create Booking states
+  const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [selectedRoomForCreate, setSelectedRoomForCreate] = useState<number | null>(null);
+  const [selectedDateForCreate, setSelectedDateForCreate] = useState<dayjs.Dayjs | null>(null);
+
+  const handleShowBookingDetail = async (booking: any) => {
     const targetId = booking.bookingId || booking.id;
-    const fullBooking = bookings.find(b => b.id === targetId);
-    setSelectedBooking(fullBooking || booking);
+    const initialBooking = bookings.find(b => b.id === targetId) || booking;
+    setSelectedBooking(initialBooking);
     setBookingDetailVisible(true);
+    setBookingDetailLoading(true);
+    try {
+      const response: any = await api.get(`/bookings/${targetId}`);
+      if (response && response.data) {
+        setSelectedBooking(response.data);
+      }
+    } catch (err) {
+      console.error('Error fetching full booking detail:', err);
+    } finally {
+      setBookingDetailLoading(false);
+    }
   };
 
-  const handleCalendarCheckIn = async (bookingId: number, _customerName: string, _customerPhone: string) => {
+  const [policies, setPolicies] = useState<PoliciesInfo | null>(null);
+
+  useEffect(() => {
+    getPolicies()
+      .then((res) => {
+        if (res?.data) setPolicies(res.data);
+      })
+      .catch((err) => console.warn('Lỗi lấy chính sách giờ nhận phòng:', err));
+  }, []);
+
+  const computeEarlyCheckInInfo = (b: any, checkInTimeStr = '14:00') => {
+    if (!b?.check_in) {
+      return { isEarly: false, percent: 0, surchargeAmount: 0, timeWindowLabel: 'Đúng giờ', hoursEarly: 0, description: '' };
+    }
+    const now = dayjs();
+    const checkInDate = dayjs(b.check_in).startOf('day');
+    const isToday = now.isSame(checkInDate, 'day');
+    if (!isToday) {
+      return { isEarly: false, percent: 0, surchargeAmount: 0, timeWindowLabel: 'Đúng giờ', hoursEarly: 0, description: '' };
+    }
+
+    const stdTime = checkInTimeStr || '14:00';
+    const [stdH, stdM] = stdTime.split(':').map((v: string) => parseInt(v, 10) || 0);
+    const standardCheckIn = checkInDate.hour(stdH).minute(stdM).second(0);
+
+    if (!now.isBefore(standardCheckIn)) {
+      return { isEarly: false, percent: 0, surchargeAmount: 0, timeWindowLabel: 'Đúng giờ', hoursEarly: 0, description: 'Check-in đúng giờ tiêu chuẩn' };
+    }
+
+    const t1H = Number(policies?.earlyCheckInPolicy?.tier1Hours ?? policies?.earlyTier1Hours ?? 8.0);
+    const t1P = Number(policies?.earlyCheckInPolicy?.tier1Percent ?? policies?.earlyTier1Percent ?? 100.0);
+    const t2H = Number(policies?.earlyCheckInPolicy?.tier2Hours ?? policies?.earlyTier2Hours ?? 5.0);
+    const t2P = Number(policies?.earlyCheckInPolicy?.tier2Percent ?? policies?.earlyTier2Percent ?? 50.0);
+    const t3H = Number(policies?.earlyCheckInPolicy?.tier3Hours ?? policies?.earlyTier3Hours ?? 2.0);
+    const t3P = Number(policies?.earlyCheckInPolicy?.tier3Percent ?? policies?.earlyTier3Percent ?? 30.0);
+
+    const diffMinutes = Math.max(0, standardCheckIn.diff(now, 'minute'));
+    const hoursEarly = Math.round((diffMinutes / 60) * 10000) / 10000;
+    const displayHoursEarly = Math.round(hoursEarly * 10) / 10;
+
+    const stdDecimal = stdH + (stdM / 60);
+
+    const formatDec = (h: number) => {
+      const norm = Math.max(0, h);
+      const totalMins = Math.round(norm * 60);
+      const hrs = Math.floor(totalMins / 60);
+      const mins = totalMins % 60;
+      return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+    };
+
+    const t1TimeStr = formatDec(stdDecimal - t1H);
+    const t2TimeStr = formatDec(stdDecimal - t2H);
+    const t3TimeStr = formatDec(stdDecimal - t3H);
+    const stdLabel = stdTime.slice(0, 5);
+
+    let percent = 0;
+    let timeWindowLabel = '';
+    let description = '';
+
+    if (hoursEarly >= t1H) {
+      percent = t1P;
+      timeWindowLabel = `Trước ${t1TimeStr} (Sáng sớm)`;
+      description = `Phụ thu ${t1P}% giá 1 đêm do nhận phòng trước ${t1TimeStr} (sớm ${displayHoursEarly} tiếng, từ ${t1H}h trở lên)`;
+    } else if (hoursEarly >= t2H) {
+      percent = t2P;
+      timeWindowLabel = `${t1TimeStr} - ${t2TimeStr} (Sáng)`;
+      description = `Phụ thu ${t2P}% giá 1 đêm do nhận phòng từ ${t1TimeStr} đến ${t2TimeStr} (sớm ${displayHoursEarly} tiếng, từ ${t2H}h đến ${t1H}h)`;
+    } else if (hoursEarly >= t3H) {
+      percent = t3P;
+      timeWindowLabel = `${t2TimeStr} - ${t3TimeStr} (Trưa)`;
+      description = `Phụ thu ${t3P}% giá 1 đêm do nhận phòng từ ${t2TimeStr} đến ${t3TimeStr} (sớm ${displayHoursEarly} tiếng, từ ${t3H}h đến ${t2H}h)`;
+    } else {
+      percent = 0;
+      timeWindowLabel = `${t3TimeStr} - ${stdLabel} (Miễn phí)`;
+      description = `Miễn phí nhận phòng sớm (từ ${t3TimeStr} đến ${stdLabel}, sớm dưới ${t3H} tiếng)`;
+    }
+
+    const nightlyRate = Array.isArray(b.details) && b.details.length > 0
+      ? b.details.reduce((sum: number, d: any) => sum + Number(d.roomPrice || d.price || 0), 0)
+      : Number(b.room_price || b.price_per_night || 0);
+    const surchargeAmount = Math.round((nightlyRate * percent) / 100);
+
+    return {
+      isEarly: true,
+      percent,
+      surchargeAmount,
+      timeWindowLabel,
+      hoursEarly: displayHoursEarly,
+      description
+    };
+  };
+
+  const handleCalendarCheckIn = async (bookingId: number, bookingData?: any) => {
+    const targetBooking = bookingData || selectedBooking;
+    const earlyInfo = computeEarlyCheckInInfo(targetBooking, policies?.checkInTime || '14:00');
+
+    if (earlyInfo.isEarly && earlyInfo.surchargeAmount > 0) {
+      Modal.confirm({
+        title: 'Xác nhận Check-in sớm',
+        width: 500,
+        content: (
+          <div style={{ marginTop: 8 }}>
+            <div style={{ marginBottom: 6 }}>
+              Khách nhận phòng sớm <strong>{earlyInfo.hoursEarly} tiếng</strong> (Khung giờ: <strong>{earlyInfo.timeWindowLabel}</strong>).
+            </div>
+            <div style={{ marginBottom: 6, color: '#475569' }}>Quy định: {earlyInfo.description}</div>
+            <div style={{ marginTop: 8, color: '#dc2626', fontWeight: 600, fontSize: 14 }}>
+              Mức phụ thu dự kiến: +{formatPrice(earlyInfo.surchargeAmount)} ({earlyInfo.percent}%)
+            </div>
+            <div style={{ marginTop: 8, color: '#64748b', fontSize: 12 }}>
+              * Số tiền phụ thu chính thức do máy chủ tự động tính toán và ghi nhận vào hóa đơn.
+            </div>
+          </div>
+        ),
+        okText: 'Xác nhận nhận phòng',
+        cancelText: 'Hủy',
+        onOk: () => executeCalendarCheckIn(bookingId),
+      });
+      return;
+    }
+
+    await executeCalendarCheckIn(bookingId);
+  };
+
+  const executeCalendarCheckIn = async (bookingId: number) => {
     try {
-      // Check-in không kèm danh sách khách. Trước đây màn hình này gửi CCCD giả
-      // '000000000000' và ghi đè toàn bộ khách đã khai báo trước đó — hồ sơ lưu
-      // trú là dữ liệu pháp lý nên phải nhập CCCD thật ở trang Quản lý đặt phòng.
-      await api.patch(`/bookings/${bookingId}/check-in`);
-      message.success('Check-in thành công. Vui lòng khai báo CCCD khách lưu trú ở trang Quản lý đặt phòng.');
+      const response = await api.patch(`/bookings/${bookingId}/check-in`, {}, { skipMutationConfirm: true });
+      const resData = (response as any)?.data || response;
+      const earlySurchargeAmt = Number(resData?.earlyCheckIn?.surchargeAmount || resData?.earlySurcharge?.amount || 0);
+
+      if (earlySurchargeAmt > 0) {
+        message.success(resData?.message || `Check-in thành công. Phụ thu nhận phòng sớm: +${formatPrice(earlySurchargeAmt)}`);
+      } else if (resData?.earlyCheckIn?.isEarly && resData?.earlyCheckIn?.tierPercent === 0) {
+        message.success(resData?.message || 'Check-in sớm thành công (Miễn phí phụ thu)');
+      } else {
+        message.success(resData?.message || 'Check-in thành công');
+      }
+
       fetchRooms();
       setBookingDetailVisible(false);
     } catch (error: any) {
@@ -357,29 +538,41 @@ function RoomManagement() {
     }));
   };
 
-  const handleBulkSubmit = async () => {
+  const handleBulkSubmit = () => {
     if (bulkPreviewRooms.length === 0) {
       message.error('Vui lòng tạo bảng xem trước trước khi xác nhận!');
       return;
     }
 
-    try {
-      setLoading(true);
-      await api.post('/rooms/bulk', { rooms: bulkPreviewRooms });
-      message.success(`Đã tạo thành công ${bulkPreviewRooms.length} phòng mới!`);
-      setBulkModalVisible(false);
-      fetchRooms();
-    } catch (error: any) {
-      console.error('Bulk submit error:', error);
-      message.error(error.response?.data?.message || 'Có lỗi xảy ra khi tạo phòng hàng loạt.');
-    } finally {
-      setLoading(false);
-    }
+    Modal.confirm({
+      title: `Xác nhận tạo ${bulkPreviewRooms.length} phòng`,
+      content: 'Các phòng sẽ xuất hiện cho cả Admin và Lễ tân ngay sau khi tạo.',
+      okText: 'Tạo phòng',
+      cancelText: 'Kiểm tra lại',
+      onOk: async () => {
+        try {
+          setLoading(true);
+          await api.post('/rooms/bulk', { rooms: bulkPreviewRooms });
+          message.success(`Đã tạo thành công ${bulkPreviewRooms.length} phòng mới!`);
+          setBulkModalVisible(false);
+          await fetchRooms();
+        } catch (error: any) {
+          console.error('Bulk submit error:', error);
+          message.error(error.response?.data?.message || 'Có lỗi xảy ra khi tạo phòng hàng loạt.');
+          throw error;
+        } finally {
+          setLoading(false);
+        }
+      }
+    });
   };
 
   // Calendar states
-  const [viewMode, setViewMode] = useState<'list' | 'calendar' | 'grid'>('list');
+  // Chế độ xem nằm trên URL (?view=grid|calendar): lễ tân hay mở sơ đồ phòng
+  // hoặc lịch phòng suốt ca, F5 mà nhảy về danh sách thì phải chọn lại mỗi lần.
+  const [viewMode, setViewMode] = useUrlTab('view', ROOM_VIEW_MODES, 'list');
   const [calendarStartDate, setCalendarStartDate] = useState<dayjs.Dayjs>(dayjs());
+  const [calendarBookings, setCalendarBookings] = useState<CalendarBooking[]>([]);
 
   const totalRooms = rooms.length;
   const availableRooms = rooms.filter(r => r.status === 'available').length;
@@ -554,6 +747,34 @@ function RoomManagement() {
     })();
   }, []);
 
+  // Hai khu vực Admin/Lễ tân dùng chung dữ liệu. Tự làm mới khi quay lại tab và
+  // polling nhẹ để phòng vừa được tạo ở khu vực kia xuất hiện mà không cần F5.
+  useEffect(() => {
+    const refreshSilently = () => {
+      void Promise.all([api.get('/rooms'), api.get('/bookings')]).then(([roomsRes, bookingsRes]) => {
+        setRooms(roomsRes.data || roomsRes);
+        setBookings(bookingsRes.data || bookingsRes);
+      }).catch(() => undefined);
+    };
+    const timer = window.setInterval(refreshSilently, 15000);
+    window.addEventListener('focus', refreshSilently);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refreshSilently);
+    };
+  }, []);
+
+  useEffect(() => {
+    const from = calendarStartDate.format('YYYY-MM-DD');
+    const to = calendarStartDate.add(7, 'day').format('YYYY-MM-DD');
+    void api.get('/rooms/calendar', { params: { from, to } })
+      .then((response) => setCalendarBookings(response.data || response))
+      .catch((error) => {
+        console.error('Error fetching room calendar:', error);
+        message.error('Không thể tải lịch phòng');
+      });
+  }, [calendarStartDate]);
+
   const handleAdd = () => {
     setEditingRoom(null);
     form.resetFields();
@@ -646,6 +867,26 @@ function RoomManagement() {
     return new Intl.NumberFormat('vi-VN').format(numPrice) + ' VNĐ';
   };
 
+  const getRoomStatusMeta = (room: Room) => {
+    let color = 'default';
+    let text: string = room.status;
+    if (room.status === 'available') {
+      color = 'green';
+      text = 'Trống sạch';
+    } else if (room.status === 'occupied') {
+      color = 'blue';
+      text = 'Đang ở';
+    } else if (room.status === 'reserved') {
+      color = 'orange';
+      text = 'Đã cọc';
+    } else if (room.status === 'maintenance') {
+      const isCleaning = room.maintenanceNote && room.maintenanceNote.toLowerCase().includes('dọn');
+      color = isCleaning ? 'purple' : 'red';
+      text = isCleaning ? 'Chờ dọn dẹp' : 'Bảo trì';
+    }
+    return { color, text };
+  };
+
   const columns = [
     {
       title: 'Số phòng',
@@ -684,7 +925,7 @@ function RoomManagement() {
       title: 'Sức chứa',
       dataIndex: 'capacity',
       key: 'capacity',
-      render: (capacity: number) => `${capacity} người`
+      render: (capacity: number, record: Room) => `${record.maxOccupancy ?? capacity} người`
     },
     {
       title: 'Trạng thái',
@@ -734,47 +975,41 @@ function RoomManagement() {
       }
     },
     {
-      title: 'Hành động',
+      title: 'Thao tác',
       key: 'action',
+      // Cùng quy ước với các bảng khác: một nút chính tô đậm, thao tác phụ dùng
+      // nút viền, thao tác xóa dùng tone đỏ. Không đặt mã màu cứng để nút không
+      // lệch tone khi đổi chủ đề.
       render: (_: unknown, record: Room) => (
-        <Space>
-          <Button
-            type="primary"
-            style={{ backgroundColor: '#52c41a', borderColor: '#52c41a' }}
-            icon={<ToolOutlined />}
-            size="small"
-            onClick={() => handleManageItems(record)}
-            title="Quản lý vật tư"
-          >
-          </Button>
-          <Button
-            type="primary"
-            icon={<EyeOutlined style={{ color: 'white' }} />}
-            size="small"
-            onClick={() => handleViewDetail(record)}
-          >
-          </Button>
-          <Button
-            type="primary"
-            icon={<EditOutlined />}
-            size="small"
-            onClick={() => handleEdit(record)}
-          >
-          </Button>
-          <Popconfirm
-            title="Bạn có chắc chắn muốn xóa?"
-            onConfirm={() => handleDelete(record.id)}
-            okText="Xóa"
-            cancelText="Hủy"
-          >
+        <Space size={4}>
+          <Tooltip title="Xem chi tiết phòng">
             <Button
               type="primary"
-              danger
-              icon={<DeleteOutlined />}
               size="small"
+              icon={<EyeOutlined />}
+              onClick={() => handleViewDetail(record)}
+            />
+          </Tooltip>
+          <Tooltip title="Sửa thông tin phòng">
+            <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)} />
+          </Tooltip>
+          <Tooltip title="Quản lý vật tư trong phòng">
+            <Button size="small" icon={<ToolOutlined />} onClick={() => handleManageItems(record)} />
+          </Tooltip>
+          {isAdminArea && (
+            <Popconfirm
+              title={`Xóa phòng ${record.roomNumber}?`}
+              description="Phòng sẽ bị ẩn và không thể nhận đặt phòng mới. Lịch sử đặt phòng vẫn được giữ lại."
+              onConfirm={() => handleDelete(record.id)}
+              okText="Xóa phòng"
+              cancelText="Hủy"
+              okButtonProps={{ danger: true }}
             >
-            </Button>
-          </Popconfirm>
+              <Tooltip title="Chỉ quản trị viên được xóa phòng">
+                <Button danger size="small" icon={<DeleteOutlined />} />
+              </Tooltip>
+            </Popconfirm>
+          )}
         </Space>
       ),
     },
@@ -792,20 +1027,25 @@ function RoomManagement() {
             >
               Làm mới
             </Button>
-            <Button 
-              type="primary" 
-              style={{ backgroundColor: '#ab8965', borderColor: '#ab8965' }}
-              icon={<PlusOutlined />} 
-              onClick={handleOpenBulkModal}
-            >
+            {/* Thêm hàng loạt là thao tác phụ nên dùng nút viền, tránh hai nút
+                tô đậm cạnh nhau và bỏ mã màu cứng gây lệch tone. */}
+            <Button icon={<PlusOutlined />} onClick={handleOpenBulkModal}>
               Thêm hàng loạt
             </Button>
-            <Button 
-              type="primary" 
-              icon={<PlusOutlined />} 
-              onClick={handleAdd}
-            >
+            <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
               Thêm phòng mới
+            </Button>
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={() => {
+                setSelectedRoomForCreate(null);
+                setSelectedDateForCreate(null);
+                setCreateModalOpen(true);
+              }}
+              style={{ backgroundColor: '#2563eb', borderColor: '#2563eb' }}
+            >
+              Tạo đặt phòng tại quầy
             </Button>
           </Space>
         }
@@ -921,19 +1161,11 @@ function RoomManagement() {
                 >
                   <Row gutter={[16, 16]}>
                     {rooms.map(room => {
-                      let color = 'green';
-                      let statusText = 'Trống sạch';
-                      if (room.status === 'occupied') {
-                        color = 'red';
-                        statusText = 'Đang ở';
-                      } else if (room.status === 'reserved') {
-                        color = 'blue';
-                        statusText = 'Đã cọc';
-                      } else if (room.status === 'maintenance') {
-                        const isCleaning = room.maintenanceNote && room.maintenanceNote.toLowerCase().includes('dọn');
-                        color = isCleaning ? 'purple' : 'orange';
-                        statusText = isCleaning ? 'Chờ dọn dẹp' : 'Bảo trì';
-                      }
+                      // Dùng chung getRoomStatusMeta với bảng danh sách. Trước
+                      // đây sơ đồ tự gán màu riêng nên cùng một phòng "Đang ở"
+                      // hiện xanh dương ở bảng nhưng lại đỏ ở sơ đồ, còn "Bảo
+                      // trì" thì ngược lại — nhìn hai chỗ ra hai kết luận khác nhau.
+                      const { color, text: statusText } = getRoomStatusMeta(room);
 
                       return (
                         <Col key={room.id} xs={12} sm={8} md={6} lg={4}>
@@ -1061,11 +1293,11 @@ function RoomManagement() {
                               const dateStr = date.format('YYYY-MM-DD');
                               
                                // Check for booking
-                               const booking = bookings.find(b => {
+                               const booking = calendarBookings.find(b => {
                                  // Khách không đến (no-show) thì phòng thực tế đang trống,
                                  // không được vẽ là "đã đặt" chặn lễ tân bán lại phòng.
                                  if (b.status === 'cancelled' || b.status === 'no_show') return false;
-                                 const bRoomId = b.room_id || b.roomId;
+                                 const bRoomId = b.room_id;
                                  if (Number(bRoomId) !== room.id) return false;
                                  
                                  const checkIn = dayjs(b.check_in).format('YYYY-MM-DD');
@@ -1082,10 +1314,10 @@ function RoomManagement() {
                                    let foundNext = true;
                                    while (foundNext) {
                                      foundNext = false;
-                                     for (const b of bookings) {
+                                     for (const b of calendarBookings) {
                                        if (b.status === 'cancelled') continue;
                                        if (b.detail_id === startBooking.detail_id) continue;
-                                       const bRoomId = b.room_id || b.roomId;
+                                       const bRoomId = b.room_id;
                                        if (Number(bRoomId) !== room.id) continue;
                                        
                                        const bCheckIn = dayjs(b.check_in).format('YYYY-MM-DD');
@@ -1230,16 +1462,26 @@ function RoomManagement() {
 
                               // Available (Trống)
                               return (
-                                <td key={i} style={{
-                                  border: '1px solid #e8e0d5',
-                                  padding: '8px',
-                                  background: '#f8fafc',
-                                  textAlign: 'center',
-                                  color: '#8c8c8c',
-                                  fontSize: '13px',
-                                  cursor: 'default'
-                                }}>
-                                  <span style={{ opacity: 0.6, fontWeight: '500' }}>Trống</span>
+                                <td
+                                  key={i}
+                                  onClick={() => {
+                                    setSelectedRoomForCreate(room.id);
+                                    setSelectedDateForCreate(date);
+                                    setCreateModalOpen(true);
+                                  }}
+                                  style={{
+                                    border: '1px solid #e8e0d5',
+                                    padding: '8px',
+                                    background: '#f8fafc',
+                                    textAlign: 'center',
+                                    color: '#8c8c8c',
+                                    fontSize: '13px',
+                                    cursor: 'pointer'
+                                  }}
+                                >
+                                  <Tooltip title={`Nhấp để tạo đặt phòng tại quầy cho Phòng ${room.roomNumber} (${date.format('DD/MM')})`}>
+                                    <span style={{ opacity: 0.6, fontWeight: '500' }}>Trống</span>
+                                  </Tooltip>
                                 </td>
                               );
                             })}
@@ -1371,129 +1613,367 @@ function RoomManagement() {
 
       {/* Detail Modal */}
       <Modal
-        title="Chi tiết phòng"
+        title={null}
         open={detailModalVisible}
         onCancel={() => setDetailModalVisible(false)}
         footer={null}
-        width={600}
+        width={860}
+        styles={{ body: { maxHeight: '76vh', overflowY: 'auto', paddingTop: 8 } }}
       >
-        {selectedRoom && (
-          <Descriptions bordered column={1}>
-            <Descriptions.Item label="ID">{selectedRoom.id}</Descriptions.Item>
-            <Descriptions.Item label="Số phòng">{selectedRoom.roomNumber}</Descriptions.Item>
-            <Descriptions.Item label="Loại phòng">{selectedRoom.room_type_name}</Descriptions.Item>
-            <Descriptions.Item label="Mô tả">{selectedRoom.room_type_description || '—'}</Descriptions.Item>
-            <Descriptions.Item label="Tầng">{selectedRoom.floor}</Descriptions.Item>
-            <Descriptions.Item label="Diện tích">{selectedRoom.area} m²</Descriptions.Item>
-            <Descriptions.Item label="Giá/đêm">{formatPrice(selectedRoom.price_per_night)}</Descriptions.Item>
-            <Descriptions.Item label="Sức chứa">{selectedRoom.capacity} người</Descriptions.Item>
-            <Descriptions.Item label="Trạng thái">
-              {(() => {
-                let color = 'default';
-                let text: string = selectedRoom.status;
-                if (selectedRoom.status === 'available') {
-                  color = 'green';
-                  text = 'Trống sạch';
-                } else if (selectedRoom.status === 'occupied') {
-                  color = 'blue';
-                  text = 'Đang ở';
-                } else if (selectedRoom.status === 'reserved') {
-                  color = 'orange';
-                  text = 'Đã cọc';
-                } else if (selectedRoom.status === 'maintenance') {
-                  const isCleaning = selectedRoom.maintenanceNote && selectedRoom.maintenanceNote.toLowerCase().includes('dọn');
-                  color = isCleaning ? 'purple' : 'red';
-                  text = isCleaning ? 'Chờ dọn dẹp' : 'Bảo trì';
-                }
-                return (
-                  <Tag color={color}>
-                    {text}
-                  </Tag>
-                );
-              })()}
-            </Descriptions.Item>
-            {selectedRoom.status === 'maintenance' && (
-              <>
-                <Descriptions.Item label={selectedRoom.maintenanceNote && selectedRoom.maintenanceNote.toLowerCase().includes('dọn') ? "Lý do dọn dẹp" : "Lý do bảo trì"}>
-                  {selectedRoom.maintenanceNote || 'Không có ghi chú'}
+        {selectedRoom && (() => {
+          const { color: statusColor, text: statusText } = getRoomStatusMeta(selectedRoom);
+          const isMaintenance = selectedRoom.status === 'maintenance';
+          const isCleaning = isMaintenance && selectedRoom.maintenanceNote && selectedRoom.maintenanceNote.toLowerCase().includes('dọn');
+
+          return (
+            <div>
+              {/* HEADER */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
+                <div>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: '#1e293b' }}>Phòng {selectedRoom.roomNumber}</div>
+                  <div style={{ fontSize: 13, color: '#8c8c8c', marginTop: 2 }}>{selectedRoom.room_type_name} · Tầng {selectedRoom.floor}</div>
+                </div>
+                <Tag color={statusColor} style={{ fontSize: 13, padding: '4px 12px', fontWeight: 600 }}>
+                  {statusText}
+                </Tag>
+              </div>
+
+              <Divider style={{ margin: '16px 0' }} />
+
+              {/* A. THÔNG TIN CHUNG */}
+              <div style={{ fontWeight: 700, color: '#ab8965', marginBottom: 10, letterSpacing: 0.3 }}>THÔNG TIN CHUNG</div>
+              <Descriptions bordered column={2} size="small" style={{ marginBottom: 20 }}>
+                <Descriptions.Item label="ID">{selectedRoom.id}</Descriptions.Item>
+                <Descriptions.Item label="Số phòng"><strong>{selectedRoom.roomNumber}</strong></Descriptions.Item>
+                <Descriptions.Item label="Hạng phòng">{selectedRoom.room_type_name}</Descriptions.Item>
+                <Descriptions.Item label="Tầng">{selectedRoom.floor}</Descriptions.Item>
+                <Descriptions.Item label="Diện tích">{selectedRoom.area} m²</Descriptions.Item>
+                <Descriptions.Item label="Trạng thái">
+                  <Tag color={statusColor} style={{ margin: 0 }}>{statusText}</Tag>
                 </Descriptions.Item>
-                <Descriptions.Item label="Dự kiến hoàn thành">
-                  {selectedRoom.maintenanceExpectedCompletion
-                    ? dayjs(selectedRoom.maintenanceExpectedCompletion).format('DD/MM/YYYY')
-                    : 'Chưa xác định'}
-                </Descriptions.Item>
-              </>
-            )}
-          </Descriptions>
-        )}
+              </Descriptions>
+
+              {selectedRoom.room_type_description && (
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ fontWeight: 700, color: '#ab8965', marginBottom: 8, letterSpacing: 0.3 }}>MÔ TẢ</div>
+                  <div style={{ background: '#fbf9f6', padding: '10px 14px', borderRadius: 8, border: '1px solid #e8e0d5', color: '#475569', fontSize: 13, lineHeight: 1.6 }}>
+                    {selectedRoom.room_type_description}
+                  </div>
+                </div>
+              )}
+
+              <Divider style={{ margin: '16px 0' }} />
+
+              {/* B & C. GIÁ & SỨC CHỨA */}
+              <div style={{ fontWeight: 700, color: '#ab8965', marginBottom: 10, letterSpacing: 0.3 }}>GIÁ &amp; SỨC CHỨA</div>
+              <Row gutter={12} style={{ marginBottom: 20 }}>
+                <Col xs={24} sm={8}>
+                  <Card size="small" style={{ background: '#fbf9f6', border: '1px solid #e8e0d5', height: '100%' }}>
+                    <div style={{ fontSize: 12, color: '#64748b' }}>Giá / đêm</div>
+                    <div style={{ fontSize: 17, fontWeight: 700, color: '#ab8965', marginTop: 4 }}>
+                      {formatPrice(selectedRoom.price_per_night)}
+                    </div>
+                  </Card>
+                </Col>
+                <Col xs={12} sm={8}>
+                  <Card size="small" style={{ background: '#f8fafc', border: '1px solid #e2e8f0', height: '100%' }}>
+                    <div style={{ fontSize: 12, color: '#64748b' }}>Sức chứa tiêu chuẩn</div>
+                    <div style={{ fontSize: 17, fontWeight: 700, color: '#334155', marginTop: 4 }}>
+                      {selectedRoom.capacity} khách
+                    </div>
+                  </Card>
+                </Col>
+                <Col xs={12} sm={8}>
+                  <Card size="small" style={{ background: '#eff6ff', border: '1px solid #bfdbfe', height: '100%' }}>
+                    <div style={{ fontSize: 12, color: '#1e40af' }}>Sức chứa tối đa</div>
+                    <div style={{ fontSize: 17, fontWeight: 700, color: '#1e3a8a', marginTop: 4 }}>
+                      {selectedRoom.maxOccupancy ?? selectedRoom.capacity} khách
+                    </div>
+                  </Card>
+                </Col>
+              </Row>
+
+              {isMaintenance && (
+                <>
+                  <Divider style={{ margin: '16px 0' }} />
+                  <div style={{ fontWeight: 700, color: '#ab8965', marginBottom: 10, letterSpacing: 0.3 }}>
+                    {isCleaning ? 'THÔNG TIN DỌN DẸP' : 'THÔNG TIN BẢO TRÌ'}
+                  </div>
+                  <Descriptions bordered column={1} size="small" style={{ marginBottom: 20 }}>
+                    <Descriptions.Item label={isCleaning ? 'Lý do dọn dẹp' : 'Lý do bảo trì'}>
+                      {selectedRoom.maintenanceNote || 'Không có ghi chú'}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Dự kiến hoàn thành">
+                      {selectedRoom.maintenanceExpectedCompletion
+                        ? dayjs(selectedRoom.maintenanceExpectedCompletion).format('DD/MM/YYYY')
+                        : 'Chưa xác định'}
+                    </Descriptions.Item>
+                  </Descriptions>
+                </>
+              )}
+
+              {selectedRoom.imageUrl && (
+                <>
+                  <Divider style={{ margin: '16px 0' }} />
+                  <div style={{ fontWeight: 700, color: '#ab8965', marginBottom: 10, letterSpacing: 0.3 }}>HÌNH ẢNH</div>
+                  <Image
+                    src={selectedRoom.imageUrl}
+                    alt={`Phòng ${selectedRoom.roomNumber}`}
+                    style={{ maxHeight: 260, borderRadius: 8, border: '1px solid #e8e0d5' }}
+                  />
+                </>
+              )}
+            </div>
+          );
+        })()}
       </Modal>
 
       {/* Booking Detail Modal */}
       <Modal
-        title="Chi tiết đơn đặt phòng"
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span>Chi tiết đơn đặt phòng #{selectedBooking?.booking_code || selectedBooking?.id}</span>
+            {selectedBooking && (
+              <Tag color={
+                selectedBooking.status === 'checked_in' ? 'green' :
+                selectedBooking.status === 'confirmed' ? 'blue' :
+                selectedBooking.status === 'pending' ? 'orange' :
+                selectedBooking.status === 'checked_out' ? 'default' : 'red'
+              }>
+                {selectedBooking.status === 'checked_in' ? 'Đang ở' :
+                 selectedBooking.status === 'confirmed' ? 'Đã xác nhận' :
+                 selectedBooking.status === 'pending' ? 'Chờ duyệt' :
+                 selectedBooking.status === 'checked_out' ? 'Đã trả phòng' : 'Đã hủy'}
+              </Tag>
+            )}
+          </div>
+        }
         open={bookingDetailVisible}
         onCancel={() => setBookingDetailVisible(false)}
         footer={null}
-        width={600}
+        width={720}
       >
-        {selectedBooking && (
-          <div>
-            <Descriptions bordered column={1} size="small">
-              <Descriptions.Item label="Mã đặt phòng"><strong>#{selectedBooking.id || selectedBooking.bookingId}</strong></Descriptions.Item>
-              <Descriptions.Item label="Khách hàng">{selectedBooking.customer_name || 'N/A'}</Descriptions.Item>
-              <Descriptions.Item label="Số điện thoại">{selectedBooking.customer_phone || 'N/A'}</Descriptions.Item>
-              <Descriptions.Item label="Email">{selectedBooking.customer_email || 'N/A'}</Descriptions.Item>
-              <Descriptions.Item label="Thời gian ở">
-                <strong>{dayjs(selectedBooking.check_in).format('DD/MM/YYYY')}</strong> đến <strong>{dayjs(selectedBooking.check_out).format('DD/MM/YYYY')}</strong>
-                {' '}({dayjs(selectedBooking.check_out).diff(dayjs(selectedBooking.check_in), 'day')} đêm)
-              </Descriptions.Item>
-              <Descriptions.Item label="Hạng phòng & Số phòng">
-                {selectedBooking.room_type_name || 'N/A'} - <strong>Phòng {selectedBooking.room_number || 'N/A'}</strong>
-              </Descriptions.Item>
-              <Descriptions.Item label="Số khách">{selectedBooking.adults} người lớn{selectedBooking.children > 0 ? `, ${selectedBooking.children} trẻ em` : ''}</Descriptions.Item>
-              <Descriptions.Item label="Tổng tiền phòng">{formatPrice(selectedBooking.total_price)}</Descriptions.Item>
-              <Descriptions.Item label="Trạng thái">
-                <Tag color={
-                  selectedBooking.status === 'checked_in' ? 'green' :
-                  selectedBooking.status === 'confirmed' ? 'blue' :
-                  selectedBooking.status === 'pending' ? 'orange' :
-                  selectedBooking.status === 'checked_out' ? 'default' : 'red'
-                }>
-                  {selectedBooking.status === 'checked_in' ? 'Đang ở' :
-                   selectedBooking.status === 'confirmed' ? 'Đã xác nhận' :
-                   selectedBooking.status === 'pending' ? 'Chờ duyệt' :
-                   selectedBooking.status === 'checked_out' ? 'Đã trả phòng' : 'Đã hủy'}
-                </Tag>
-              </Descriptions.Item>
-              {selectedBooking.notes && (
-                <Descriptions.Item label="Ghi chú">{selectedBooking.notes}</Descriptions.Item>
-              )}
-            </Descriptions>
+        <Spin spinning={bookingDetailLoading}>
+          {selectedBooking && (() => {
+            const b = selectedBooking;
+            const services = b.services || b.service_charges || [];
+            const damages = b.damages || [];
+            const guests = b.guests || [];
 
-            {/* Quick Actions */}
-            <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-              {selectedBooking.status === 'confirmed' && (
-                <Button 
-                  type="primary" 
-                  style={{ backgroundColor: '#22c55e', borderColor: '#22c55e' }}
-                  onClick={() => handleCalendarCheckIn(selectedBooking.id, selectedBooking.customer_name, selectedBooking.customer_phone)}
-                >
-                  Check-in nhanh
-                </Button>
-              )}
-              {selectedBooking.status === 'checked_in' && (
-                <Button 
-                  type="primary" 
-                  danger
-                  onClick={() => handleCalendarCheckOut(selectedBooking.id)}
-                >
-                  Check-out nhanh
-                </Button>
-              )}
-              <Button onClick={() => setBookingDetailVisible(false)}>Đóng</Button>
-            </div>
-          </div>
-        )}
+            const serviceTotal = services.reduce((sum: number, s: any) => sum + Number(s.totalPrice || s.total_price || (s.price * s.quantity) || 0), 0);
+            const damageTotal = damages
+              .filter((d: any) => (d.status || 'used') === 'used')
+              .reduce((sum: number, d: any) => sum + Number(d.totalPrice || d.total_price || d.fee || d.amount || 0), 0);
+            const roomPrice = Number(b.total_price || b.roomPrice || 0);
+            const grandTotal = Number(b.payable_total ?? (roomPrice + serviceTotal + damageTotal));
+            const paidAmount = Number(b.paid_amount || b.deposit_amount || 0);
+            const remainingAmount = Number(b.remaining_amount ?? (grandTotal - paidAmount));
+
+            return (
+              <div>
+                <Tabs
+                  defaultActiveKey="summary"
+                  items={[
+                    {
+                      key: 'summary',
+                      label: (
+                        <span>
+                          <UserOutlined /> Thông tin & Khách ở
+                        </span>
+                      ),
+                      children: (
+                        <div style={{ paddingTop: 8 }}>
+                          <Descriptions bordered column={2} size="small">
+                            <Descriptions.Item label="Mã đặt phòng" span={2}>
+                              <strong style={{ color: '#0f172a', fontSize: 15 }}>#{b.booking_code || b.id}</strong>
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Tên khách hàng">
+                              <strong>{b.customer_name || 'N/A'}</strong>
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Số điện thoại">
+                              <strong>{b.customer_phone || 'N/A'}</strong>
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Email">{b.customer_email || 'N/A'}</Descriptions.Item>
+                            <Descriptions.Item label="Số CCCD">{b.customer_identity_card || b.identity_card || 'Chưa cập nhật'}</Descriptions.Item>
+                            <Descriptions.Item label="Phòng & Hạng phòng" span={2}>
+                              <strong>Phòng {b.room_number || b.roomNumber || 'N/A'}</strong> ({b.room_type_name || b.roomTypeName || 'N/A'})
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Thời gian lưu trú" span={2}>
+                              <strong>{dayjs(b.check_in).format('DD/MM/YYYY')}</strong> đến <strong>{dayjs(b.check_out).format('DD/MM/YYYY')}</strong>
+                              {' '}({dayjs(b.check_out).diff(dayjs(b.check_in), 'day')} đêm)
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Số lượng khách" span={2}>
+                              {b.adults || 2} người lớn{b.children > 0 ? `, ${b.children} trẻ em` : ''}
+                            </Descriptions.Item>
+                            {b.notes && (
+                              <Descriptions.Item label="Ghi chú" span={2}>{b.notes}</Descriptions.Item>
+                            )}
+                          </Descriptions>
+
+                          {guests.length > 0 && (
+                            <div style={{ marginTop: 16 }}>
+                              <div style={{ fontWeight: 600, fontSize: 13, color: '#334155', marginBottom: 8 }}>
+                                📋 Khai báo khách lưu trú ({guests.length} người):
+                              </div>
+                              <Table
+                                size="small"
+                                pagination={false}
+                                dataSource={guests}
+                                rowKey={(g: any, idx) => g.id || idx}
+                                columns={[
+                                  { title: 'Họ tên', dataIndex: 'fullName', key: 'fullName', render: (t, r: any) => <strong>{t || r.full_name || 'N/A'}</strong> },
+                                  { title: 'Số CCCD', dataIndex: 'identityCard', key: 'identityCard', render: (t, r: any) => t || r.identity_card || 'N/A' },
+                                  { title: 'SĐT', dataIndex: 'phone', key: 'phone', render: (t, r: any) => t || r.phone || 'N/A' },
+                                ]}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      )
+                    },
+                    {
+                      key: 'services',
+                      label: (
+                        <span>
+                          <CustomerServiceOutlined /> Dịch vụ & Vật tư ({services.length + damages.length})
+                        </span>
+                      ),
+                      children: (
+                        <div style={{ paddingTop: 8 }}>
+                          <div style={{ fontWeight: 600, fontSize: 13, color: '#0f172a', marginBottom: 8 }}>
+                            🛒 Dịch vụ đã gọi ({services.length})
+                          </div>
+                          {services.length === 0 ? (
+                            <div style={{ padding: 16, background: '#f8fafc', borderRadius: 8, textAlign: 'center', color: '#94a3b8', fontSize: 13, marginBottom: 16 }}>
+                              Khách chưa gọi dịch vụ phát sinh nào
+                            </div>
+                          ) : (
+                            <Table
+                              size="small"
+                              pagination={false}
+                              dataSource={services}
+                              rowKey={(s: any, idx) => s.id || idx}
+                              style={{ marginBottom: 16 }}
+                              columns={[
+                                { title: 'Tên dịch vụ', dataIndex: 'serviceName', key: 'serviceName', render: (t, r: any) => <strong>{t || r.service_name || 'Dịch vụ'}</strong> },
+                                { title: 'Số lượng', dataIndex: 'quantity', key: 'quantity', width: 80, align: 'center' },
+                                { title: 'Đơn giá', dataIndex: 'price', key: 'price', width: 110, render: (p, r: any) => formatPrice(p || r.unit_price) },
+                                { title: 'Thành tiền', key: 'total', width: 120, render: (_, r: any) => <strong style={{ color: '#0f172a' }}>{formatPrice(r.totalPrice || r.total_price || (r.price * r.quantity))}</strong> },
+                                { title: 'Trạng thái', dataIndex: 'status', key: 'status', width: 100, render: (st) => (
+                                  <Tag color={st === 'served' ? 'green' : st === 'cancelled' ? 'red' : 'orange'}>
+                                    {st === 'served' ? 'Đã phục vụ' : st === 'cancelled' ? 'Hủy' : 'Chờ xử lý'}
+                                  </Tag>
+                                )}
+                              ]}
+                            />
+                          )}
+
+                          <div style={{ fontWeight: 600, fontSize: 13, color: '#0f172a', marginBottom: 8 }}>
+                            ⚠️ Phụ thu vật tư / Hư hỏng ({damages.length})
+                          </div>
+                          {damages.length === 0 ? (
+                            <div style={{ padding: 16, background: '#f8fafc', borderRadius: 8, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>
+                              Không có ghi nhận phí hư hỏng / phụ thu vật tư
+                            </div>
+                          ) : (
+                            <Table
+                              size="small"
+                              pagination={false}
+                              dataSource={damages}
+                              rowKey={(d: any, idx) => d.id || idx}
+                              columns={[
+                                { title: 'Nội dung / Vật tư', dataIndex: 'description', key: 'description', render: (t, r: any) => <strong>{t || r.itemName || r.item_name || 'Vật tư'}</strong> },
+                                { title: 'Số lượng', dataIndex: 'quantity', key: 'quantity', width: 80, align: 'center', render: (q) => q || 1 },
+                                { title: 'Phí đền bù', key: 'fee', width: 130, render: (_, r: any) => <strong style={{ color: '#dc2626' }}>{formatPrice(r.fee || r.amount || r.totalPrice || r.total_price)}</strong> },
+                              ]}
+                            />
+                          )}
+                        </div>
+                      )
+                    },
+                    {
+                      key: 'payment',
+                      label: (
+                        <span>
+                          <DollarOutlined /> Thanh toán
+                        </span>
+                      ),
+                      children: (
+                        <div style={{ paddingTop: 8 }}>
+                          <Card size="small" style={{ background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px dashed #e2e8f0' }}>
+                              <span style={{ color: '#64748b' }}>Tiền phòng:</span>
+                              <strong>{formatPrice(roomPrice)}</strong>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px dashed #e2e8f0' }}>
+                              <span style={{ color: '#64748b' }}>Tiền dịch vụ phát sinh:</span>
+                              <strong>+{formatPrice(serviceTotal)}</strong>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px dashed #e2e8f0' }}>
+                              <span style={{ color: '#64748b' }}>Phí đền bù vật tư / hư hỏng:</span>
+                              <strong style={{ color: damageTotal > 0 ? '#dc2626' : '#0f172a' }}>+{formatPrice(damageTotal)}</strong>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0 6px', fontSize: 15 }}>
+                              <strong>Tổng hóa đơn:</strong>
+                              <strong style={{ fontSize: 16, color: '#0f172a' }}>{formatPrice(grandTotal)}</strong>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', color: '#166534', background: '#f0fdf4', borderRadius: 6, paddingLeft: 8, paddingRight: 8, marginTop: 4 }}>
+                              <span>Đã cọc / Đã thanh toán:</span>
+                              <strong>-{formatPrice(paidAmount)}</strong>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 8px 8px', background: remainingAmount > 0 ? '#fff7ed' : '#f0fdf4', borderRadius: 6, marginTop: 8 }}>
+                              <strong style={{ color: remainingAmount > 0 ? '#c2410c' : '#15803d' }}>
+                                {remainingAmount > 0 ? 'Còn phải thu khi check-out:' : 'Đã thanh toán đủ:'}
+                              </strong>
+                              <strong style={{ fontSize: 17, color: remainingAmount > 0 ? '#c2410c' : '#15803d' }}>
+                                {formatPrice(Math.abs(remainingAmount))}
+                              </strong>
+                            </div>
+                          </Card>
+                        </div>
+                      )
+                    }
+                  ]}
+                />
+
+                {/* Footer buttons */}
+                <div style={{ marginTop: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 12, borderTop: '1px solid #f1f5f9' }}>
+                  <Button
+                    type="dashed"
+                    icon={<ArrowRightOutlined />}
+                    onClick={() => {
+                      setBookingDetailVisible(false);
+                      navigate(`/admin/bookings/${b.id}`);
+                    }}
+                  >
+                    Xem trang chi tiết đầy đủ Admin
+                  </Button>
+                  <Space>
+                    {b.status === 'confirmed' && (
+                      <Button
+                        type="primary"
+                        style={{ backgroundColor: '#22c55e', borderColor: '#22c55e' }}
+                        onClick={() => handleCalendarCheckIn(b.id, b)}
+                      >
+                        Check-in nhanh
+                      </Button>
+                    )}
+                    {b.status === 'checked_in' && (
+                      <Button
+                        type="primary"
+                        danger
+                        onClick={() => handleCalendarCheckOut(b.id)}
+                      >
+                        Check-out nhanh
+                      </Button>
+                    )}
+                    <Button onClick={() => setBookingDetailVisible(false)}>Đóng</Button>
+                  </Space>
+                </div>
+              </div>
+            );
+          })()}
+        </Spin>
       </Modal>
 
       {/* Room Items Modal */}
@@ -1858,6 +2338,14 @@ function RoomManagement() {
           </Form.Item>
         </Form>
       </Modal>
+
+      <AdminCreateBookingModal
+        open={createModalOpen}
+        onClose={() => setCreateModalOpen(false)}
+        onSuccess={fetchRooms}
+        initialRoomId={selectedRoomForCreate}
+        initialDate={selectedDateForCreate}
+      />
     </div>
   );
 }

@@ -6,9 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "db:fix-auth": "node ensure-auth-schema.js",
-    "db:fix-booking": "node ensure-booking-schema.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "db:sync": "node -e \"require('./ensure-operational-schema')().then(()=>{console.log('Đồng bộ lược đồ xong');process.exit(0)})\""
   },
   "keywords": [],
   "author": "",

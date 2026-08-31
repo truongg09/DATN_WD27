@@ -34,29 +34,43 @@ mysql -u root -p -e "CREATE DATABASE hotelbookingdb CHARACTER SET utf8mb4 COLLAT
 mysql -u root -p hotelbookingdb < hotelbookingdb.sql
 ```
 
-> File `backend/schema.sql` là bản phác thảo cũ, **không dùng để import**. Chỉ dùng file `hotelbookingdb.sql` ở thư mục gốc.
+> `hotelbookingdb.sql` ở thư mục gốc là **file SQL duy nhất** của dự án, đã chứa đầy đủ 33 bảng kèm dữ liệu mẫu. Import xong là dùng được ngay.
 >
-> Các bảng và cột phát sinh sau này (lịch sử thao tác, giá từng đêm, ví tiền, đối soát chuyển khoản...) sẽ được **tạo tự động** khi khởi động backend lần đầu, không cần chạy thêm file SQL nào.
+> Backend vẫn tự kiểm tra và bổ sung bảng/cột còn thiếu mỗi lần khởi động, nên nếu database của bạn được tạo từ bản SQL cũ thì chỉ cần chạy lại backend một lần là đủ.
 
-### 3. Chạy backend
+### 3. Cài thư viện
+
+Chỉ cần **một lệnh duy nhất ở thư mục gốc**, nó tự cài luôn cho `backend/`:
+
+```bash
+npm install
+```
+
+### 4. Tạo file cấu hình backend
 
 ```bash
 cd backend
-npm install
 cp .env.example .env      # Windows: copy .env.example .env
-npm start
+cd ..
 ```
 
 Mở `backend/.env` và sửa `DB_PASSWORD` nếu MySQL của bạn có mật khẩu. Các giá trị còn lại để mặc định là chạy được.
 
-Khởi động thành công sẽ thấy dòng `Server is running on port 3001`.
+### 5. Chạy dự án
 
-### 4. Chạy frontend
+Cần **hai cửa sổ terminal**, cùng đứng ở thư mục gốc.
 
-Mở **cửa sổ terminal thứ hai**, quay về thư mục gốc của dự án:
+Cửa sổ 1 — máy chủ API:
 
 ```bash
-npm install
+npm run server
+```
+
+Khởi động thành công sẽ thấy dòng `Server is running on port 3001`.
+
+Cửa sổ 2 — giao diện web:
+
+```bash
 npm run dev
 ```
 
@@ -80,12 +94,15 @@ Mật khẩu của toàn bộ tài khoản mẫu là `123456`.
 
 ## Các lệnh khác
 
-| Lệnh | Thư mục | Tác dụng |
-|---|---|---|
-| `npm run dev` | gốc | Chạy frontend chế độ phát triển |
-| `npm run build` | gốc | Đóng gói frontend ra thư mục `dist/` |
-| `npm run lint` | gốc | Kiểm tra lint |
-| `npm start` | `backend/` | Chạy máy chủ API |
+Tất cả đều chạy ở **thư mục gốc**.
+
+| Lệnh | Tác dụng |
+|---|---|
+| `npm install` | Cài thư viện cho cả frontend và backend |
+| `npm run dev` | Chạy frontend chế độ phát triển |
+| `npm run server` | Chạy máy chủ API (cổng 3001) |
+| `npm run build` | Đóng gói frontend ra thư mục `dist/` |
+| `npm run lint` | Kiểm tra lint |
 
 ## Xử lý lỗi thường gặp
 

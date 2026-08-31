@@ -1,7 +1,7 @@
 .booking-detail-page {
   min-height: 60vh;
   background: #f8f9fa;
-  padding-top: 140px;
+  padding-top: 130px;
 }
 
 .booking-detail-page.loading {

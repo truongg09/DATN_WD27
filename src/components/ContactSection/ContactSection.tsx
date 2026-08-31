@@ -18,8 +18,7 @@ interface ContactForm {
 const ContactSection: React.FC = () => {
   const { control, handleSubmit, formState: { errors } } = useForm<ContactForm>();
 
-  const onSubmit = (data: ContactForm) => {
-    console.log('Contact form data:', data);
+  const onSubmit = () => {
     alert('Tin nhắn đã được gửi!');
   };
 

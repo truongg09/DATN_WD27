@@ -16,6 +16,9 @@ const normalizePayload = (body) => {
   const itemName = typeof body.itemName === 'string' ? body.itemName.trim() : '';
   const roomId = parseId(body.roomId);
   const quantity = Number(body.quantity);
+  const compensationPrice = body.compensationPrice == null
+    ? null
+    : Number(body.compensationPrice);
   const status =
     typeof body.status === 'string' && VALID_STATUS.includes(body.status)
       ? body.status
@@ -30,12 +33,16 @@ const normalizePayload = (body) => {
   if (!Number.isInteger(quantity) || quantity < 0) {
     return { error: 'Số lượng không hợp lệ' };
   }
+  if (compensationPrice != null && (!Number.isFinite(compensationPrice) || compensationPrice < 0)) {
+    return { error: 'Đơn giá bồi thường không hợp lệ' };
+  }
 
-  return { itemName, roomId, quantity, status };
+  return { itemName, roomId, quantity, status, compensationPrice };
 };
 
 const ITEM_SELECT = `
-  SELECT ri.id, ri.roomId, ri.itemName, ri.quantity, ri.status, r.roomNumber
+  SELECT ri.id, ri.roomId, ri.itemName, ri.quantity, ri.status,
+         COALESCE(ri.compensationPrice, 0) AS compensationPrice, r.roomNumber
   FROM room_items ri
   LEFT JOIN rooms r ON r.id = ri.roomId
 `;
@@ -71,14 +78,14 @@ router.get('/:id', requireAuth, requireStaff, async (req, res) => {
 
 // Create a room item
 router.post('/', requireAuth, requireStaff, async (req, res) => {
-  const { itemName, roomId, quantity, status, error } = normalizePayload(req.body);
+  const { itemName, roomId, quantity, status, compensationPrice, error } = normalizePayload(req.body);
   if (error) {
     return res.status(400).json({ message: error });
   }
   try {
     const [result] = await db.query(
-      'INSERT INTO room_items (roomId, itemName, quantity, status) VALUES (?, ?, ?, ?)',
-      [roomId, itemName, quantity, status]
+      'INSERT INTO room_items (roomId, itemName, quantity, status, compensationPrice) VALUES (?, ?, ?, ?, ?)',
+      [roomId, itemName, quantity, status, compensationPrice ?? 0]
     );
     res
       .status(201)
@@ -95,14 +102,17 @@ router.put('/:id', requireAuth, requireStaff, async (req, res) => {
   if (!itemId) {
     return res.status(400).json({ message: 'ID vật dụng không hợp lệ' });
   }
-  const { itemName, roomId, quantity, status, error } = normalizePayload(req.body);
+  const { itemName, roomId, quantity, status, compensationPrice, error } = normalizePayload(req.body);
   if (error) {
     return res.status(400).json({ message: error });
   }
   try {
     const [result] = await db.query(
-      'UPDATE room_items SET roomId = ?, itemName = ?, quantity = ?, status = ? WHERE id = ?',
-      [roomId, itemName, quantity, status, itemId]
+      `UPDATE room_items
+       SET roomId = ?, itemName = ?, quantity = ?, status = ?,
+           compensationPrice = COALESCE(?, compensationPrice)
+       WHERE id = ?`,
+      [roomId, itemName, quantity, status, compensationPrice, itemId]
     );
     if (result.affectedRows === 0) {
       return res.status(404).json({ message: 'Không tìm thấy vật dụng' });

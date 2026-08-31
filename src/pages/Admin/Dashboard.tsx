@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import ReactApexChart from "react-apexcharts";
 import {
   ConfigProvider,
@@ -57,6 +58,8 @@ type StatsResponse = {
   rangeFallback?: boolean;
   kpis: {
     revenueTotal: number;
+    collectedTotal?: number;
+    roomRevenueTotal?: number;
     bookingsTotal: number;
     newCustomers: number;
     occupancyRate: number;
@@ -125,7 +128,11 @@ const formatCompactVND = (value: number) => {
   }
 };
 
-const formatPercent = (value: number) => `${(value ?? 0).toFixed(1)}%`;
+const formatPercent = (value: number) =>
+  new Intl.NumberFormat("vi-VN", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  }).format(Number(value) || 0) + "%";
 
 // Trả về header Authorization nếu có token, đồng thời báo hiệu khi không có token
 // để nơi gọi có thể xử lý (thay vì âm thầm gọi API không có auth).
@@ -154,12 +161,14 @@ function KpiCard({
   icon,
   label,
   value,
+  subtext,
   color,
   bg,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string | number;
+  subtext?: string;
   color: string;
   bg: string;
 }) {
@@ -202,6 +211,11 @@ function KpiCard({
       <div style={{ fontSize: 12.5, color: brand.textSecondary, marginTop: 4 }}>
         {label}
       </div>
+      {subtext && (
+        <div style={{ fontSize: 11.5, color: brand.textSecondary, marginTop: 4 }}>
+          {subtext}
+        </div>
+      )}
     </div>
   );
 }
@@ -269,6 +283,12 @@ function TodayOpsPanel({
   data: TodayOpsResponse | null;
   loading: boolean;
 }) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  // Bảng điều khiển dùng chung cho cả /admin lẫn /staff nên lối tắt phải giữ
+  // đúng khu vực đang đứng, không thì nhân viên bấm vào sẽ bị AdminRoute chặn.
+  const areaPrefix = location.pathname.startsWith("/staff") ? "/staff" : "/admin";
+
   if (loading) {
     return (
       <div
@@ -305,14 +325,48 @@ function TodayOpsPanel({
   const checkinStyle = getTaskStyle(data.checkInsToday.count);
   const checkoutStyle = getTaskStyle(data.checkOutsToday.count);
 
+  // Mỗi ô là một lối tắt sang danh sách đơn đã lọc sẵn đúng nhóm việc đó, thay
+  // vì chỉ hiện con số rồi để người dùng tự đi tìm.
   const stat = (
     icon: React.ReactNode,
     label: string,
     count: number,
     color: string,
     bg: string,
+    to: string,
   ) => (
-    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+    <div
+      role="link"
+      tabIndex={0}
+      onClick={() => navigate(to)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          navigate(to);
+        }
+      }}
+      title={
+        count > 0
+          ? `Xem ${count} đơn: ${label.toLowerCase()}`
+          : `Không có đơn nào: ${label.toLowerCase()}`
+      }
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 12,
+        padding: "8px 10px",
+        margin: "-8px -10px",
+        borderRadius: 10,
+        cursor: "pointer",
+        transition: "background 0.15s",
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = "#faf7f2";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = "transparent";
+      }}
+    >
       <div
         style={{
           width: 34,
@@ -379,6 +433,7 @@ function TodayOpsPanel({
             data.pendingBookings.count,
             pendingStyle.color,
             pendingStyle.bg,
+            `${areaPrefix}/bookings?status=pending`,
           )}
         </Col>
         <Col xs={24} sm={8}>
@@ -388,6 +443,7 @@ function TodayOpsPanel({
             data.checkInsToday.count,
             checkinStyle.color,
             checkinStyle.bg,
+            `${areaPrefix}/bookings?due=checkin`,
           )}
         </Col>
         <Col xs={24} sm={8}>
@@ -397,17 +453,30 @@ function TodayOpsPanel({
             data.checkOutsToday.count,
             checkoutStyle.color,
             checkoutStyle.bg,
+            `${areaPrefix}/bookings?due=checkout`,
           )}
         </Col>
       </Row>
 
       <div style={{ borderTop: `1px solid ${brand.border}`, paddingTop: 12 }}>
         <div
+          role="link"
+          tabIndex={0}
+          onClick={() => navigate(`${areaPrefix}/rooms`)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              navigate(`${areaPrefix}/rooms`);
+            }
+          }}
+          title="Mở trang quản lý phòng"
           style={{
             fontSize: 13,
             fontWeight: 600,
             marginBottom: 8,
             color: brand.textPrimary,
+            cursor: "pointer",
+            display: "inline-block",
           }}
         >
           Phòng đang trống ({data.availableRooms.count})
@@ -439,6 +508,7 @@ function AdminDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<StatsResponse | null>(null);
   const [mode, setMode] = useState<Mode>("month");
+  const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
   const [customRange, setCustomRange] = useState<[Dayjs, Dayjs] | null>(null);
   const [roomTypeId, setRoomTypeId] = useState<number | "all">("all");
   const [roomTypes, setRoomTypes] = useState<RoomTypeOption[]>([]);
@@ -512,20 +582,25 @@ function AdminDashboard() {
       setError(null);
 
       try {
-        const url = new URL(`${API_BASE}/dashboard`);
-        url.searchParams.set("mode", mode);
+        const params = new URLSearchParams();
+        params.set("mode", mode);
+
+        if (mode === "month" && selectedMonth !== null) {
+          params.set("month", String(selectedMonth));
+        }
 
         if (mode === "custom" && customRange) {
-          url.searchParams.set("from", customRange[0].format("YYYY-MM-DD"));
-          url.searchParams.set("to", customRange[1].format("YYYY-MM-DD"));
+          params.set("from", customRange[0].format("YYYY-MM-DD"));
+          params.set("to", customRange[1].format("YYYY-MM-DD"));
         }
 
         if (roomTypeId !== "all") {
-          url.searchParams.set("roomTypeId", String(roomTypeId));
+          params.set("roomTypeId", String(roomTypeId));
         }
 
+        const endpoint = `${API_BASE}/dashboard?${params.toString()}`;
         const { headers } = getAuthHeaders();
-        const res = await fetch(url.toString(), { headers });
+        const res = await fetch(endpoint, { headers });
 
         if (res.status === 401) {
           handleUnauthorized();
@@ -553,7 +628,7 @@ function AdminDashboard() {
     return () => {
       alive = false;
     };
-  }, [mode, customRange, roomTypeId, reloadKey]);
+  }, [mode, selectedMonth, customRange, roomTypeId, reloadKey]);
 
   const hasSeries =
     !!data &&
@@ -705,14 +780,15 @@ function AdminDashboard() {
 
   const periodLabel = useMemo(() => {
     if (!data?.range?.from) return "";
-    const from = new Date(data.range.from);
-    if (data.mode === "year") return `Năm ${from.getFullYear()}`;
+    const fromStr = data.range.from.slice(0, 10);
+    const [y, m, d] = fromStr.split("-").map(Number);
+    if (data.mode === "year") return `Năm ${y}`;
     if (data.mode === "custom" && data.range.to) {
-      const to = new Date(data.range.to);
-      const fmt = (d: Date) => `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`;
-      return `${fmt(from)} - ${fmt(to)}`;
+      const toStr = data.range.to.slice(0, 10);
+      const [ty, tm, td] = toStr.split("-").map(Number);
+      return `${d}/${m}/${y} - ${td}/${tm}/${ty}`;
     }
-    return `Tháng ${from.getMonth() + 1}/${from.getFullYear()}`;
+    return `Tháng ${m}/${y}`;
   }, [data]);
 
   const topRoomTypes = useMemo(() => {
@@ -730,8 +806,12 @@ function AdminDashboard() {
     ? [
         {
           icon: <DollarCircleOutlined />,
-          label: "Tổng doanh thu (đã thu)",
+          label: "Tổng doanh thu",
           value: formatVND(data.kpis?.revenueTotal ?? 0),
+          subtext:
+            data.kpis?.collectedTotal != null
+              ? `Đã thu: ${formatVND(data.kpis.collectedTotal)}`
+              : undefined,
           color: brand.primaryDark,
           bg: "#f4ece1",
         },
@@ -752,7 +832,7 @@ function AdminDashboard() {
         {
           icon: <ApartmentOutlined />,
           label: "Tỷ lệ lấp đầy",
-          value: `${data.kpis?.occupancyRate ?? 0}%`,
+          value: formatPercent(data.kpis?.occupancyRate ?? 0),
           color: brand.accent,
           bg: brand.accentBg,
         },
@@ -889,9 +969,34 @@ function AdminDashboard() {
               ]}
             />
 
+            <Select<number | "none">
+              value={mode === "month" && selectedMonth !== null ? selectedMonth : "none"}
+              onChange={(val) => {
+                if (val === "none") {
+                  setSelectedMonth(null);
+                  setMode("month");
+                } else {
+                  setSelectedMonth(val);
+                  setMode("month");
+                  setCustomRange(null);
+                }
+              }}
+              style={{ minWidth: 130 }}
+              options={[
+                { label: "Chọn tháng", value: "none" },
+                ...Array.from({ length: 12 }, (_, i) => ({
+                  label: `Tháng ${i + 1}`,
+                  value: i + 1,
+                })),
+              ]}
+            />
+
             <Segmented
-              value={mode}
-              onChange={(value) => setMode(value as Mode)}
+              value={mode === "month" && selectedMonth !== null ? undefined : mode}
+              onChange={(value) => {
+                setMode(value as Mode);
+                setSelectedMonth(null);
+              }}
               options={[
                 { label: "Tháng hiện tại", value: "month" },
                 { label: "Năm nay", value: "year" },
@@ -902,7 +1007,10 @@ function AdminDashboard() {
             {mode === "custom" && (
               <RangePicker
                 value={customRange}
-                onChange={(range) => setCustomRange(range as [Dayjs, Dayjs] | null)}
+                onChange={(range) => {
+                  setCustomRange(range as [Dayjs, Dayjs] | null);
+                  setSelectedMonth(null);
+                }}
                 format="DD/MM/YYYY"
                 allowClear={false}
               />
@@ -1013,7 +1121,7 @@ function AdminDashboard() {
 
             <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
               <Col xs={24} lg={12}>
-                <CardPanel title="Doanh thu theo thời gian" tag="Đường">
+                <CardPanel title="Doanh thu theo ngày đặt phòng" tag="Đường">
                   {(data?.revenueSeries?.data?.length ?? 0) > 0 ? (
                     <ReactApexChart
                       options={revenueChartOptions}

@@ -78,7 +78,7 @@ const FeaturedRooms: React.FC = () => {
                   <h3>Phòng {type.typeName}</h3>
                 </Link>
                 <div className="room-features">
-                  <span><FontAwesomeIcon icon={faUserGroup} /> Tối đa {type.capacity} khách</span>
+                  <span><FontAwesomeIcon icon={faUserGroup} /> Tối đa {type.maxOccupancy ?? type.capacity} khách</span>
                   {formatArea(type) && (
                     <span><FontAwesomeIcon icon={faExpandArrowsAlt} /> {formatArea(type)}</span>
                   )}

@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Card, Descriptions, Tag, Button, Spin, message, Divider, Rate, Input, Space, Upload } from 'antd';
+import { Card, Descriptions, Tag, Button, Spin, message, Divider, Rate, Input, Space, Upload, Modal, Table, Row, Col, Alert } from 'antd';
 import type { UploadFile, UploadProps } from 'antd/es/upload/interface';
-import { FileTextOutlined, CreditCardOutlined, PlusOutlined, StarOutlined } from '@ant-design/icons';
+import { FileTextOutlined, CreditCardOutlined, PlusOutlined, StarOutlined, UserOutlined, DeleteOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { getBookingDetail } from '../../services/bookingService';
 import { getPaymentByBookingId } from '../../services/paymentService';
@@ -11,6 +11,7 @@ import { createReview, getReviews, updateReview } from '../../services/reviewSer
 import api from '../../services/api';
 import type { Payment } from '../../types/payment';
 import type { Invoice } from '../../types/invoice';
+import { BOOKING_STATUS_META } from '../../constants/bookingStatus';
 import './BookingDetail.css';
 
 const MAX_REVIEW_IMAGES = 5;
@@ -38,7 +39,8 @@ const uploadReviewImage: UploadProps['customRequest'] = async (options) => {
     onError?.(error as Error);
   }
 };
-
+    // Never trust a gateway query parameter alone. The success notice is shown
+    // only after the backend has verified the callback and updated the payment.
 const beforeUploadReviewImage = (file: File) => {
   const isImage = file.type.startsWith('image/');
   if (!isImage) {
@@ -73,12 +75,13 @@ const formatDate = (date: string | Date) => {
   return dayjs(date).format('DD/MM/YYYY');
 };
 
-const bookingStatusMap: Record<string, { label: string; color: string }> = {
-  pending: { label: 'Chờ xác nhận', color: 'gold' },
-  confirmed: { label: 'Đã xác nhận', color: 'blue' },
-  checked_in: { label: 'Đang ở', color: 'green' },
-  checked_out: { label: 'Đã trả phòng', color: 'default' },
-  cancelled: { label: 'Đã hủy', color: 'red' },
+// Dùng chung bảng nhãn ở constants/bookingStatus cho khớp các trang còn lại.
+const bookingStatusMap = BOOKING_STATUS_META;
+
+const getBookingDisplayTag = (b: Record<string, unknown> | null) => {
+  if (!b) return { label: 'N/A', color: 'default' };
+  const normStatus = String(b.status || 'pending').toLowerCase();
+  return bookingStatusMap[normStatus] || { label: normStatus, color: 'default' };
 };
 
 const paymentStatusMap: Record<string, { label: string; color: string }> = {
@@ -120,6 +123,69 @@ const BookingDetail: React.FC = () => {
     hideReason?: string | null;
     images?: string[];
   } | null>(null);
+
+  const [isGuestModalOpen, setIsGuestModalOpen] = useState(false);
+  const [guestList, setGuestList] = useState<Array<{ fullName: string; identityNumber: string; phone?: string; note?: string }>>([]);
+  const [savingGuests, setSavingGuests] = useState(false);
+
+  const openGuestModal = () => {
+    if (bookingGuests.length > 0) {
+      setGuestList(
+        bookingGuests.map((g) => ({
+          fullName: String(g.fullName || ''),
+          identityNumber: String(g.identityNumber || ''),
+          phone: String(g.phone || ''),
+          note: String(g.note || ''),
+        }))
+      );
+    } else {
+      setGuestList([
+        {
+          fullName: String(booking?.guest_name || booking?.customer_name || ''),
+          identityNumber: '',
+          phone: String(booking?.guest_phone || booking?.customer_phone || ''),
+          note: '',
+        },
+      ]);
+    }
+    setIsGuestModalOpen(true);
+  };
+
+  const handleSaveGuests = async () => {
+    for (let i = 0; i < guestList.length; i++) {
+      const g = guestList[i];
+      if (!g.fullName.trim()) {
+        message.warning(`Vui lòng nhập họ tên khách thứ ${i + 1}`);
+        return;
+      }
+      const idNum = String(g.identityNumber || '').trim();
+      if (idNum && !/^\d{12}$/.test(idNum)) {
+        message.warning(`Số CCCD của khách "${g.fullName}" phải gồm đúng 12 chữ số`);
+        return;
+      }
+    }
+
+    setSavingGuests(true);
+    try {
+      await api.post(`/bookings/${bookingId}/guests`, {
+        guests: guestList.map((g) => ({
+          fullName: g.fullName.trim(),
+          identityNumber: g.identityNumber ? g.identityNumber.trim() : null,
+          phone: g.phone ? g.phone.trim() : null,
+          note: g.note ? g.note.trim() : null,
+        })),
+      });
+      message.success('Đã cập nhật thông tin khách lưu trú thành công!');
+      setIsGuestModalOpen(false);
+      const res = await getBookingDetail(bookingId);
+      setBooking(res.data as Record<string, unknown>);
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { message?: string } } };
+      message.error(err.response?.data?.message || 'Không thể lưu thông tin khách lưu trú');
+    } finally {
+      setSavingGuests(false);
+    }
+  };
 
   useEffect(() => {
     if (!isValidBookingId) {
@@ -215,8 +281,7 @@ const BookingDetail: React.FC = () => {
           ? payment?.paymentStatus === 'deposit_paid'
           : false;
 
-    // Never trust a gateway query parameter alone. The success notice is shown
-    // only after the backend has verified the callback and updated the payment.
+
     if (isGatewayReturn && isSettled && callbackMatchesPayment && isCurrentZalopayPaymentRecorded) {
       const isFullyPaid = payment?.paymentStatus === 'paid';
       message.success({
@@ -276,24 +341,17 @@ const BookingDetail: React.FC = () => {
     setSubmittingReview(true);
     try {
       if (isEditingReview && existingReview) {
-        const wasHidden = existingReview.status === 'hidden';
         await updateReview(existingReview.id, {
           rating: reviewRating,
           comment: reviewComment.trim(),
           images: reviewImages,
         });
-        message.success(
-          wasHidden ? 'Đã cập nhật đánh giá, đang chờ duyệt lại!' : 'Đã cập nhật đánh giá!',
-        );
+        message.success('Đã cập nhật đánh giá!');
         setExistingReview({
           ...existingReview,
           rating: reviewRating,
           comment: reviewComment.trim(),
           images: reviewImages,
-          // Nếu review trước đó bị ẩn/từ chối và nội dung vừa đổi, backend sẽ
-          // đưa về "pending" để duyệt lại; phản ánh ngay trên UI cho khớp.
-          status: wasHidden ? 'pending' : existingReview.status,
-          hideReason: wasHidden ? null : existingReview.hideReason,
         });
         setIsEditingReview(false);
       } else {
@@ -303,7 +361,7 @@ const BookingDetail: React.FC = () => {
           comment: reviewComment.trim(),
           images: reviewImages,
         });
-        message.success('Cảm ơn bạn đã đánh giá! Đánh giá của bạn đang chờ duyệt.');
+        message.success('Cảm ơn bạn đã gửi đánh giá!');
         const createBody = (res as unknown as { data?: unknown })?.data ?? res;
         const newId =
           (createBody as { data?: { id?: number } })?.data?.id ??
@@ -313,7 +371,7 @@ const BookingDetail: React.FC = () => {
           id: newId,
           rating: reviewRating,
           comment: reviewComment.trim(),
-          status: 'pending',
+          status: 'approved',
           images: reviewImages,
         });
       }
@@ -343,7 +401,10 @@ const BookingDetail: React.FC = () => {
   const bookingServices = Array.isArray(booking.services)
     ? booking.services as Array<Record<string, unknown>>
     : [];
-  const bookingServiceAmount = bookingServices.reduce(
+  const usedBookingServices = bookingServices.filter(
+    (service) => String(service.status || 'used') === 'used'
+  );
+  const bookingServiceAmount = usedBookingServices.reduce(
     (sum, service) => sum + Number(service.totalPrice || 0),
     0
   );
@@ -357,7 +418,7 @@ const BookingDetail: React.FC = () => {
     : 0;
   const invoiceServices = invoice?.services?.length
     ? invoice.services
-    : bookingServices.map((service) => ({
+    : usedBookingServices.map((service) => ({
         serviceId: Number(service.serviceId || 0),
         serviceName: String(service.serviceName || 'Dịch vụ'),
         quantity: Number(service.quantity || 0),
@@ -378,33 +439,49 @@ const BookingDetail: React.FC = () => {
     ? Number(invoice.totalAmount || (invoiceRoomAmount + invoiceServiceAmount + invoiceSurchargeAmount - invoiceDiscountAmount))
     : Number(booking.payable_total || booking.total_price || 0);
 
+  const displayTag = getBookingDisplayTag(booking);
+  const canShowPhysicalRoom = booking.status === 'checked_in' || booking.status === 'checked_out';
+
   return (
     <div className="booking-detail-page">
       <div className="detail-hero">
         <h1>Chi tiết đặt phòng #{bookingId}</h1>
-        <Tag color={bookingStatusMap[status]?.color}>
-          {bookingStatusMap[status]?.label || status}
+        <Tag color={displayTag.color}>
+          {displayTag.label}
         </Tag>
       </div>
 
       <div className="detail-container">
+        {booking.status === 'no_show' && (
+          <Alert
+            type="warning"
+            showIcon
+            message="Thông báo: Đặt phòng đã chuyển sang trạng thái No-show (Khách không đến)"
+            description="Theo quy định của khách sạn, đơn đặt phòng đã quá hạn giữ phòng nên phòng đã được giải phóng. Quý khách đã được tặng mã voucher giảm 10% cho lần đặt tiếp theo. Nếu quý khách có mặt tại khách sạn do sự cố đột xuất, vui lòng liên hệ ngay quầy lễ tân để được hỗ trợ khôi phục nhận phòng."
+            style={{ marginBottom: 16 }}
+          />
+        )}
         <Card title="Thông tin đặt phòng">
           <Descriptions column={{ xs: 1, sm: 2 }} bordered>
             <Descriptions.Item label="Mã đặt phòng">
               {String(booking.booking_code || `#${bookingId}`)}
             </Descriptions.Item>
             <Descriptions.Item label="Trạng thái">
-              <Tag color={bookingStatusMap[status]?.color}>
-                {bookingStatusMap[status]?.label || status}
+              <Tag color={displayTag.color}>
+                {displayTag.label}
               </Tag>
             </Descriptions.Item>
             <Descriptions.Item label="Khách hàng">{String(booking.customer_name)}</Descriptions.Item>
             <Descriptions.Item label="Email">{String(booking.customer_email)}</Descriptions.Item>
             <Descriptions.Item label="SĐT">{String(booking.customer_phone || '-')}</Descriptions.Item>
-            <Descriptions.Item label="Phòng">
-              {String(booking.room_number)} - {String(booking.room_type_name)}
+            <Descriptions.Item label="Hạng phòng">
+              {canShowPhysicalRoom && booking.room_number
+                ? `Phòng ${booking.room_number} - ${booking.room_type_name || ''}`
+                : `${booking.room_type_name || 'Đặt phòng'} (Số phòng phân bố khi nhận phòng)`}
             </Descriptions.Item>
-            <Descriptions.Item label="Tầng">{String(booking.room_floor ?? '-')}</Descriptions.Item>
+            {canShowPhysicalRoom && (
+              <Descriptions.Item label="Tầng">{String(booking.room_floor ?? '-')}</Descriptions.Item>
+            )}
             <Descriptions.Item label="Diện tích">
               {booking.room_area ? `${String(booking.room_area)} m²` : '-'}
             </Descriptions.Item>
@@ -412,8 +489,22 @@ const BookingDetail: React.FC = () => {
               {booking.room_capacity ? `${String(booking.room_capacity)} người` : '-'}
             </Descriptions.Item>
             <Descriptions.Item label="Ngày đặt">{formatDate(String(booking.created_at))}</Descriptions.Item>
-            <Descriptions.Item label="Nhận phòng">{formatDate(String(booking.check_in))}</Descriptions.Item>
-            <Descriptions.Item label="Trả phòng">{formatDate(String(booking.check_out))}</Descriptions.Item>
+            <Descriptions.Item label="Nhận phòng">
+              <div>{formatDate(String(booking.check_in))}</div>
+              {booking.actual_check_in_time ? (
+                <div style={{ fontSize: 12, color: '#16a34a', marginTop: 2 }}>
+                  ✓ Thực tế nhận: <strong>{dayjs(String(booking.actual_check_in_time)).format('HH:mm:ss DD/MM/YYYY')}</strong>
+                </div>
+              ) : null}
+            </Descriptions.Item>
+            <Descriptions.Item label="Trả phòng">
+              <div>{formatDate(String(booking.check_out))} (Trước 12:00)</div>
+              {booking.actual_check_out_time ? (
+                <div style={{ fontSize: 12, color: '#2563eb', marginTop: 2 }}>
+                  ✓ Thực tế trả: <strong>{dayjs(String(booking.actual_check_out_time)).format('HH:mm:ss DD/MM/YYYY')}</strong>
+                </div>
+              ) : null}
+            </Descriptions.Item>
             <Descriptions.Item label="Số đêm">{nights}</Descriptions.Item>
             <Descriptions.Item label="Giá phòng/đêm">
               {formatPrice(Number(booking.room_price || booking.price_per_night || 0))}
@@ -444,28 +535,94 @@ const BookingDetail: React.FC = () => {
           </Descriptions>
         </Card>
 
-        <Card title={`Dịch vụ đã chọn (${bookingServices.length})`}>
-          {bookingServices.length > 0 ? (
-            <Descriptions column={1} bordered>
-              {bookingServices.map((service) => (
-                <Descriptions.Item
-                  key={String(service.serviceId)}
-                  label={String(service.serviceName)}
-                >
-                  {String(service.quantity)} × {formatPrice(Number(service.unitPrice || 0))}
-                  {' = '}
-                  <strong>{formatPrice(Number(service.totalPrice || 0))}</strong>
-                  {service.description ? <div>{String(service.description)}</div> : null}
-                </Descriptions.Item>
-              ))}
-            </Descriptions>
-          ) : (
-            <p>Booking này không có dịch vụ bổ sung.</p>
-          )}
-        </Card>
+        {(booking as any).transfers && ((booking as any).transfers as any[]).length > 0 && (
+          <Card title="Lịch sử chuyển phòng" style={{ borderColor: '#b7eb8f', background: '#f6ffed' }}>
+            {((booking as any).transfers as any[]).map((t: any) => (
+              <div key={t.id} style={{ marginBottom: 6 }}>
+                • Chuyển từ <strong>Phòng {t.fromRoomNumber || t.fromRoomId}</strong> sang <strong>Phòng {t.toRoomNumber || t.toRoomId}</strong> kể từ ngày {formatDate(t.fromDate)}
+                {t.reason ? ` (Lý do: ${t.reason})` : ''}
+              </div>
+            ))}
+          </Card>
+        )}
 
-        {bookingGuests.length > 0 && (
-          <Card title={`Danh sách khách lưu trú (${bookingGuests.length})`}>
+        {(booking as any).nightly_prices && ((booking as any).nightly_prices as any[]).length > 0 && (
+          <Card title={`Chi tiết giá phòng từng đêm (${((booking as any).nightly_prices as any[]).length} đêm)`}>
+            <Table
+              rowKey={(r: any) => `${r.stayDate}-${r.roomId || '0'}`}
+              size="small"
+              pagination={false}
+              dataSource={(booking as any).nightly_prices as any[]}
+              columns={[
+                {
+                  title: 'Ngày lưu trú',
+                  dataIndex: 'stayDate',
+                  render: (val: string, r: any) => (
+                    <span>
+                      <strong>{dayjs(val).format('DD/MM/YYYY')}</strong> ({r.dayName || ''})
+                    </span>
+                  ),
+                },
+                {
+                  title: 'Phân loại ngày',
+                  dataIndex: 'priceType',
+                  render: (type: string, r: any) => {
+                    if (r.isHoliday || type === 'holiday') return <Tag color="red">Dịp lễ</Tag>;
+                    if (r.isSunday || type === 'sunday') return <Tag color="orange">Chủ nhật</Tag>;
+                    if (r.isSaturday || type === 'weekend') return <Tag color="purple">Thứ 7 / Cuối tuần</Tag>;
+                    return <Tag color="blue">Ngày thường</Tag>;
+                  },
+                },
+                {
+                  title: 'Phòng',
+                  dataIndex: 'roomNumber',
+                  render: (num?: string, r?: any) => {
+                    if (canShowPhysicalRoom) {
+                      const roomLabel = num || r?.roomNumber || r?.roomId || booking.room_number;
+                      return <Tag color="cyan">P.{roomLabel || '—'}</Tag>;
+                    }
+                    const typeLabel = r?.typeName || r?.roomTypeName || r?.room_type_name || booking.room_type_name;
+                    return (
+                      <Tag color="blue">
+                        {typeLabel || 'Sắp xếp khi nhận phòng'}
+                      </Tag>
+                    );
+                  },
+                },
+                {
+                  title: 'Đơn giá đêm',
+                  dataIndex: 'price',
+                  align: 'right' as const,
+                  render: (price: number) => <strong style={{ color: '#047857' }}>{formatPrice(price)}</strong>,
+                },
+                {
+                  title: 'Ghi chú / Dịp áp dụng',
+                  dataIndex: 'note',
+                  render: (note?: string) => note || '—',
+                },
+              ]}
+            />
+          </Card>
+        )}
+
+        <Card
+          title={`Danh sách khách lưu trú & CCCD (${bookingGuests.length})`}
+          extra={
+            ['pending', 'confirmed', 'checked_in'].includes(String(booking.status)) ? (
+              <Button
+                type="primary"
+                ghost
+                size="small"
+                icon={<UserOutlined />}
+                onClick={openGuestModal}
+                style={{ color: '#fff' }}
+              >
+                {bookingGuests.length > 0 ? 'Cập nhật / Bổ sung CCCD' : 'Khai báo thông tin khách & CCCD'}
+              </Button>
+            ) : null
+          }
+        >
+          {bookingGuests.length > 0 ? (
             <Descriptions column={{ xs: 1, sm: 2 }} bordered>
               {bookingGuests.map((guest, index) => (
                 <Descriptions.Item
@@ -473,13 +630,17 @@ const BookingDetail: React.FC = () => {
                   label={`Khách ${index + 1}`}
                 >
                   <strong>{String(guest.fullName)}</strong>
-                  <div>Giấy tờ: {String(guest.identityNumber || '-')}</div>
+                  <div>Giấy tờ / CCCD: {String(guest.identityNumber || 'Chưa bổ sung')}</div>
                   <div>SĐT: {String(guest.phone || '-')}</div>
                 </Descriptions.Item>
               ))}
             </Descriptions>
-          </Card>
-        )}
+          ) : (
+            <div style={{ padding: '8px 0', color: '#64748b' }}>
+              Chưa có thông tin CCCD người ở. Quý khách có thể bổ sung sau khi nhận phòng để thuận tiện cho việc lưu trú.
+            </div>
+          )}
+        </Card>
 
         {payment && (
           <Card
@@ -512,14 +673,33 @@ const BookingDetail: React.FC = () => {
                   ? 'Chuyển khoản QR'
                   : payment.paymentMethod === 'cash'
                     ? 'Tiền mặt'
+                    : payment.paymentMethod === 'wallet'
+                      ? 'Ví số dư HotelHub'
                     : payment.paymentMethod?.toUpperCase() || 'Chưa chọn'}
               </Descriptions.Item>
-              <Descriptions.Item label="Tổng">{formatPrice(payment.totalAmount)}</Descriptions.Item>
+              <Descriptions.Item label="Tiền phòng tiêu chuẩn">
+                {formatPrice((booking as any).price_breakdown?.baseRoomAmount ?? payment.roomAmount)}
+              </Descriptions.Item>
+              {(booking as any).price_breakdown && ((booking as any).price_breakdown.holidaySurcharge ?? 0) > 0 && (
+                <Descriptions.Item label="Phụ thu ngày lễ">
+                  <strong style={{ color: '#cf1322' }}>
+                    +{formatPrice((booking as any).price_breakdown.holidaySurcharge)}
+                  </strong>
+                </Descriptions.Item>
+              )}
+              {(booking as any).price_breakdown &&
+                (((booking as any).price_breakdown.sundaySurcharge ?? 0) > 0 || ((booking as any).price_breakdown.weekendSurcharge ?? 0) > 0) && (
+                  <Descriptions.Item label="Phụ thu Chủ nhật / Cuối tuần">
+                    <strong style={{ color: '#d46b08' }}>
+                      +{formatPrice(((booking as any).price_breakdown.sundaySurcharge ?? 0) + ((booking as any).price_breakdown.weekendSurcharge ?? 0))}
+                    </strong>
+                  </Descriptions.Item>
+                )}
+              <Descriptions.Item label="Tiền dịch vụ">{formatPrice(payment.serviceAmount)}</Descriptions.Item>
+              <Descriptions.Item label="Phụ thu">{formatPrice(payment.surchargeAmount)}</Descriptions.Item>
+              <Descriptions.Item label="Tổng cộng">{formatPrice(payment.totalAmount)}</Descriptions.Item>
               <Descriptions.Item label="Đã trả">{formatPrice(payment.paidAmount)}</Descriptions.Item>
               <Descriptions.Item label="Còn lại">{formatPrice(payment.remainingAmount)}</Descriptions.Item>
-              <Descriptions.Item label="Tiền phòng">{formatPrice(payment.roomAmount)}</Descriptions.Item>
-              <Descriptions.Item label="Dịch vụ">{formatPrice(payment.serviceAmount)}</Descriptions.Item>
-              <Descriptions.Item label="Phụ thu">{formatPrice(payment.surchargeAmount)}</Descriptions.Item>
               {payment.paymentDate && (
                 <Descriptions.Item label="Ngày thanh toán">
                   {dayjs(payment.paymentDate).format('DD/MM/YYYY HH:mm')}
@@ -562,7 +742,7 @@ const BookingDetail: React.FC = () => {
           </Card>
         )}
 
-        <Card title="Hủy phòng sát giờ nhận phòng" className="cancellation-policy-card">
+        {/* <Card title="Hủy phòng sát giờ nhận phòng" className="cancellation-policy-card">
           <div className="cancellation-policy">
             <div className="policy-row header-row">
               <span>Thời gian hủy</span>
@@ -581,7 +761,7 @@ const BookingDetail: React.FC = () => {
               <span>0%</span>
             </div>
           </div>
-        </Card>
+        </Card> */}
 
         {invoice && (
           <Card title="Hóa đơn dịch vụ lưu trú" className="invoice-card">
@@ -610,8 +790,9 @@ const BookingDetail: React.FC = () => {
                     <td>
                       <strong>Tiền phòng lưu trú</strong>
                       <small style={{ display: 'block', color: '#888' }}>
-                        {booking.room_number ? `Phòng ${String(booking.room_number)}` : 'Chưa xếp phòng'}{' '}
-                        {booking.room_type_name ? `(${String(booking.room_type_name)})` : ''}
+                        {canShowPhysicalRoom && booking.room_number
+                          ? `Phòng ${String(booking.room_number)} (${booking.room_type_name || ''})`
+                          : String(booking.room_type_name || 'Đặt phòng')}
                       </small>
                     </td>
                     <td style={{ textAlign: 'center' }}>{nights} đêm</td>
@@ -664,6 +845,18 @@ const BookingDetail: React.FC = () => {
                   )}
                 </tbody>
                 <tfoot>
+                  <tr>
+                    <td colSpan={2}>Tiền cọc</td>
+                    <td style={{ textAlign: 'right' }}>{formatPrice(invoice.depositAmount || 0)}</td>
+                  </tr>
+                  <tr>
+                    <td colSpan={2}>Đã thanh toán</td>
+                    <td style={{ textAlign: 'right' }}>{formatPrice(invoice.paidAmount || 0)}</td>
+                  </tr>
+                  <tr>
+                    <td colSpan={2}>Còn phải thanh toán</td>
+                    <td style={{ textAlign: 'right' }}>{formatPrice(invoice.remainingAmount || 0)}</td>
+                  </tr>
                   <tr className="invoice-total-row">
                     <td colSpan={2}>
                       <strong style={{ fontSize: 16 }}>Tổng thanh toán</strong>
@@ -826,6 +1019,108 @@ const BookingDetail: React.FC = () => {
           </Link>
         </div>
       </div>
+
+      <Modal
+        title="Khai báo / Bổ sung thông tin khách lưu trú & CCCD"
+        open={isGuestModalOpen}
+        onCancel={() => !savingGuests && setIsGuestModalOpen(false)}
+        onOk={handleSaveGuests}
+        confirmLoading={savingGuests}
+        okText="Lưu thông tin"
+        cancelText="Đóng"
+        width={720}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '10px 14px', fontSize: 13, color: '#334155' }}>
+            Đặt phòng: <strong>#{String(booking?.booking_code || booking?.id || '')}</strong> · {String(booking?.room_type_name || '')}
+          </div>
+          <div style={{ fontSize: 13, color: '#64748b' }}>
+            Quý khách có thể bổ sung họ tên, CCCD/CMND của bản thân và các thành viên cùng phòng bất cứ lúc nào trước hoặc sau khi nhận phòng.
+          </div>
+          {guestList.map((guest, index) => (
+            <Card
+              key={index}
+              size="small"
+              title={<span style={{ fontWeight: 600, fontSize: 13 }}>Khách {index + 1} {index === 0 ? '(Người đại diện đặt)' : ''}</span>}
+              extra={
+                guestList.length > 1 ? (
+                  <Button
+                    danger
+                    type="text"
+                    size="small"
+                    icon={<DeleteOutlined />}
+                    onClick={() => {
+                      setGuestList((prev) => prev.filter((_, i) => i !== index));
+                    }}
+                  >
+                    Xóa
+                  </Button>
+                ) : null
+              }
+              style={{ borderRadius: 8 }}
+            >
+              <Row gutter={[12, 12]}>
+                <Col xs={24} sm={8}>
+                  <div style={{ marginBottom: 4, fontSize: 12, fontWeight: 500 }}>Họ và tên *</div>
+                  <Input
+                    placeholder="Họ tên người ở"
+                    value={guest.fullName}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setGuestList((prev) => {
+                        const next = [...prev];
+                        next[index] = { ...next[index], fullName: val };
+                        return next;
+                      });
+                    }}
+                  />
+                </Col>
+                <Col xs={24} sm={8}>
+                  <div style={{ marginBottom: 4, fontSize: 12, fontWeight: 500 }}>Số CCCD / CMND (Tùy chọn)</div>
+                  <Input
+                    placeholder="CCCD (12 chữ số)"
+                    maxLength={12}
+                    value={guest.identityNumber}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/\D/g, '').slice(0, 12);
+                      setGuestList((prev) => {
+                        const next = [...prev];
+                        next[index] = { ...next[index], identityNumber: val };
+                        return next;
+                      });
+                    }}
+                  />
+                </Col>
+                <Col xs={24} sm={8}>
+                  <div style={{ marginBottom: 4, fontSize: 12, fontWeight: 500 }}>Số điện thoại (Tùy chọn)</div>
+                  <Input
+                    placeholder="Số điện thoại"
+                    value={guest.phone || ''}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setGuestList((prev) => {
+                        const next = [...prev];
+                        next[index] = { ...next[index], phone: val };
+                        return next;
+                      });
+                    }}
+                  />
+                </Col>
+              </Row>
+            </Card>
+          ))}
+          <Button
+            type="dashed"
+            icon={<PlusOutlined />}
+            onClick={() => {
+              setGuestList((prev) => [...prev, { fullName: '', identityNumber: '', phone: '', note: '' }]);
+            }}
+            style={{ borderRadius: 8, height: 40 }}
+          >
+            Thêm người ở cùng phòng
+          </Button>
+        </div>
+      </Modal>
     </div>
   );
 };

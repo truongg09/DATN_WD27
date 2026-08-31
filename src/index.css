@@ -4,9 +4,13 @@
   box-sizing: border-box;
 }
 
+/* Dùng clip chứ không dùng hidden: cả hai đều chặn tràn ngang như nhau, nhưng
+   hidden biến html/body thành scroll container và làm mọi position: sticky bên
+   trong trang không bao giờ dính được (bill tóm tắt ở trang đặt phòng chẳng hạn).
+   clip cắt phần tràn mà không tạo scroll container nên sticky hoạt động bình thường. */
 html {
   scroll-behavior: smooth;
-  overflow-x: hidden;
+  overflow-x: clip;
 }
 
 body {
@@ -14,7 +18,7 @@ body {
   color: #333;
   background: #fff;
   line-height: 1.6;
-  overflow-x: hidden;
+  overflow-x: clip;
 }
 
 #root {

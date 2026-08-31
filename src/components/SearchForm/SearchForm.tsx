@@ -56,6 +56,9 @@ const SearchForm: React.FC = () => {
       rooms: data.rooms.toString(),
       childAges: childAges.join(','),
     });
+    // Router giữ vị trí cuộn khi chuyển trang, nên chủ động đưa khách về đầu
+    // danh sách kết quả ngay khi bắt đầu tìm phòng.
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
     navigate(`/rooms?${queryParams.toString()}`);
   };
 
@@ -174,11 +177,9 @@ const SearchForm: React.FC = () => {
                   onChange={(val) => handleAgeChange(index, val)}
                   size="small"
                 >
-                  {Array.from({ length: 18 }, (_, i) => (
-                    <Option key={i} value={i}>
-                      {i === 0 ? 'Dưới 1 tuổi' : `${i} tuổi`}
-                    </Option>
-                  ))}
+                  <Option value={4}>Dưới 5 tuổi (Miễn phí)</Option>
+                  <Option value={8}>Từ 6 - 11 tuổi (Phụ thu trẻ em)</Option>
+                  <Option value={12}>Trên 12 tuổi (Tính người lớn)</Option>
                 </Select>
               </div>
             ))}

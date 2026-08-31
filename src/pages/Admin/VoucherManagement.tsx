@@ -1,24 +1,22 @@
-﻿import { useEffect, useState } from 'react';
-import { Table, Button, Modal, Form, Input, InputNumber, DatePicker, message, Space, Card, Tag, Popconfirm, Select, Row, Col, Statistic, Descriptions } from 'antd';
+import { useEffect, useState } from 'react';
+import { Table, Button, Modal, Form, Input, InputNumber, DatePicker, message, Space, Card, Tag, Popconfirm, Select, Row, Col, Statistic, Descriptions, Tooltip, Radio, Popover } from 'antd';
 import { PlusOutlined, ReloadOutlined, EditOutlined, DeleteOutlined, CalendarOutlined, GiftOutlined, DollarOutlined, EyeOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
-import { getVouchers, createVoucher, updateVoucher, deleteVoucher } from '../../services/voucherService';
+import {
+  getVouchers,
+  createVoucher,
+  updateVoucher,
+  deleteVoucher,
+  getEligibleCustomers,
+  type AdminVoucher,
+  type EligibleCustomer,
+} from '../../services/voucherService';
+import api from '../../services/api';
 
 const formatPercentage = (value: string | number) =>
   `${Number(value).toLocaleString('vi-VN', { maximumFractionDigits: 2 })}%`;
 
-type AdminVoucher = {
-  id: number;
-  code: string;
-  discountType: string;
-  discountValue: number;
-  maxDiscount: number | null;
-  minBookingAmount: number | null;
-  quantity: number;
-  startDate: string;
-  endDate: string;
-  status: string;
-};
+type RoomTypeOption = { id: number; typeName: string };
 
 type VoucherFormValues = {
   code: string;
@@ -29,10 +27,14 @@ type VoucherFormValues = {
   quantity: number;
   dateRange: [Dayjs, Dayjs];
   status: string;
+  roomTypeIds?: number[];
+  targetType: 'all' | 'specific';
+  customerIds?: number[];
 };
 
 function VoucherManagement() {
   const [vouchers, setVouchers] = useState<AdminVoucher[]>([]);
+  const [eligibleCustomers, setEligibleCustomers] = useState<EligibleCustomer[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
@@ -41,6 +43,10 @@ function VoucherManagement() {
   const [submitLoading, setSubmitLoading] = useState(false);
   const [form] = Form.useForm<VoucherFormValues>();
   const selectedDiscountType = Form.useWatch('discountType', form);
+  const [roomTypes, setRoomTypes] = useState<RoomTypeOption[]>([]);
+
+  const parseRoomTypeIds = (value?: string | null) =>
+    value ? value.split(',').map(Number).filter(Boolean) : [];
 
   const fetchVouchers = async () => {
     setLoading(true);
@@ -55,18 +61,48 @@ function VoucherManagement() {
     }
   };
 
+  const fetchEligibleCustomers = async () => {
+    try {
+      const response = await getEligibleCustomers();
+      const list = Array.isArray(response) ? response : (response?.data || []);
+      setEligibleCustomers(list);
+    } catch (error: unknown) {
+      console.error('Error fetching eligible customers:', error);
+    }
+  };
+
+  const fetchRoomTypes = async () => {
+    try {
+      const response = await api.get('/rooms/types');
+      const list = (response as unknown as { data?: RoomTypeOption[] }).data || [];
+      setRoomTypes(list.map((item) => ({ id: item.id, typeName: item.typeName })));
+    } catch (error) {
+      console.error('Error fetching room types:', error);
+    }
+  };
+
   useEffect(() => {
     void fetchVouchers();
+    void fetchRoomTypes();
+    void fetchEligibleCustomers();
   }, []);
 
   const openCreateModal = () => {
     setEditingVoucher(null);
     form.resetFields();
+    form.setFieldsValue({
+      status: 'active',
+      discountType: 'percentage',
+      targetType: 'all',
+      customerIds: [],
+    });
+    void fetchEligibleCustomers();
     setModalVisible(true);
   };
 
   const openEditModal = (voucher: AdminVoucher) => {
     setEditingVoucher(voucher);
+    const targetType = voucher.targetType === 'specific' ? 'specific' : 'all';
     form.setFieldsValue({
       code: voucher.code,
       discountType: voucher.discountType,
@@ -76,7 +112,11 @@ function VoucherManagement() {
       quantity: voucher.quantity,
       dateRange: [dayjs(voucher.startDate), dayjs(voucher.endDate)],
       status: voucher.status,
+      roomTypeIds: parseRoomTypeIds(voucher.roomTypeIds),
+      targetType: voucher.targetType === 'no_show' ? 'specific' : targetType,
+      customerIds: voucher.customerIds || [],
     });
+    void fetchEligibleCustomers();
     setModalVisible(true);
   };
 
@@ -107,10 +147,13 @@ function VoucherManagement() {
         discountValue: values.discountValue,
         maxDiscount: values.maxDiscount || null,
         minBookingAmount: values.minBookingAmount || null,
-        quantity: values.quantity,
+        quantity: values.targetType === 'specific' ? (values.customerIds?.length || 1) : values.quantity,
         startDate: values.dateRange[0].format('YYYY-MM-DD'),
         endDate: values.dateRange[1].format('YYYY-MM-DD'),
         status: values.status,
+        roomTypeIds: values.roomTypeIds || [],
+        targetType: values.targetType || 'all',
+        customerIds: values.targetType === 'specific' ? (values.customerIds || []) : [],
       };
 
       if (editingVoucher) {
@@ -152,9 +195,57 @@ function VoucherManagement() {
         record.discountType === 'percentage' ? formatPercentage(record.discountValue) : `${record.discountValue}đ`,
     },
     {
-      title: 'Số lượng',
+      title: 'Số lượng / Lượt dùng',
       dataIndex: 'quantity',
       key: 'quantity',
+      render: (_: object, record: AdminVoucher) => {
+        if (record.targetType === 'specific' || record.targetType === 'no_show') {
+          const total = record.customerCount ?? record.customerIds?.length ?? 1;
+          const unused = record.unusedCount ?? record.quantity ?? total;
+          return <Tag color={unused > 0 ? 'blue' : 'default'}>{`${unused}/${total} lượt còn lại`}</Tag>;
+        }
+        return <Tag color={Number(record.quantity) > 0 ? 'blue' : 'default'}>{`${record.quantity} lượt`}</Tag>;
+      },
+    },
+    {
+      title: 'Đối tượng',
+      key: 'target',
+      render: (_: object, record: AdminVoucher) => {
+        if (record.targetType === 'no_show') {
+          const customer = record.assignedCustomers?.[0];
+          const tooltipContent = customer
+            ? `${customer.fullName} (${customer.email}) - Đơn #${customer.bookingId || 'No-show'}`
+            : 'Voucher đền bù No-show';
+          return (
+            <Tooltip title={tooltipContent}>
+              <Tag color="purple">Cá nhân (No-show)</Tag>
+            </Tooltip>
+          );
+        }
+        if (record.targetType === 'specific') {
+          const count = record.customerCount || record.customerIds?.length || 0;
+          const popoverContent = (
+            <div style={{ maxWidth: 280, maxHeight: 200, overflowY: 'auto' }}>
+              <div style={{ fontWeight: 600, marginBottom: 6, fontSize: 13 }}>Danh sách khách hàng ({count}):</div>
+              {record.assignedCustomers?.map((c) => (
+                <div key={c.userId} style={{ fontSize: 12, padding: '3px 0', borderBottom: '1px solid #f0f0f0' }}>
+                  <div style={{ fontWeight: 500 }}>{c.fullName}</div>
+                  <div style={{ color: '#888' }}>{c.email} {c.phone ? `· ${c.phone}` : ''}</div>
+                  {c.isUsed ? <Tag color="default" style={{ fontSize: 10, marginTop: 2 }}>Đã dùng</Tag> : <Tag color="green" style={{ fontSize: 10, marginTop: 2 }}>Chưa dùng</Tag>}
+                </div>
+              ))}
+            </div>
+          );
+          return (
+            <Popover content={popoverContent} title={null} trigger="hover">
+              <Tag color="cyan" style={{ cursor: 'pointer' }}>
+                {count} khách hàng
+              </Tag>
+            </Popover>
+          );
+        }
+        return <Tag color="blue">Tất cả khách hàng</Tag>;
+      },
     },
     {
       title: 'Thời gian hiệu lực',
@@ -165,6 +256,20 @@ function VoucherManagement() {
           <div style={{ fontSize: 12, color: '#666' }}>Kết thúc: {dayjs(record.endDate).format('DD/MM/YYYY')}</div>
         </div>
       ),
+    },
+    {
+      title: 'Hạng phòng áp dụng',
+      key: 'roomTypes',
+      render: (_: object, record: AdminVoucher) =>
+        record.roomTypeNames ? (
+          <span>
+            {record.roomTypeNames.split(', ').map(name => (
+              <Tag key={name} color="blue" style={{ marginBottom: 4 }}>{name}</Tag>
+            ))}
+          </span>
+        ) : (
+          <Tag>Mọi hạng phòng</Tag>
+        ),
     },
     {
       title: 'Trạng thái',
@@ -178,37 +283,32 @@ function VoucherManagement() {
       },
     },
     {
-      title: 'Hành động',
+      title: 'Thao tác',
       key: 'action',
+      // Cùng quy ước với các bảng khác: một nút chính tô đậm, thao tác phụ dùng
+      // nút viền, thao tác xóa dùng tone đỏ.
       render: (_: object, record: AdminVoucher) => (
-        <Space>
-          <Button
-            type="primary"
-            icon={<EyeOutlined style={{ color: 'white' }} />}
-            size="small"
-            onClick={() => handleViewDetail(record)}
-          >
-          </Button>
-          <Button
-            type="primary"
-            icon={<EditOutlined />}
-            size="small"
-            onClick={() => openEditModal(record)}
-          >
-          </Button>
+        <Space size={4}>
+          <Tooltip title="Xem chi tiết voucher">
+            <Button
+              type="primary"
+              size="small"
+              icon={<EyeOutlined />}
+              onClick={() => handleViewDetail(record)}
+            />
+          </Tooltip>
+          <Tooltip title="Sửa voucher">
+            <Button size="small" icon={<EditOutlined />} onClick={() => openEditModal(record)} />
+          </Tooltip>
           <Popconfirm
             title="Bạn có chắc chắn muốn xóa?"
             onConfirm={() => handleDelete(record.id)}
             okText="Xóa"
             cancelText="Hủy"
           >
-            <Button
-              type="primary"
-              danger
-              icon={<DeleteOutlined />}
-              size="small"
-            >
-            </Button>
+            <Tooltip title="Xóa voucher">
+              <Button danger size="small" icon={<DeleteOutlined />} />
+            </Tooltip>
           </Popconfirm>
         </Space>
       ),
@@ -222,8 +322,11 @@ function VoucherManagement() {
   const activeVouchers = vouchers.filter(v => v.status === 'active' && !isExpired(v.endDate)).length;
   const expiredVouchers = vouchers.filter(v => isExpired(v.endDate)).length;
 
+  // Khung nội dung của AdminLayout đã có sẵn padding 24 và nền riêng. Đặt thêm
+  // padding cùng minHeight 100vh ở đây làm trang luôn cao hơn khung chứa, sinh
+  // ra một thanh cuộn dọc thừa.
   return (
-    <div style={{ padding: 24, background: '#f8f6f2', minHeight: '100vh' }}>
+    <div>
       <div style={{ marginBottom: 24 }}>
         <h1 style={{ fontSize: 24, fontWeight: 'bold', marginBottom: 8, color: '#2b2420' }}>Quản lý Voucher</h1>
         <p style={{ color: '#8d8478', margin: 0 }}>Tạo và quản lý các mã giảm giá cho khách hàng</p>
@@ -407,11 +510,120 @@ function VoucherManagement() {
           </Row>
 
           <Form.Item
-            name="quantity"
-            label="Số lượng"
-            rules={[{ required: true, message: 'Vui lòng nhập số lượng' }]}
+            name="roomTypeIds"
+            label="Áp dụng cho hạng phòng"
+            extra="Để trống nghĩa là voucher dùng được cho mọi hạng phòng"
           >
-            <InputNumber min={1} style={{ width: '100%' }} placeholder="Số lượng voucher" />
+            <Select
+              mode="multiple"
+              allowClear
+              placeholder="Tất cả hạng phòng"
+              optionFilterProp="label"
+              options={roomTypes.map(item => ({ value: item.id, label: item.typeName }))}
+            />
+          </Form.Item>
+
+          <Form.Item
+            name="targetType"
+            label="Đối tượng áp dụng"
+            rules={[{ required: true, message: 'Vui lòng chọn đối tượng áp dụng' }]}
+          >
+            <Radio.Group disabled={editingVoucher?.targetType === 'no_show'}>
+              <Radio value="all">Tất cả khách hàng</Radio>
+              <Radio value="specific">Khách hàng cụ thể</Radio>
+            </Radio.Group>
+          </Form.Item>
+
+          {editingVoucher?.targetType === 'no_show' && (
+            <div style={{ marginBottom: 16 }}>
+              <Tag color="purple">
+                Voucher bồi thường No-show tự động: không thể thay đổi đối tượng áp dụng.
+              </Tag>
+            </div>
+          )}
+
+          <Form.Item
+            noStyle
+            shouldUpdate={(prev, curr) => prev.targetType !== curr.targetType}
+          >
+            {({ getFieldValue }) => {
+              const isSpecific = getFieldValue('targetType') === 'specific';
+              if (!isSpecific) return null;
+
+              const customerOptions = eligibleCustomers.map((cust) => ({
+                value: cust.userId,
+                label: (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontWeight: 500 }}>{cust.fullName}</span>
+                    <span style={{ color: '#888', fontSize: 12, marginLeft: 8 }}>
+                      {cust.email} {cust.phone ? `· ${cust.phone}` : ''}
+                    </span>
+                  </div>
+                ),
+                searchText: `${cust.fullName || ''} ${cust.email || ''} ${cust.phone || ''}`.toLowerCase(),
+              }));
+
+              return (
+                <Form.Item
+                  name="customerIds"
+                  label="Khách hàng áp dụng"
+                  rules={[
+                    {
+                      required: true,
+                      message: 'Vui lòng chọn ít nhất một khách hàng',
+                    },
+                  ]}
+                  extra="Tìm kiếm theo tên, email hoặc số điện thoại"
+                >
+                  <Select
+                    mode="multiple"
+                    showSearch
+                    allowClear
+                    placeholder="Tìm và chọn khách hàng..."
+                    disabled={editingVoucher?.targetType === 'no_show'}
+                    options={customerOptions}
+                    filterOption={(input, option) => {
+                      if (!input) return true;
+                      const searchTarget = (option?.searchText as string) || '';
+                      return searchTarget.includes(input.toLowerCase().trim());
+                    }}
+                    style={{ width: '100%' }}
+                  />
+                </Form.Item>
+              );
+            }}
+          </Form.Item>
+
+          <Form.Item
+            noStyle
+            shouldUpdate={(prev, curr) => prev.targetType !== curr.targetType || prev.customerIds !== curr.customerIds}
+          >
+            {({ getFieldValue }) => {
+              const isSpecific = getFieldValue('targetType') === 'specific';
+              if (isSpecific) {
+                const selectedCusts = getFieldValue('customerIds') || [];
+                const count = Array.isArray(selectedCusts) ? selectedCusts.length : 0;
+                return (
+                  <Form.Item label="Số lượt sử dụng">
+                    <Input
+                      readOnly
+                      disabled
+                      value={`${count} lượt — mỗi khách 1 lượt`}
+                      style={{ color: '#1890ff', fontWeight: 500 }}
+                    />
+                  </Form.Item>
+                );
+              }
+              return (
+                <Form.Item
+                  name="quantity"
+                  label="Số lượng"
+                  rules={[{ required: true, message: 'Vui lòng nhập số lượng' }]}
+                >
+                  <InputNumber min={1} style={{ width: '100%' }} placeholder="Số lượng voucher" />
+                </Form.Item>
+              );
+            }}
           </Form.Item>
 
           <Form.Item
@@ -456,7 +668,7 @@ function VoucherManagement() {
         open={detailModalVisible}
         onCancel={() => setDetailModalVisible(false)}
         footer={null}
-        width={600}
+        width={650}
       >
         {selectedVoucher && (
           <Descriptions bordered column={1}>
@@ -474,7 +686,63 @@ function VoucherManagement() {
             <Descriptions.Item label="Số tiền tối thiểu">
               {selectedVoucher.minBookingAmount ? `${selectedVoucher.minBookingAmount.toLocaleString('vi-VN')}đ` : 'Không giới hạn'}
             </Descriptions.Item>
-            <Descriptions.Item label="Số lượng">{selectedVoucher.quantity}</Descriptions.Item>
+            <Descriptions.Item label="Hạng phòng áp dụng">
+              {selectedVoucher.roomTypeNames ? (
+                <span>
+                  {selectedVoucher.roomTypeNames.split(', ').map(name => (
+                    <Tag key={name} color="blue" style={{ marginBottom: 4 }}>{name}</Tag>
+                  ))}
+                </span>
+              ) : (
+                <Tag>Mọi hạng phòng</Tag>
+              )}
+            </Descriptions.Item>
+            <Descriptions.Item label="Đối tượng áp dụng">
+              {selectedVoucher.targetType === 'no_show' ? (
+                <div>
+                  <Tag color="purple" style={{ marginBottom: 8 }}>Cá nhân (Bồi thường No-show)</Tag>
+                  {selectedVoucher.assignedCustomers?.map((c) => (
+                    <div key={c.userId} style={{ fontSize: 13, marginTop: 4 }}>
+                      <strong>{c.fullName}</strong> — {c.email} {c.phone ? `— ${c.phone}` : ''} {c.bookingId ? `(Đơn #${c.bookingId})` : ''}
+                      <div>
+                        <Tag color={c.isUsed ? 'default' : 'green'} style={{ marginTop: 2 }}>
+                          {c.isUsed ? 'Đã sử dụng' : 'Chưa sử dụng'}
+                        </Tag>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : selectedVoucher.targetType === 'specific' ? (
+                <div>
+                  <Tag color="cyan" style={{ marginBottom: 8 }}>
+                    Khách hàng cụ thể ({selectedVoucher.customerCount || selectedVoucher.assignedCustomers?.length || 0} khách hàng)
+                  </Tag>
+                  <div style={{ maxHeight: 180, overflowY: 'auto', border: '1px solid #f0f0f0', borderRadius: 6, padding: '8px 12px' }}>
+                    {selectedVoucher.assignedCustomers && selectedVoucher.assignedCustomers.length > 0 ? (
+                      selectedVoucher.assignedCustomers.map((c) => (
+                        <div key={c.userId} style={{ fontSize: 12, padding: '4px 0', borderBottom: '1px solid #fafafa' }}>
+                          <div><strong>{c.fullName}</strong> — {c.email} {c.phone ? `— ${c.phone}` : ''}</div>
+                          <div>
+                            <Tag color={c.isUsed ? 'default' : 'green'} style={{ fontSize: 10 }}>
+                              {c.isUsed ? 'Đã sử dụng' : 'Chưa sử dụng'}
+                            </Tag>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <span style={{ color: '#999' }}>Chưa có khách hàng được gán</span>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <Tag color="blue">Tất cả khách hàng (Công khai)</Tag>
+              )}
+            </Descriptions.Item>
+            <Descriptions.Item label="Số lượng / Lượt dùng">
+              {selectedVoucher.targetType === 'specific' || selectedVoucher.targetType === 'no_show'
+                ? `${selectedVoucher.unusedCount ?? selectedVoucher.quantity ?? 0}/${selectedVoucher.customerCount ?? 1} lượt còn lại`
+                : `${selectedVoucher.quantity} lượt`}
+            </Descriptions.Item>
             <Descriptions.Item label="Ngày bắt đầu">{dayjs(selectedVoucher.startDate).format('DD/MM/YYYY')}</Descriptions.Item>
             <Descriptions.Item label="Ngày kết thúc">{dayjs(selectedVoucher.endDate).format('DD/MM/YYYY')}</Descriptions.Item>
             <Descriptions.Item label="Trạng thái">

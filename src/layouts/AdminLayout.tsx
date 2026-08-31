@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
+// NavLink thay cho Link để mục đang mở tự nhận class "active" (xem AdminLayout.css).
+import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { Badge, Tooltip } from 'antd';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
@@ -12,6 +13,7 @@ interface PendingCounts {
   pendingWithdrawals: number;
   pendingTransferConfirmations: number;
   unpaidStays: number;
+  pendingReviews: number;
   total: number;
 }
 
@@ -22,6 +24,7 @@ const EMPTY_COUNTS: PendingCounts = {
   pendingWithdrawals: 0,
   pendingTransferConfirmations: 0,
   unpaidStays: 0,
+  pendingReviews: 0,
   total: 0,
 };
 
@@ -94,42 +97,45 @@ function AdminLayout() {
         </div>
         <nav className="admin-nav">
           <ul>
-            <li><Link to="/admin">Dashboard</Link></li>
-            <li><Link to="/admin/rooms">Quản lý phòng</Link></li>
-            <li><Link to="/admin/room-types">Loại phòng</Link></li>
+            <li><NavLink to="/admin" end>Dashboard</NavLink></li>
+            <li><NavLink to="/admin/rooms">Quản lý phòng</NavLink></li>
+            <li><NavLink to="/admin/room-types">Loại phòng</NavLink></li>
             <li>
-              <Link to="/admin/bookings">
+              <NavLink to="/admin/bookings">
                 {withBadge(
                   'Đặt phòng',
                   counts.pendingBookings + counts.unpaidStays,
-                  `${counts.pendingBookings} đơn chờ xác nhận, ${counts.unpaidStays} khách đang ở còn nợ tiền`
                 )}
-              </Link>
+              </NavLink>
             </li>
-            <li><Link to="/admin/customers">Khách hàng</Link></li>
+            <li><NavLink to="/admin/customers">Khách hàng</NavLink></li>
+            <li><NavLink to="/admin/employees">Nhân viên</NavLink></li>
             <li>
-              <Link to="/admin/services">
+              <NavLink to="/admin/services">
                 {withBadge(
                   'Quản lý dịch vụ',
                   counts.pendingServiceRequests,
-                  `${counts.pendingServiceRequests} yêu cầu dịch vụ chờ duyệt`
                 )}
-              </Link>
+              </NavLink>
             </li>
-            <li><Link to="/admin/vouchers">Voucher</Link></li>
-            <li><Link to="/admin/reviews">Đánh giá</Link></li>
-            <li><Link to="/admin/invoices">Quản lý hóa đơn</Link></li>
+            <li><NavLink to="/admin/vouchers">Voucher</NavLink></li>
             <li>
-              <Link to="/admin/payments">
+              <NavLink to="/admin/reviews">
+                {withBadge('Đánh giá', counts.pendingReviews)}
+              </NavLink>
+            </li>
+            <li><NavLink to="/admin/invoices">Quản lý hóa đơn</NavLink></li>
+            <li>
+              <NavLink to="/admin/payments">
                 {withBadge(
                   'Thanh toán',
                   counts.pendingRefunds + counts.pendingWithdrawals + counts.pendingTransferConfirmations,
-                  `${counts.pendingTransferConfirmations} khách báo đã chuyển khoản, ${counts.pendingRefunds} yêu cầu hoàn tiền, ${counts.pendingWithdrawals} yêu cầu rút ví`
                 )}
-              </Link>
+              </NavLink>
             </li>
-            <li><Link to="/admin/payment-settings">Cài đặt thanh toán</Link></li>
-            <li><Link to="/admin/reports">Báo cáo</Link></li>
+            <li><NavLink to="/admin/payment-settings">Cài đặt & Chính sách</NavLink></li>
+            <li><NavLink to="/admin/holidays">Lịch ngày lễ</NavLink></li>
+            <li><NavLink to="/admin/reports">Báo cáo</NavLink></li>
           </ul>
         </nav>
         <div className="admin-user">

@@ -406,7 +406,7 @@ router.post('/create', requireAuth, requireStaff, async (req, res) => {
 });
 
 // POST /api/customers-update
-router.post('/update', requireAuth, requireStaff, async (req, res) => {
+router.post('/update', requireAuth, requireSelfOrStaff, async (req, res) => {
   try {
     const {
       id,
@@ -443,15 +443,19 @@ router.post('/update', requireAuth, requireStaff, async (req, res) => {
     const accountFields = [];
     const accountValues = [];
 
+    if (fullName) {
+      accountFields.push('full_name = ?');
+      accountValues.push(String(fullName).trim());
+    }
     if (email) {
       accountFields.push('email = ?');
       accountValues.push(email);
     }
     if (phone) {
       accountFields.push('phone = ?');
-      accountValues.push(phone);
+      accountValues.push(String(phone).trim());
     }
-    if (status) {
+    if (status && isStaff(req.user)) {
       accountFields.push('status = ?');
       accountValues.push(status === 'locked' ? 'inactive' : 'active');
     }
@@ -476,8 +480,8 @@ router.post('/update', requireAuth, requireStaff, async (req, res) => {
         WHERE id = ?
       `,
       [
-        fullName || null,
-        phone || null,
+        fullName ? String(fullName).trim() : null,
+        phone ? String(phone).trim() : null,
         gender || null,
         dateOfBirth || null,
         citizenId || null,

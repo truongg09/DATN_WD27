@@ -20,6 +20,7 @@ export interface RefundRow {
   customer_email?: string;
   customer_phone?: string;
   room_number?: string;
+  room_type_details?: string;
 }
 
 export const listRefunds = async (params?: { status?: string; bookingId?: number }) => {

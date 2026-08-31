@@ -411,9 +411,16 @@
   gap: 8px;
 }
 
-.voucher-apply .ant-input {
+.voucher-apply .ant-input,
+.voucher-apply .ant-select,
+.voucher-apply .ant-select-selector {
   height: 40px;
   border-radius: 8px;
+}
+
+.voucher-apply .ant-select-selector {
+  display: flex;
+  align-items: center;
 }
 
 .voucher-apply .ant-btn {
@@ -503,6 +510,20 @@
   box-shadow: 0 0 0 3px rgba(154, 122, 90, 0.12);
 }
 
+.method-item:disabled,
+.method-item.disabled {
+  cursor: not-allowed;
+  background: #f8fafc;
+  border-color: #e5e7eb;
+  box-shadow: none;
+  opacity: 0.78;
+}
+
+.method-item.insufficient .method-desc {
+  color: #b45309;
+  font-weight: 500;
+}
+
 .method-badge {
   display: inline-flex;
   align-items: center;
@@ -525,6 +546,11 @@
 
 .badge-vnpay {
   background: linear-gradient(135deg, #00437c, #0072bc);
+}
+
+.badge-wallet {
+  background: linear-gradient(135deg, #11623f, #22a66d);
+  box-shadow: 0 6px 14px rgba(22, 134, 90, 0.2);
 }
 
 /* Badge dùng logo thương hiệu thật */
@@ -648,6 +674,37 @@
   text-align: center;
   color: #9a7a5a;
   font-size: 13.5px;
+}
+
+.wallet-confirmation {
+  margin-top: 14px;
+  color: #4b5563;
+}
+
+.wallet-confirmation > p {
+  margin: 0 0 14px;
+  line-height: 1.55;
+}
+
+.wallet-confirmation-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 9px 0;
+  border-bottom: 1px solid #edf0f2;
+}
+
+.wallet-confirmation-row.charge strong {
+  color: #b45309;
+}
+
+.wallet-confirmation-row.balance {
+  margin-top: 2px;
+  padding: 12px 0 4px;
+  border-bottom: 0;
+  color: #11623f;
+  font-size: 15px;
 }
 
 /* ===== QR modal ===== */

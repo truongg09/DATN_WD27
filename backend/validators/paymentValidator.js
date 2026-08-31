@@ -46,7 +46,10 @@ const normalizeProcessPaymentPayload = (body) => {
   return {
     paymentMethod,
     amount: body.amount !== undefined ? toAmount(body.amount, 'amount') : undefined,
-    sandbox: body.sandbox === true
+    sandbox: body.sandbox === true,
+    returnContext: ['admin_bookings', 'staff_bookings'].includes(body.returnContext)
+      ? body.returnContext
+      : null
   };
 };
 
@@ -81,10 +84,25 @@ const normalizeConfirmPaymentPayload = (body) => {
   };
 };
 
+const normalizeWalletPaymentPayload = (body = {}) => {
+  const amount = toAmount(body.amount, 'amount');
+  if (!Number.isInteger(amount) || amount <= 0) {
+    throw new HttpError(400, 'Số tiền thanh toán bằng ví phải là số nguyên lớn hơn 0');
+  }
+
+  const idempotencyKey = String(body.idempotencyKey || body.idempotency_key || '').trim();
+  if (!/^[A-Za-z0-9_-]{8,100}$/.test(idempotencyKey)) {
+    throw new HttpError(400, 'Mã xác nhận giao dịch ví không hợp lệ');
+  }
+
+  return { amount, idempotencyKey };
+};
+
 module.exports = {
   normalizeCreatePaymentPayload,
   normalizeProcessPaymentPayload,
   normalizeConfirmPaymentPayload,
+  normalizeWalletPaymentPayload,
   normalizePaymentFilters,
   normalizeIdParam
 };

@@ -4,6 +4,7 @@ const {
   normalizeCreatePaymentPayload,
   normalizeProcessPaymentPayload,
   normalizeConfirmPaymentPayload,
+  normalizeWalletPaymentPayload,
   normalizePaymentFilters,
   normalizeIdParam
 } = require('../validators/paymentValidator');
@@ -15,6 +16,17 @@ const sendError = (res, error) => {
     message: statusCode === 500 ? 'Lỗi máy chủ nội bộ' : error.message,
     ...(error.details ? { details: error.details } : {})
   });
+};
+
+const gatewayFrontendReturnUrl = ({ frontendUrl, bookingId, orderId, gateway, success, paymentStatus, returnContext }) => {
+  const resultQuery = `gateway=${gateway}&payment=${success ? 'success' : 'failed'}${paymentStatus ? `&status=${encodeURIComponent(paymentStatus)}` : ''}`;
+  if (returnContext === 'admin_bookings' || orderId.endsWith('_ADMIN')) {
+    return `${frontendUrl}/admin/bookings?${resultQuery}&bookingId=${encodeURIComponent(bookingId)}`;
+  }
+  if (returnContext === 'staff_bookings' || orderId.endsWith('_STAFF')) {
+    return `${frontendUrl}/staff/bookings?${resultQuery}&bookingId=${encodeURIComponent(bookingId)}`;
+  }
+  return `${frontendUrl}/booking/${bookingId}?${resultQuery}`;
 };
 
 const createPayment = async (req, res) => {
@@ -79,7 +91,7 @@ const refundPayment = async (req, res) => {
     const paymentId = normalizeIdParam(req.params.id);
     const payment = await paymentService.refundPayment(paymentId, req.user || null);
     res.json({
-      message: 'Hoàn tiền thành công',
+      message: 'Hoàn tiền thành công, số tiền đã được cộng vào ví khách hàng',
       data: payment
     });
   } catch (error) {
@@ -135,7 +147,8 @@ const vnpayReturn = async (req, res) => {
       const payment = await paymentService.getPaymentById(paymentId);
       bookingId = String(payment.bookingId);
     }
-    if (verifyVnpay(req.query) && req.query.vnp_ResponseCode === '00') {
+    const verified = verifyVnpay(req.query);
+    if (verified && req.query.vnp_ResponseCode === '00') {
       const settledPayment = await paymentService.settleGatewayPayment({
         orderId,
         paymentMethod: 'vnpay',
@@ -147,13 +160,16 @@ const vnpayReturn = async (req, res) => {
       success =
         Number(payment.paidAmount) > 0
         && ['deposit_paid', 'paid'].includes(payment.paymentStatus);
+    } else if (verified && orderId) {
+      await paymentService.failGatewayOrder(orderId, req.query.vnp_ResponseCode === '11' ? 'expired' : 'failed');
     }
   } catch (error) {
     console.error('VNPay return error:', error);
   }
-  res.redirect(
-    `${FRONTEND_URL}/booking/${bookingId}?gateway=vnpay&payment=${success ? 'success' : 'failed'}${paymentStatus ? `&status=${encodeURIComponent(paymentStatus)}` : ''}`
-  );
+  res.redirect(gatewayFrontendReturnUrl({
+    frontendUrl: FRONTEND_URL, bookingId, orderId, gateway: 'vnpay', success, paymentStatus,
+    returnContext: req.query.returnContext
+  }));
 };
 
 const vnpayIpn = async (req, res) => {
@@ -162,6 +178,11 @@ const vnpayIpn = async (req, res) => {
     if (!verifyVnpay(req.query)) return res.json({ RspCode: '97', Message: 'Invalid signature' });
     if (req.query.vnp_ResponseCode === '00') {
       await paymentService.settleGatewayPayment({ orderId: String(req.query.vnp_TxnRef), paymentMethod: 'vnpay', amount: Number(req.query.vnp_Amount) / 100 });
+    } else {
+      await paymentService.failGatewayOrder(
+        String(req.query.vnp_TxnRef),
+        req.query.vnp_ResponseCode === '11' ? 'expired' : 'failed'
+      );
     }
     res.json({ RspCode: '00', Message: 'Confirm Success' });
   } catch (error) {
@@ -232,9 +253,10 @@ const zalopayReturn = async (req, res) => {
     console.error('ZaloPay return error:', error);
   }
 
-  res.redirect(
-    `${FRONTEND_URL}/booking/${bookingId}?gateway=zalopay&payment=${success ? 'success' : 'failed'}${paymentStatus ? `&status=${encodeURIComponent(paymentStatus)}` : ''}`
-  );
+  res.redirect(gatewayFrontendReturnUrl({
+    frontendUrl: FRONTEND_URL, bookingId, orderId, gateway: 'zalopay', success, paymentStatus,
+    returnContext: req.query.returnContext
+  }));
 };
 
 const submitTransferConfirmation = async (req, res) => {
@@ -261,6 +283,53 @@ const confirmTransferPayment = async (req, res) => {
   }
 };
 
+const previewVoucher = async (req, res) => {
+  try {
+    const paymentId = normalizeIdParam(req.params.id);
+    const data = await paymentService.previewVoucher(
+      paymentId,
+      req.body?.code,
+      { userId: req.user.userId, role: req.user.role }
+    );
+    res.json({ data });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
+const payWithWallet = async (req, res) => {
+  try {
+    const paymentId = normalizeIdParam(req.params.id);
+    const payload = normalizeWalletPaymentPayload(req.body);
+    const result = await paymentService.payWithWallet(
+      paymentId,
+      payload,
+      req.user || null
+    );
+    res.json({
+      message: result.idempotent
+        ? 'Giao dịch ví đã được ghi nhận trước đó'
+        : 'Thanh toán bằng ví thành công',
+      data: result
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
+const listCustomerVouchers = async (req, res) => {
+  try {
+    const paymentId = normalizeIdParam(req.params.id);
+    const data = await paymentService.listCustomerVouchers(
+      paymentId,
+      { userId: req.user.userId, role: req.user.role }
+    );
+    res.json({ data });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
 const applyVoucher = async (req, res) => {
   try {
     const paymentId = normalizeIdParam(req.params.id);
@@ -275,12 +344,26 @@ const applyVoucher = async (req, res) => {
   }
 };
 
+const removeVoucher = async (req, res) => {
+  try {
+    const paymentId = normalizeIdParam(req.params.id);
+    const result = await paymentService.removeVoucher(paymentId, {
+      userId: req.user.userId,
+      role: req.user.role
+    });
+    res.json({ message: 'Đã gỡ voucher khỏi đơn', data: result });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
 module.exports = {
   createPayment,
   listPayments,
   getPaymentById,
   getPaymentByBookingId,
   processPayment,
+  payWithWallet,
   confirmPayment,
   refundPayment,
   createGatewayOrder,
@@ -288,7 +371,10 @@ module.exports = {
   vnpayIpn,
   zalopayReturn,
   zalopayCallback,
+  listCustomerVouchers,
   applyVoucher,
+  removeVoucher,
+  previewVoucher,
   submitTransferConfirmation,
   confirmTransferPayment,
   refundPayment

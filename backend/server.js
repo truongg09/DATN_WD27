@@ -34,9 +34,11 @@ const voucherRoutes = require('./routes/vouchers');
 const settingsRoutes = require('./routes/settings');
 const refundRoutes = require('./routes/refunds');
 const walletRoutes = require('./routes/wallet');
-const ensureOperationalSchema = require('./ensure-operational-schema');
 const reportRoutes = require('./routes/reports');
 const uploadRoutes = require('./routes/upload');
+const employeeRoutes = require('./routes/employees');
+const holidayRoutes = require('./routes/holidays');
+const notificationRoutes = require('./routes/notifications');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/rooms', roomRoutes);
@@ -53,11 +55,14 @@ app.use('/api/booking-services', bookingServiceRoutes);
 app.use('/api/service-requests', serviceRequestRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/vouchers', voucherRoutes);
+app.use('/api/notifications', notificationRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/refunds', refundRoutes);
 app.use('/api/wallet', walletRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/upload', uploadRoutes);
+app.use('/api/employees', employeeRoutes);
+app.use('/api/holidays', holidayRoutes);
 
 // Test endpoint
 app.get('/api/health', (req, res) => {
@@ -75,30 +80,34 @@ app.get('/api/db-test', async (req, res) => {
   }
 });
 
-setInterval(() => {
-  bookingService.expireUnpaidBookingHolds().catch((error) => {
-    console.error('Expire booking holds error:', error);
+const ensureOperationalSchema = require('./ensure-operational-schema');
+
+const startServer = async () => {
+  await ensureOperationalSchema();
+  console.log('Database operational schema sync finished.');
+
+  app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
   });
-}, 60 * 1000);
 
-setInterval(() => {
-  bookingService.processNoShows().catch((error) => {
-    console.error('Process no-show bookings error:', error);
+  bookingService.processOverdueCheckIns().catch((error) => {
+    console.error('Initial overdue check-ins processing error:', error);
   });
-}, 60 * 60 * 1000);
 
-bookingService.processNoShows().catch((error) => {
-  console.error('Initial no-show processing error:', error);
-});
-
-// Start server
-ensureOperationalSchema()
-  .then(() => {
-    app.listen(PORT, () => {
-      console.log(`Server is running on port ${PORT}`);
+  setInterval(() => {
+    bookingService.expireUnpaidBookingHolds().catch((error) => {
+      console.error('Expire booking holds error:', error);
     });
-  })
-  .catch((error) => {
-    console.error('Failed to ensure operational schema:', error);
-    process.exit(1);
-  });
+  }, 30 * 1000);
+
+  setInterval(() => {
+    bookingService.processOverdueCheckIns().catch((error) => {
+      console.error('Process overdue check-ins error:', error);
+    });
+  }, 30 * 60 * 1000);
+};
+
+startServer().catch((error) => {
+  console.error('Operational schema sync error; server was not started:', error);
+  process.exitCode = 1;
+});

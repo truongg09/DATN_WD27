@@ -1,4 +1,7 @@
 .booking-page {
+  /* Giá trị dự phòng cho vị trí ghim bill, dùng trước khi Booking.tsx đo xong
+     chiều cao thật của header và của bill. */
+  --booking-sticky-top: 96px;
   min-height: 100vh;
   background: #fafafa;
   padding-top: 130px;
@@ -29,218 +32,171 @@
 .booking-container {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 60px 20px;
+  padding: 40px 20px 56px;
 }
 
-.booking-history-panel {
-  margin-bottom: 32px;
-  padding: 28px;
-  background: #fff;
-  border: 1px solid #e9ecef;
-  border-radius: 16px;
-  box-shadow: 0 16px 40px rgba(30, 41, 59, 0.08);
-}
-
-.history-panel-header {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 20px;
-  margin-bottom: 22px;
-}
-
-.history-eyebrow {
+/* Lối tắt sang lịch sử đặt phòng trong trang Hồ sơ. Thay cho panel "Các chuyến
+   đi gần đây" trước đây chiếm gần nửa màn hình đầu trang. */
+.booking-history-link {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  color: #ab8965;
-  font-size: 13px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0;
-  margin-bottom: 8px;
-}
-
-.history-panel-header h2 {
-  margin: 0;
-  color: #232323;
-  font-size: 24px;
-}
-
-.history-view-all,
-.history-empty-action {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: #fff;
-  background: #2f465f;
-  border-radius: 10px;
-  padding: 10px 16px;
-  text-decoration: none;
-  font-size: 14px;
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-.history-view-all:hover,
-.history-empty-action:hover {
-  color: #fff;
-  background: #1f3349;
-}
-
-.history-card-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
-}
-
-.history-card {
-  min-height: 168px;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  padding: 18px;
-  border: 1px solid #edf0f3;
-  border-radius: 14px;
-  background: linear-gradient(180deg, #ffffff 0%, #fbfcfd 100%);
-}
-
-.history-card-top,
-.history-card-bottom,
-.history-date {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.history-code {
-  color: #475467;
-  font-size: 13px;
-  font-weight: 800;
-}
-
-.history-status {
+  gap: 9px;
+  margin-bottom: 24px;
+  padding: 10px 18px;
+  border: 1px solid #e6dbcd;
   border-radius: 999px;
-  padding: 5px 10px;
+  background: #fff;
+  color: #7b5a3a;
+  font-size: 14px;
+  font-weight: 700;
+  box-shadow: 0 6px 16px rgba(74, 51, 32, 0.06);
+  transition: background 0.18s, border-color 0.18s, color 0.18s;
+}
+
+.booking-history-link:hover {
+  border-color: #ab8965;
+  background: #fdf8f2;
+  color: #5d4128;
+}
+
+.booking-history-link-arrow {
   font-size: 12px;
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-.history-status.pending {
-  color: #92400e;
-  background: #fff7d6;
-}
-
-.history-status.confirmed {
-  color: #1d4ed8;
-  background: #dbeafe;
-}
-
-.history-status.checked-in {
-  color: #047857;
-  background: #d1fae5;
-}
-
-.history-status.checked-out,
-.history-status.default {
-  color: #475467;
-  background: #eef2f6;
-}
-
-.history-status.cancelled {
-  color: #b42318;
-  background: #fee4e2;
-}
-
-.history-card h3 {
-  margin: 16px 0 12px;
-  color: #232323;
-  font-size: 17px;
-  line-height: 1.35;
-}
-
-.history-date {
-  justify-content: flex-start;
-  color: #667085;
-  font-size: 14px;
-}
-
-.history-date svg {
-  color: #ab8965;
-}
-
-.history-card-bottom {
-  margin-top: 18px;
-  padding-top: 14px;
-  border-top: 1px solid #edf0f3;
-}
-
-.history-card-bottom strong {
-  color: #ab8965;
-  font-size: 16px;
-}
-
-.history-card-bottom a {
-  color: #2f465f;
-  font-weight: 700;
-  text-decoration: none;
-}
-
-.history-loading {
-  padding: 20px;
-  color: #667085;
-  background: #f8fafc;
-  border-radius: 12px;
-}
-
-.history-empty {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  padding: 20px;
-  background: #f8fafc;
-  border-radius: 12px;
-}
-
-.history-empty h3 {
-  margin: 0 0 6px;
-  color: #232323;
-  font-size: 17px;
-}
-
-.history-empty p {
-  margin: 0;
-  color: #667085;
-  font-size: 14px;
+  opacity: 0.7;
 }
 
 .booking-form-wrapper {
   display: grid;
-  grid-template-columns: 1fr 380px;
-  gap: 40px;
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 380px);
+  gap: 30px;
+  align-items: start;
 }
 
 .booking-main {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 20px;
 }
 
 .booking-section {
   background: #fff;
   border-radius: 16px;
-  padding: 32px;
+  padding: 26px;
+  border: 1px solid #e9dfd3;
+  box-shadow: 0 10px 26px rgba(74, 51, 32, 0.055);
 }
 
-.booking-section h2 {
+.booking-section:not(.stay-guests-section) h2 {
+  position: relative;
   font-size: 22px;
-  color: #333;
-  margin-bottom: 24px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid #eee;
+  color: #38291d;
+  margin: -26px -26px 22px;
+  padding: 18px 26px 15px 42px;
+  border-bottom: 1px solid #ece1d5;
+  background: linear-gradient(105deg, #fdf8f2, #fff);
+}
+
+.booking-section:not(.stay-guests-section) h2::before {
+  position: absolute;
+  top: 18px;
+  left: 26px;
+  width: 5px;
+  height: 23px;
+  border-radius: 99px;
+  background: #ab8965;
+  content: "";
+}
+
+.stay-guests-section {
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid #e7e1d9;
+  box-shadow: 0 12px 30px rgba(58, 43, 30, 0.06);
+}
+
+.stay-guests-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 26px 30px;
+  background: linear-gradient(105deg, #fdf8f2, #f7fafc);
+  border-bottom: 1px solid #ece4db;
+}
+
+.stay-guests-heading h2 {
+  margin: 3px 0 5px;
+  padding: 0;
+  border: 0;
+  color: #2f2720;
+}
+
+.stay-guests-heading p {
+  margin: 0;
+  color: #756a60;
+  font-size: 14px;
+}
+
+.nights-summary {
+  display: grid;
+  min-width: 82px;
+  padding: 10px 14px;
+  border: 1px solid #ead8c4;
+  border-radius: 12px;
+  background: #fff;
+  color: #7b4f2a;
+  text-align: center;
+}
+
+.nights-summary strong {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.nights-summary span {
+  margin-top: 3px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.stay-dates-card,
+.guest-configuration-card {
+  margin: 24px 30px 0;
+  padding: 20px;
+  border: 1px solid #ece7e1;
+  border-radius: 13px;
+  background: #fff;
+}
+
+.stay-range-field {
+  margin-bottom: 18px;
+}
+
+.stay-time-grid {
+  margin: 0;
+}
+
+.configuration-card-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.configuration-card-heading span {
+  color: #3f3024;
+  font-size: 16px;
+  font-weight: 750;
+}
+
+.configuration-card-heading small {
+  color: #84776a;
+  font-size: 12px;
+}
+
+.guest-count-grid {
+  margin-top: 18px !important;
+  margin-bottom: 18px;
 }
 
 .form-row {
@@ -262,7 +218,7 @@
 .form-group label {
   font-size: 14px;
   font-weight: 600;
-  color: #333;
+  color: #513c2b;
   margin-bottom: 8px;
 }
 
@@ -276,209 +232,112 @@
   margin-top: 6px;
 }
 
-.nights-info {
-  margin-top: 10px;
-  margin-bottom: 10px;
-}
-
-.nights-count {
-  color: #ab8965;
-  font-size: 15px;
-}
-
-.multi-room-checker {
-  margin: 22px 0 8px;
-  padding: 20px;
-  border: 1px solid #edf0f3;
-  border-radius: 14px;
-  background: #fbfcfd;
-}
-
-.multi-room-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 18px;
-  margin-bottom: 16px;
-}
-
-.multi-room-header strong {
-  display: block;
-  color: #232323;
-  font-size: 16px;
-  margin-bottom: 6px;
-}
-
-.multi-room-header p {
-  margin: 0;
-  color: #667085;
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-.multi-room-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.multi-room-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 96px 70px;
-  gap: 10px;
-  align-items: center;
-}
-
-.multi-room-quantity {
-  width: 100%;
-}
-
-.btn-add-room-type,
-.btn-check-room-types,
-.btn-remove-room-type {
-  border: none;
-  border-radius: 10px;
-  font-weight: 700;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.btn-add-room-type {
-  padding: 10px 14px;
-  color: #fff;
-  background: #2f465f;
-}
-
-.btn-check-room-types {
-  margin-top: 14px;
-  padding: 12px 16px;
-  color: #fff;
-  background: linear-gradient(135deg, #ab8965 0%, #9a7a5a 100%);
-}
-
-.btn-remove-room-type {
-  height: 40px;
-  color: #b42318;
-  background: #fff4f3;
-  border: 1px solid #ffd0cc;
-}
-
-.btn-add-room-type:hover,
-.btn-check-room-types:hover:not(:disabled) {
-  filter: brightness(0.95);
-}
-
-.btn-add-room-type:disabled,
-.btn-check-room-types:disabled,
-.btn-remove-room-type:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-.multi-room-result {
-  margin-top: 16px;
-  padding: 16px;
-  border-radius: 12px;
-  line-height: 1.5;
-}
-
-.multi-room-result.success {
-  color: #047857;
-  background: #ecfdf3;
-  border: 1px solid #abefc6;
-}
-
-.multi-room-result.warning {
-  color: #92400e;
-  background: #fff7d6;
-  border: 1px solid #fde68a;
-}
-
-.multi-room-result > strong {
-  display: block;
-  margin-bottom: 10px;
-  color: #232323;
-}
-
-.multi-room-result-list,
-.multi-room-suggestions {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.multi-room-result-item {
-  display: flex;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 10px 0;
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
-}
-
-.multi-room-result-item span,
-.multi-room-suggestions span {
-  color: #232323;
-  font-weight: 800;
-}
-
-.multi-room-result-item em,
-.multi-room-suggestions em {
-  color: inherit;
-  font-style: normal;
-  text-align: right;
-}
-
-.multi-room-suggestions {
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid rgba(0, 0, 0, 0.08);
-}
-
 .booking-sidebar {
+  align-self: start;
+  min-width: 0;
   position: sticky;
-  top: 160px;
-  height: fit-content;
+  /* --booking-sticky-top do Booking.tsx tính lại theo chiều cao bill:
+     bill thấp hơn màn hình thì giá trị dương (ghim ngay dưới header), bill cao
+     hơn màn hình thì giá trị ÂM để bill trôi lên vừa đủ lộ nút "Xác nhận đặt
+     phòng" rồi dừng hẳn. */
+  top: var(--booking-sticky-top, 96px);
+  z-index: 10;
 }
 
 .booking-summary {
+  display: flex;
+  flex-direction: column;
   background: #fff;
   border-radius: 16px;
-  padding: 28px;
-  border: 1px solid #eee;
+  overflow: hidden;
+  border: 1px solid #e5d8ca;
+  box-shadow: 0 14px 32px rgba(74, 51, 32, 0.1);
 }
 
 .booking-summary h3 {
-  font-size: 20px;
-  color: #333;
-  margin-bottom: 24px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid #eee;
+  flex-shrink: 0;
+  font-size: 16px;
+  color: #3a291d;
+  margin: 0;
+  padding: 14px 18px 12px;
+  border-bottom: 1px solid #eadfd3;
+  background: linear-gradient(105deg, #fdf7f0, #fff);
+}
+
+.booking-summary-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.selected-rooms-scroll-list {
+  padding: 14px 18px 4px;
+}
+
+/* Vùng cuộn DUY NHẤT của bill: danh sách ảnh phòng đã chọn, và chỉ khi khách
+   chọn từ 2 hạng phòng trở lên. Chiều cao co theo màn hình để tổng tiền, chính
+   sách và nút xác nhận luôn còn chỗ hiển thị. */
+.selected-rooms-scroll-list.has-multiple-rooms {
+  max-height: clamp(180px, 26vh, 300px);
+  overflow-y: auto;
+  padding-right: 12px;
+  border-bottom: 1px dashed #eadfd3;
+  margin-bottom: 10px;
+}
+
+.selected-rooms-scroll-list.has-multiple-rooms::-webkit-scrollbar {
+  width: 5px;
+}
+
+.selected-rooms-scroll-list.has-multiple-rooms::-webkit-scrollbar-track {
+  background: #fdf8f4;
+}
+
+.selected-rooms-scroll-list.has-multiple-rooms::-webkit-scrollbar-thumb {
+  background: #d8c2ad;
+  border-radius: 4px;
+}
+
+.selected-rooms-scroll-list.has-multiple-rooms::-webkit-scrollbar-thumb:hover {
+  background: #ab8965;
+}
+
+.booking-summary-fixed-details {
+  padding: 0 18px 14px;
 }
 
 .selected-room {
   display: flex;
-  gap: 16px;
-  margin-bottom: 24px;
-  padding-bottom: 24px;
-  border-bottom: 1px solid #eee;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #eee3d9;
 }
 
 .selected-room img {
-  width: 100px;
-  height: 80px;
+  width: 76px;
+  height: 60px;
   object-fit: cover;
-  border-radius: 10px;
+  border-radius: 8px;
+}
+
+.selected-extra-room {
+  margin-top: -4px;
+}
+
+.selected-extra-room .room-summary-info {
+  min-width: 0;
 }
 
 .room-summary-info h4 {
   font-size: 16px;
-  color: #333;
+  color: #3d2c20;
   margin-bottom: 8px;
 }
 
 .room-summary-heading {
   display: flex;
-  align-items: flex-start;
+  align-items: baseline;
   justify-content: space-between;
   gap: 10px;
   margin-bottom: 8px;
@@ -488,6 +347,24 @@
   margin: 0;
   line-height: 1.35;
 }
+
+/* Giá niêm yết nằm cùng hàng với tên hạng phòng nhưng dồn về mép phải, để đơn
+   nhiều hạng biết ngay giá nào của hạng nào mà không phải dò xuống phần tổng. */
+.room-summary-heading-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.room-summary-price {
+  font-size: 14px;
+  font-weight: 700;
+  color: #a98561;
+  white-space: nowrap;
+}
+
 
 .room-status-badge {
   flex-shrink: 0;
@@ -526,9 +403,9 @@
 }
 
 .room-summary-info p {
-  color: #666;
+  color: #75675b;
   font-size: 13px;
-  margin-bottom: 4px;
+  margin: 0 0 3px;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -538,30 +415,36 @@
   color: #ab8965;
 }
 
+.room-summary-info .room-summary-meta {
+  color: #ab8965;
+  font-weight: 700;
+}
+
 .summary-details {
-  margin-bottom: 24px;
+  margin-bottom: 16px;
 }
 
 .summary-row {
   display: flex;
   justify-content: space-between;
-  padding: 12px 0;
-  border-bottom: 1px solid #f5f5f5;
-  font-size: 15px;
-  color: #666;
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid #f3ebe3;
+  font-size: 14px;
+  color: #6c5d50;
 }
 
 .summary-row.total {
   border-bottom: none;
-  padding-top: 16px;
+  padding-top: 13px;
   margin-top: 8px;
-  border-top: 2px solid #eee;
+  border-top: 2px solid #ead9c6;
 }
 
 .summary-row.total span {
   font-weight: 700;
-  color: #333;
-  font-size: 18px;
+  color: #3a291d;
+  font-size: 16px;
 }
 
 .total-price {
@@ -569,10 +452,11 @@
 }
 
 .booking-policies {
-  background: #f9f9f9;
-  padding: 20px;
+  background: #fcf6ef;
+  padding: 13px 14px;
   border-radius: 12px;
-  margin-bottom: 24px;
+  margin-bottom: 16px;
+  border: 1px solid #efdfcf;
 }
 
 .room-unavailable-note {
@@ -596,12 +480,6 @@
   line-height: 1.5;
 }
 
-.date-availability-note.available {
-  color: #047857;
-  background: #ecfdf3;
-  border: 1px solid #abefc6;
-}
-
 .date-availability-note.unavailable {
   color: #b42318;
   background: #fff4f3;
@@ -615,9 +493,9 @@
 }
 
 .booking-policies h4 {
-  font-size: 15px;
-  color: #333;
-  margin-bottom: 12px;
+  font-size: 13px;
+  color: #634429;
+  margin-bottom: 8px;
 }
 
 .booking-policies ul {
@@ -629,14 +507,14 @@
 .booking-policies li {
   display: flex;
   align-items: center;
-  gap: 10px;
-  font-size: 13px;
-  color: #666;
-  margin-bottom: 8px;
+  gap: 7px;
+  font-size: 12px;
+  color: #705f51;
+  margin-bottom: 5px;
 }
 
 .booking-policies li i {
-  color: #4caf50;
+  color: #ab8965;
   font-size: 12px;
 }
 
@@ -665,16 +543,18 @@
 }
 
 .btn-confirm-booking {
+  flex-shrink: 0;
   width: 100%;
-  padding: 16px;
+  padding: 14px 20px 16px;
   background: linear-gradient(135deg, #ab8965 0%, #9a7a5a 100%);
   color: #fff;
   border: none;
-  border-radius: 12px;
-  font-size: 17px;
+  border-top: 1px solid #ead9c6;
+  border-radius: 0;
+  font-size: 16px;
   font-weight: 600;
   cursor: pointer;
-  box-shadow: 0 4px 15px rgba(171, 137, 101, 0.35);
+  box-shadow: 0 -7px 18px rgba(98, 67, 40, 0.1);
 }
 
 .btn-confirm-booking:hover:not(:disabled) {
@@ -687,16 +567,6 @@
 }
 
 @media (max-width: 900px) {
-  .history-panel-header,
-  .history-empty {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .history-card-grid {
-    grid-template-columns: 1fr;
-  }
-
   .booking-form-wrapper {
     grid-template-columns: 1fr;
   }
@@ -705,21 +575,98 @@
     position: static;
   }
 
+  .booking-summary {
+    position: static;
+  }
+
+  .btn-confirm-booking {
+    border-radius: 0;
+  }
+
   .form-row.two-col {
     grid-template-columns: 1fr;
   }
 
-  .multi-room-header,
-  .multi-room-result-item {
+  .stay-guests-heading,
+  .configuration-card-heading {
+    align-items: flex-start;
     flex-direction: column;
   }
 
-  .multi-room-row {
+  .stay-guests-heading {
+    padding: 22px 18px;
+  }
+
+  .stay-dates-card,
+  .guest-configuration-card,
+  .room-selection-card,
+  .add-room-type-btn-wrap,
+  .extra-rooms-stay-note {
+    margin-right: 18px;
+    margin-left: 18px;
+    padding: 18px;
+  }
+
+  .booking-section:not(.stay-guests-section) h2 {
+    margin: -26px -26px 20px;
+    padding-right: 24px;
+    padding-left: 40px;
+  }
+
+  .booking-section:not(.stay-guests-section) h2::before {
+    left: 24px;
+  }
+
+  .child-age-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 520px) {
+  .booking-page {
+    padding-top: 92px;
+  }
+
+  .booking-hero {
+    height: 220px;
+  }
+
+  .booking-hero-content h1 {
+    font-size: 32px;
+  }
+
+  .booking-container {
+    padding: 24px 14px 40px;
+  }
+
+  .booking-section {
+    padding: 20px;
+  }
+
+  .stay-dates-card,
+  .guest-configuration-card,
+  .room-selection-card,
+  .add-room-type-btn-wrap,
+  .extra-rooms-stay-note {
+    margin-right: 12px;
+    margin-left: 12px;
+    padding: 14px;
+  }
+
+  .room-policy-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+
+  .child-age-grid {
     grid-template-columns: 1fr;
   }
 
-  .multi-room-result-item em {
-    text-align: left;
+  .secondary-options-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
   }
 }
 
@@ -771,4 +718,478 @@
   font-size: 13px;
   color: #8a8a8a;
   font-style: italic;
+}
+
+/* Khối cho khách đặt tên gợi nhớ cho từng phòng khi đơn có nhiều phòng. */
+.room-naming-block {
+  margin-bottom: 22px;
+}
+
+.room-naming-hint {
+  display: block;
+  margin: 2px 0 10px;
+  font-size: 13px;
+  color: #8a8a8a;
+}
+
+.room-naming-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.room-naming-row {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  align-items: center;
+  gap: 12px;
+}
+
+.room-naming-index {
+  display: flex;
+  flex-direction: column;
+  font-size: 14px;
+  font-weight: 600;
+  color: #2f2924;
+}
+
+.room-naming-index em {
+  font-size: 12px;
+  font-weight: 400;
+  font-style: normal;
+  color: #8a8a8a;
+}
+
+@media (max-width: 640px) {
+  .room-naming-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+}
+
+.room-selection-grid {
+  margin: 0 0 18px;
+  gap: 16px;
+}
+
+.room-quantity-row {
+  display: flex;
+  align-items: stretch;
+  width: fit-content;
+  height: 40px;
+  overflow: hidden;
+  border: 1px solid #d9d9d9;
+  border-radius: 8px;
+  background: #fff;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.room-quantity-row:hover {
+  border-color: #b39371;
+}
+
+.quantity-stepper-button {
+  width: 38px;
+  border: 0;
+  color: #334155;
+  background: #f8fafc;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.quantity-stepper-button:hover:not(:disabled) {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.quantity-stepper-button:disabled {
+  color: #cbd5e1;
+  background: #f8fafc;
+  cursor: not-allowed;
+}
+
+.room-quantity-input {
+  width: 44px !important;
+  height: 100% !important;
+}
+
+.room-quantity-input .ant-input-number-input {
+  height: 38px;
+  padding: 0 2px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #1e293b;
+  text-align: center;
+}
+
+.room-quantity-input.ant-input-number {
+  border: 0;
+  border-left: 1px solid #f1f5f9;
+  border-radius: 0;
+  background: #fff;
+  box-shadow: none !important;
+}
+
+.room-quantity-unit {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 10px 0 2px;
+  color: #64748b;
+  font-size: 14px;
+  font-weight: 500;
+  background: #fff;
+  border-right: 1px solid #f1f5f9;
+}
+
+.room-availability-helper,
+.suggested-q-tag {
+  display: block;
+  margin-top: 7px;
+  color: #7d6c5e;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.suggested-q-tag {
+  color: #92400e;
+  font-weight: 700;
+}
+
+.child-age-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px 16px;
+  margin: 0 0 18px;
+}
+
+.child-age-grid .service-request-note {
+  grid-column: 1 / -1;
+  width: auto !important;
+  margin: 0;
+}
+
+.secondary-time-options {
+  padding-top: 16px;
+  border-top: 1px dashed #dfd6cc;
+}
+
+.secondary-options-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.secondary-options-heading span {
+  color: #513c2b;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.secondary-options-heading small,
+.secondary-options-note {
+  color: #8b7d70;
+  font-size: 12px;
+}
+
+.secondary-options-note {
+  margin: -8px 0 0;
+  line-height: 1.45;
+}
+
+.capacity-alert-wrapper {
+  margin-top: 14px;
+}
+
+.capacity-alert-box {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  line-height: 1.5;
+  font-size: 13px;
+}
+
+.capacity-alert-box.danger {
+  color: #b42318;
+  background: #fff4f3;
+  border: 1px solid #ffd0cc;
+}
+
+.capacity-alert-box.danger strong {
+  display: block;
+  color: #b42318;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+
+.capacity-alert-box.warning {
+  color: #92400e;
+  background: #fff7d6;
+  border: 1px solid #fde68a;
+}
+
+.capacity-alert-box.warning strong {
+  display: block;
+  color: #92400e;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+
+.capacity-alert-box p {
+  margin: 0;
+}
+
+.stay-guests-section > .guest-configuration-card:last-child {
+  margin-bottom: 30px;
+}
+
+.capacity-preview-box {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  background: #faf8f5;
+  border: 1px solid #eee4d9;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Nằm cùng hàng với số khách nên không còn margin-bottom, tránh lệch trục dọc
+   so với giá trị bên phải. */
+.capacity-preview-title {
+  color: #3d2c20;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.capacity-spec-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  color: #475467;
+}
+
+.capacity-spec-row .spec-label {
+  font-weight: 500;
+}
+
+.capacity-spec-row .spec-val {
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.capacity-spec-row.extra .spec-val.highlight {
+  color: #a65a1e;
+}
+
+.extra-fee-box {
+  margin-top: 6px;
+  padding: 10px;
+  border: 1px solid #ecd8c3;
+  border-radius: 8px;
+  background: #fffaf5;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.extra-fee-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #7b4f2a;
+}
+
+.extra-fee-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 1px 10px;
+  font-size: 12px;
+  color: #334155;
+}
+
+.extra-fee-item small {
+  grid-column: 1 / 2;
+  color: #7e7166;
+}
+
+.extra-fee-item strong {
+  grid-column: 2;
+  grid-row: 1 / 3;
+  align-self: center;
+}
+
+.extra-fee-item strong {
+  color: #8b4d21;
+}
+
+.extra-fee-total {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid #e2e8f0;
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 700;
+  color: #7b4f2a;
+}
+
+.summary-row.extra-row span {
+  color: #b42318;
+  font-weight: 600;
+}
+
+.specific-room-notice {
+  margin-top: 16px;
+  padding: 12px 14px;
+  background: #f1f5f9;
+  border-radius: 10px;
+  font-size: 13px;
+  color: #475467;
+}
+
+.specific-room-notice p {
+  margin: 0;
+}
+
+/* Unified room selection cards */
+.room-cards-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: 540px;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.room-cards-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.room-cards-list::-webkit-scrollbar-track {
+  background: #f7f3ee;
+  border-radius: 6px;
+}
+
+.room-cards-list::-webkit-scrollbar-thumb {
+  background: #cbb49f;
+  border-radius: 6px;
+}
+
+.room-cards-list::-webkit-scrollbar-thumb:hover {
+  background: #ab8965;
+}
+
+.room-selection-card {
+  margin: 10px 10px 0;
+  padding: 20px 22px;
+  border: 1px solid #ece7e1;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 4px 14px rgba(74, 51, 32, 0.03);
+}
+
+.room-card-title-wrap {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.room-card-title {
+  color: #3f3024;
+  font-size: 16px;
+  font-weight: 750;
+}
+
+.room-card-subtitle {
+  color: #84776a;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.btn-remove-room-card {
+  color: #cf1322 !important;
+  font-weight: 600 !important;
+  font-size: 13px !important;
+  padding: 0 !important;
+  height: auto !important;
+}
+
+.btn-remove-room-card:hover {
+  color: #a8071a !important;
+}
+
+.room-card-policy-box {
+  margin-top: 16px;
+  padding: 12px 16px;
+  background: #faf7f2;
+  border: 1px solid #ede3d8;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.room-policy-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  color: #513c2b;
+}
+
+.room-policy-label {
+  font-weight: 600;
+  color: #6d5845;
+}
+
+.room-policy-val {
+  font-weight: 700;
+  color: #2e2118;
+}
+
+.room-policy-children-note {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px dashed #e4d8cc;
+  font-size: 12px;
+  color: #84776a;
+  line-height: 1.45;
+}
+
+.add-room-type-btn-wrap {
+  margin: 18px 30px 0;
+}
+
+.btn-add-room-type {
+  height: 44px;
+  font-weight: 600;
+  color: #845b36;
+  border-color: #d8c2aa;
+  border-radius: 10px;
+}
+
+.btn-add-room-type:hover {
+  color: #5c3c21 !important;
+  border-color: #845b36 !important;
+  background: #faf5ef !important;
+}
+
+.extra-rooms-stay-note {
+  margin: 10px 30px 0;
+  font-size: 13px;
+  color: #64748b;
+  line-height: 1.45;
+}
+
+.section-subtitle-note {
+  margin: -14px 0 18px;
+  font-size: 13px;
+  color: #756a60;
+  line-height: 1.4;
 }

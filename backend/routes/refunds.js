@@ -16,6 +16,7 @@ const logRefundHistory = async (connection, bookingId, action, description, amou
       {
         action,
         description,
+        entityType: 'payment',
         amount,
         actorId: user?.userId || null,
         actorName: actorName || user?.email || null,
@@ -35,13 +36,29 @@ const REFUND_SELECT = `
     COALESCE(b.guest_name, c.fullName, a.email) AS customer_name,
     a.email AS customer_email,
     COALESCE(c.phone, a.phone) AS customer_phone,
-    rm.roomNumber AS room_number
+    COALESCE(room_info.room_type_details, CONCAT(COALESCE(rm_fallback.roomNumber, '—'), ' · ', COALESCE(rt_fallback.typeName, 'Phòng'))) AS room_type_details,
+    COALESCE(room_info.room_numbers, rm_fallback.roomNumber) AS room_number
   FROM payment_refunds r
   JOIN bookings b ON b.id = r.bookingId
   LEFT JOIN customers c ON c.id = b.customerId
   LEFT JOIN accounts a ON a.id = c.accountId
-  LEFT JOIN booking_details bd ON bd.bookingId = b.id
-  LEFT JOIN rooms rm ON rm.id = bd.roomId
+  LEFT JOIN (
+    SELECT
+      bd.bookingId,
+      GROUP_CONCAT(
+        DISTINCT CONCAT(COALESCE(rm.roomNumber, '—'), ' · ', COALESCE(rt.typeName, 'Phòng'))
+        ORDER BY rm.roomNumber
+        SEPARATOR '\n'
+      ) AS room_type_details,
+      GROUP_CONCAT(DISTINCT rm.roomNumber ORDER BY rm.roomNumber SEPARATOR ', ') AS room_numbers
+    FROM booking_details bd
+    LEFT JOIN rooms rm ON rm.id = bd.roomId
+    LEFT JOIN room_types rt ON rt.id = COALESCE(bd.roomTypeId, rm.roomTypeId)
+    WHERE rm.roomNumber IS NOT NULL
+    GROUP BY bd.bookingId
+  ) room_info ON room_info.bookingId = b.id
+  LEFT JOIN rooms rm_fallback ON rm_fallback.id = b.room_id
+  LEFT JOIN room_types rt_fallback ON rt_fallback.id = rm_fallback.roomTypeId
 `;
 
 const requireStaff = (req, res, next) => {

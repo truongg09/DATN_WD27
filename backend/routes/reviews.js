@@ -1,8 +1,17 @@
 const express = require("express");
 const db = require("../config/db");
-const { optionalAuth, requireAuth } = require("../middleware/auth");
+const { optionalAuth, requireAuth, isStaff } = require("../middleware/auth");
 
 const router = express.Router();
+
+// Tra mã khách hàng từ tài khoản đang đăng nhập. Dùng để chỉ cho phép thao tác
+// trên đánh giá của chính mình, thay vì tin vào customerId do client gửi lên.
+const getCustomerIdOfCurrentUser = async (req) => {
+  const [rows] = await db.query("SELECT id FROM customers WHERE accountId = ?", [
+    req.user?.userId,
+  ]);
+  return rows.length > 0 ? Number(rows[0].id) : null;
+};
 
 // Chặn mọi request không phải admin/staff cho các thao tác quản trị
 // (duyệt/từ chối, ẩn/hiện, phản hồi, xóa phản hồi, xóa review vĩnh viễn).
@@ -28,7 +37,7 @@ function requireAdmin(req, res, next) {
 //   - hidden   : bị admin/staff ẩn hoặc từ chối duyệt (KHÔNG hiển thị công khai)
 // -----------------------------------------------------------------------
 
-const VALID_STATUSES = ["pending", "approved", "hidden"];
+const VALID_STATUSES = ["approved", "hidden", "pending"];
 
 function isPrivilegedRequester(req) {
   const role = req.user?.role;
@@ -38,7 +47,7 @@ function isPrivilegedRequester(req) {
 // Get all reviews with customer name and booking details
 // Query params hỗ trợ:
 //   bookingIds=1,2,3   lọc theo danh sách bookingId
-//   status=pending|approved|hidden   lọc theo trạng thái kiểm duyệt (CHỈ admin/staff mới được dùng)
+//   status=approved|hidden   lọc theo trạng thái kiểm duyệt (CHỈ admin/staff mới được dùng)
 //   rating=1..5        lọc theo số sao
 //   keyword=...        tìm theo tên khách hoặc nội dung bình luận
 router.get("/", optionalAuth, async (req, res) => {
@@ -61,17 +70,35 @@ router.get("/", optionalAuth, async (req, res) => {
         r.createdAt,
         COALESCE(c.fullName, a.email) AS customerName,
         bk.status AS bookingStatus,
-        COALESCE(bd.roomId, bk.room_id) AS roomId,
-        rm.roomNumber,
-        rm.roomTypeId,
-        rt.typeName AS roomTypeName
+        COALESCE(room_info.primary_room_id, bk.room_id) AS roomId,
+        COALESCE(room_info.room_numbers, rm_fallback.roomNumber) AS roomNumber,
+        COALESCE(room_info.primary_room_type_id, rm_fallback.roomTypeId) AS roomTypeId,
+        COALESCE(room_info.room_type_names, rt_fallback.typeName) AS roomTypeName,
+        COALESCE(room_info.room_type_details, CONCAT(COALESCE(rm_fallback.roomNumber, '—'), ' · ', COALESCE(rt_fallback.typeName, 'Phòng'))) AS roomTypeDetails
       FROM reviews r
       LEFT JOIN customers c ON r.customerId = c.id
       LEFT JOIN accounts a ON c.accountId = a.id
       LEFT JOIN bookings bk ON r.bookingId = bk.id
-      LEFT JOIN booking_details bd ON bd.bookingId = bk.id
-      LEFT JOIN rooms rm ON COALESCE(bd.roomId, bk.room_id) = rm.id
-      LEFT JOIN room_types rt ON rm.roomTypeId = rt.id
+      LEFT JOIN (
+        SELECT
+          bd.bookingId,
+          MIN(bd.roomId) AS primary_room_id,
+          MIN(COALESCE(bd.roomTypeId, rm.roomTypeId)) AS primary_room_type_id,
+          GROUP_CONCAT(DISTINCT rm.roomNumber ORDER BY rm.roomNumber SEPARATOR ', ') AS room_numbers,
+          GROUP_CONCAT(DISTINCT rt.typeName ORDER BY rt.typeName SEPARATOR ', ') AS room_type_names,
+          GROUP_CONCAT(
+            DISTINCT CONCAT(COALESCE(rm.roomNumber, '—'), ' · ', COALESCE(rt.typeName, 'Phòng'))
+            ORDER BY rm.roomNumber
+            SEPARATOR '\n'
+          ) AS room_type_details
+        FROM booking_details bd
+        LEFT JOIN rooms rm ON rm.id = bd.roomId
+        LEFT JOIN room_types rt ON rt.id = COALESCE(bd.roomTypeId, rm.roomTypeId)
+        WHERE rm.roomNumber IS NOT NULL
+        GROUP BY bd.bookingId
+      ) room_info ON room_info.bookingId = bk.id
+      LEFT JOIN rooms rm_fallback ON rm_fallback.id = bk.room_id
+      LEFT JOIN room_types rt_fallback ON rt_fallback.id = rm_fallback.roomTypeId
     `;
     const conditions = [];
     const params = [];
@@ -88,16 +115,6 @@ router.get("/", optionalAuth, async (req, res) => {
       }
     }
 
-    // === ĐIỂM SỬA QUAN TRỌNG ===
-    // Trước đây: chỉ lọc status khi client TỰ truyền query param status,
-    // nên nếu trang khách hàng quên truyền status=approved thì review đã
-    // ẩn vẫn lọt ra ngoài. Giờ ép cứng ở server theo 3 trường hợp:
-    //   - admin/staff        => được phép lọc theo status tuỳ ý (pending/approved/hidden),
-    //     hoặc xem tất cả (bao gồm cả pending) nếu không truyền status.
-    //   - khách đã đăng nhập => thấy review approved của MỌI người, CỘNG THÊM
-    //     review của CHÍNH MÌNH dù đang pending/hidden (để họ còn xem/sửa lại được,
-    //     không bị lỗi "đặt phòng đã được đánh giá" khi review cũ chưa duyệt/đang ẩn).
-    //   - khách vãng lai (chưa đăng nhập) => chỉ thấy status = 'approved'.
     if (privileged) {
       if (status && VALID_STATUSES.includes(status)) {
         conditions.push("r.status = ?");
@@ -125,9 +142,7 @@ router.get("/", optionalAuth, async (req, res) => {
       query += " WHERE " + conditions.join(" AND ");
     }
 
-    // Ưu tiên hiển thị review đang "pending" lên trên cùng để admin/staff
-    // xử lý trước, các review còn lại sắp theo ngày tạo mới nhất.
-    query += " ORDER BY FIELD(r.status, 'pending', 'approved', 'hidden'), r.createdAt DESC";
+    query += " ORDER BY r.createdAt DESC";
 
     const [reviews] = await db.query(query, params);
 
@@ -151,6 +166,19 @@ router.get("/", optionalAuth, async (req, res) => {
     res
       .status(500)
       .json({ message: "Internal server error", error: error.message });
+  }
+});
+
+// Đếm số lượng đánh giá đang chờ duyệt (pending) cho badge thông báo admin
+router.get("/pending-count", requireAuth, requireAdmin, async (_req, res) => {
+  try {
+    const [[row]] = await db.query(
+      "SELECT COUNT(*) AS count FROM reviews WHERE status = 'pending'"
+    );
+    res.json({ data: { pendingCount: Number(row?.count || 0) } });
+  } catch (error) {
+    console.error("Get pending reviews count error:", error);
+    res.status(500).json({ message: "Lỗi máy chủ nội bộ" });
   }
 });
 
@@ -184,9 +212,9 @@ router.get("/booking/:bookingId", async (req, res) => {
 // Create a review
 // Đánh giá mới luôn ở trạng thái "pending" (chờ duyệt) - KHÔNG hiển thị công
 // khai ngay. Admin/staff phải duyệt (PATCH /:id/status) thì mới hiển thị.
-router.post("/", async (req, res) => {
+router.post("/", requireAuth, async (req, res) => {
   try {
-    const { bookingId, customerId, rating, comment, images } = req.body;
+    const { bookingId, rating, comment, images } = req.body;
 
     if (!bookingId || !rating) {
       return res
@@ -216,6 +244,17 @@ router.post("/", async (req, res) => {
 
     const booking = bookings[0];
 
+    // Chỉ chủ đơn mới được đánh giá. Trước đây customerId lấy thẳng từ body nên
+    // ai cũng gửi được đánh giá đứng tên khách khác.
+    if (!isStaff(req.user)) {
+      const currentCustomerId = await getCustomerIdOfCurrentUser(req);
+      if (!currentCustomerId || currentCustomerId !== Number(booking.customerId)) {
+        return res
+          .status(403)
+          .json({ message: "Bạn chỉ có thể đánh giá đơn đặt phòng của mình" });
+      }
+    }
+
     if (booking.status !== "checked_out") {
       return res
         .status(400)
@@ -233,24 +272,24 @@ router.post("/", async (req, res) => {
         .json({ message: "Đặt phòng này đã được đánh giá" });
     }
 
-    const reviewCustomerId = customerId || booking.customerId;
+    const reviewCustomerId = booking.customerId;
     const imagesJson =
       Array.isArray(images) && images.length > 0 ? JSON.stringify(images) : null;
 
     const [result] = await db.query(
       `
       INSERT INTO reviews (bookingId, customerId, rating, comment, status, images, createdAt)
-      VALUES (?, ?, ?, ?, 'pending', ?, NOW())
+      VALUES (?, ?, ?, ?, 'approved', ?, NOW())
     `,
       [bookingId, reviewCustomerId, rating, comment || "", imagesJson],
     );
 
     res.status(201).json({
-      message: "Gửi đánh giá thành công, đánh giá của bạn đang chờ duyệt",
+      message: "Gửi đánh giá thành công",
       data: {
         id: result.insertId,
         bookingId: booking.id,
-        status: "pending",
+        status: "approved",
         roomId: booking.roomId,
         roomNumber: booking.roomNumber,
         roomTypeId: booking.roomTypeId,
@@ -266,7 +305,7 @@ router.post("/", async (req, res) => {
 });
 
 // Update a review (nội dung/rating - dùng cho khách chỉnh sửa review của họ)
-router.put("/:id", async (req, res) => {
+router.put("/:id", requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
     const { rating, comment, images } = req.body;
@@ -275,15 +314,23 @@ router.put("/:id", async (req, res) => {
       return res.status(400).json({ message: "Rating phải từ 1 đến 5" });
     }
 
-    // Lấy đầy đủ thông tin review cũ để so sánh (không chỉ id như trước)
     const [existingRows] = await db.query(
-      "SELECT id, status, rating, comment, images FROM reviews WHERE id = ?",
+      "SELECT id, customerId, status, rating, comment, images FROM reviews WHERE id = ?",
       [id],
     );
     if (existingRows.length === 0) {
       return res.status(404).json({ message: "Không tìm thấy đánh giá" });
     }
     const existing = existingRows[0];
+
+    if (!isStaff(req.user)) {
+      const currentCustomerId = await getCustomerIdOfCurrentUser(req);
+      if (!currentCustomerId || currentCustomerId !== Number(existing.customerId)) {
+        return res
+          .status(403)
+          .json({ message: "Bạn chỉ có thể sửa đánh giá của mình" });
+      }
+    }
 
     let existingImages = [];
     if (existing.images) {
@@ -297,36 +344,12 @@ router.put("/:id", async (req, res) => {
     const imagesProvided = images !== undefined;
     const newImages = imagesProvided && Array.isArray(images) ? images : existingImages;
 
-    // Nếu review đang bị ẩn/từ chối, chặn submit nếu nội dung mới giống hệt nội dung cũ
-    // (tránh khách gửi lại y nguyên nội dung vi phạm để "spam" chờ admin duyệt)
-    const newRating = rating !== undefined ? Number(rating) : existing.rating;
-    const newComment = (comment ?? existing.comment ?? "").trim().toLowerCase();
-    const oldComment = (existing.comment ?? "").trim().toLowerCase();
-    const imagesChanged =
-      imagesProvided && JSON.stringify([...newImages].sort()) !== JSON.stringify([...existingImages].sort());
-    const contentChanged = newRating !== existing.rating || newComment !== oldComment || imagesChanged;
-
-    if (existing.status === "hidden" && !contentChanged) {
-      return res.status(400).json({
-        message: "Nội dung chưa thay đổi, vui lòng chỉnh sửa trước khi gửi lại",
-      });
-    }
-
-    // Nếu khách sửa lại nội dung của 1 review đã bị từ chối/ẩn -> đưa review
-    // về trạng thái "pending" để admin/staff duyệt lại, đồng thời xoá lý do ẩn cũ.
-    const shouldResendForReview = existing.status === "hidden" && contentChanged;
-
     const setClauses = ["rating = COALESCE(?, rating)", "comment = COALESCE(?, comment)"];
     const params = [rating ?? null, comment ?? null];
 
     if (imagesProvided) {
       setClauses.push("images = ?");
       params.push(Array.isArray(images) && images.length > 0 ? JSON.stringify(images) : null);
-    }
-
-    if (shouldResendForReview) {
-      setClauses.push("status = ?", "hideReason = NULL");
-      params.push("pending");
     }
 
     params.push(id);
@@ -337,10 +360,8 @@ router.put("/:id", async (req, res) => {
     );
 
     res.json({
-      message: shouldResendForReview
-        ? "Cập nhật đánh giá thành công, đánh giá đang chờ duyệt lại"
-        : "Cập nhật đánh giá thành công",
-      data: { resentForReview: shouldResendForReview },
+      message: "Cập nhật đánh giá thành công",
+      data: { resentForReview: false },
     });
   } catch (error) {
     console.error("Update review error:", error);
@@ -361,27 +382,19 @@ async function notifyCustomerOfReview(reviewId, title, content) {
       [reviewId],
     );
     const accountId = rows[0]?.accountId;
-    if (!accountId) return; // không xác định được tài khoản -> bỏ qua, không chặn luồng chính
+    if (!accountId) return;
 
     await db.query(
       "INSERT INTO notifications (accountId, title, content, isRead, createdAt) VALUES (?, ?, ?, 0, NOW())",
       [accountId, title, content],
     );
   } catch (err) {
-    // Lỗi gửi thông báo không nên làm fail cả request chính
     console.error("Notify customer error:", err);
   }
 }
 
-// Duyệt / Từ chối / Ẩn đánh giá - admin dùng thay cho xóa vĩnh viễn
+// Ẩn / Hiển thị lại đánh giá
 // Body: { status: 'approved' | 'hidden', reason?: string }
-// `reason` chỉ áp dụng khi status = 'hidden', dùng để lưu lý do và báo cho khách.
-//
-// Endpoint này xử lý CẢ 3 tình huống nghiệp vụ dựa trên trạng thái TRƯỚC ĐÓ:
-//   - pending  -> approved : DUYỆT đánh giá lần đầu
-//   - pending  -> hidden   : TỪ CHỐI đánh giá (không đạt yêu cầu nội dung)
-//   - approved -> hidden   : ẨN đánh giá đang hiển thị (vi phạm/khiếu nại)
-//   - hidden   -> approved : HIỂN THỊ LẠI đánh giá đã từng bị ẩn/từ chối
 router.patch("/:id/status", requireAuth, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
@@ -398,7 +411,6 @@ router.patch("/:id/status", requireAuth, requireAdmin, async (req, res) => {
       return res.status(404).json({ message: "Không tìm thấy đánh giá" });
     }
 
-    const wasPending = existing[0].status === "pending";
     const hideReason = status === "hidden" ? (reason ? String(reason).trim() : null) : null;
 
     await db.query(
@@ -406,30 +418,20 @@ router.patch("/:id/status", requireAuth, requireAdmin, async (req, res) => {
       [status, hideReason, id],
     );
 
-    // === Thông báo cho khách hàng khi trạng thái thay đổi ===
+    // Thông báo cho khách hàng khi trạng thái thay đổi
     if (status === "hidden") {
-      const title = wasPending
-        ? "Đánh giá của bạn đã bị từ chối"
-        : "Đánh giá của bạn đã bị ẩn";
-      const content = wasPending
-        ? hideReason
-          ? `Đánh giá bạn gửi chưa được duyệt. Lý do: ${hideReason}`
-          : "Đánh giá bạn gửi chưa được duyệt vì không đáp ứng quy định nội dung. Bạn có thể chỉnh sửa và gửi lại."
-        : hideReason
-          ? `Đánh giá bạn gửi đã bị quản trị viên ẩn khỏi trang công khai. Lý do: ${hideReason}`
-          : "Đánh giá bạn gửi đã bị quản trị viên ẩn khỏi trang công khai vì vi phạm quy định nội dung.";
+      const title = "Đánh giá của bạn đã bị ẩn";
+      const content = hideReason
+        ? `Đánh giá bạn gửi đã bị quản trị viên ẩn khỏi trang công khai. Lý do: ${hideReason}`
+        : "Đánh giá bạn gửi đã bị quản trị viên ẩn khỏi trang công khai vì vi phạm quy định nội dung.";
       await notifyCustomerOfReview(id, title, content);
     } else {
-      const title = wasPending
-        ? "Đánh giá của bạn đã được duyệt"
-        : "Đánh giá của bạn đã được hiển thị lại";
-      const content = wasPending
-        ? "Đánh giá bạn gửi đã được duyệt và hiển thị công khai trên trang khách sạn."
-        : "Đánh giá bạn gửi đã được hiển thị công khai trở lại.";
+      const title = "Đánh giá của bạn đã được hiển thị lại";
+      const content = "Đánh giá bạn gửi đã được hiển thị công khai trở lại.";
       await notifyCustomerOfReview(id, title, content);
     }
 
-    res.json({ message: "Cập nhật trạng thái thành công" });
+    res.json({ message: status === "hidden" ? "Đã ẩn đánh giá" : "Đã hiển thị lại đánh giá" });
   } catch (error) {
     console.error("Update review status error:", error);
     res
@@ -490,18 +492,11 @@ router.delete("/:id/reply", requireAuth, requireAdmin, async (req, res) => {
   }
 });
 
-// Delete a review (xóa vĩnh viễn - nên hạn chế dùng, ưu tiên PATCH status='hidden')
+// Block xóa đánh giá đối với admin/staff
 router.delete("/:id", requireAuth, requireAdmin, async (req, res) => {
-  try {
-    const { id } = req.params;
-    await db.query("DELETE FROM reviews WHERE id = ?", [id]);
-    res.json({ message: "Xóa đánh giá thành công" });
-  } catch (error) {
-    console.error("Delete review error:", error);
-    res
-      .status(500)
-      .json({ message: "Internal server error", error: error.message });
-  }
+  return res.status(403).json({
+    message: "Không được phép xóa đánh giá. Vui lòng sử dụng tính năng Ẩn đánh giá."
+  });
 });
 
 module.exports = router;

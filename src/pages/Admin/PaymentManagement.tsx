@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useUrlTab } from '../../hooks/useUrlTab';
 import {
   Table,
   Tag,
@@ -13,6 +14,7 @@ import {
   Tabs,
   Badge,
   Input,
+  Tooltip,
 } from 'antd';
 import {
   ReloadOutlined,
@@ -37,6 +39,7 @@ import {
   rejectWithdrawal,
   type WalletTransaction,
 } from '../../services/walletService';
+import api from '../../services/api';
 import { unwrapList } from '../../utils/unwrapList';
 import type { Payment } from '../../types/payment';
 
@@ -69,6 +72,7 @@ const methodLabels: Record<string, string> = {
   zalopay: 'ZaloPay',
   vnpay: 'VNPay',
   bank_transfer: 'Chuyển khoản QR',
+  wallet: 'Ví số dư HotelHub',
 };
 
 const refundStatusMap: Record<string, { label: string; color: string }> = {
@@ -77,7 +81,58 @@ const refundStatusMap: Record<string, { label: string; color: string }> = {
   rejected: { label: 'Đã từ chối', color: 'red' },
 };
 
+const PAYMENT_TABS = ['payments', 'refunds', 'withdrawals'] as const;
+
+/** Ba loại việc chờ của trang này, lấy từ cùng nguồn với chấm đỏ ở menu trái. */
+interface PaymentPendingCounts {
+  pendingTransferConfirmations: number;
+  pendingRefunds: number;
+  pendingWithdrawals: number;
+}
+
+const EMPTY_PENDING: PaymentPendingCounts = {
+  pendingTransferConfirmations: 0,
+  pendingRefunds: 0,
+  pendingWithdrawals: 0,
+};
+
 function PaymentManagement() {
+  // Giữ tab trên URL: duyệt xong một phiếu hoàn tiền rồi F5 vẫn ở tab hoàn tiền.
+  const [activeTab, setActiveTab] = useUrlTab('tab', PAYMENT_TABS, 'payments');
+
+  // Chấm đỏ trên nhãn tab phải đọc từ /dashboard/pending-counts chứ không đếm
+  // từ danh sách đang hiển thị: danh sách chịu ảnh hưởng của bộ lọc, nên lễ tân
+  // đổi sang xem "Đã duyệt" là chấm đỏ biến mất dù việc chờ vẫn còn nguyên.
+  // Menu trái cũng dùng đúng nguồn này nên hai chỗ luôn khớp số.
+  const [pendingCounts, setPendingCounts] = useState<PaymentPendingCounts>(EMPTY_PENDING);
+
+  useEffect(() => {
+    let alive = true;
+
+    const loadPendingCounts = async () => {
+      try {
+        const res = (await api.get('/dashboard/pending-counts')) as {
+          data?: Partial<PaymentPendingCounts>;
+        };
+        if (alive && res?.data) {
+          setPendingCounts({ ...EMPTY_PENDING, ...res.data });
+        }
+      } catch {
+        // Lỗi mạng thì giữ số cũ, nhịp sau cập nhật lại.
+      }
+    };
+
+    loadPendingCounts();
+    const timer = window.setInterval(loadPendingCounts, 10000);
+    window.addEventListener('focus', loadPendingCounts);
+
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+      window.removeEventListener('focus', loadPendingCounts);
+    };
+  }, []);
+
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
@@ -192,7 +247,7 @@ function PaymentManagement() {
   const handleRefund = async (id: number) => {
     try {
       await refundPayment(id);
-      message.success('Hoàn tiền thành công');
+      message.success('Hoàn tiền thành công và đã cộng vào ví khách hàng');
       fetchPayments();
     } catch (error: unknown) {
       const err = error as { response?: { data?: { message?: string } } };
@@ -246,8 +301,6 @@ function PaymentManagement() {
     }
   };
 
-  const pendingCount = refunds.filter((refund) => refund.status === 'pending').length;
-  const pendingWithdrawCount = withdrawals.filter((item) => item.status === 'pending').length;
 
   const withdrawalColumns = [
     { title: 'ID', dataIndex: 'id', key: 'id', width: 60 },
@@ -397,17 +450,21 @@ function PaymentManagement() {
     {
       title: 'Thao tác',
       key: 'actions',
+      // Cùng quy ước với các bảng khác: một nút chính tô đậm, thao tác phụ dùng
+      // nút viền, thao tác không hoàn tác được dùng tone đỏ.
       render: (_: unknown, record: Payment) => (
-        <Space>
-          <Button
-            type="primary"
-            icon={<EyeOutlined style={{ color: 'white' }} />}
-            size="small"
-            onClick={() => {
-              setSelectedPayment(record);
-              setDetailVisible(true);
-            }}
-          />
+        <Space size={4}>
+          <Tooltip title="Xem chi tiết giao dịch">
+            <Button
+              type="primary"
+              icon={<EyeOutlined />}
+              size="small"
+              onClick={() => {
+                setSelectedPayment(record);
+                setDetailVisible(true);
+              }}
+            />
+          </Tooltip>
           {record.verificationStatus === 'pending' && (
             <Popconfirm
               title={`Xác nhận đã nhận ${formatPrice(Number(record.verificationAmount || 0))}?`}
@@ -416,27 +473,26 @@ function PaymentManagement() {
               okText="Xác nhận"
               cancelText="Hủy"
             >
-              <Button
-                type="primary"
-                icon={<CheckOutlined />}
-                size="small"
-                loading={confirmingPaymentId === record.id}
-              />
+              <Tooltip title="Xác nhận đã nhận tiền chuyển khoản">
+                <Button
+                  icon={<CheckOutlined />}
+                  size="small"
+                  loading={confirmingPaymentId === record.id}
+                />
+              </Tooltip>
             </Popconfirm>
           )}
           {record.paymentStatus === 'paid' && (
             <Popconfirm
               title="Bạn có chắc chắn muốn hoàn tiền?"
+              description="Toàn bộ số tiền đã thu sẽ được cộng vào ví HotelHub của khách."
               onConfirm={() => handleRefund(record.id)}
               okText="Hoàn tiền"
               cancelText="Hủy"
             >
-              <Button
-                type="primary"
-                danger
-                icon={<RollbackOutlined />}
-                size="small"
-              />
+              <Tooltip title="Hoàn tiền cho khách">
+                <Button danger icon={<RollbackOutlined />} size="small" />
+              </Tooltip>
             </Popconfirm>
           )}
         </Space>
@@ -448,7 +504,30 @@ function PaymentManagement() {
     { title: 'ID', dataIndex: 'id', key: 'id', width: 60 },
     { title: 'Booking', dataIndex: 'bookingId', key: 'bookingId', width: 80 },
     { title: 'Khách hàng', dataIndex: 'customer_name', key: 'customer_name' },
-    { title: 'Phòng', dataIndex: 'room_number', key: 'room_number', width: 80 },
+    {
+      title: 'Phòng',
+      key: 'room_number',
+      width: 140,
+      render: (_: unknown, record: RefundRow) => {
+        const text = record.room_type_details || record.room_number;
+        if (!text) return '—';
+        const lines = text.includes('\n')
+          ? text.split('\n').map((l) => l.trim()).filter(Boolean)
+          : text.includes(',')
+            ? text.split(',').map((l) => l.trim()).filter(Boolean)
+            : [text.trim()];
+
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {lines.map((line, idx) => (
+              <span key={idx} style={{ fontSize: 13, whiteSpace: 'nowrap' }}>
+                {line}
+              </span>
+            ))}
+          </div>
+        );
+      },
+    },
     {
       title: 'Số tiền hoàn',
       key: 'amount',
@@ -541,11 +620,21 @@ function PaymentManagement() {
     <div style={{ padding: '12px 8px 24px' }}>
       <Card styles={{ body: { padding: '16px 10px 20px' } }}>
         <Tabs
-          defaultActiveKey="payments"
+          activeKey={activeTab}
+          onChange={setActiveTab}
           items={[
             {
               key: 'payments',
-              label: 'Quản lý thanh toán',
+              label: (
+                <Badge
+                  count={pendingCounts.pendingTransferConfirmations}
+                  offset={[12, 0]}
+                  size="small"
+                  title="Chuyển khoản khách khai, chờ đối soát"
+                >
+                  Quản lý thanh toán
+                </Badge>
+              ),
               children: (
                 <>
                   <Space style={{ marginBottom: 16 }}>
@@ -580,7 +669,7 @@ function PaymentManagement() {
             {
               key: 'refunds',
               label: (
-                <Badge count={pendingCount} offset={[12, 0]} size="small">
+                <Badge count={pendingCounts.pendingRefunds} offset={[12, 0]} size="small">
                   Yêu cầu hoàn tiền
                 </Badge>
               ),
@@ -616,7 +705,7 @@ function PaymentManagement() {
             {
               key: 'withdrawals',
               label: (
-                <Badge count={pendingWithdrawCount} offset={[12, 0]} size="small">
+                <Badge count={pendingCounts.pendingWithdrawals} offset={[12, 0]} size="small">
                   Yêu cầu rút tiền
                 </Badge>
               ),

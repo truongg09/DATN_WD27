@@ -34,6 +34,9 @@ interface MonthlyReport {
   cancelledCount: number;
   roomRevenue: number;
   serviceRevenue: number;
+  surchargeRevenue?: number;
+  discountAmount?: number;
+  retainedCancellationRevenue?: number;
   totalRevenue: number;
   paidAmount: number;
   remainingAmount: number;
@@ -53,8 +56,21 @@ interface PaymentMethodBreakdown {
   amount: number;
 }
 
+const paymentMethodLabel: Record<string, string> = {
+  cash: 'Tiền mặt',
+  bank_transfer: 'Chuyển khoản QR',
+  zalopay: 'ZaloPay',
+  vnpay: 'VNPay',
+  wallet: 'Ví số dư HotelHub',
+};
+
 interface ReportSummary {
   totalRevenue: number;
+  totalRoomRevenue?: number;
+  totalServiceRevenue?: number;
+  totalSurchargeRevenue?: number;
+  totalDiscountAmount?: number;
+  totalRetainedCancellationRevenue?: number;
   totalPaid: number;
   totalOutstanding: number;
   totalBookings: number;
@@ -67,6 +83,12 @@ interface ReportSummary {
 
 const formatVND = (val: number) =>
   new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(val || 0);
+
+const formatPercent = (val: number) =>
+  new Intl.NumberFormat('vi-VN', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2
+  }).format(Number(val) || 0);
 
 const CURRENT_YEAR = new Date().getFullYear();
 // Danh sách năm động: 2 năm trước tới năm hiện tại, thay vì hardcode 2024/2025/2026
@@ -208,7 +230,7 @@ function ReportManagement() {
           formatVND(m.remainingAmount),
           String(m.bookingsCount),
           String(m.cancelledCount),
-          `${m.occupancyRate}%`
+          `${formatPercent(m.occupancyRate)}%`
         ]),
         styles: { fontSize: 8 },
         headStyles: { fillColor: [171, 137, 101] }
@@ -244,6 +266,12 @@ function ReportManagement() {
       render: (val: number) => formatVND(val)
     },
     {
+      title: 'Tổng doanh thu',
+      dataIndex: 'totalRevenue',
+      key: 'totalRevenue',
+      render: (val: number) => <strong>{formatVND(val)}</strong>
+    },
+    {
       title: 'Đã thu',
       dataIndex: 'paidAmount',
       key: 'paidAmount',
@@ -272,7 +300,7 @@ function ReportManagement() {
       title: 'Công suất phòng',
       dataIndex: 'occupancyRate',
       key: 'occupancyRate',
-      render: (val: number) => <Text type={val > 50 ? 'success' : 'warning'}>{val}%</Text>
+      render: (val: number) => <Text type={val > 50 ? 'success' : 'warning'}>{formatPercent(val)}%</Text>
     }
   ];
 
@@ -288,7 +316,12 @@ function ReportManagement() {
   ];
 
   const paymentMethodColumns = [
-    { title: 'Phương thức', dataIndex: 'method', key: 'method' },
+    {
+      title: 'Phương thức',
+      dataIndex: 'method',
+      key: 'method',
+      render: (method: string) => paymentMethodLabel[method] || method,
+    },
     { title: 'Số giao dịch', dataIndex: 'transactionCount', key: 'transactionCount' },
     {
       title: 'Số tiền',
@@ -384,7 +417,7 @@ function ReportManagement() {
               <HomeOutlined /> Công suất phòng TB
             </span>
             <div className={`report-stat-value ${occupancyOk ? 'is-success' : 'is-warning'}`}>
-              {summary?.avgOccupancyRate || 0}
+              {formatPercent(summary?.avgOccupancyRate || 0)}
               <span className="unit">%</span>
             </div>
             <span className="report-stat-sub">Khách hàng mới: {summary?.newCustomers || 0}</span>
@@ -405,10 +438,11 @@ function ReportManagement() {
             scroll={{ x: 900 }}
             size="middle"
             summary={(pageData) => {
-              let totalRoom = 0, totalService = 0, totalPaid = 0, totalRemaining = 0, totalBookings = 0, totalCancelled = 0;
+              let totalRoom = 0, totalService = 0, totalRevenue = 0, totalPaid = 0, totalRemaining = 0, totalBookings = 0, totalCancelled = 0;
               pageData.forEach((r) => {
                 totalRoom += r.roomRevenue;
                 totalService += r.serviceRevenue;
+                totalRevenue += r.totalRevenue;
                 totalPaid += r.paidAmount;
                 totalRemaining += r.remainingAmount;
                 totalBookings += r.bookingsCount;
@@ -419,11 +453,12 @@ function ReportManagement() {
                   <Table.Summary.Cell index={0} align="left">Tổng cộng</Table.Summary.Cell>
                   <Table.Summary.Cell index={1}>{formatVND(totalRoom)}</Table.Summary.Cell>
                   <Table.Summary.Cell index={2}>{formatVND(totalService)}</Table.Summary.Cell>
-                  <Table.Summary.Cell index={3}>{formatVND(totalPaid)}</Table.Summary.Cell>
-                  <Table.Summary.Cell index={4}>{formatVND(totalRemaining)}</Table.Summary.Cell>
-                  <Table.Summary.Cell index={5}>{totalBookings} đơn</Table.Summary.Cell>
-                  <Table.Summary.Cell index={6}>{totalCancelled}</Table.Summary.Cell>
-                  <Table.Summary.Cell index={7}>-</Table.Summary.Cell>
+                  <Table.Summary.Cell index={3}><strong>{formatVND(totalRevenue)}</strong></Table.Summary.Cell>
+                  <Table.Summary.Cell index={4}>{formatVND(totalPaid)}</Table.Summary.Cell>
+                  <Table.Summary.Cell index={5}>{formatVND(totalRemaining)}</Table.Summary.Cell>
+                  <Table.Summary.Cell index={6}>{totalBookings} đơn</Table.Summary.Cell>
+                  <Table.Summary.Cell index={7}>{totalCancelled}</Table.Summary.Cell>
+                  <Table.Summary.Cell index={8}>{formatPercent(summary?.avgOccupancyRate || 0)}%</Table.Summary.Cell>
                 </Table.Summary.Row>
               );
             }}

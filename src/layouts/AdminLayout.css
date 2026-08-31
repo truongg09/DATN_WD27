@@ -28,11 +28,17 @@
   font-size: 20px;
 }
 
+/* Sidebar là flex cột nên phần co giãn phải đặt ở .admin-nav (con trực tiếp).
+   Đặt flex:1 lên <ul> bên trong thì không có tác dụng gì và khối tài khoản
+   không bao giờ nằm sát đáy. */
+.admin-nav {
+  flex: 1;
+}
+
 .admin-nav ul {
   list-style: none;
   padding: 0;
   margin: 0;
-  flex: 1;
 }
 
 .admin-nav li {
@@ -48,8 +54,17 @@
 }
 
 .admin-nav a:hover {
-  background-color: #1890ff;
-  color: white;
+  background-color: rgba(167, 131, 98, 0.28);
+  color: #fff;
+}
+
+/* Mục ứng với trang đang mở. Trước đây sidebar dùng Link nên không có trạng
+   thái này, nhìn vào không biết mình đang ở đâu. */
+.admin-nav a.active {
+  background-color: rgba(167, 131, 98, 0.22);
+  border-left: 3px solid #a78362;
+  color: #fff;
+  font-weight: 600;
 }
 
 /* Badge của antd tự áp màu chữ tối - ép kế thừa màu trắng của sidebar */
@@ -72,7 +87,9 @@
 
 .admin-user .btn-logout {
   padding: 10px 50px;
-  background-color: linear-gradient(135deg, #ab8965 0%, #9a7a5a 100%);
+  /* Phải dùng shorthand `background`: background-color không nhận gradient nên
+     khai báo cũ bị trình duyệt bỏ qua và nút mất hẳn nền. */
+  background: linear-gradient(135deg, #ab8965 0%, #9a7a5a 100%);
   border: 1px solid rgba(255, 255, 255, 0.3);
   color: rgba(255, 255, 255, 0.85);
   border-radius: 10px;
