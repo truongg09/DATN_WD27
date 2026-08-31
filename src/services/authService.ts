@@ -33,4 +33,3 @@ export const login = async (data: LoginRequest): Promise<AuthResponse> => {
 export const register = async (data: RegisterRequest): Promise<AuthResponse> => {
   return api.post("/auth/register", data);
 };
-

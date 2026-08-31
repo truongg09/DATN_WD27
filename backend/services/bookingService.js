@@ -7187,4 +7187,3 @@ module.exports = {
   reassignConflictingBooking,
   resetBookingHold,
 };
-

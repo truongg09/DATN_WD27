@@ -82,4 +82,3 @@
   .invoice-print-sheet, .invoice-print-sheet * { visibility: visible !important; }
   .invoice-print-sheet { position: fixed; inset: 0; width: 100%; padding: 28px; background: white; color: #101828; overflow: visible !important; }
 }
-

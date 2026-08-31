@@ -426,4 +426,3 @@ router.put('/late-checkout-tiers', requireAuth, async (req, res) => {
 });
 
 module.exports = router;
-

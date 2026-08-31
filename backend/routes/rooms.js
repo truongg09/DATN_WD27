@@ -822,4 +822,3 @@ router.patch('/:id/mark-cleaned', requireAuth, requireStaff, async (req, res) =>
 });
 
 module.exports = router;
-

@@ -64,4 +64,3 @@ export const lockCustomer = async (id: number, reason: string) =>
   unwrap(api.post('/customers/lock', { reason }, { params: { id } }));
 
 export const getCustomers = async () => api.get('/customers');
-

@@ -301,4 +301,3 @@ export const recordCustomerContact = async (
 ) => {
   return api.post(`/bookings/${id}/contact-status`, data);
 };
-

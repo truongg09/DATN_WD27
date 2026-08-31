@@ -128,4 +128,3 @@ export interface Invoice {
   issuedAt: string;
   createdAt: string;
 }
-
