@@ -5329,7 +5329,7 @@ const reactivateNoShowBookingLegacy = async (
         [assignedRoomId, bookingId]
       );
       await connection.query(
-        `UPDATE booking_details SET room_id = ? WHERE booking_id = ?`,
+        `UPDATE booking_details SET roomId = ? WHERE bookingId = ?`,
         [assignedRoomId, bookingId]
       );
     }
@@ -6479,6 +6479,16 @@ const adminModifyBooking = async (bookingId, payload, actor) => {
  * - fromDate: string (YYYY-MM-DD, ngày bắt đầu chuyển phòng, mặc định hôm nay / splitDate)
  * - bookingDetailId: number (ID chi tiết đặt phòng cần chuyển)
  */
+// Ngày hợp lệ thật sự, không chỉ "cắt 10 ký tự đầu". Không có hàm này thì các
+// chuỗi rác ("9999", "2026-09-31") lọt qua mọi phép so sánh chuỗi rồi mới chết ở
+// câu UPDATE bằng lỗi MySQL thô, tức khách nhận 500 thay vì thông báo rõ ràng.
+const isValidDayString = (value) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [y, m, d] = value.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+};
+
 const previewBookingChange = async (bookingId, payload = {}) => {
   const booking = await bookingModel.getBookingById(bookingId);
   if (!booking) {
@@ -6507,6 +6517,12 @@ const previewBookingChange = async (bookingId, payload = {}) => {
   const currentCheckIn = dayString(booking.check_in);
   const currentCheckOut = dayString(booking.check_out);
   const targetCheckOut = payload.checkOut ? dayString(payload.checkOut) : currentCheckOut;
+  if (!isValidDayString(targetCheckOut)) {
+    throw new HttpError(400, 'Ngày trả phòng không hợp lệ (cần dạng YYYY-MM-DD)');
+  }
+  if (payload.fromDate != null && payload.fromDate !== '' && !isValidDayString(dayString(payload.fromDate))) {
+    throw new HttpError(400, 'Ngày bắt đầu chuyển phòng không hợp lệ (cần dạng YYYY-MM-DD)');
+  }
   const today = dayString(new Date());
   if (booking.status === 'checked_in' && targetCheckOut < today) {
     throw new HttpError(400, `Khách đang lưu trú tại khách sạn, ngày trả phòng mới không thể nhỏ hơn ngày hôm nay (${displayDate(today)})`);
@@ -6519,12 +6535,21 @@ const previewBookingChange = async (bookingId, payload = {}) => {
   const isShortening = targetCheckOut < currentCheckOut;
   const toRoomId = payload.toRoomId ? Number(payload.toRoomId) : null;
   
-  // Xác định bookingDetail được chuyển
+  // Xác định bookingDetail được chuyển.
+  // BẮT BUỘC phải thuộc chính đơn này. Bản cũ chỉ find(...) rồi bỏ qua khi không
+  // thấy: khách gửi bookingDetailId của đơn NGƯỜI KHÁC thì preview vẫn chạy bằng
+  // phòng của mình, còn execute lại UPDATE thẳng vào dòng chi tiết của đơn kia.
   let sourceDetail = null;
   if (payload.bookingDetailId) {
     sourceDetail = details.find((d) => Number(d.id) === Number(payload.bookingDetailId));
+    if (!sourceDetail) {
+      throw new HttpError(400, 'Dòng phòng cần đổi không thuộc đặt phòng này');
+    }
   } else if (payload.fromRoomId) {
     sourceDetail = details.find((d) => Number(d.roomId) === Number(payload.fromRoomId));
+    if (!sourceDetail) {
+      throw new HttpError(400, 'Phòng nguồn không thuộc đặt phòng này');
+    }
   } else {
     sourceDetail = mainDetail;
   }
@@ -6543,7 +6568,17 @@ const previewBookingChange = async (bookingId, payload = {}) => {
       splitDate = currentCheckIn;
     }
     if (splitDate < currentCheckIn) splitDate = currentCheckIn;
-    if (splitDate > targetCheckOut) splitDate = targetCheckOut;
+    // Bản cũ kẹp splitDate = targetCheckOut khi ngày chuyển vượt kỳ ở. Khoảng
+    // kiểm tra xung đột khi đó rỗng nên LUÔN báo còn trống, trong khi execute vẫn
+    // gán phòng mới cho cả kỳ ở → đặt trùng phòng mà không hề báo lỗi.
+    if (splitDate >= targetCheckOut) {
+      throw new HttpError(400, `Ngày chuyển phòng phải trước ngày trả phòng (${displayDate(targetCheckOut)}) ít nhất 1 đêm`);
+    }
+    // Chuyển phòng có hiệu lực trong tương lai không mô tả được bằng một dòng
+    // booking_details: đổi roomId ngay lập tức sẽ nhả phòng khách đang thực ở.
+    if (booking.status === 'checked_in' && splitDate > today) {
+      throw new HttpError(400, `Khách đang lưu trú: chỉ có thể chuyển phòng từ hôm nay (${displayDate(today)}) trở đi`);
+    }
   }
 
   let targetRoom = null;
@@ -6554,6 +6589,26 @@ const previewBookingChange = async (bookingId, payload = {}) => {
     }
     if (targetRoom.status === 'maintenance') {
       throw new HttpError(409, `Phòng ${targetRoom.roomNumber} đang được bảo trì.`);
+    }
+    if (Number(targetRoom.isDeleted) === 1 || Number(targetRoom.room_type_is_deleted) === 1) {
+      throw new HttpError(404, 'Phòng muốn chuyển đến không còn được sử dụng');
+    }
+    // Phòng đích trùng với một phòng KHÁC của chính đơn này: truy vấn xung đột
+    // loại trừ cả đơn (excludeBookingId) nên không thấy, kết quả là hai dòng chi
+    // tiết cùng trỏ vào một phòng vật lý.
+    const ownRoomClash = details.find(
+      (d) => Number(d.roomId) === Number(toRoomId) && Number(d.id) !== Number(sourceDetail?.id)
+    );
+    if (ownRoomClash) {
+      throw new HttpError(409, `Phòng ${targetRoom.roomNumber} đã nằm trong chính đặt phòng này`);
+    }
+    const movingGuests = Number(sourceDetail?.adults || 0) + Number(sourceDetail?.children || 0);
+    const targetCapacity = Number(targetRoom.maxOccupancy || targetRoom.capacity || 0);
+    if (targetCapacity > 0 && movingGuests > targetCapacity) {
+      throw new HttpError(
+        409,
+        `Phòng ${targetRoom.roomNumber} chỉ chứa tối đa ${targetCapacity} khách, không đủ cho ${movingGuests} khách`
+      );
     }
   }
 
@@ -6578,25 +6633,34 @@ const previewBookingChange = async (bookingId, payload = {}) => {
         message: `Phòng ${targetRoom.roomNumber} đã có người đặt trong giai đoạn ${displayDate(splitDate)} → ${displayDate(targetCheckOut)}.`
       });
     }
-  } else if (isExtending && currentRoomId) {
-    // Check conflict for current room for extended period
-    const extConflicts = await bookingModel.getConflictingBookings(
-      currentRoomId,
-      currentCheckOut,
-      targetCheckOut,
-      db,
-      true,
-      { excludeBookingId: bookingId }
-    );
-    if (extConflicts.length > 0) {
-      const roomNum = sourceDetail?.roomNumber || currentRoomId;
-      conflicts.push({
-        type: 'extend_stay_conflict',
-        roomId: currentRoomId,
-        roomNumber: roomNum,
-        conflictingBookingIds: extConflicts.map(c => c.id),
-        message: `Phòng ${roomNum} đã có người đặt trong giai đoạn gia hạn ${displayDate(currentCheckOut)} → ${displayDate(targetCheckOut)}.`
-      });
+  }
+  if (isExtending) {
+    // Gia hạn kéo dài ngày trả của MỌI phòng trong đơn, nên phải kiểm tra xung đột
+    // cho từng phòng. Bản cũ chỉ xét phòng đại diện: đơn nhiều phòng gia hạn xong
+    // là các phòng còn lại đè lên đơn của khách khác mà không báo gì.
+    for (const detail of details) {
+      const detailRoomId = detail.roomId ? Number(detail.roomId) : null;
+      if (!detailRoomId) continue;
+      // Phòng được chuyển đã kiểm tra ở nhánh trên theo phòng ĐÍCH.
+      if (isTransferring && Number(detail.id) === Number(sourceDetail?.id)) continue;
+      const extConflicts = await bookingModel.getConflictingBookings(
+        detailRoomId,
+        currentCheckOut,
+        targetCheckOut,
+        db,
+        true,
+        { excludeBookingId: bookingId }
+      );
+      if (extConflicts.length > 0) {
+        const roomNum = detail.roomNumber || detailRoomId;
+        conflicts.push({
+          type: 'extend_stay_conflict',
+          roomId: detailRoomId,
+          roomNumber: roomNum,
+          conflictingBookingIds: extConflicts.map(c => c.id),
+          message: `Phòng ${roomNum} đã có người đặt trong giai đoạn gia hạn ${displayDate(currentCheckOut)} → ${displayDate(targetCheckOut)}.`
+        });
+      }
     }
   }
 
@@ -6640,7 +6704,7 @@ const previewBookingChange = async (bookingId, payload = {}) => {
       ...p,
       isNewRoom: isTransferring,
       roomNumber: isTransferring ? targetRoom?.roomNumber : sourceDetail?.roomNumber,
-      typeName: isTransferring ? targetRoom?.typeName : sourceDetail?.roomTypeName
+      typeName: isTransferring ? (targetRoom?.typeName || targetRoom?.room_type_name) : sourceDetail?.roomTypeName
     }))
   ];
 
@@ -6808,9 +6872,27 @@ const previewBookingChange = async (bookingId, payload = {}) => {
   // xoá khỏi tổng đơn, khách sạn thu hụt đúng bằng khoản đó.
   const serviceAmount = Number(await bookingModel.sumBookingServices(bookingId) || 0);
   const damageAmount = Number(await bookingModel.sumDamageCharges(bookingId) || 0);
+  const lateCheckoutAmount = Number(await bookingModel.sumLateCheckoutCharges(bookingId) || 0);
 
-  const oldTotalAmount = Number(booking.totalAmount || booking.total_price || 0);
-  const newTotalAmount = newStayAmount + newOccupancySurcharge + serviceAmount + damageAmount;
+  // BOOKING_SELECT đặt bí danh b.totalAmount AS booking_total_amount, nên
+  // booking.totalAmount LUÔN undefined: tổng cũ tụt về total_price (chỉ tiền phòng)
+  // trong khi tổng mới có cả dịch vụ và bồi thường → chênh lệch báo cho khách bị
+  // đội lên đúng bằng số tiền dịch vụ họ đã dùng.
+  const oldTotalAmount = Number(
+    booking.booking_total_amount != null ? booking.booking_total_amount : (booking.total_price || 0)
+  );
+  // Giảm giá voucher: payments.totalAmount có trừ, nên tổng ở đây cũng phải trừ,
+  // nếu không bookings.totalAmount và payments.totalAmount lệch nhau mỗi lần đổi
+  // lịch, và tiền hoàn thừa bị tính dư đúng bằng phần giảm giá.
+  const [existingPaymentRows] = await db.query(
+    'SELECT discountAmount FROM payments WHERE bookingId = ? ORDER BY id DESC LIMIT 1',
+    [bookingId]
+  );
+  const discountAmount = Number(existingPaymentRows[0]?.discountAmount || 0);
+  const newTotalAmount = Math.max(
+    0,
+    newStayAmount + newOccupancySurcharge + serviceAmount + damageAmount + lateCheckoutAmount - discountAmount
+  );
   const priceDifference = newTotalAmount - oldTotalAmount;
 
   if (isShortening) {
@@ -6822,7 +6904,11 @@ const previewBookingChange = async (bookingId, payload = {}) => {
   const currentPayment = payments[0] || {};
   const depositAmount = Number(currentPayment.depositAmount || 0);
   const paidAmount = Number(currentPayment.paidAmount || 0);
-  const paidTotal = depositAmount + paidAmount;
+  // payments.paidAmount đã BAO GỒM tiền cọc (lúc tạo: paidAmount = min(deposit, total);
+  // mỗi lần thu thêm chỉ cộng vào paidAmount, depositAmount chỉ ghi nhớ phần cọc).
+  // Bản cũ cộng cả hai nên khách mới cọc 1,83tr bị coi là đã trả 3,66tr: số còn phải
+  // trả hiển thị thiếu và rút ngắn ngày ở sinh phiếu hoàn tiền không có thật.
+  const paidTotal = paidAmount;
   const refundableExcessAmount = Math.max(0, paidTotal - newTotalAmount);
   const newRemainingAmount = Math.max(0, newTotalAmount - paidTotal);
 
@@ -6850,10 +6936,14 @@ const previewBookingChange = async (bookingId, payload = {}) => {
       id: targetRoom.id,
       roomNumber: targetRoom.roomNumber,
       roomTypeId: targetRoom.roomTypeId || targetRoom.room_type_id,
-      typeName: targetRoom.typeName,
+      // getRoomWithType trả về room_type_name, không phải typeName.
+      typeName: targetRoom.typeName || targetRoom.room_type_name,
       price: targetRoomPrice
     } : null,
     roomCount: details.length,
+    // Dòng chi tiết thực sự được chuyển — execute phải dùng đúng dòng này thay vì
+    // lấy bừa dòng đầu tiên hoặc tin vào payload.
+    sourceDetailId: sourceDetail?.id || null,
     perRoomBreakdown,
     financialBreakdown: {
       baseRoomAmount,
@@ -6876,6 +6966,9 @@ const previewBookingChange = async (bookingId, payload = {}) => {
       paidTotal,
       refundableExcessAmount,
       newRemainingAmount,
+      discountAmount,
+      serviceAmount,
+      damageAmount,
       isShortening,
       isExtending,
       reducedNights,
@@ -6915,6 +7008,64 @@ const executeBookingChange = async (bookingId, payload = {}, actor = null) => {
       throw new HttpError(404, "Không tìm thấy thông tin đặt phòng");
     }
 
+    // Một đơn chỉ nên có một phiếu hoàn đang chờ. Đổi lịch tiếp trong lúc phiếu cũ
+    // chưa duyệt sẽ khiến số tiền trên phiếu đó không còn đúng với tổng đơn nữa.
+    const [pendingRefunds] = await connection.query(
+      "SELECT id, amount FROM payment_refunds WHERE bookingId = ? AND status = 'pending' LIMIT 1",
+      [bookingId]
+    );
+    if (pendingRefunds.length > 0) {
+      throw new HttpError(
+        409,
+        'Đơn này đang có một yêu cầu hoàn tiền chờ duyệt. Vui lòng đợi xử lý xong rồi hãy đổi ngày ở / phòng.'
+      );
+    }
+
+    // previewBookingChange chạy trên pool (autocommit) nên FOR UPDATE ở đó nhả khoá
+    // ngay lập tức. Phải kiểm tra lại xung đột trong transaction, sau khi đã khoá
+    // đơn, nếu không hai yêu cầu đồng thời đều thấy "còn trống" và cùng ghi.
+    const recheckRanges = [];
+    if (preview.isTransferring && preview.toRoom) {
+      recheckRanges.push({
+        roomId: Number(preview.toRoom.id),
+        roomNumber: preview.toRoom.roomNumber,
+        from: preview.splitDate,
+        to: preview.targetCheckOut
+      });
+    }
+    if (preview.isExtending) {
+      const [lockedDetails] = await connection.query(
+        'SELECT id, roomId FROM booking_details WHERE bookingId = ? ORDER BY id ASC',
+        [bookingId]
+      );
+      for (const d of lockedDetails) {
+        if (!d.roomId) continue;
+        if (preview.isTransferring && Number(d.id) === Number(preview.sourceDetailId)) continue;
+        recheckRanges.push({
+          roomId: Number(d.roomId),
+          roomNumber: null,
+          from: preview.currentCheckOut,
+          to: preview.targetCheckOut
+        });
+      }
+    }
+    for (const range of recheckRanges) {
+      const rows = await bookingModel.getConflictingBookings(
+        range.roomId,
+        range.from,
+        range.to,
+        connection,
+        true,
+        { excludeBookingId: bookingId }
+      );
+      if (rows.length > 0) {
+        throw new HttpError(
+          409,
+          `Phòng ${range.roomNumber || range.roomId} vừa được khách khác đặt trong giai đoạn ${displayDate(range.from)} → ${displayDate(range.to)}. Vui lòng kiểm tra lại.`
+        );
+      }
+    }
+
     const targetCheckOut = preview.targetCheckOut;
     const splitDate = preview.splitDate;
     const isTransferring = preview.isTransferring;
@@ -6941,26 +7092,40 @@ const executeBookingChange = async (bookingId, payload = {}, actor = null) => {
         ]
       );
 
-      // Cập nhật trạng thái phòng vật lý
+      // Cập nhật trạng thái phòng vật lý — chỉ khi khách ĐANG lưu trú. Đơn chưa
+      // nhận phòng thì lúc check-in mới đánh dấu occupied; đổi sớm sẽ khoá nhầm
+      // phòng mới và có thể mở nhầm phòng cũ đang dọn/bảo trì.
       const today = dayString(new Date());
-      if (splitDate <= today) {
+      if (booking.status === 'checked_in' && splitDate <= today) {
+        // Phòng đích có thể đang có khách chưa trả phòng: truy vấn xung đột theo
+        // ngày không bắt được ca trả phòng trong ngày, nên hỏi thẳng.
+        const occupant = await bookingModel.findActiveCheckedInBooking(toRoom.id, bookingId, connection);
+        if (occupant) {
+          throw new HttpError(
+            409,
+            `Phòng ${toRoom.roomNumber} đang có khách lưu trú (đơn ${occupant.bookingCode || occupant.id}), chưa thể chuyển sang.`
+          );
+        }
         if (fromRoomId) await bookingModel.updateRoomStatus(fromRoomId, "available", connection);
         await bookingModel.updateRoomStatus(toRoom.id, "occupied", connection);
       }
 
-      // Cập nhật booking_details
+      // Cập nhật đúng dòng chi tiết mà preview đã định giá, và chỉ trong đơn này.
+      // Bản cũ dùng thẳng payload.bookingDetailId (không kiểm tra chủ sở hữu) rồi
+      // UPDATE ... WHERE id = ? nên có thể ghi đè dòng chi tiết của đơn khác; khi
+      // caller chỉ gửi fromRoomId thì lại sửa nhầm dòng đầu tiên.
       const [bDetails] = await connection.query(
         `SELECT id FROM booking_details WHERE bookingId = ? ORDER BY id ASC LIMIT 1`,
         [bookingId]
       );
-      const targetDetailId = payload.bookingDetailId || bDetails[0]?.id;
+      const targetDetailId = preview.sourceDetailId || bDetails[0]?.id;
 
       if (targetDetailId) {
         await connection.query(
           `UPDATE booking_details
            SET roomId = ?, roomTypeId = ?, roomPrice = ?, checkOutDate = ?
-           WHERE id = ?`,
-          [toRoom.id, toRoom.roomTypeId || toRoom.room_type_id, preview.toRoom.price, targetCheckOut, targetDetailId]
+           WHERE id = ? AND bookingId = ?`,
+          [toRoom.id, toRoom.roomTypeId || toRoom.room_type_id, preview.toRoom.price, targetCheckOut, targetDetailId, bookingId]
         );
       }
 
@@ -6969,8 +7134,11 @@ const executeBookingChange = async (bookingId, payload = {}, actor = null) => {
         `UPDATE bookings SET room_id = ? WHERE id = ?`,
         [toRoom.id, bookingId]
       );
-    } else if (isExtending || isShortening) {
-      // Cập nhật checkOutDate trên booking_details
+    }
+    if (isExtending || isShortening) {
+      // Cập nhật checkOutDate cho MỌI phòng trong đơn — kể cả khi vừa chuyển phòng
+      // (nhánh trên chỉ sửa dòng của phòng được chuyển, các phòng còn lại vẫn
+      // giữ ngày trả cũ nên đơn nhiều phòng bị lệch ngày).
       await connection.query(
         `UPDATE booking_details SET checkOutDate = ? WHERE bookingId = ?`,
         [targetCheckOut, bookingId]
@@ -7002,50 +7170,44 @@ const executeBookingChange = async (bookingId, payload = {}, actor = null) => {
     // preview.nightlyPrices, nhưng bảng giá theo đêm chỉ giữ một dòng mỗi đêm
     // nên với đơn nhiều phòng nó chỉ phản ánh một phòng.
     const newStayAmount = Number(preview.financialBreakdown.newStayAmount || 0);
-    const newOccupancySurcharge = Math.max(0, Number(booking.occupancy_surcharge || 0) + preview.financialBreakdown.extraGuestSurcharge);
+    const currentOccupancySurcharge = Number(booking.occupancy_surcharge || 0);
+    const newOccupancySurcharge = Math.max(
+      0,
+      currentOccupancySurcharge + Number(preview.financialBreakdown.extraGuestSurcharge || 0)
+    );
     const newBookingTotalPrice = newStayAmount + newOccupancySurcharge;
 
+    // Bảng bookings KHÔNG có cột occupancy_surcharge (đó chỉ là alias tổng
+    // booking_details.occupancySurcharge trong BOOKING_SELECT). Bản cũ ghi thẳng
+    // cột này nên MySQL báo "Unknown column" → mọi lần khách gia hạn/chuyển phòng
+    // đều 500 và rollback. Phụ thu phải ghi xuống từng dòng chi tiết.
     await connection.query(
-      `UPDATE bookings
-       SET check_out = ?, totalAmount = ?, total_price = ?, occupancy_surcharge = ?
-       WHERE id = ?`,
-      [targetCheckOut, preview.financialBreakdown.newTotalAmount, newBookingTotalPrice, newOccupancySurcharge, bookingId]
+      `UPDATE bookings SET check_out = ?, totalAmount = ?, total_price = ? WHERE id = ?`,
+      [targetCheckOut, preview.financialBreakdown.newTotalAmount, newBookingTotalPrice, bookingId]
     );
-
-    // 4. Đồng bộ thanh toán & hóa đơn
-    const payment = await paymentService.recalculatePaymentForBooking(bookingId, connection);
-    try {
-      if (payment) {
-        await invoiceService.issueInvoiceForPayment(payment.id, connection);
-      }
-    } catch {
-      // Bỏ qua nếu chưa xuất hóa đơn
+    if (newOccupancySurcharge !== currentOccupancySurcharge) {
+      await bookingModel.setBookingOccupancySurcharge(bookingId, newOccupancySurcharge, connection);
     }
+
+    // 4. Đồng bộ thanh toán. recalculatePaymentForBooking đã cập nhật hoá đơn nếu
+    // đơn đã có; KHÔNG gọi issueInvoiceForPayment ở đây vì hàm đó tự tạo hoá đơn
+    // trạng thái "issued" cho cả đơn mới đặt cọc — hoá đơn chỉ chốt khi trả phòng.
+    const payment = await paymentService.recalculatePaymentForBooking(bookingId, connection);
 
     // 4.1. Tạo phiếu yêu cầu hoàn tiền nếu phát sinh hoàn tiền thừa
     let refundRecord = null;
     const [payments] = await connection.query(`SELECT * FROM payments WHERE bookingId = ? ORDER BY id DESC LIMIT 1`, [bookingId]);
     const currentPayment = payments[0] || {};
-    const paidTotal = Number(currentPayment.depositAmount || 0) + Number(currentPayment.paidAmount || 0);
+    // paidAmount đã gồm cả cọc (xem previewBookingChange).
+    const paidTotal = Number(currentPayment.paidAmount || 0);
 
     if (preview.financialBreakdown.refundableExcessAmount > 0 && payload.refundRequest) {
       const normRefund = normalizeRefundRequest(payload.refundRequest);
       if (normRefund) {
-        // Một đơn chỉ được có một phiếu hoàn đang chờ duyệt. Số tiền đã trả chỉ
-        // bị trừ khi admin duyệt, nên nếu cho tạo nhiều phiếu trên cùng khoản
-        // tiền thì duyệt hết là hoàn trùng — mất tiền thật của khách sạn.
-        const [pendingRefunds] = await connection.query(
-          "SELECT id FROM payment_refunds WHERE bookingId = ? AND status = 'pending' LIMIT 1",
-          [bookingId]
-        );
-        if (pendingRefunds.length > 0) {
-          throw new HttpError(
-            409,
-            'Đơn này đã có một yêu cầu hoàn tiền đang chờ duyệt. Vui lòng xử lý yêu cầu đó trước.'
-          );
-        }
-
-        const isAutoApproved = Boolean(payload.isStaffOrAdmin || payload.autoApproveRefund);
+        // Phiếu hoàn đang chờ duyệt đã được chặn ngay đầu transaction.
+        // autoApproveRefund đến từ req.body: controller chỉ ghi đè isStaffOrAdmin,
+        // nên bản cũ cho khách tự gửi cờ này và tự duyệt phiếu hoàn của chính mình.
+        const isAutoApproved = Boolean(payload.isStaffOrAdmin);
         const [refundRes] = await connection.query(
           `INSERT INTO payment_refunds
              (paymentId, bookingId, amount, refundRate, paidAmount, refundMethod, bankBin, bankName, accountNumber, accountName, status, note)

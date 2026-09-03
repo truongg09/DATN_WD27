@@ -122,7 +122,9 @@ const getRoomWithType = async (roomId, connection, lock = false) => {
         r.floor,
         r.area,
         r.status,
+        r.isDeleted,
         rt.typeName AS room_type_name,
+        rt.isDeleted AS room_type_is_deleted,
         rt.defaultPrice AS price_per_night,
         rt.capacity,
         rt.adultCapacity,
@@ -838,6 +840,49 @@ const sumDamageCharges = async (bookingId, connection) => {
   return Number(row?.total || 0);
 };
 
+// Ghi lại TỔNG phụ thu khách của một đơn. Bảng bookings không có cột này:
+// occupancy_surcharge trong BOOKING_SELECT chỉ là SUM(booking_details.occupancySurcharge),
+// nên muốn đổi tổng thì phải chia lại cho từng dòng chi tiết theo tỉ lệ cũ.
+const setBookingOccupancySurcharge = async (bookingId, occupancySurcharge, connection) => {
+  const [details] = await run(connection).query(
+    'SELECT id, occupancySurcharge FROM booking_details WHERE bookingId = ? ORDER BY id ASC',
+    [bookingId]
+  );
+  if (details.length === 0) return;
+
+  const target = Math.max(0, Number(occupancySurcharge) || 0);
+  const currentSum = details.reduce((sum, d) => sum + Number(d.occupancySurcharge || 0), 0);
+  if (currentSum > 0) {
+    let allocated = 0;
+    for (let i = 0; i < details.length; i++) {
+      const d = details[i];
+      let newSur = 0;
+      if (i === details.length - 1) {
+        newSur = Math.max(0, target - allocated);
+      } else {
+        newSur = Math.round((Number(d.occupancySurcharge) / currentSum) * target);
+        allocated += newSur;
+      }
+      await run(connection).query(
+        'UPDATE booking_details SET occupancySurcharge = ? WHERE id = ?',
+        [newSur, d.id]
+      );
+    }
+    return;
+  }
+
+  await run(connection).query(
+    'UPDATE booking_details SET occupancySurcharge = 0 WHERE bookingId = ?',
+    [bookingId]
+  );
+  if (target > 0) {
+    await run(connection).query(
+      'UPDATE booking_details SET occupancySurcharge = ? WHERE id = ?',
+      [target, details[0].id]
+    );
+  }
+};
+
 const updateBookingStay = async (bookingId, checkOut, totalPrice, connection, occupancySurcharge = null, perDetailSurcharges = null) => {
   const serviceAmount = await sumBookingServices(bookingId, connection);
 
@@ -861,39 +906,7 @@ const updateBookingStay = async (bookingId, checkOut, totalPrice, connection, oc
       }
     }
   } else if (occupancySurcharge != null) {
-    const [details] = await run(connection).query(
-      'SELECT id, occupancySurcharge FROM booking_details WHERE bookingId = ? ORDER BY id ASC',
-      [bookingId]
-    );
-    const currentSum = details.reduce((sum, d) => sum + Number(d.occupancySurcharge || 0), 0);
-    if (currentSum > 0 && details.length > 0) {
-      let allocated = 0;
-      for (let i = 0; i < details.length; i++) {
-        const d = details[i];
-        let newSur = 0;
-        if (i === details.length - 1) {
-          newSur = Math.max(0, occupancySurcharge - allocated);
-        } else {
-          newSur = Math.round((Number(d.occupancySurcharge) / currentSum) * occupancySurcharge);
-          allocated += newSur;
-        }
-        await run(connection).query(
-          'UPDATE booking_details SET occupancySurcharge = ? WHERE id = ?',
-          [newSur, d.id]
-        );
-      }
-    } else if (details.length > 0) {
-      await run(connection).query(
-        'UPDATE booking_details SET occupancySurcharge = 0 WHERE bookingId = ?',
-        [bookingId]
-      );
-      if (occupancySurcharge > 0) {
-        await run(connection).query(
-          'UPDATE booking_details SET occupancySurcharge = ? WHERE id = ?',
-          [occupancySurcharge, details[0].id]
-        );
-      }
-    }
+    await setBookingOccupancySurcharge(bookingId, occupancySurcharge, connection);
   }
 };
 
@@ -1798,6 +1811,7 @@ module.exports = {
   deleteDamageCharge,
   sumDamageCharges,
   updateBookingStay,
+  setBookingOccupancySurcharge,
   updateBookingStayFull,
   transferBookingRoom,
   saveNightlyPrices,
